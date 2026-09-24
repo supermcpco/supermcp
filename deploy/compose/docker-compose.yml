@@ -1,0 +1,62 @@
+# supermcp quickstart: one binary, one Postgres.
+#
+#   cp .env.example .env            # then set ENCRYPTION_KEK (openssl rand -base64 32)
+#   docker compose up -d            # → http://localhost:8080
+#   docker compose --profile tls up # adds Caddy with automatic HTTPS (set DOMAIN)
+#
+# This file is for a single host. For anything with more than one replica use
+# the Helm chart, where migrations run as a pre-upgrade hook instead of at
+# container start.
+services:
+  supermcp:
+    image: ghcr.io/supermcpco/supermcp:${SUPERMCP_VERSION:-latest}
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://supermcp:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/supermcp
+      SUPERMCP_PUBLIC_URL: ${SUPERMCP_PUBLIC_URL:-http://localhost:8080}
+      SUPERMCP_MIGRATE_ON_START: "true"
+      SUPERMCP_DEV: ${SUPERMCP_DEV:-false}
+      ENCRYPTION_KEK: ${ENCRYPTION_KEK:?set ENCRYPTION_KEK in .env (openssl rand -base64 32)}
+      SUPERMCP_LOG_LEVEL: ${SUPERMCP_LOG_LEVEL:-info}
+    ports:
+      - "${SUPERMCP_BIND:-127.0.0.1}:${SUPERMCP_PORT:-8080}:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/supermcp", "version"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    read_only: true
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: supermcp
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: supermcp
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U supermcp -d supermcp"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  caddy:
+    profiles: [tls]
+    image: caddy:2-alpine
+    restart: unless-stopped
+    command: caddy reverse-proxy --from ${DOMAIN:?set DOMAIN for the tls profile} --to supermcp:8080
+    ports: ["80:80", "443:443"]
+    volumes:
+      - caddy_data:/data
+    depends_on: [supermcp]
+
+volumes:
+  pgdata: {}
+  caddy_data: {}

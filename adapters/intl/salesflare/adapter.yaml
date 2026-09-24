@@ -1,0 +1,314 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: salesflare
+  name: Salesflare
+  description: Manage Salesflare CRM (contacts, accounts, opportunities, tasks, custom fields, tags) from any AI agent. 9 tools, API key header auth.
+  region: intl
+  category: crm
+  icon: salesflare
+  docsUrl: https://api.salesflare.com/docs
+  lint:
+    allow:
+      - description-min-60
+      - healthcheck-present
+      - instructions-min-800
+credentials:
+  SALESFLARE_API_KEY:
+    required: true
+    secret: true
+transport:
+  type: http
+  baseUrl: https://api.salesflare.com
+auth:
+  type: apiKey
+  in: header
+  name: Authorization
+  value: '{{env.SALESFLARE_API_KEY}}'
+instructions: |-
+  This connector wraps the Salesflare REST API v1 (api.salesflare.com).
+
+  **Setup**:
+  1. Log into https://app.salesflare.com → **Settings → Personal API key → Generate**.
+  2. Set `SALESFLARE_API_KEY`.
+
+  **Authentication**: `Authorization: ${SALESFLARE_API_KEY}` (the API key is sent RAW as the Authorization header value — NOT `Bearer X`, not `Basic X`). The adapter wires this as a custom-name API_KEY auth.
+
+  **Entity model**: `Account` (company) → `Contact` (person at the account) → `Opportunity` (deal). Tasks + interactions hang off any of these.
+
+  **Pagination**: `limit` (max 200) + `offset` (0-based).
+
+  **Rate limits**: 60 req/min per key. 429 with `Retry-After`.
+
+  **Out of scope here**: email/calendar sync settings, workflow editor, the Magic Bar Chrome extension hooks.
+tools:
+  - name: salesflare_list_contacts
+    description: List contacts.
+    input:
+      type: object
+      properties:
+        limit:
+          type: integer
+          description: Max 200.
+        offset:
+          type: integer
+          description: 0-based.
+        search:
+          type: string
+          description: Free-text search.
+        account_id:
+          type: integer
+          description: Filter by account.
+    operation:
+      method: GET
+      path: /contacts
+      query:
+        limit: '{{params.limit}}'
+        offset: '{{params.offset}}'
+        search: '{{params.search}}'
+        account_id: '{{params.account_id}}'
+  - name: salesflare_get_contact
+    description: Get one contact with full custom fields + accounts.
+    input:
+      type: object
+      properties:
+        contact_id:
+          type: integer
+          description: Contact ID.
+      required:
+        - contact_id
+    operation:
+      method: GET
+      path: /contacts/{{params.contact_id}}
+  - name: salesflare_create_contact
+    description: Create a contact.
+    input:
+      type: object
+      properties:
+        firstname:
+          type: string
+          description: First name.
+        lastname:
+          type: string
+          description: Last name.
+        email:
+          type: string
+          description: Primary email.
+        phone_numbers:
+          type: array
+          description: Array of {type, number} objects.
+        accounts:
+          type: array
+          description: Array of {id} account refs to link.
+        tags:
+          type: array
+          description: Array of tag name strings.
+        custom:
+          type: object
+          description: Custom field map.
+      required:
+        - email
+    operation:
+      method: POST
+      path: /contacts
+      body:
+        value:
+          firstname: '{{params.firstname}}'
+          lastname: '{{params.lastname}}'
+          email: '{{params.email}}'
+          phone_numbers: '{{params.phone_numbers}}'
+          accounts: '{{params.accounts}}'
+          tags: '{{params.tags}}'
+          custom: '{{params.custom}}'
+  - name: salesflare_list_accounts
+    description: List accounts (companies).
+    input:
+      type: object
+      properties:
+        limit:
+          type: integer
+          description: Max 200.
+        offset:
+          type: integer
+          description: 0-based.
+        search:
+          type: string
+          description: Name search.
+    operation:
+      method: GET
+      path: /accounts
+      query:
+        limit: '{{params.limit}}'
+        offset: '{{params.offset}}'
+        search: '{{params.search}}'
+  - name: salesflare_create_account
+    description: Create an account (company).
+    input:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Company name.
+        website:
+          type: string
+          description: Website.
+        phone_number:
+          type: string
+          description: Phone.
+        addresses:
+          type: array
+          description: Array of address objects.
+        tags:
+          type: array
+          description: Array of tag names.
+        industry_id:
+          type: integer
+          description: Industry ID.
+      required:
+        - name
+    operation:
+      method: POST
+      path: /accounts
+      body:
+        value:
+          name: '{{params.name}}'
+          website: '{{params.website}}'
+          phone_number: '{{params.phone_number}}'
+          addresses: '{{params.addresses}}'
+          tags: '{{params.tags}}'
+          industry_id: '{{params.industry_id}}'
+  - name: salesflare_list_opportunities
+    description: List opportunities (deals).
+    input:
+      type: object
+      properties:
+        limit:
+          type: integer
+          description: Max 200.
+        offset:
+          type: integer
+          description: 0-based.
+        stage_id:
+          type: integer
+          description: Filter by stage.
+        account_id:
+          type: integer
+          description: Filter by account.
+    operation:
+      method: GET
+      path: /opportunities
+      query:
+        limit: '{{params.limit}}'
+        offset: '{{params.offset}}'
+        stage_id: '{{params.stage_id}}'
+        account_id: '{{params.account_id}}'
+  - name: salesflare_create_opportunity
+    description: Create a deal/opportunity.
+    input:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Deal name.
+        account:
+          type: object
+          description: '{id} account ref.'
+        value:
+          type: number
+          description: Deal value.
+        currency:
+          type: string
+          description: ISO 4217.
+        probability:
+          type: integer
+          description: 0-100.
+        expected_close_date:
+          type: string
+          description: ISO 8601.
+        stage_id:
+          type: integer
+          description: Pipeline stage ID.
+        owner_id:
+          type: integer
+          description: Salesflare user ID.
+      required:
+        - name
+    operation:
+      method: POST
+      path: /opportunities
+      body:
+        value:
+          name: '{{params.name}}'
+          account: '{{params.account}}'
+          value: '{{params.value}}'
+          currency: '{{params.currency}}'
+          probability: '{{params.probability}}'
+          expected_close_date: '{{params.expected_close_date}}'
+          stage_id: '{{params.stage_id}}'
+          owner_id: '{{params.owner_id}}'
+  - name: salesflare_list_tasks
+    description: List tasks. Filter by status, owner, due date.
+    input:
+      type: object
+      properties:
+        limit:
+          type: integer
+          description: Max 200.
+        offset:
+          type: integer
+          description: 0-based.
+        status:
+          type: string
+          description: open, done.
+        owner_id:
+          type: integer
+          description: Filter by owner.
+    operation:
+      method: GET
+      path: /tasks
+      query:
+        limit: '{{params.limit}}'
+        offset: '{{params.offset}}'
+        status: '{{params.status}}'
+        owner_id: '{{params.owner_id}}'
+  - name: salesflare_create_task
+    description: Create a task.
+    input:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Task title.
+        description:
+          type: string
+          description: Description.
+        remind_date:
+          type: string
+          description: ISO 8601 due date.
+        owner_id:
+          type: integer
+          description: Assignee user ID.
+        contact_id:
+          type: integer
+          description: Linked contact.
+        account_id:
+          type: integer
+          description: Linked account.
+        opportunity_id:
+          type: integer
+          description: Linked opportunity.
+      required:
+        - name
+    operation:
+      method: POST
+      path: /tasks
+      body:
+        value:
+          name: '{{params.name}}'
+          description: '{{params.description}}'
+          remind_date: '{{params.remind_date}}'
+          owner_id: '{{params.owner_id}}'
+          contact_id: '{{params.contact_id}}'
+          account_id: '{{params.account_id}}'
+          opportunity_id: '{{params.opportunity_id}}'

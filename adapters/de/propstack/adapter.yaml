@@ -1,0 +1,213 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: propstack
+  name: Propstack
+  description: 'Propstack — the CRM German estate agents run on: properties, contacts, enquiries, activities, projects and saved searches. REST API v1, API-key auth.'
+  region: de
+  category: real-estate
+  icon: propstack
+  docsUrl: https://docs.propstack.de/
+credentials:
+  PROPSTACK_API_KEY:
+    required: true
+    secret: true
+transport:
+  type: http
+  baseUrl: https://api.propstack.de/v1
+  headers:
+    Accept: application/json
+auth:
+  type: apiKey
+  in: header
+  name: X-API-KEY
+  value: '{{env.PROPSTACK_API_KEY}}'
+healthcheck:
+  tool: propstack_list_properties
+  http:
+    method: GET
+    path: /properties?per=1
+instructions: |-
+  **Getting a key**
+  1. Sign in to Propstack as an administrator and open **Einstellungen → API**.
+  2. Generate an **API-Key** and put it in `PROPSTACK_API_KEY`. The key is account-wide and carries the permissions of the account it belongs to — treat it as a password, because whoever holds it can read the whole customer base.
+
+  **The key travels in an `X-API-KEY` header.** No Bearer, no query parameter.
+
+  **Properties are the centre of this API.** A Propstack `property` is a listing — flat, house, commercial unit — carrying its address, price, area, room count, marketing type (sale or rent) and status. `propstack_list_properties` filters by those; `propstack_get_property` returns the full record with images and documents.
+
+  **Contacts and enquiries are separate objects.** A *contact* is a person; an *enquiry* (Anfrage) is that person asking about a specific property. A question about interest in a listing wants enquiries, not contacts.
+
+  **Expand what you need.** Many list responses return related objects only as ids. Pass `expand=1` where the tool offers it to get readable nested objects instead of a second round of calls.
+
+  **Paging** is `page` (1-based) and `per` (default 20, larger values allowed). The response carries the total count in the `X-Total-Count` header.
+
+  **Unverified.** The paths and field names below follow the vendor's published documentation and have not been exercised against a live tenant. Treat a 404 as a docs-versus-reality gap and check the developer portal before concluding that the credential is wrong. A correction from anyone running this against a real system is genuinely welcome.
+
+  **Cloud reachability**: api.propstack.de is public with a valid certificate.
+tools:
+  - name: propstack_list_properties
+    description: List property listings with their address, price, living area, room count, marketing type and status. The main query for 'what do we have on the market'.
+    input:
+      type: object
+      properties:
+        page:
+          type: number
+          description: Page number, starting at 1.
+        per:
+          type: number
+          description: Rows per page (default 20).
+        status_id:
+          type: number
+          description: Restrict to one status id, e.g. active or reserved.
+        marketing_type:
+          type: string
+          description: '`BUY` for sale listings or `RENT` for rentals.'
+        expand:
+          type: number
+          description: Pass 1 to expand related objects instead of returning bare ids.
+    operation:
+      method: GET
+      path: /properties
+      query:
+        page: '{{params.page}}'
+        per: '{{params.per}}'
+        status_id: '{{params.status_id}}'
+        marketing_type: '{{params.marketing_type}}'
+        expand: '{{params.expand}}'
+  - name: propstack_get_property
+    description: 'Read one property listing in full: full address, all price and area fields, the description texts, images, documents and the assigned broker.'
+    input:
+      type: object
+      properties:
+        id:
+          type: number
+          description: Numeric Propstack property id.
+      required:
+        - id
+    operation:
+      method: GET
+      path: /properties/{{params.id}}
+  - name: propstack_list_contacts
+    description: List contacts — buyers, sellers, landlords and tenants — with their name, e-mail, phone and the client source they came from.
+    input:
+      type: object
+      properties:
+        page:
+          type: number
+          description: Page number, starting at 1.
+        per:
+          type: number
+          description: Rows per page (default 20).
+        search:
+          type: string
+          description: Search fragment matched against name and e-mail.
+        expand:
+          type: number
+          description: Pass 1 to expand related objects.
+    operation:
+      method: GET
+      path: /contacts
+      query:
+        page: '{{params.page}}'
+        per: '{{params.per}}'
+        search: '{{params.search}}'
+        expand: '{{params.expand}}'
+  - name: propstack_get_contact
+    description: 'Read one contact in full: contact details, search profile, the properties they are linked to and their consent flags.'
+    input:
+      type: object
+      properties:
+        id:
+          type: number
+          description: Numeric Propstack contact id.
+      required:
+        - id
+    operation:
+      method: GET
+      path: /contacts/{{params.id}}
+  - name: propstack_list_enquiries
+    description: List enquiries (Anfragen) — a person asking about a specific listing — with their date, source, status and the property and contact involved.
+    input:
+      type: object
+      properties:
+        page:
+          type: number
+          description: Page number, starting at 1.
+        per:
+          type: number
+          description: Rows per page.
+        property_id:
+          type: number
+          description: Restrict to enquiries about one property.
+        expand:
+          type: number
+          description: Pass 1 to expand related objects.
+    operation:
+      method: GET
+      path: /property_requests
+      query:
+        page: '{{params.page}}'
+        per: '{{params.per}}'
+        property_id: '{{params.property_id}}'
+        expand: '{{params.expand}}'
+  - name: propstack_list_activities
+    description: List activities — calls, viewings, e-mails and notes logged against a contact or a property. The interaction history a broker actually needs.
+    input:
+      type: object
+      properties:
+        page:
+          type: number
+          description: Page number, starting at 1.
+        per:
+          type: number
+          description: Rows per page.
+        client_id:
+          type: number
+          description: Restrict to activities on one contact.
+        property_id:
+          type: number
+          description: Restrict to activities on one property.
+    operation:
+      method: GET
+      path: /activities
+      query:
+        page: '{{params.page}}'
+        per: '{{params.per}}'
+        client_id: '{{params.client_id}}'
+        property_id: '{{params.property_id}}'
+  - name: propstack_list_projects
+    description: List projects — the developments several units belong to — with their name, address and the number of units in each.
+    input:
+      type: object
+      properties:
+        page:
+          type: number
+          description: Page number, starting at 1.
+        per:
+          type: number
+          description: Rows per page.
+    operation:
+      method: GET
+      path: /projects
+      query:
+        page: '{{params.page}}'
+        per: '{{params.per}}'
+  - name: propstack_list_brokers
+    description: List the brokers (users) in the account with their name, e-mail and the office they belong to, to resolve who owns a listing or a contact.
+    input:
+      type: object
+      properties:
+        page:
+          type: number
+          description: Page number, starting at 1.
+        per:
+          type: number
+          description: Rows per page.
+    operation:
+      method: GET
+      path: /brokers
+      query:
+        page: '{{params.page}}'
+        per: '{{params.per}}'

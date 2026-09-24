@@ -1,0 +1,235 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: pinterest
+  name: Pinterest
+  description: Manage Pinterest (boards, pins, search, ads, audiences) from any AI agent via Business API. 9 tools, OAuth2 token.
+  region: intl
+  category: social
+  icon: pinterest
+  docsUrl: https://developers.pinterest.com/docs/api/v5/
+  lint:
+    allow:
+      - description-min-60
+      - healthcheck-present
+credentials:
+  PINTEREST_CLIENT_ID:
+    required: true
+  PINTEREST_CLIENT_SECRET:
+    required: true
+    secret: true
+  PINTEREST_REFRESH_TOKEN:
+    required: true
+    secret: true
+transport:
+  type: http
+  baseUrl: https://api.pinterest.com/v5
+auth:
+  type: oauth2
+  grant: refresh_token
+  clientId: '{{env.PINTEREST_CLIENT_ID}}'
+  clientSecret: '{{env.PINTEREST_CLIENT_SECRET}}'
+  tokenUrl: https://api.pinterest.com/v5/oauth/token
+  refreshToken: '{{env.PINTEREST_REFRESH_TOKEN}}'
+instructions: |-
+  This connector wraps the Pinterest Business API v5 (api.pinterest.com/v5).
+
+  **Setup — OAuth2**:
+  1. Register at https://developers.pinterest.com → **Create app**.
+  2. Configure redirect URI, run the OAuth flow at `https://www.pinterest.com/oauth/?response_type=code&client_id=...&redirect_uri=...&scope=boards:read,boards:write,pins:read,pins:write,user_accounts:read`.
+  3. Exchange the code at `https://api.pinterest.com/v5/oauth/token`.
+  4. Set `PINTEREST_CLIENT_ID`, `PINTEREST_CLIENT_SECRET`, `PINTEREST_REFRESH_TOKEN`.
+
+  **Authentication**: OAuth2 with refresh — engine handles. Sends `Authorization: Bearer ACCESS_TOKEN`.
+
+  **Sandbox available**: change baseUrl to `api-sandbox.pinterest.com/v5` for testing.
+
+  **Pin formats**: standard pins point at an external image URL (`media_source: {source_type:'image_url', url:'...'}`) or use the upload endpoint for direct upload (multipart, out of scope here). Video pins require a separate upload flow.
+
+  **Pagination**: `bookmark` (cursor) + `page_size` (default 25, max 100).
+
+  **Rate limits**: 1000 req / hour per token (varies by endpoint). 429 with `Retry-After`.
+
+  **Out of scope here**: video upload multipart, catalog feeds, ad campaign creation, trends, conversion API.
+tools:
+  - name: pinterest_user_account
+    description: Get the authenticated user's account (username, account_type, profile_image, board_count, follower_count).
+    input:
+      type: object
+      properties: {}
+    operation:
+      method: GET
+      path: /user_account
+  - name: pinterest_list_boards
+    description: List the authenticated user's boards.
+    input:
+      type: object
+      properties:
+        page_size:
+          type: integer
+          description: Max 100.
+        bookmark:
+          type: string
+          description: Cursor.
+        privacy:
+          type: string
+          description: PUBLIC, SECRET, PROTECTED.
+    operation:
+      method: GET
+      path: /boards
+      query:
+        page_size: '{{params.page_size}}'
+        bookmark: '{{params.bookmark}}'
+        privacy: '{{params.privacy}}'
+  - name: pinterest_get_board
+    description: Get a single board with section + pin counts.
+    input:
+      type: object
+      properties:
+        board_id:
+          type: string
+          description: Board ID.
+      required:
+        - board_id
+    operation:
+      method: GET
+      path: /boards/{{params.board_id}}
+  - name: pinterest_create_board
+    description: Create a board.
+    input:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Board name.
+        description:
+          type: string
+          description: Description.
+        privacy:
+          type: string
+          description: PUBLIC, SECRET, PROTECTED.
+      required:
+        - name
+    operation:
+      method: POST
+      path: /boards
+      body:
+        value:
+          name: '{{params.name}}'
+          description: '{{params.description}}'
+          privacy: '{{params.privacy}}'
+  - name: pinterest_list_board_pins
+    description: List pins in a board.
+    input:
+      type: object
+      properties:
+        board_id:
+          type: string
+          description: Board ID.
+        page_size:
+          type: integer
+          description: Max 100.
+        bookmark:
+          type: string
+          description: Cursor.
+      required:
+        - board_id
+    operation:
+      method: GET
+      path: /boards/{{params.board_id}}/pins
+      query:
+        page_size: '{{params.page_size}}'
+        bookmark: '{{params.bookmark}}'
+  - name: pinterest_get_pin
+    description: Get a single pin with full media info.
+    input:
+      type: object
+      properties:
+        pin_id:
+          type: string
+          description: Pin ID.
+      required:
+        - pin_id
+    operation:
+      method: GET
+      path: /pins/{{params.pin_id}}
+  - name: pinterest_create_pin
+    description: Create a pin on a board from an external image URL. For uploading from a file, use the dedicated media upload endpoint (out of scope here).
+    input:
+      type: object
+      properties:
+        board_id:
+          type: string
+          description: Board ID.
+        title:
+          type: string
+          description: Pin title.
+        description:
+          type: string
+          description: Description.
+        link:
+          type: string
+          description: Destination URL when the pin is clicked.
+        alt_text:
+          type: string
+          description: Alt text for accessibility.
+        image_url:
+          type: string
+          description: Public URL of the image to pin.
+        board_section_id:
+          type: string
+          description: Section ID inside the board.
+      required:
+        - board_id
+        - image_url
+    operation:
+      method: POST
+      path: /pins
+      body:
+        value:
+          board_id: '{{params.board_id}}'
+          title: '{{params.title}}'
+          description: '{{params.description}}'
+          link: '{{params.link}}'
+          alt_text: '{{params.alt_text}}'
+          media_source:
+            source_type: image_url
+            url: '{{params.image_url}}'
+          board_section_id: '{{params.board_section_id}}'
+  - name: pinterest_delete_pin
+    description: Delete a pin.
+    input:
+      type: object
+      properties:
+        pin_id:
+          type: string
+          description: Pin ID.
+      required:
+        - pin_id
+    operation:
+      method: DELETE
+      path: /pins/{{params.pin_id}}
+  - name: pinterest_search_pins
+    description: Search the authenticated user's pins (across all their boards) by free-text query.
+    input:
+      type: object
+      properties:
+        query:
+          type: string
+          description: Search query.
+        page_size:
+          type: integer
+          description: Max 100.
+        bookmark:
+          type: string
+          description: Cursor.
+      required:
+        - query
+    operation:
+      method: GET
+      path: /search/pins
+      query:
+        query: '{{params.query}}'
+        page_size: '{{params.page_size}}'
+        bookmark: '{{params.bookmark}}'

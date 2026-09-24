@@ -1,0 +1,177 @@
+# Default values for supermcp.
+
+image:
+  repository: ghcr.io/supermcpco/supermcp
+  tag: ""            # defaults to .Chart.appVersion
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+replicaCount: 2
+
+# Externally visible URL. Must be https. Required.
+publicUrl: ""
+
+# Postgres. Provide an existing Secret with keys DATABASE_URL and, optionally,
+# MAINT_DATABASE_URL (a role with BYPASSRLS used by migrations and jobs).
+database:
+  existingSecret: ""
+  urlKey: DATABASE_URL
+  maintUrlKey: MAINT_DATABASE_URL
+  migrate:
+    enabled: true
+    ttlSecondsAfterFinished: 600
+    backoffLimit: 2
+
+# Optional Redis for rate limiting and caches.
+redis:
+  existingSecret: ""
+  urlKey: REDIS_URL
+
+# What happens to an audit event when the database will not take it.
+# `degrade` drops it and records the gap, `block` makes callers wait, and
+# `spool` writes it to disk and replays it when the database comes back.
+# A spool needs a volume that survives the pod, which is why turning it on
+# asks for one: a spool in the ephemeral layer buys nothing over dropping.
+audit:
+  onUnavailable: degrade   # degrade | block | spool
+  spool:
+    enabled: false
+    path: /var/lib/supermcp/audit-spool
+    maxBytes: 268435456    # 256 MiB, then it drops and counts as before
+    size: 1Gi
+    storageClass: ""
+    # A claim you made yourself; otherwise the chart makes one per replica
+    # set. With more than one replica, give each pod its own by using a
+    # storage class that provisions ReadWriteOnce and setting this empty.
+    existingClaim: ""
+
+# Envelope-encryption key encryption key.
+# Only the providers the binary implements are offered. A value it does
+# not know fails the render rather than the pod: a key service that is
+# named but not built produces a crash loop, which is a slower way of
+# learning the same thing.
+encryption:
+  provider: local          # local | awskms
+  local:
+    existingSecret: ""     # key ENCRYPTION_KEK, 32 bytes base64
+    key: ENCRYPTION_KEK
+  awskms:
+    keyId: ""              # key id, alias or ARN
+    region: ""             # defaults to the pod's own region
+    timeout: ""            # e.g. 5s
+
+# Where traces go. A trace says where inside one call the time went,
+# which the metrics cannot. Off unless a collector is named, and sampled
+# rather than complete: at a hundred calls a second, every span is a bill
+# nobody meant to sign.
+tracing:
+  endpoint: ""          # e.g. http://otel-collector.observability:4318
+  sample: 0.01
+
+# Extra environment, rendered verbatim.
+extraEnv: []
+# Free-form SUPERMCP_* settings.
+config:
+  logLevel: info
+  logFormat: json
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}         # eks.amazonaws.com/role-arn, iam.gke.io/gcp-service-account, azure.workload.identity/client-id
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: [ALL]
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 256Mi
+  limits:
+    memory: 1Gi
+
+service:
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  host: ""
+  tls:
+    enabled: false
+    secretName: ""
+
+podDisruptionBudget:
+  enabled: true
+  # One replica must survive a drain. With a single replica this blocks
+  # voluntary eviction entirely, which is the right answer: a node drain
+  # should wait for a second replica rather than take the instance down.
+  minAvailable: 1
+
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  # Empty disables the memory signal.
+  targetMemoryUtilizationPercentage: 80
+  scaleUp:
+    stabilizationWindowSeconds: 60
+  scaleDown:
+    # Five minutes, comfortably longer than the 30-second upstream timeout
+    # plus the shutdown drain, so a scale-down cannot cut a call short.
+    stabilizationWindowSeconds: 300
+
+networkPolicy:
+  enabled: false
+  egress:
+    allowAll: true
+
+metrics:
+  # The admin listener carries /metrics. It is a separate port so the
+  # ingress never routes to it.
+  enabled: true
+  port: 9090
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+  # A dashboard for the ten things worth looking at, as a ConfigMap with
+  # the label Grafana's sidecar watches. Off by default: a cluster without
+  # that sidecar gets a ConfigMap nothing reads.
+  dashboard:
+    enabled: false
+    label: grafana_dashboard
+    labelValue: "1"
+    annotations: {}
+  # Alert rules ship with the chart because an operator should not have to
+  # reinvent what this system's failure looks like.
+  prometheusRule:
+    enabled: false
+    # How long a symptom must persist before it is worth waking someone.
+    for:
+      down: 5m
+      errors: 10m
+      latency: 15m
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+topologySpreadConstraints: []
+
+terminationGracePeriodSeconds: 30

@@ -1,0 +1,21 @@
+{{- if .Values.metrics.dashboard.enabled }}
+{{- /*
+  The dashboard ships as a ConfigMap with the label Grafana's sidecar
+  watches, so an operator who already runs that sidecar gets it without
+  importing anything. Anybody else can take the JSON out of this file.
+*/ -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "supermcp.fullname" . }}-dashboard
+  labels:
+    {{- include "supermcp.labels" . | nindent 4 }}
+    {{ .Values.metrics.dashboard.label }}: {{ .Values.metrics.dashboard.labelValue | quote }}
+  {{- with .Values.metrics.dashboard.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+data:
+  supermcp.json: |
+{{ .Files.Get "dashboards/supermcp.json" | indent 4 }}
+{{- end }}

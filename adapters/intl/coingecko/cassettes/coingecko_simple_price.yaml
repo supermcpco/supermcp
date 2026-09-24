@@ -1,0 +1,18 @@
+# Recorded by `supermcp adapter record`; replayed by `supermcp adapter test`.
+# Credential values are replaced with SUPERMCP_CREDENTIAL_<NAME>.
+adapter: coingecko
+tool: coingecko_simple_price
+recordedAt: 2026-09-22T22:18:34Z
+interactions:
+  - params:
+      ids: bitcoin,ethereum
+      vs_currencies: usd,eur
+    request:
+      method: GET
+      url: https://api.coingecko.com/api/v3/simple/price
+      query: ids=bitcoin,ethereum&vs_currencies=usd,eur
+    response:
+      status: 200
+      headers:
+        content-type: application/json; charset=utf-8
+      body: '{"bitcoin":{"usd":86082,"eur":75192},"ethereum":{"usd":2740.59,"eur":2393.89}}'

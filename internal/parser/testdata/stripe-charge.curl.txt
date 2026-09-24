@@ -1,0 +1,7 @@
+curl https://api.stripe.com/v1/payment_intents \
+  -u "sk_test_EXAMPLE_NOT_A_REAL_KEY:" \
+  -H "Stripe-Version: 2024-06-20" \
+  -d "amount=2000" \
+  -d "currency=gbp" \
+  -d "payment_method_types[]=card" \
+  --data-urlencode "description=Order 4f3c, one large umbrella"

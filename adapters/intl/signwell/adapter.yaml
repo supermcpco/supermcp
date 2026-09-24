@@ -1,0 +1,277 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: signwell
+  name: SignWell
+  description: 'Drive SignWell (developer-friendly e-signature) from any AI agent: documents, templates, signature requests, signers. 8 tools, API key + application ID auth.'
+  region: intl
+  category: e-signature
+  icon: signwell
+  docsUrl: https://developers.signwell.com/reference
+  lint:
+    allow:
+      - description-min-60
+      - healthcheck-present
+credentials:
+  SIGNWELL_API_KEY:
+    required: true
+    secret: true
+  SIGNWELL_APPLICATION_ID:
+    required: true
+transport:
+  type: http
+  baseUrl: https://www.signwell.com/api/v1
+auth:
+  type: apiKey
+  in: header
+  name: X-Api-Key
+  value: '{{env.SIGNWELL_API_KEY}}'
+  extraHeaders:
+    X-Api-Application: '{{env.SIGNWELL_APPLICATION_ID}}'
+instructions: |-
+  This connector uses the SignWell API v1 (developers.signwell.com).
+
+  **Setup**:
+  1. Sign in to https://app.signwell.com → top-right avatar → **API → Create application**.
+  2. Note the **Application ID** and **API Key**.
+  3. Set:
+     - `SIGNWELL_API_KEY` = the API key
+     - `SIGNWELL_APPLICATION_ID` = the application ID
+
+  **Authentication**: header `X-Api-Key: ${SIGNWELL_API_KEY}` + `X-Api-Application: ${SIGNWELL_APPLICATION_ID}` (both required).
+
+  **test_mode**: every write endpoint accepts `test_mode=true` to validate without sending real emails or burning credits.
+
+  **Document workflow**: create document from URL/upload → status='Sent' → recipients sign → status='Completed' → download PDF.
+
+  **Signers / Recipients**: each has id, name, email, message, status (waiting/seen/signed/declined). Decline/cancel is supported via update endpoints.
+
+  **Pagination**: `?offset=N&limit=M` (max 100).
+
+  **Out of scope here**: webhook subscription management, custom fields per template, API app management.
+tools:
+  - name: signwell_list_documents
+    description: List documents with filters.
+    input:
+      type: object
+      properties:
+        limit:
+          type: integer
+          description: Per page (max 100).
+        offset:
+          type: integer
+          description: Offset.
+        search:
+          type: string
+          description: Substring filter on document name.
+        status:
+          type: string
+          description: Draft, Sent, Completed, Canceled, Declined.
+        folder_id:
+          type: string
+          description: Filter by folder.
+    operation:
+      method: GET
+      path: /documents/
+      query:
+        limit: '{{params.limit}}'
+        offset: '{{params.offset}}'
+        search: '{{params.search}}'
+        status: '{{params.status}}'
+        folder_id: '{{params.folder_id}}'
+  - name: signwell_get_document
+    description: Fetch a document by ID with recipients + signing status.
+    input:
+      type: object
+      properties:
+        documentId:
+          type: string
+          description: Document ID.
+      required:
+        - documentId
+    operation:
+      method: GET
+      path: /documents/{{params.documentId}}/
+  - name: signwell_create_document_from_url
+    description: 'Create a document from public file URLs and send for signature. Required: files + recipients. test_mode=true is safe.'
+    input:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Document name.
+        subject:
+          type: string
+          description: Email subject.
+        message:
+          type: string
+          description: Email body.
+        test_mode:
+          type: boolean
+          description: true = test (no real signature/email).
+        draft:
+          type: boolean
+          description: true = create as draft (don't send yet).
+        files:
+          type: array
+          description: '[{file_url:''https://...pdf'', name:''Contract.pdf''}].'
+        recipients:
+          type: array
+          description: '[{id:''r1'', name, email, message?, signing_order?, sender:bool, deliver_email:bool}]. ids are arbitrary strings that you use to place fields.'
+        fields:
+          type: array
+          description: 'Optional: pre-placed signature/text/date fields [[{type:''signature'', recipient_id:''r1'', x:100, y:100, page:1, width:200, height:50}]]. Inner array per page.'
+        expires_in:
+          type: integer
+          description: Days until expiration.
+        reminders:
+          type: boolean
+          description: Send automatic reminders.
+        redirect_url:
+          type: string
+          description: URL signer sees after completing.
+        metadata:
+          type: object
+          description: Free-form metadata (string K/V).
+        with_signature_page:
+          type: boolean
+          description: Append SignWell signature page (audit trail).
+      required:
+        - files
+        - recipients
+    operation:
+      method: POST
+      path: /documents/
+      body:
+        value:
+          name: '{{params.name}}'
+          subject: '{{params.subject}}'
+          message: '{{params.message}}'
+          test_mode: '{{params.test_mode}}'
+          draft: '{{params.draft}}'
+          files: '{{params.files}}'
+          recipients: '{{params.recipients}}'
+          fields: '{{params.fields}}'
+          expires_in: '{{params.expires_in}}'
+          reminders: '{{params.reminders}}'
+          redirect_url: '{{params.redirect_url}}'
+          metadata: '{{params.metadata}}'
+          with_signature_page: '{{params.with_signature_page}}'
+  - name: signwell_create_document_from_template
+    description: 'Create a document from a SignWell template + recipient mapping. Required: template_id + recipients.'
+    input:
+      type: object
+      properties:
+        template_id:
+          type: string
+          description: Template ID.
+        name:
+          type: string
+          description: Document name.
+        subject:
+          type: string
+          description: Email subject.
+        message:
+          type: string
+          description: Email body.
+        test_mode:
+          type: boolean
+          description: Test mode.
+        draft:
+          type: boolean
+          description: Create as draft.
+        recipients:
+          type: array
+          description: '[{placeholder_name:''Client'', name, email}]. placeholder_name matches a placeholder defined on the template.'
+        template_fields:
+          type: array
+          description: '[{api_id:''company_name'', value:''ACME''}] — pre-fill template variables.'
+        expires_in:
+          type: integer
+          description: Expiration days.
+        reminders:
+          type: boolean
+          description: Reminders.
+        redirect_url:
+          type: string
+          description: Post-sign redirect.
+        metadata:
+          type: object
+          description: Metadata.
+      required:
+        - template_id
+        - recipients
+    operation:
+      method: POST
+      path: /document_templates/documents/
+      body:
+        value:
+          template_id: '{{params.template_id}}'
+          name: '{{params.name}}'
+          subject: '{{params.subject}}'
+          message: '{{params.message}}'
+          test_mode: '{{params.test_mode}}'
+          draft: '{{params.draft}}'
+          recipients: '{{params.recipients}}'
+          template_fields: '{{params.template_fields}}'
+          expires_in: '{{params.expires_in}}'
+          reminders: '{{params.reminders}}'
+          redirect_url: '{{params.redirect_url}}'
+          metadata: '{{params.metadata}}'
+  - name: signwell_send_reminder
+    description: Send a reminder email to pending recipients on a document.
+    input:
+      type: object
+      properties:
+        documentId:
+          type: string
+          description: Document ID.
+      required:
+        - documentId
+    operation:
+      method: POST
+      path: /documents/{{params.documentId}}/remind/
+  - name: signwell_cancel_document
+    description: Cancel a document (no further signing). Irreversible.
+    input:
+      type: object
+      properties:
+        documentId:
+          type: string
+          description: Document ID.
+      required:
+        - documentId
+    operation:
+      method: DELETE
+      path: /documents/{{params.documentId}}/
+  - name: signwell_get_document_files
+    description: Get URLs of the document's signed files. Returns presigned URLs valid for ~24h.
+    input:
+      type: object
+      properties:
+        documentId:
+          type: string
+          description: Document ID.
+      required:
+        - documentId
+    operation:
+      method: GET
+      path: /documents/{{params.documentId}}/completed_pdf/
+  - name: signwell_list_templates
+    description: List templates available on the account.
+    input:
+      type: object
+      properties:
+        limit:
+          type: integer
+          description: Per page.
+        offset:
+          type: integer
+          description: Offset.
+    operation:
+      method: GET
+      path: /document_templates/
+      query:
+        limit: '{{params.limit}}'
+        offset: '{{params.offset}}'

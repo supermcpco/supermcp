@@ -1,0 +1,215 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: surveymonkey
+  name: SurveyMonkey
+  description: 'Drive SurveyMonkey from any AI agent: surveys, responses, collectors, contacts. 8 tools, OAuth2 Bearer auth.'
+  region: intl
+  category: forms
+  icon: surveymonkey
+  docsUrl: https://developer.surveymonkey.com/api/v3/
+  lint:
+    allow:
+      - description-min-60
+      - healthcheck-present
+credentials:
+  SURVEYMONKEY_ACCESS_TOKEN:
+    required: true
+    secret: true
+transport:
+  type: http
+  baseUrl: https://api.surveymonkey.com/v3
+auth:
+  type: bearer
+  token: '{{env.SURVEYMONKEY_ACCESS_TOKEN}}'
+instructions: |-
+  This connector uses the SurveyMonkey API v3 (api.surveymonkey.com/v3).
+
+  **Setup**:
+  1. Register at https://developer.surveymonkey.com → **Add new app** → Private app.
+  2. Pick scopes: Surveys (Read), Responses (Read), Collectors (Read+Write), Contacts (Read+Write), Webhooks (Read+Write).
+  3. Run the OAuth2 flow to obtain an access token. Set `SURVEYMONKEY_ACCESS_TOKEN`.
+  4. SurveyMonkey tokens are LONG-LIVED — but can be revoked by user via app dashboard.
+
+  **Authentication**: `Authorization: Bearer ${SURVEYMONKEY_ACCESS_TOKEN}`.
+
+  **Survey vs Collector vs Response**:
+    - Survey: the question design.
+    - Collector: a distribution channel (weblink/email/popup/embed) attached to a survey.
+    - Response: a submission to a collector.
+
+  **Quirky response shape**: each response has `pages[]` → `questions[]` → `answers[]`. Answer shape varies by question type (single_choice, multiple_choice, text, etc.). Cross-reference with `surveymonkey_get_survey_details` to map answer choice IDs to display text.
+
+  **Pagination**: `?page=N&per_page=M` (max 1000 for some endpoints).
+
+  **Rate limits**: 500 req/day on Free tier, scales with paid plans. 60 req/min throttle. On 429 honor Retry-After.
+
+  **Out of scope here**: survey CRUD (use the SurveyMonkey designer), library themes, A/B testing, sentiment analysis built-ins.
+tools:
+  - name: surveymonkey_get_user
+    description: Return the user the token belongs to.
+    input:
+      type: object
+      properties: {}
+    operation:
+      method: GET
+      path: /users/me
+  - name: surveymonkey_list_surveys
+    description: List surveys. Each returns id, title, nickname, href, question_count, response_count, date_created, date_modified.
+    input:
+      type: object
+      properties:
+        page:
+          type: integer
+          description: Page.
+        per_page:
+          type: integer
+          description: Per page (max 1000).
+        sort_by:
+          type: string
+          description: title or date_modified.
+        sort_order:
+          type: string
+          description: ASC or DESC.
+        start_modified_at:
+          type: string
+          description: ISO 8601 filter.
+    operation:
+      method: GET
+      path: /surveys
+      query:
+        page: '{{params.page}}'
+        per_page: '{{params.per_page}}'
+        sort_by: '{{params.sort_by}}'
+        sort_order: '{{params.sort_order}}'
+        start_modified_at: '{{params.start_modified_at}}'
+  - name: surveymonkey_get_survey_details
+    description: Fetch a survey's full structure with pages[].questions[].answers (choice IDs → display text). Required to interpret responses.
+    input:
+      type: object
+      properties:
+        surveyId:
+          type: string
+          description: Survey ID.
+      required:
+        - surveyId
+    operation:
+      method: GET
+      path: /surveys/{{params.surveyId}}/details
+  - name: surveymonkey_list_survey_responses
+    description: List responses to a survey (bulk endpoint includes full answer data). Filter by date range, collector, status.
+    input:
+      type: object
+      properties:
+        surveyId:
+          type: string
+          description: Survey ID.
+        page:
+          type: integer
+          description: Page.
+        per_page:
+          type: integer
+          description: Per page (max 100 for bulk).
+        sort_by:
+          type: string
+          description: date_modified.
+        sort_order:
+          type: string
+          description: ASC or DESC.
+        start_created_at:
+          type: string
+          description: ISO 8601.
+        end_created_at:
+          type: string
+          description: ISO 8601.
+        collector_ids:
+          type: string
+          description: Comma-separated collector IDs to filter.
+        status:
+          type: string
+          description: completed, partial, disqualified, overquota.
+      required:
+        - surveyId
+    operation:
+      method: GET
+      path: /surveys/{{params.surveyId}}/responses/bulk
+      query:
+        page: '{{params.page}}'
+        per_page: '{{params.per_page}}'
+        sort_by: '{{params.sort_by}}'
+        sort_order: '{{params.sort_order}}'
+        start_created_at: '{{params.start_created_at}}'
+        end_created_at: '{{params.end_created_at}}'
+        collector_ids: '{{params.collector_ids}}'
+        status: '{{params.status}}'
+  - name: surveymonkey_get_response
+    description: Fetch one response in full detail.
+    input:
+      type: object
+      properties:
+        surveyId:
+          type: string
+          description: Survey ID.
+        responseId:
+          type: string
+          description: Response ID.
+      required:
+        - surveyId
+        - responseId
+    operation:
+      method: GET
+      path: /surveys/{{params.surveyId}}/responses/{{params.responseId}}
+  - name: surveymonkey_list_collectors
+    description: List collectors (distribution channels) attached to a survey.
+    input:
+      type: object
+      properties:
+        surveyId:
+          type: string
+          description: Survey ID.
+      required:
+        - surveyId
+    operation:
+      method: GET
+      path: /surveys/{{params.surveyId}}/collectors
+  - name: surveymonkey_list_contact_lists
+    description: List contact lists in the account (used for email distribution collectors).
+    input:
+      type: object
+      properties: {}
+    operation:
+      method: GET
+      path: /contact_lists
+  - name: surveymonkey_add_contact_to_list
+    description: 'Add a contact to a contact list. Required: email.'
+    input:
+      type: object
+      properties:
+        listId:
+          type: string
+          description: Contact list ID.
+        first_name:
+          type: string
+          description: First name.
+        last_name:
+          type: string
+          description: Last name.
+        email:
+          type: string
+          description: Email (required).
+        custom_fields:
+          type: object
+          description: Custom field map (defined in UI).
+      required:
+        - listId
+        - email
+    operation:
+      method: POST
+      path: /contact_lists/{{params.listId}}/contacts
+      body:
+        value:
+          first_name: '{{params.first_name}}'
+          last_name: '{{params.last_name}}'
+          email: '{{params.email}}'
+          custom_fields: '{{params.custom_fields}}'

@@ -1,0 +1,16 @@
+/bin/
+/dist/
+/web/node_modules/
+/web/dist/
+/web/.vite/
+/internal/web/dist/*
+!/internal/web/dist/.gitkeep
+*.test
+*.out
+/coverage.*
+.env
+.env.*
+!.env.example
+.DS_Store
+/supermcp
+web/tsconfig.tsbuildinfo

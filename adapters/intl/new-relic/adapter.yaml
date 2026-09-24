@@ -1,0 +1,190 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: new-relic
+  name: New Relic
+  description: Query New Relic (NRQL, alerts, incidents, dashboards, deployments, entities) from any AI agent via NerdGraph + REST. 7 tools, API-key auth.
+  region: intl
+  category: monitoring
+  icon: new-relic
+  docsUrl: https://docs.newrelic.com/docs/apis/nerdgraph/get-started/introduction-new-relic-nerdgraph/
+  lint:
+    allow:
+      - healthcheck-present
+credentials:
+  NEW_RELIC_USER_KEY:
+    required: true
+    secret: true
+transport:
+  type: http
+  baseUrl: https://api.newrelic.com
+auth:
+  type: apiKey
+  in: header
+  name: Api-Key
+  value: '{{env.NEW_RELIC_USER_KEY}}'
+instructions: |-
+  This connector wraps two New Relic APIs: the modern NerdGraph (GraphQL) at api.newrelic.com/graphql AND the legacy REST API for deployments (api.newrelic.com/v2).
+
+  **Setup**:
+  1. Log into https://one.newrelic.com → top-right avatar → **API keys**.
+  2. Create a **User key** (type: USER, NOT 'License key' / 'Ingest key'). Scopes: account read at minimum; admin if you want to create deployments. Set `NEW_RELIC_USER_KEY`.
+  3. Note your **Account ID** (visible in the URL or via the keys page). You'll pass it as a parameter to most tools.
+  4. **EU region**: if your org is on the EU data centre, change baseUrl to `https://api.eu.newrelic.com`.
+
+  **Authentication**: every request sends `Api-Key: ${NEW_RELIC_USER_KEY}` as a header.
+
+  **NerdGraph is the modern API**: most data lives in GraphQL now. The `new-relic_run_nrql` tool wraps the common pattern — pass an account ID + NRQL string, get rows back. For arbitrary queries use `new-relic_graphql_query` (raw GraphQL passthrough).
+
+  **NRQL = New Relic Query Language**: SQL-like — `SELECT count(*) FROM Transaction WHERE appName = 'web' SINCE 1 hour ago FACET name`. Use FACET for grouping, TIMESERIES for time-bucketed data, SINCE / UNTIL for windows.
+
+  **Time windows**: NRQL uses natural language — `SINCE 30 minutes ago`, `SINCE '2025-01-01' UNTIL '2025-01-02'`.
+
+  **Rate limits**: NerdGraph allows 3k req/min per user key; NRQL queries are also gated by a per-account query budget.
+
+  **Out of scope here**: agent installation, Synthetics test CRUD, full Alert policy/condition CRUD beyond list (use the dedicated Terraform provider).
+tools:
+  - name: new_relic_run_nrql
+    description: Run an NRQL (New Relic Query Language) query against an account. Wraps the NerdGraph actor.account.nrql.results pattern — much simpler than authoring raw GraphQL. Use this for 'how many errors in the last hour by service' etc.
+    input:
+      type: object
+      properties:
+        account_id:
+          type: integer
+          description: New Relic account ID.
+        nrql:
+          type: string
+          description: NRQL query, e.g. 'SELECT count(*) FROM Transaction SINCE 1 hour ago FACET appName'.
+      required:
+        - account_id
+        - nrql
+    operation:
+      method: POST
+      path: /graphql
+      body:
+        value:
+          query: 'query($accountId: Int!, $nrql: Nrql!) { actor { account(id: $accountId) { nrql(query: $nrql) { results metadata { facets } } } } }'
+          variables:
+            accountId: '{{params.account_id}}'
+            nrql: '{{params.nrql}}'
+  - name: new_relic_graphql_query
+    description: Run an arbitrary NerdGraph (GraphQL) query/mutation. Use this when run_nrql isn't enough — for entity search, dashboards, workloads, etc.
+    input:
+      type: object
+      properties:
+        query:
+          type: string
+          description: GraphQL document.
+        variables:
+          type: object
+          description: Variables map.
+      required:
+        - query
+    operation:
+      method: POST
+      path: /graphql
+      body:
+        value:
+          query: '{{params.query}}'
+          variables: '{{params.variables}}'
+  - name: new_relic_search_entities
+    description: Find entities (services, hosts, browsers, mobile apps, dashboards, workloads) by name + domain + type. Returns entity GUID, name, accountId, alertSeverity, reporting status.
+    input:
+      type: object
+      properties:
+        query_string:
+          type: string
+          description: Entity search query, e.g. "name LIKE 'api%' AND domain = 'APM'".
+      required:
+        - query_string
+    operation:
+      method: POST
+      path: /graphql
+      body:
+        value:
+          query: 'query($q: String!) { actor { entitySearch(query: $q) { results { entities { guid name domain type alertSeverity reporting accountId } } count } } }'
+          variables:
+            q: '{{params.query_string}}'
+  - name: new_relic_get_entity
+    description: Fetch an entity by GUID — returns the full entity payload (golden metrics, golden tags, recent issues for APM apps).
+    input:
+      type: object
+      properties:
+        guid:
+          type: string
+          description: Entity GUID from entitySearch.
+      required:
+        - guid
+    operation:
+      method: POST
+      path: /graphql
+      body:
+        value:
+          query: 'query($guid: EntityGuid!) { actor { entity(guid: $guid) { guid name domain type tags { key values } alertSeverity ... on ApmApplicationEntity { goldenMetrics { metrics { name } } } } } }'
+          variables:
+            guid: '{{params.guid}}'
+  - name: new_relic_list_deployments
+    description: List recent deployments recorded for an APM application via the legacy REST API. Returns each deployment's id, revision, description, user, timestamp.
+    input:
+      type: object
+      properties:
+        application_id:
+          type: integer
+          description: Legacy APM application numeric ID (NOT entity GUID).
+      required:
+        - application_id
+    operation:
+      method: GET
+      path: /v2/applications/{{params.application_id}}/deployments.json
+  - name: new_relic_create_deployment
+    description: Record a deployment marker on an APM application's chart. Useful for correlating regressions with releases.
+    input:
+      type: object
+      properties:
+        application_id:
+          type: integer
+          description: Legacy APM application numeric ID.
+        revision:
+          type: string
+          description: Version / git SHA / build number.
+        description:
+          type: string
+          description: What changed.
+        user:
+          type: string
+          description: Who deployed (free-text).
+        changelog:
+          type: string
+          description: Optional release notes.
+      required:
+        - application_id
+        - revision
+    operation:
+      method: POST
+      path: /v2/applications/{{params.application_id}}/deployments.json
+      body:
+        value:
+          deployment:
+            revision: '{{params.revision}}'
+            description: '{{params.description}}'
+            user: '{{params.user}}'
+            changelog: '{{params.changelog}}'
+  - name: new_relic_recent_incidents
+    description: List recent open incidents for an account from the AI/AIops issue stream.
+    input:
+      type: object
+      properties:
+        account_id:
+          type: integer
+          description: Account ID.
+      required:
+        - account_id
+    operation:
+      method: POST
+      path: /graphql
+      body:
+        value:
+          query: 'query($accountId: Int!) { actor { account(id: $accountId) { aiIssues { issues(filter: { states: [ACTIVE] }) { issues { issueId title priority createdAt entityNames } } } } } }'
+          variables:
+            accountId: '{{params.account_id}}'

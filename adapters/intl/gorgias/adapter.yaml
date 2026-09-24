@@ -1,0 +1,348 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: gorgias
+  name: Gorgias
+  description: Manage Gorgias (e-commerce helpdesk) tickets, messages, customers, integrations from any AI agent. 10 tools, basic-auth.
+  region: intl
+  category: support
+  icon: gorgias
+  docsUrl: https://developers.gorgias.com/reference/introduction
+  lint:
+    allow:
+      - description-min-60
+      - healthcheck-present
+credentials:
+  GORGIAS_SUBDOMAIN:
+    required: true
+  GORGIAS_EMAIL:
+    required: true
+  GORGIAS_API_KEY:
+    required: true
+    secret: true
+transport:
+  type: http
+  baseUrl: https://{{env.GORGIAS_SUBDOMAIN}}.gorgias.com/api
+auth:
+  type: basic
+  username: '{{env.GORGIAS_EMAIL}}'
+  password: '{{env.GORGIAS_API_KEY}}'
+instructions: |-
+  This connector wraps the Gorgias REST API (per-subdomain).
+
+  **Setup**:
+  1. Log into your Gorgias dashboard at https://YOUR_SUBDOMAIN.gorgias.com → **Settings → REST API**.
+  2. Click **Add new API Key**. The page shows your **email** (the account email) and a freshly-generated **API key**.
+  3. Set `GORGIAS_SUBDOMAIN` (just the subdomain part, e.g. `mystore`), `GORGIAS_EMAIL`, `GORGIAS_API_KEY`.
+
+  **Authentication**: HTTP Basic with `username = ${GORGIAS_EMAIL}` and `password = ${GORGIAS_API_KEY}`. The adapter wires this via BASIC_AUTH.
+
+  **Per-tenant baseUrl**: Gorgias is hosted per-subdomain — `https://${GORGIAS_SUBDOMAIN}.gorgias.com/api`. baseUrl uses {{}} substitution at import time.
+
+  **Ticket model**: `Ticket → Messages[]`. A ticket is a conversation thread with a customer; each message is one inbound/outbound email/chat/SMS. To reply, POST a new message to the ticket; to close, PUT the ticket with `status: 'closed'`.
+
+  **Channels**: Gorgias unifies email, chat, SMS, Instagram DM, Facebook DM, Shopify, voice. `via` field on each message identifies the channel.
+
+  **Pagination**: cursor-based. List endpoints return `meta.next_cursor` and `meta.previous_cursor`. Use `cursor` query param for the next page; `limit` controls page size (max 100).
+
+  **Search**: the `tickets` endpoint accepts `view_id` to filter by saved view, and various direct filters. For more complex queries use the dedicated `/views/{id}/items` endpoint.
+
+  **Rate limits**: 40 req/s per account; 2 concurrent connections. 429 returns `Retry-After` in seconds.
+
+  **Out of scope here**: macro CRUD beyond list, rule management, satisfaction surveys, voice call orchestration.
+tools:
+  - name: gorgias_list_tickets
+    description: List tickets. Filter by status, channel, assigned user, customer, view. Returns each ticket's id, subject, status, channel, customer, assignee_user, last_message_datetime, created/updated timestamps.
+    input:
+      type: object
+      properties:
+        view_id:
+          type: integer
+          description: Filter to a saved view's tickets.
+        customer_id:
+          type: integer
+          description: Filter to one customer.
+        assignee_user_id:
+          type: integer
+          description: Filter to one assigned user.
+        status:
+          type: string
+          description: open, closed, resolved.
+        channel:
+          type: string
+          description: email, chat, sms, etc.
+        cursor:
+          type: string
+          description: Pagination cursor.
+        limit:
+          type: integer
+          description: Per page (max 100).
+        order_by:
+          type: string
+          description: created_datetime, updated_datetime, last_message_datetime — append :asc or :desc.
+    operation:
+      method: GET
+      path: /tickets
+      query:
+        view_id: '{{params.view_id}}'
+        customer_id: '{{params.customer_id}}'
+        assignee_user_id: '{{params.assignee_user_id}}'
+        status: '{{params.status}}'
+        channel: '{{params.channel}}'
+        cursor: '{{params.cursor}}'
+        limit: '{{params.limit}}'
+        order_by: '{{params.order_by}}'
+  - name: gorgias_get_ticket
+    description: Get a single ticket by ID with its meta (does NOT include messages — use gorgias_list_ticket_messages).
+    input:
+      type: object
+      properties:
+        ticket_id:
+          type: integer
+          description: Ticket ID.
+      required:
+        - ticket_id
+    operation:
+      method: GET
+      path: /tickets/{{params.ticket_id}}
+  - name: gorgias_list_ticket_messages
+    description: List messages on a ticket (the conversation thread). Each message has body_text, body_html, sender, receiver, via (channel), source.
+    input:
+      type: object
+      properties:
+        ticket_id:
+          type: integer
+          description: Ticket ID.
+        cursor:
+          type: string
+          description: Pagination cursor.
+        limit:
+          type: integer
+          description: Per page (max 100).
+      required:
+        - ticket_id
+    operation:
+      method: GET
+      path: /tickets/{{params.ticket_id}}/messages
+      query:
+        cursor: '{{params.cursor}}'
+        limit: '{{params.limit}}'
+  - name: gorgias_create_ticket
+    description: 'Create a new ticket. Must include at least one message — Gorgias rejects empty tickets. Common pattern: pass `customer.email` + `messages: [{...}]`.'
+    input:
+      type: object
+      properties:
+        subject:
+          type: string
+          description: Ticket subject.
+        status:
+          type: string
+          description: open, closed, resolved.
+        channel:
+          type: string
+          description: email, chat, sms, api.
+        customer:
+          type: object
+          description: Customer object {email, firstname, lastname} OR {id}.
+        messages:
+          type: array
+          description: Array of message objects with body_text + sender + receiver + channel + via.
+        tags:
+          type: array
+          description: Array of tag objects {name}.
+      required:
+        - channel
+        - customer
+        - messages
+    operation:
+      method: POST
+      path: /tickets
+      body:
+        value:
+          subject: '{{params.subject}}'
+          status: '{{params.status}}'
+          channel: '{{params.channel}}'
+          customer: '{{params.customer}}'
+          messages: '{{params.messages}}'
+          tags: '{{params.tags}}'
+  - name: gorgias_reply_to_ticket
+    description: 'Add a reply message to an existing ticket. Pass `body_text` + `sender` (your user) + `receiver` (the customer) + `channel`. Use `via: ''help-center''` to send as outbound.'
+    input:
+      type: object
+      properties:
+        ticket_id:
+          type: integer
+          description: Ticket ID.
+        body_text:
+          type: string
+          description: Plain-text body.
+        body_html:
+          type: string
+          description: HTML body (preferred for rich content).
+        sender:
+          type: object
+          description: '{id} of the Gorgias user sending.'
+        receiver:
+          type: object
+          description: '{id} of the customer.'
+        channel:
+          type: string
+          description: email, chat, sms.
+        from_agent:
+          type: boolean
+          description: true for outbound.
+        via:
+          type: string
+          description: 'Source: ''help-center'', ''api'', etc.'
+      required:
+        - ticket_id
+        - body_text
+        - sender
+        - channel
+    operation:
+      method: POST
+      path: /tickets/{{params.ticket_id}}/messages
+      body:
+        value:
+          body_text: '{{params.body_text}}'
+          body_html: '{{params.body_html}}'
+          sender: '{{params.sender}}'
+          receiver: '{{params.receiver}}'
+          channel: '{{params.channel}}'
+          from_agent: '{{params.from_agent}}'
+          via: '{{params.via}}'
+  - name: gorgias_update_ticket
+    description: Update a ticket's status, assignee, tags, custom fields.
+    input:
+      type: object
+      properties:
+        ticket_id:
+          type: integer
+          description: Ticket ID.
+        status:
+          type: string
+          description: open, closed, resolved.
+        assignee_user:
+          type: object
+          description: '{id} of the Gorgias user.'
+        tags:
+          type: array
+          description: Array of {name} objects.
+        priority:
+          type: string
+          description: low, normal, high, urgent.
+        subject:
+          type: string
+          description: New subject.
+      required:
+        - ticket_id
+    operation:
+      method: PUT
+      path: /tickets/{{params.ticket_id}}
+      body:
+        value:
+          status: '{{params.status}}'
+          assignee_user: '{{params.assignee_user}}'
+          tags: '{{params.tags}}'
+          priority: '{{params.priority}}'
+          subject: '{{params.subject}}'
+  - name: gorgias_list_customers
+    description: List customers. Filter by email, external_id. Returns id, email, firstname, lastname, channels (linked accounts).
+    input:
+      type: object
+      properties:
+        email:
+          type: string
+          description: Exact match on email.
+        external_id:
+          type: string
+          description: Exact match on external (Shopify etc.) ID.
+        cursor:
+          type: string
+          description: Pagination cursor.
+        limit:
+          type: integer
+          description: Per page (max 100).
+    operation:
+      method: GET
+      path: /customers
+      query:
+        email: '{{params.email}}'
+        external_id: '{{params.external_id}}'
+        cursor: '{{params.cursor}}'
+        limit: '{{params.limit}}'
+  - name: gorgias_get_customer
+    description: Get a single customer by ID with full profile and integration data (e.g. Shopify orders count).
+    input:
+      type: object
+      properties:
+        customer_id:
+          type: integer
+          description: Customer ID.
+      required:
+        - customer_id
+    operation:
+      method: GET
+      path: /customers/{{params.customer_id}}
+  - name: gorgias_create_customer
+    description: Create a customer record. Pass at least email + firstname + lastname.
+    input:
+      type: object
+      properties:
+        email:
+          type: string
+          description: Email.
+        firstname:
+          type: string
+          description: First name.
+        lastname:
+          type: string
+          description: Last name.
+        external_id:
+          type: string
+          description: Optional external system ID (Shopify customer ID etc.).
+        language:
+          type: string
+          description: ISO 639-1 language code.
+        timezone:
+          type: string
+          description: TZ database name.
+        channels:
+          type: array
+          description: 'Additional channel objects: [{type:''email'', address:''...''},{type:''phone'', address:''+1...''}].'
+        meta:
+          type: object
+          description: Free-form custom metadata object.
+      required:
+        - email
+    operation:
+      method: POST
+      path: /customers
+      body:
+        value:
+          email: '{{params.email}}'
+          firstname: '{{params.firstname}}'
+          lastname: '{{params.lastname}}'
+          external_id: '{{params.external_id}}'
+          language: '{{params.language}}'
+          timezone: '{{params.timezone}}'
+          channels: '{{params.channels}}'
+          meta: '{{params.meta}}'
+  - name: gorgias_list_users
+    description: List agents in your Gorgias workspace (the people on your team — sender IDs for reply messages).
+    input:
+      type: object
+      properties:
+        cursor:
+          type: string
+          description: Pagination cursor.
+        limit:
+          type: integer
+          description: Per page.
+    operation:
+      method: GET
+      path: /users
+      query:
+        cursor: '{{params.cursor}}'
+        limit: '{{params.limit}}'

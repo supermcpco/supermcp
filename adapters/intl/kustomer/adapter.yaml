@@ -1,0 +1,302 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: kustomer
+  name: Kustomer
+  description: 'Drive Kustomer (modern customer service CRM, Meta-owned) from any AI agent: conversations, messages, customers, notes, custom objects. 10 tools, Bearer auth.'
+  region: intl
+  category: support
+  icon: kustomer
+  docsUrl: https://developer.kustomer.com/kustomer-api-docs/reference
+  lint:
+    allow:
+      - description-min-60
+      - healthcheck-present
+credentials:
+  KUSTOMER_API_KEY:
+    required: true
+    secret: true
+  KUSTOMER_SUBDOMAIN:
+    required: true
+transport:
+  type: http
+  baseUrl: https://{{env.KUSTOMER_SUBDOMAIN}}.api.kustomerapp.com/v1
+auth:
+  type: bearer
+  token: '{{env.KUSTOMER_API_KEY}}'
+instructions: |-
+  This connector uses the Kustomer API v1 (developer.kustomer.com).
+
+  **Setup**:
+  1. Sign in to Kustomer → top-right avatar → **Settings → Security → API Keys → Add API Key**.
+  2. Pick role: org.permission.customer.read+write, org.permission.conversation.read+write, etc.
+  3. Set `KUSTOMER_API_KEY`.
+  4. Note your **org subdomain** (e.g. `acme` for `acme.kustomerapp.com`). Set `KUSTOMER_SUBDOMAIN`.
+
+  **Authentication**: `Authorization: Bearer ${KUSTOMER_API_KEY}`.
+
+  **Subdomain-templated URL**: `https://${KUSTOMER_SUBDOMAIN}.api.kustomerapp.com/v1`.
+
+  **Customer-centric model**: Kustomer's selling point is the unified customer timeline. A customer has multiple emails/phones/social handles; conversations roll up under the customer.
+
+  **JSON:API conventions**: requests/responses follow JSON:API. Use `?include=` to side-load.
+
+  **Pagination**: `?page[size]=N&page[number]=M`.
+
+  **Out of scope here**: workflows/automations editing, KSAT (CSAT survey) config, knowledge base.
+tools:
+  - name: kustomer_get_current_tracking_id
+    description: Return the org / org details — sanity check for API key validity.
+    input:
+      type: object
+      properties: {}
+    operation:
+      method: GET
+      path: /orgs/current
+  - name: kustomer_search_customers
+    description: Search customers via the v1 search endpoint (Kustomer's Lucene-style query).
+    input:
+      type: object
+      properties:
+        queryQueries:
+          type: array
+          description: Array of {and:[{name:'fieldname',operator:'equals',value:'X'},...], or:[]}.
+        queryContext:
+          type: string
+          description: customer (default), conversation, message.
+        pageSize:
+          type: integer
+          description: Per page.
+        pageNumber:
+          type: integer
+          description: 1-based page.
+    operation:
+      method: POST
+      path: /customers/search
+      query:
+        pageSize: '{{params.pageSize}}'
+        pageNumber: '{{params.pageNumber}}'
+      body:
+        value:
+          queryQueries: '{{params.queryQueries}}'
+          queryContext: '{{params.queryContext}}'
+  - name: kustomer_get_customer
+    description: Fetch a customer by ID. Pass include=conversations,messages,notes to side-load timeline.
+    input:
+      type: object
+      properties:
+        customerId:
+          type: string
+          description: Customer ID.
+        include:
+          type: string
+          description: Comma-separated relationships.
+      required:
+        - customerId
+    operation:
+      method: GET
+      path: /customers/{{params.customerId}}
+      query:
+        include: '{{params.include}}'
+  - name: kustomer_create_customer
+    description: 'Create a customer. Required: name OR emails (at least one identifier).'
+    input:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Full name.
+        displayName:
+          type: string
+          description: Display name override.
+        emails:
+          type: array
+          description: '[{email, type:''work''|''home''|''other'', verified?:bool}].'
+        phones:
+          type: array
+          description: '[{phone:''+15551234567'', type, verified?}].'
+        socials:
+          type: array
+          description: '[{type:''twitter''|''facebook''|..., identifier:''@handle''}].'
+        tags:
+          type: array
+          description: Tag strings.
+        locale:
+          type: string
+          description: User locale.
+        timeZone:
+          type: string
+          description: TZ database name.
+        custom:
+          type: object
+          description: Custom attributes (must be defined in org settings first).
+    operation:
+      method: POST
+      path: /customers
+      body:
+        value:
+          name: '{{params.name}}'
+          displayName: '{{params.displayName}}'
+          emails: '{{params.emails}}'
+          phones: '{{params.phones}}'
+          socials: '{{params.socials}}'
+          tags: '{{params.tags}}'
+          locale: '{{params.locale}}'
+          timeZone: '{{params.timeZone}}'
+          custom: '{{params.custom}}'
+  - name: kustomer_search_conversations
+    description: Search conversations.
+    input:
+      type: object
+      properties:
+        queryQueries:
+          type: array
+          description: Kustomer query array.
+        pageSize:
+          type: integer
+          description: Per page.
+        pageNumber:
+          type: integer
+          description: Page.
+    operation:
+      method: POST
+      path: /conversations/search
+      query:
+        pageSize: '{{params.pageSize}}'
+        pageNumber: '{{params.pageNumber}}'
+      body:
+        value:
+          queryQueries: '{{params.queryQueries}}'
+  - name: kustomer_get_conversation
+    description: Fetch a conversation by ID.
+    input:
+      type: object
+      properties:
+        conversationId:
+          type: string
+          description: Conversation ID.
+        include:
+          type: string
+          description: Side-load (messages, notes, customer).
+      required:
+        - conversationId
+    operation:
+      method: GET
+      path: /conversations/{{params.conversationId}}
+      query:
+        include: '{{params.include}}'
+  - name: kustomer_update_conversation
+    description: Update a conversation — change status (open/snoozed/done), assignee, queue, priority, tags.
+    input:
+      type: object
+      properties:
+        conversationId:
+          type: string
+          description: Conversation ID.
+        status:
+          type: string
+          description: open, snoozed, done.
+        assignedUsers:
+          type: array
+          description: Array of user IDs.
+        assignedTeams:
+          type: array
+          description: Array of team IDs.
+        queue:
+          type: string
+          description: Queue ID.
+        priority:
+          type: integer
+          description: 1=Urgent, 2=High, 3=Medium, 4=Low.
+        tags:
+          type: array
+          description: Replace tag set.
+      required:
+        - conversationId
+    operation:
+      method: PUT
+      path: /conversations/{{params.conversationId}}
+      body:
+        value:
+          status: '{{params.status}}'
+          assignedUsers: '{{params.assignedUsers}}'
+          assignedTeams: '{{params.assignedTeams}}'
+          queue: '{{params.queue}}'
+          priority: '{{params.priority}}'
+          tags: '{{params.tags}}'
+  - name: kustomer_add_note_to_conversation
+    description: Add an internal note (private — not sent to customer).
+    input:
+      type: object
+      properties:
+        conversationId:
+          type: string
+          description: Conversation ID.
+        body:
+          type: string
+          description: Note body.
+        user:
+          type: string
+          description: User ID who authored.
+      required:
+        - conversationId
+        - body
+    operation:
+      method: POST
+      path: /conversations/{{params.conversationId}}/notes
+      body:
+        value:
+          body: '{{params.body}}'
+          user: '{{params.user}}'
+  - name: kustomer_create_outbound_message
+    description: Send a public message in a conversation (email/SMS/chat reply). The exact required fields depend on channel.
+    input:
+      type: object
+      properties:
+        conversationId:
+          type: string
+          description: Conversation ID.
+        channel:
+          type: string
+          description: email, sms, chat.
+        to:
+          type: string
+          description: Recipient address (email/phone).
+        from:
+          type: string
+          description: Sender address (verified).
+        subject:
+          type: string
+          description: Email subject.
+        body:
+          type: string
+          description: Plain-text body.
+        html:
+          type: string
+          description: HTML body (email).
+      required:
+        - conversationId
+        - channel
+        - to
+        - from
+        - body
+    operation:
+      method: POST
+      path: /conversations/{{params.conversationId}}/messages
+      body:
+        value:
+          channel: '{{params.channel}}'
+          to: '{{params.to}}'
+          from: '{{params.from}}'
+          subject: '{{params.subject}}'
+          body: '{{params.body}}'
+          html: '{{params.html}}'
+  - name: kustomer_list_users
+    description: List org users (agents).
+    input:
+      type: object
+      properties: {}
+    operation:
+      method: GET
+      path: /users

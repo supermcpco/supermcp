@@ -1,0 +1,366 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: front
+  name: Front
+  description: 'Drive Front (collaborative inbox) from any AI agent: conversations, messages, contacts, tags, inboxes, teammates. 13 tools, API-key Bearer auth.'
+  region: intl
+  category: support
+  icon: front
+  docsUrl: https://dev.frontapp.com/reference
+  lint:
+    allow:
+      - description-min-60
+      - healthcheck-present
+credentials:
+  FRONT_API_TOKEN:
+    required: true
+    secret: true
+transport:
+  type: http
+  baseUrl: https://api2.frontapp.com
+auth:
+  type: bearer
+  token: '{{env.FRONT_API_TOKEN}}'
+instructions: |-
+  This connector uses the Front Core API (dev.frontapp.com/reference).
+
+  **Setup**:
+  1. Sign in to Front → **Settings (top-right) → Developers → API Tokens → Create API Token**.
+  2. Pick scope: `private` (full-access to all inboxes/conversations) or scoped to a specific inbox/role.
+  3. Copy the token. Set `FRONT_API_TOKEN`.
+
+  **Authentication**: `Authorization: Bearer ${FRONT_API_TOKEN}`.
+
+  **Front's tile model**:
+    - **Conversation** = a thread between your team and one or more contacts. Has status (open/archived/spam/deleted), assignee, inbox, tags.
+    - **Message** = each inbound/outbound email, SMS, chat, etc. within a conversation.
+    - **Contact** = an external entity (a customer). Has handles[] of various types (email, phone, twitter, custom).
+    - **Inbox** = a shared mailbox (could map to an email address, a Slack channel, an SMS number).
+    - **Teammate** = a Front user.
+
+  **Sending replies**: a 'reply' is a new message in an existing conversation. POST `/conversations/{id}/messages` (the adapter wraps as `front_send_reply`). For new outbound conversations, POST `/channels/{id}/messages` (different endpoint).
+
+  **Pagination**: cursor-based via `?limit=N&page_token=...`. Response includes `_pagination.next` URL.
+
+  **Tagged dates**: dates on objects come as Unix timestamps (seconds, NOT ms).
+
+  **Resource references**: many fields are URLs like `https://api2.frontapp.com/contacts/cnt_xxx` instead of plain IDs — extract the ID after the last `/` if you need a bare ID, or just pass the URL back to Front in subsequent calls (Front accepts both).
+
+  **Rate limits**: ~50 req/sec per token (varies). On 429 honor headers.
+
+  **Out of scope here**: rules/automation, analytics endpoints, custom-channel creation, signature management, knowledge-base.
+tools:
+  - name: front_me
+    description: Return the API token's identity (id, name, email).
+    input:
+      type: object
+      properties: {}
+    operation:
+      method: GET
+      path: /me
+  - name: front_list_inboxes
+    description: List inboxes the token can access. Each has id, name, type (private/shared), send_as.
+    input:
+      type: object
+      properties:
+        limit:
+          type: integer
+          description: Per page (max 100).
+        page_token:
+          type: string
+          description: Pagination cursor.
+    operation:
+      method: GET
+      path: /inboxes
+      query:
+        limit: '{{params.limit}}'
+        page_token: '{{params.page_token}}'
+  - name: front_list_conversations
+    description: 'List conversations with optional filtering. Front''s filter syntax: `q[statuses][]=open&q[statuses][]=archived&q[tag_ids][]=tag_xxx`.'
+    input:
+      type: object
+      properties:
+        q_statuses:
+          type: array
+          description: 'Filter statuses: open, archived, spam, deleted.'
+        q_tag_ids:
+          type: array
+          description: Filter by tag IDs.
+        q_inbox_id:
+          type: string
+          description: Filter by inbox ID.
+        q_assignee_id:
+          type: string
+          description: Filter by assignee.
+        q_after:
+          type: integer
+          description: Unix timestamp (seconds) — created after.
+        q_before:
+          type: integer
+          description: Unix timestamp — created before.
+        limit:
+          type: integer
+          description: Per page.
+        page_token:
+          type: string
+          description: Cursor.
+    operation:
+      method: GET
+      path: /conversations
+      query:
+        q[statuses][]: '{{params.q_statuses}}'
+        q[tag_ids][]: '{{params.q_tag_ids}}'
+        q[inbox_id]: '{{params.q_inbox_id}}'
+        q[assignee_id]: '{{params.q_assignee_id}}'
+        q[after]: '{{params.q_after}}'
+        q[before]: '{{params.q_before}}'
+        limit: '{{params.limit}}'
+        page_token: '{{params.page_token}}'
+  - name: front_get_conversation
+    description: Fetch a single conversation including assignee, tags, recipient handles, links to messages/comments.
+    input:
+      type: object
+      properties:
+        conversationId:
+          type: string
+          description: Conversation ID (starts with 'cnv_').
+      required:
+        - conversationId
+    operation:
+      method: GET
+      path: /conversations/{{params.conversationId}}
+  - name: front_list_conversation_messages
+    description: List all messages in a conversation chronologically.
+    input:
+      type: object
+      properties:
+        conversationId:
+          type: string
+          description: Conversation ID.
+        limit:
+          type: integer
+          description: Per page.
+        page_token:
+          type: string
+          description: Cursor.
+      required:
+        - conversationId
+    operation:
+      method: GET
+      path: /conversations/{{params.conversationId}}/messages
+      query:
+        limit: '{{params.limit}}'
+        page_token: '{{params.page_token}}'
+  - name: front_send_reply
+    description: 'Send a reply (new message) in an existing conversation. Required: body. Sender is the API token''s identity unless `author_id` overrides.'
+    input:
+      type: object
+      properties:
+        conversationId:
+          type: string
+          description: Conversation ID.
+        body:
+          type: string
+          description: Reply body (HTML for email, plain for SMS/chat).
+        text:
+          type: string
+          description: Plain-text fallback (for HTML body).
+        to:
+          type: array
+          description: Override recipients (defaults to conversation participants).
+        cc:
+          type: array
+          description: CC list.
+        bcc:
+          type: array
+          description: BCC list.
+        subject:
+          type: string
+          description: Override subject (defaults to conversation subject).
+        author_id:
+          type: string
+          description: Teammate ID — send AS this person (impersonation, requires admin scope).
+        channel_id:
+          type: string
+          description: Channel to send through (if conversation has multiple).
+        options:
+          type: object
+          description: '{archive?:bool, tag_ids?:[]} — auto-archive on send, tag.'
+      required:
+        - conversationId
+        - body
+    operation:
+      method: POST
+      path: /conversations/{{params.conversationId}}/messages
+      body:
+        value:
+          body: '{{params.body}}'
+          text: '{{params.text}}'
+          to: '{{params.to}}'
+          cc: '{{params.cc}}'
+          bcc: '{{params.bcc}}'
+          subject: '{{params.subject}}'
+          author_id: '{{params.author_id}}'
+          channel_id: '{{params.channel_id}}'
+          options: '{{params.options}}'
+  - name: front_add_comment
+    description: Add an internal comment (private note) to a conversation. Only visible to teammates.
+    input:
+      type: object
+      properties:
+        conversationId:
+          type: string
+          description: Conversation ID.
+        body:
+          type: string
+          description: Comment text (Markdown).
+        author_id:
+          type: string
+          description: Teammate ID (defaults to token's user).
+      required:
+        - conversationId
+        - body
+    operation:
+      method: POST
+      path: /conversations/{{params.conversationId}}/comments
+      body:
+        value:
+          body: '{{params.body}}'
+          author_id: '{{params.author_id}}'
+  - name: front_update_conversation
+    description: Update conversation status, assignee, or tags. PATCH semantics — only pass what to change.
+    input:
+      type: object
+      properties:
+        conversationId:
+          type: string
+          description: Conversation ID.
+        status:
+          type: string
+          description: open, archived, spam, deleted.
+        assignee_id:
+          type: string
+          description: Teammate ID to assign (or null to unassign).
+        tag_ids:
+          type: array
+          description: Replace tag set.
+        inbox_id:
+          type: string
+          description: Move to different inbox.
+      required:
+        - conversationId
+    operation:
+      method: PATCH
+      path: /conversations/{{params.conversationId}}
+      body:
+        value:
+          status: '{{params.status}}'
+          assignee_id: '{{params.assignee_id}}'
+          tag_ids: '{{params.tag_ids}}'
+          inbox_id: '{{params.inbox_id}}'
+  - name: front_list_contacts
+    description: List contacts (external entities).
+    input:
+      type: object
+      properties:
+        limit:
+          type: integer
+          description: Per page.
+        page_token:
+          type: string
+          description: Cursor.
+        q_updated_after:
+          type: integer
+          description: Unix seconds.
+    operation:
+      method: GET
+      path: /contacts
+      query:
+        limit: '{{params.limit}}'
+        page_token: '{{params.page_token}}'
+        q[updated_after]: '{{params.q_updated_after}}'
+  - name: front_get_contact
+    description: Fetch a contact with all handles[] (email/phone/twitter/custom).
+    input:
+      type: object
+      properties:
+        contactId:
+          type: string
+          description: Contact ID (starts with 'cnt_') OR handle URL like 'alt:email:a@b.com'.
+      required:
+        - contactId
+    operation:
+      method: GET
+      path: /contacts/{{params.contactId}}
+  - name: front_create_contact
+    description: 'Create a contact. Required: handles (at least one).'
+    input:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Contact name.
+        description:
+          type: string
+          description: Notes.
+        avatar_url:
+          type: string
+          description: Avatar URL.
+        handles:
+          type: array
+          description: '[{handle:''a@b.com'', source:''email''}] — source can be email, phone, twitter, custom, etc.'
+        links:
+          type: array
+          description: Array of URL strings (e.g. their CRM record).
+        custom_fields:
+          type: object
+          description: Custom field name → value.
+      required:
+        - handles
+    operation:
+      method: POST
+      path: /contacts
+      body:
+        value:
+          name: '{{params.name}}'
+          description: '{{params.description}}'
+          avatar_url: '{{params.avatar_url}}'
+          handles: '{{params.handles}}'
+          links: '{{params.links}}'
+          custom_fields: '{{params.custom_fields}}'
+  - name: front_list_tags
+    description: List tags.
+    input:
+      type: object
+      properties:
+        limit:
+          type: integer
+          description: Per page.
+        page_token:
+          type: string
+          description: Cursor.
+    operation:
+      method: GET
+      path: /tags
+      query:
+        limit: '{{params.limit}}'
+        page_token: '{{params.page_token}}'
+  - name: front_list_teammates
+    description: List teammates (Front users).
+    input:
+      type: object
+      properties:
+        limit:
+          type: integer
+          description: Per page.
+        page_token:
+          type: string
+          description: Cursor.
+    operation:
+      method: GET
+      path: /teammates
+      query:
+        limit: '{{params.limit}}'
+        page_token: '{{params.page_token}}'

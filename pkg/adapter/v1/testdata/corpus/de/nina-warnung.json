@@ -1,0 +1,113 @@
+{
+  "slug": "nina-warnung",
+  "name": "NINA Emergency Warnings",
+  "description": "Access official German emergency warnings and alerts from the NINA Warn-App (BBK). Get current warnings for floods, storms, fires, and other emergencies by region.",
+  "region": "de",
+  "category": "government",
+  "icon": "nina",
+  "docsUrl": "https://nina.api.bund.dev/",
+  "requiredEnvVars": [],
+  "probe": {
+    "tool": "nina_get_active_warnings",
+    "params": {
+      "source": "mowas"
+    }
+  },
+  "connector": {
+    "name": "NINA Warnungen",
+    "type": "REST",
+    "baseUrl": "https://warnung.bund.de/api31",
+    "authType": "NONE"
+  },
+  "tools": [
+    {
+      "name": "nina_get_active_warnings",
+      "description": "All currently active warnings of one source, nationwide: mowas (civil protection / MoWaS), katwarn, biwapp, dwd (severe weather), lhp (flood), police. Each item has an id (pass it to nina_get_warning_detail), headline, severity, sent time and affected areas. An empty list means no active warning from that source.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "source": {
+            "type": "string",
+            "enum": [
+              "mowas",
+              "katwarn",
+              "biwapp",
+              "dwd",
+              "lhp",
+              "police"
+            ],
+            "description": "Warning source.",
+            "default": "mowas"
+          }
+        },
+        "required": [
+          "source"
+        ]
+      },
+      "endpointMapping": {
+        "method": "GET",
+        "path": "/{source}/mapData.json"
+      }
+    },
+    {
+      "name": "nina_get_warnings_by_region",
+      "description": "Get current emergency warnings for a specific German region (Kreis/Stadt) by its AGS code. AGS is the official municipality key (Amtlicher Gemeindeschlüssel). Use the first 5 digits for Kreis level.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "ags": {
+            "type": "string",
+            "description": "The 12-digit AGS code of the region (e.g. '091620000000' for Munich, '110000000000' for Berlin). Use 5 digits + trailing zeros."
+          }
+        },
+        "required": [
+          "ags"
+        ]
+      },
+      "endpointMapping": {
+        "method": "GET",
+        "path": "/dashboard/{ags}.json"
+      }
+    },
+    {
+      "name": "nina_get_warning_detail",
+      "description": "Get detailed information about a specific warning by its ID. Returns the full warning text, affected areas, instructions, and severity level.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "warningId": {
+            "type": "string",
+            "description": "The warning ID (obtained from dashboard or region warnings)"
+          }
+        },
+        "required": [
+          "warningId"
+        ]
+      },
+      "endpointMapping": {
+        "method": "GET",
+        "path": "/warnings/{warningId}.json"
+      }
+    },
+    {
+      "name": "nina_get_covid_rules",
+      "description": "Get current COVID-19 rules and regulations for a specific German region by AGS code.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "ags": {
+            "type": "string",
+            "description": "The 12-digit AGS code of the region"
+          }
+        },
+        "required": [
+          "ags"
+        ]
+      },
+      "endpointMapping": {
+        "method": "GET",
+        "path": "/appdata/covid/covidrules/DE/{ags}.json"
+      }
+    }
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "openapi": "3.0.3",
+  "info": { "title": "Payroll", "version": "1.0.0" },
+  "servers": [{ "url": "https://payroll.example.com" }],
+  "security": [{ "sso": [] }, { "sessionCookie": [] }],
+  "paths": {
+    "/employees": {
+      "get": {
+        "operationId": "listEmployees",
+        "summary": "List the employees on the payroll, with their department and start date",
+        "responses": { "200": { "description": "ok" } }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "sso": {
+        "type": "openIdConnect",
+        "openIdConnectUrl": "https://login.payroll.example.com/.well-known/openid-configuration"
+      },
+      "sessionCookie": { "type": "apiKey", "in": "cookie", "name": "session" }
+    }
+  }
+}

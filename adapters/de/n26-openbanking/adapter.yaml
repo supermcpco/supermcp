@@ -1,0 +1,82 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: n26-openbanking
+  name: N26 Open Banking (PSD2)
+  description: Access N26 bank account data via the PSD2 Open Banking API. View account balances, transactions, and account details with proper authorization.
+  region: de
+  category: banking
+  icon: n26
+  docsUrl: https://docs.tech26.de/
+  lint:
+    allow:
+      - healthcheck-present
+      - instructions-min-800
+      - tool-name-prefix
+credentials:
+  N26_CLIENT_ID:
+    required: true
+  N26_CLIENT_SECRET:
+    required: true
+    secret: true
+transport:
+  type: http
+  baseUrl: https://xs2a.tech26.de
+auth:
+  type: oauth2
+  grant: authorization_code
+  clientId: '{{env.N26_CLIENT_ID}}'
+  clientSecret: '{{env.N26_CLIENT_SECRET}}'
+  tokenUrl: https://xs2a.tech26.de/oauth2/token
+  authorizationUrl: https://xs2a.tech26.de/oauth2/authorize
+  scopes:
+    - aisp
+tools:
+  - name: n26_get_accounts
+    description: List all accounts associated with the authorized N26 user. Returns account IDs, IBANs, currency, and account type.
+    input:
+      type: object
+      properties: {}
+    operation:
+      method: GET
+      path: /v1/berlin-group/accounts
+  - name: n26_get_account_balances
+    description: Get current balances for a specific N26 account including booked balance and available balance.
+    input:
+      type: object
+      properties:
+        accountId:
+          type: string
+          description: The N26 account ID (obtained from n26_get_accounts)
+      required:
+        - accountId
+    operation:
+      method: GET
+      path: /v1/berlin-group/accounts/{{params.accountId}}/balances
+  - name: n26_get_transactions
+    description: Get transactions for a specific N26 account. Returns transaction details including amount, date, counterparty, and booking status.
+    input:
+      type: object
+      properties:
+        accountId:
+          type: string
+          description: The N26 account ID
+        dateFrom:
+          type: string
+          description: Start date in YYYY-MM-DD format
+        dateTo:
+          type: string
+          description: End date in YYYY-MM-DD format
+        bookingStatus:
+          type: string
+          description: 'Filter by booking status: ''booked'', ''pending'', or ''both''. Default: ''booked'''
+      required:
+        - accountId
+    operation:
+      method: GET
+      path: /v1/berlin-group/accounts/{{params.accountId}}/transactions
+      query:
+        dateFrom: '{{params.dateFrom}}'
+        dateTo: '{{params.dateTo}}'
+        bookingStatus: '{{params.bookingStatus}}'

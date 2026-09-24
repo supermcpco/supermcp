@@ -1,0 +1,113 @@
+version: 2
+project_name: supermcp
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: supermcp
+    main: ./cmd/supermcp
+    binary: supermcp
+    env: [CGO_ENABLED=0]
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags:
+      - -s -w -buildid= -X main.version={{.Version}}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: default
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files: [LICENSE, README.md]
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+sboms:
+  - id: archive
+    artifacts: archive
+    documents: ["{{ .ArtifactName }}.spdx.json"]
+  - id: source
+    artifacts: source
+    documents: ["{{ .ProjectName }}-{{ .Version }}.source.spdx.json"]
+
+source:
+  enabled: true
+
+dockers:
+  - id: amd64
+    goos: linux
+    goarch: amd64
+    image_templates:
+      - "ghcr.io/supermcpco/supermcp:{{ .Version }}-amd64"
+    dockerfile: Dockerfile.goreleaser
+    use: buildx
+    build_flag_templates:
+      - --platform=linux/amd64
+      - --label=org.opencontainers.image.title={{ .ProjectName }}
+      - --label=org.opencontainers.image.version={{ .Version }}
+      - --label=org.opencontainers.image.revision={{ .FullCommit }}
+      - --label=org.opencontainers.image.source={{ .GitURL }}
+      - --label=org.opencontainers.image.licenses=MIT
+  - id: arm64
+    goos: linux
+    goarch: arm64
+    image_templates:
+      - "ghcr.io/supermcpco/supermcp:{{ .Version }}-arm64"
+    dockerfile: Dockerfile.goreleaser
+    use: buildx
+    build_flag_templates:
+      - --platform=linux/arm64
+      - --label=org.opencontainers.image.title={{ .ProjectName }}
+      - --label=org.opencontainers.image.version={{ .Version }}
+      - --label=org.opencontainers.image.revision={{ .FullCommit }}
+      - --label=org.opencontainers.image.source={{ .GitURL }}
+      - --label=org.opencontainers.image.licenses=MIT
+
+docker_manifests:
+  - name_template: "ghcr.io/supermcpco/supermcp:{{ .Version }}"
+    image_templates:
+      - "ghcr.io/supermcpco/supermcp:{{ .Version }}-amd64"
+      - "ghcr.io/supermcpco/supermcp:{{ .Version }}-arm64"
+  - name_template: "ghcr.io/supermcpco/supermcp:{{ .Major }}"
+    image_templates:
+      - "ghcr.io/supermcpco/supermcp:{{ .Version }}-amd64"
+      - "ghcr.io/supermcpco/supermcp:{{ .Version }}-arm64"
+  - name_template: "ghcr.io/supermcpco/supermcp:latest"
+    image_templates:
+      - "ghcr.io/supermcpco/supermcp:{{ .Version }}-amd64"
+      - "ghcr.io/supermcpco/supermcp:{{ .Version }}-arm64"
+
+signs:
+  - cmd: cosign
+    certificate: "${artifact}.pem"
+    args: [sign-blob, --yes, --output-certificate, "${certificate}", --output-signature, "${signature}", "${artifact}"]
+    artifacts: checksum
+
+docker_signs:
+  - cmd: cosign
+    args: [sign, --yes, "${artifact}@${digest}"]
+    artifacts: manifests
+
+release:
+  github:
+    owner: supermcpco
+    name: supermcp
+  draft: false
+  prerelease: auto
+  footer: |
+    ## Verify
+    ```
+    cosign verify-blob --certificate checksums.txt.pem --signature checksums.txt.sig checksums.txt \
+      --certificate-identity-regexp 'https://github.com/supermcpco/supermcp/.github/workflows/release.yml@.*' \
+      --certificate-oidc-issuer https://token.actions.githubusercontent.com
+    ```
+
+changelog:
+  use: github-native

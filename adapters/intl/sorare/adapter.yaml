@@ -1,0 +1,460 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: sorare
+  name: Sorare Fantasy Football
+  description: GraphQL API for Sorare's NFT-based fantasy football, baseball, and basketball games. Query cards, players, lineups, transfer market, and your portfolio with natural-language commands. Handles Sorare's bcrypt-salted login and 30-day JWT caching automatically.
+  region: intl
+  category: entertainment
+  icon: sorare
+  docsUrl: https://github.com/sorare/api
+  priority: 100
+  featured: true
+  selfHostOnly: true
+  lint:
+    allow:
+      - healthcheck-present
+credentials:
+  SORARE_EMAIL:
+    required: true
+  SORARE_PASSWORD:
+    required: true
+    secret: true
+transport:
+  type: graphql
+  baseUrl: https://api.sorare.com/graphql
+auth:
+  type: login
+  request:
+    method: POST
+    url: https://api.sorare.com/graphql
+    body:
+      query: 'mutation SignInMutation($input: signInInput!) { signIn(input: $input) { currentUser { slug } jwtToken(aud: "{{auth.aud}}") { token expiredAt } errors { message } } }'
+      variables:
+        input:
+          email: '{{auth.username}}'
+          password: '{{auth.passwordHashed}}'
+  credentials:
+    username: '{{env.SORARE_EMAIL}}'
+    password: '{{env.SORARE_PASSWORD}}'
+    aud: supermcp
+  preprocess:
+    - kind: bcrypt
+      input: password
+      output: passwordHashed
+      salt:
+        request:
+          method: GET
+          url: https://api.sorare.com/api/v1/users/{{auth.username}}
+        jsonPath: salt
+  tokenSource:
+    from: body
+    jsonPath: data.signIn.jwtToken.token
+  expiry:
+    jsonPath: data.signIn.jwtToken.expiredAt
+    format: iso8601
+    ttl: 720h
+    refreshBefore: 24h
+    refreshOn401: true
+  inject:
+    header: Authorization
+    template: Bearer {{auth.token}}
+  extraHeaders:
+    JWT-AUD: '{{auth.aud}}'
+instructions: |-
+  ## Authentication (handled automatically)
+
+  Sorare uses a custom two-step login the supermcp `LOGIN_TOKEN` engine performs for you:
+
+  1. `GET https://api.sorare.com/api/v1/users/{email}` returns the account's bcrypt salt.
+  2. Your plain password is hashed locally with `bcrypt.hashSync(password, salt)`.
+  3. The hash is sent through Sorare's `signIn` GraphQL mutation; Sorare returns a JWT valid for ~30 days, tagged with the audience claim `supermcp` (managed for you).
+  4. Every subsequent call adds `Authorization: Bearer <jwt>` and `JWT-AUD: supermcp` headers.
+
+  The token is cached in-memory and in the encrypted `connector_auth_cache` table, then proactively re-issued ~24 h before expiry and on any 401. You never need to refresh manually.
+
+  ## Credentials
+
+  - `SORARE_EMAIL` — your Sorare account email.
+  - `SORARE_PASSWORD` — your plain account password (never stored or transmitted in plain text after the first login; only the bcrypt hash leaves your server).
+
+  ## 2FA
+
+  If your account has 2FA enabled, the `signIn` mutation will fail until you provide a fresh `otpAttempt`. For headless/server use we recommend creating a dedicated read-only Sorare account without 2FA. Set `SORARE_PASSWORD` to that account's password.
+
+  ## Money & pricing conventions — READ THIS FIRST
+
+  Sorare exposes amounts in **four parallel scales** on every `MonetaryAmount`:
+  - `wei` → raw on-chain unit (1 ETH = 10^18 wei). String to avoid precision loss.
+  - `eurCents`, `usdCents`, `gbpCents` → **integers in cents, divide by 100 for the currency unit.** Example: `eurCents: 354` means **€3.54**, not €354.
+  - These can be `null` when the card is listed only in crypto (no fiat conversion exposed). When you see `eurCents: null`, fall back to `wei` (roughly: `wei * 1e-18 * <ETH/EUR>` for an EUR estimate; the live ETH/EUR rate is not provided by the API).
+
+  ### TokenOffer sides — easy to get wrong
+
+  For a **single-sale offer** (someone selling a card):
+  - `senderSide.anyCards` = the cards being sold (sender = seller, sending the card).
+  - `receiverSide.amounts` = the price the buyer pays (receiver = buyer, receiving the card).
+
+  If you query `senderSide.amounts` on a sale offer you'll get **zeros** because the seller isn't sending money. Always read prices from `receiverSide.amounts`.
+
+  ## When dedicated tools are not enough
+
+  The purpose-built tools below cover the most common workflows. For anything else use the generic helpers:
+  - `sorare_graphql_schema` (no args) → compact summary of Query/Mutation + a flat index of every type.
+  - `sorare_graphql_schema(type: "TypeName")` → just one type's definition.
+  - `sorare_graphql_schema(search: "keyword")` → every type whose name or a field name matches.
+  - `sorare_graphql_query` / `_mutation` / `_subscription` → execute arbitrary documents.
+
+  **GraphQL introspection (`__schema` / `__type`) is disabled on Sorare's production endpoint.** Use `sorare_graphql_schema(type: "…")` instead.
+
+  ## Useful field paths the schema search won't surface obviously
+
+  - `Player.lowestPriceAnyCard(rarity, inSeason)` → floor card for a player at a rarity. (Wrapped by `sorare_player_floor_price`.)
+  - `Player.so5Scores(last, position?)` → recent So5 scores for form analysis. (Wrapped by `sorare_player_recent_scores`.)
+  - `tokens.tokenPrices(playerSlug, rarity, first, season?)` → recent sale history for a player+rarity, in fiat + wei. (Wrapped by `sorare_token_prices`.)
+  - `tokens.liveSingleSaleOffers(playerSlug?, sport?, first)` → current secondary market. (Wrapped by `sorare_live_sale_offers`.)
+  - `currentUser.cards(first, rarities, sport)` → your inventory. NOT `currentUser.football.myCards` (that path doesn't exist).
+  - `currentUser.availableBalances` → wallet in wei + EUR + USD + GBP. (Wrapped by `sorare_wallet_balance`.)
+  - For free-text player search use the root `searchPlayers(query, pageSize)` then drill via `commonPlayerHits { anyPlayer { ... on Player { ... } } }`. There is no `football.players(search:…)` — that path doesn't exist.
+
+  ## Sport / season / rarity enum quirks
+
+  - `Sport` is upper-snake: `FOOTBALL`, `BASEBALL`, `NBA`.
+  - `Rarity` is lowercase: `common`, `limited`, `rare`, `super_rare`, `unique`, `custom_series` (not the upper-snake form).
+  - `season` arguments are season **start years**: 2024 means the 2024-25 season.
+  - Older-vintage cards (pre-current-season) still score normally in So5 Classic competitions; the vintage mainly matters for the Captain Bonus and for season-eligibility tournaments.
+
+  ## Rate limits
+
+  Sorare enforces per-IP and per-token rate limits (`429`). Heavy bulk-export workflows should batch and back-off. Very large GraphQL responses (hundreds of items × deep selection) may also time out — split the request.
+
+  ## Useful starter prompts
+
+  - "What's my Sorare wallet balance?" → `sorare_wallet_balance`
+  - "What's the floor price for a Limited Calafiori right now?" → `sorare_player_floor_price(playerSlug, rarity:"limited")`
+  - "What did Messi rare cards sell for in the last month?" → `sorare_token_prices(playerSlug, rarity:"rare", first:30)`
+  - "Show me my Limited cards for Top-5-league players." → `sorare_list_my_cards(rarities:["limited"])`
+  - "Is this player in form?" → `sorare_player_recent_scores(playerSlug, last:10)`
+  - "How am I doing in So5 overall?" → `sorare_my_trophies_summary(sport:"FOOTBALL")`
+
+  ## Raw-query gotchas (read before writing a `sorare_graphql_query`)
+
+  Prefer the curated `sorare_*` tools — e.g. for your own cards use `sorare_list_my_cards`, do NOT hand-write a `currentUser { cards { … } }` query. If you must write raw GraphQL, confirm field names with `sorare_graphql_schema(type:"…")` first. Common mistakes seen in the wild:
+  - On a card (`AnyCardInterface` / `Card`): the rarity field is **`rarityTyped`** (enum), NOT `rarity`.
+  - There is **no `footballPlayer`** field on a card — use **`anyPlayer { … }`** (or `player { … }` for the football-specific player).
+  - Field/type errors come back as `Field '…' doesn't exist on type '…'` — that means the name is wrong; introspect with `sorare_graphql_schema`, don't keep guessing.
+tools:
+  - name: sorare_current_user
+    description: Get the authenticated Sorare user's profile (slug, email, nickname). Use this first to confirm the connection is healthy.
+    input:
+      type: object
+      properties: {}
+      additionalProperties: false
+    proxy: true
+    operation:
+      kind: query
+      document: query CurrentUser { currentUser { slug email nickname } }
+  - name: sorare_get_card_by_slug
+    description: Fetch a single Sorare football card by slug (e.g. 'lionel-messi-2023-rare-1'). Returns player, rarity, season, current owner, and the live single-sale offer if any. For richer data use sorare_graphql_query with the relevant slice from sorare_graphql_schema.
+    input:
+      type: object
+      properties:
+        slug:
+          type: string
+          description: The card's unique slug from a card URL.
+      required:
+        - slug
+      additionalProperties: false
+    proxy: true
+    operation:
+      kind: query
+      document: 'query CardBySlug($slug: String!) { football { card(slug: $slug) { slug name rarity displayRarity backPictureUrl power season { startYear } user { slug } footballPlayer { slug displayName position country { slug } } liveSingleSaleOffer { id endDate status receiverSide { amounts { wei eurCents usdCents gbpCents } } } latestEnglishAuction { id endDate currentPrice currency } } } }'
+      variables:
+        slug: '{{params.slug}}'
+  - name: sorare_search_player
+    description: Search football players by name (full-text). Returns up to `pageSize` matches with slug, display name, country, and current club. Use the returned slug with sorare_list_player_cards or sorare_get_card_by_slug.
+    input:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Player name or partial name (full-text).
+        pageSize:
+          type: integer
+          minimum: 1
+          maximum: 20
+          default: 5
+          description: Max hits to return (1–20).
+      required:
+        - name
+      additionalProperties: false
+    proxy: true
+    operation:
+      kind: query
+      document: 'query PlayerSearch($name: String!, $pageSize: Int!) { searchPlayers(query: $name, pageSize: $pageSize) { nbHits commonPlayerHits { anyPlayer { slug sport ... on Player { displayName country { slug } activeClub { name } } } } } }'
+      variables:
+        name: '{{params.name}}'
+        pageSize: '{{params.pageSize}}'
+  - name: sorare_list_player_cards
+    description: List cards minted for a given football player slug, with their rarity, season, and current owner.
+    input:
+      type: object
+      properties:
+        playerSlug:
+          type: string
+          description: Player slug (from sorare_search_player).
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 50
+          default: 10
+          description: Max cards to return (1–50).
+      required:
+        - playerSlug
+      additionalProperties: false
+    proxy: true
+    operation:
+      kind: query
+      document: 'query PlayerCards($playerSlug: String!, $limit: Int!) { football { allCards(playerSlugs: [$playerSlug], first: $limit) { nodes { slug name rarity season { startYear } user { slug } } } } }'
+      variables:
+        playerSlug: '{{params.playerSlug}}'
+        limit: '{{params.limit}}'
+  - name: sorare_list_my_cards
+    description: List football cards owned by the authenticated user with rarity, player, and season. Pass `rarities` to filter (e.g. ['rare']).
+    input:
+      type: object
+      properties:
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 50
+          default: 20
+          description: Max cards to return (1–50).
+        rarities:
+          type: array
+          items:
+            type: string
+            enum:
+              - common
+              - limited
+              - rare
+              - super_rare
+              - unique
+              - custom_series
+          description: Optional list of rarity tiers to keep.
+      additionalProperties: false
+    proxy: true
+    operation:
+      kind: query
+      document: 'query MyCards($limit: Int!, $rarities: [Rarity!]) { currentUser { cards(first: $limit, rarities: $rarities, sport: FOOTBALL) { nodes { slug name sport ... on Card { rarity season { startYear } footballPlayer { slug displayName } } } } } }'
+      variables:
+        limit: '{{params.limit}}'
+        rarities: '{{params.rarities}}'
+  - name: sorare_get_lineup
+    description: Fetch a Sorare So5 lineup by id. Returns lineup metadata (name, draft/confirmable flags) and owning user. For appearance scores and bonuses use sorare_graphql_query with a fragment on So5Appearance.
+    input:
+      type: object
+      properties:
+        lineupId:
+          type: string
+          description: The So5 lineup id.
+      required:
+        - lineupId
+      additionalProperties: false
+    proxy: true
+    operation:
+      kind: query
+      document: 'query Lineup($lineupId: ID!) { so5 { so5Lineup(id: $lineupId) { id name draft confirmable updatable bonuses { title key bonusBasisPoints } user { slug nickname } } } }'
+      variables:
+        lineupId: '{{params.lineupId}}'
+  - name: sorare_wallet_balance
+    description: Get the authenticated user's wallet balances in ETH (wei) and the three fiat reference currencies (EUR, USD, GBP). Useful before recommending a purchase.
+    input:
+      type: object
+      properties: {}
+      additionalProperties: false
+    proxy: true
+    operation:
+      kind: query
+      document: query MyBalances { currentUser { slug availableBalances { wei { wei } eurCents { eurCents } usdCents { usdCents } gbpCents { gbpCents } } } }
+  - name: sorare_user_by_slug
+    description: Fetch another Sorare user's public profile by slug — nickname, status, and So5 lineup count. Use sorare_graphql_query with currentUser/cards for richer data.
+    input:
+      type: object
+      properties:
+        slug:
+          type: string
+          description: The user's slug (from the URL, e.g. 'harrypottah').
+      required:
+        - slug
+      additionalProperties: false
+    proxy: true
+    operation:
+      kind: query
+      document: 'query UserBySlug($slug: String!) { user(slug: $slug) { slug nickname status active suspended profile { verified badge { slug description } } } }'
+      variables:
+        slug: '{{params.slug}}'
+  - name: sorare_player_recent_scores
+    description: Return the most recent So5 scores for a football player slug, with position and game date. Use this to assess current form before composing a lineup or evaluating a card purchase.
+    input:
+      type: object
+      properties:
+        playerSlug:
+          type: string
+          description: Player slug (from sorare_search_player).
+        last:
+          type: integer
+          minimum: 1
+          maximum: 20
+          default: 10
+          description: Number of most-recent scores to return (1–20).
+      required:
+        - playerSlug
+      additionalProperties: false
+    proxy: true
+    operation:
+      kind: query
+      document: 'query PlayerRecentScores($playerSlug: String!, $last: Int!) { players(slugs: [$playerSlug]) { slug displayName ... on Player { so5Scores(last: $last) { id position game { id date } } } } }'
+      variables:
+        playerSlug: '{{params.playerSlug}}'
+        last: '{{params.last}}'
+  - name: sorare_token_prices
+    description: Recent sale history for cards of a specific player + rarity. Returns an array of completed sales with date and amounts in wei / EUR / USD / GBP. Use to gauge fair market value.
+    input:
+      type: object
+      properties:
+        playerSlug:
+          type: string
+          description: Player slug.
+        rarity:
+          type: string
+          enum:
+            - common
+            - limited
+            - rare
+            - super_rare
+            - unique
+            - custom_series
+          description: Card rarity (lowercase per Sorare's enum).
+        first:
+          type: integer
+          minimum: 1
+          maximum: 50
+          default: 10
+          description: Max results (1–50).
+        season:
+          type: integer
+          description: 'Optional: filter by season start year (e.g. 2024 for the 2024-25 season).'
+      required:
+        - playerSlug
+        - rarity
+      additionalProperties: false
+    proxy: true
+    operation:
+      kind: query
+      document: 'query TokenPrices($playerSlug: String!, $rarity: Rarity!, $first: Int!, $season: Int) { tokens { tokenPrices(playerSlug: $playerSlug, rarity: $rarity, first: $first, season: $season) { id date amounts { wei eurCents usdCents gbpCents } card { slug name } } } }'
+      variables:
+        playerSlug: '{{params.playerSlug}}'
+        rarity: '{{params.rarity}}'
+        first: '{{params.first}}'
+        season: '{{params.season}}'
+  - name: sorare_get_auction
+    description: Get a specific Sorare auction by id, including cards on auction, current price, best bid, and end date.
+    input:
+      type: object
+      properties:
+        auctionId:
+          type: string
+          description: The auction id.
+      required:
+        - auctionId
+      additionalProperties: false
+    proxy: true
+    operation:
+      kind: query
+      document: 'query Auction($auctionId: String!) { tokens { auction(id: $auctionId) { id startDate endDate open cancelled currentPrice minNextBid currency anyCards { slug name ... on Card { rarity footballPlayer { slug displayName } } } bestBid { amounts { wei eurCents } userBidder { slug nickname } } bidsCount } } }'
+      variables:
+        auctionId: '{{params.auctionId}}'
+  - name: sorare_my_trophies_summary
+    description: 'Summary of the authenticated user''s So5 results: total final rankings, podium finishes, and lifetime card / monetary rewards. Optionally filter by sport.'
+    input:
+      type: object
+      properties:
+        sport:
+          type: string
+          enum:
+            - FOOTBALL
+            - BASEBALL
+            - NBA
+          description: 'Optional sport filter (default: all sports).'
+      additionalProperties: false
+    proxy: true
+    operation:
+      kind: query
+      document: 'query MyTrophies($sport: Sport) { currentUser { slug nickname so5TrophiesSummary(sport: $sport) { finalRankings podiumRankings cardRewards totalMonetaryRewards(referenceCurrency: EUR) { eurCents } } } }'
+      variables:
+        sport: '{{params.sport}}'
+  - name: sorare_player_floor_price
+    description: Get the cheapest currently-listed card for a player at a given rarity. Returns the card slug + the live single-sale offer price in wei + EUR/USD/GBP cents. Optionally restrict to in-season cards only. Far cheaper (1 round-trip) than scanning live_sale_offers when you just want 'what does this player's rarity X cost right now?'.
+    input:
+      type: object
+      properties:
+        playerSlug:
+          type: string
+          description: Football player slug (from sorare_search_player).
+        rarity:
+          type: string
+          enum:
+            - common
+            - limited
+            - rare
+            - super_rare
+            - unique
+            - custom_series
+          description: Card rarity (lowercase per Sorare's enum).
+        inSeasonOnly:
+          type: boolean
+          default: false
+          description: If true, only consider cards eligible for in-season tournaments.
+      required:
+        - playerSlug
+        - rarity
+      additionalProperties: false
+    proxy: true
+    operation:
+      kind: query
+      document: 'query PlayerFloor($playerSlug: String!, $rarity: Rarity!, $inSeasonOnly: Boolean) { players(slugs: [$playerSlug]) { slug displayName ... on Player { lowestPriceAnyCard(rarity: $rarity, inSeason: $inSeasonOnly) { slug name ... on Card { rarity season { startYear } liveSingleSaleOffer { id endDate status receiverSide { amounts { wei eurCents usdCents gbpCents } } } } } } } }'
+      variables:
+        playerSlug: '{{params.playerSlug}}'
+        rarity: '{{params.rarity}}'
+        inSeasonOnly: '{{params.inSeasonOnly}}'
+  - name: sorare_live_sale_offers
+    description: List currently-live single-sale offers on the secondary market (Sorare's 'transfer market'). Optionally filter by player slug or sport. For rarity / max-price filters use sorare_graphql_query.
+    input:
+      type: object
+      properties:
+        playerSlug:
+          type: string
+          description: 'Optional: only offers for this player slug.'
+        sport:
+          type: string
+          enum:
+            - FOOTBALL
+            - BASEBALL
+            - NBA
+          description: 'Optional: filter by sport.'
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 50
+          default: 10
+      additionalProperties: false
+    proxy: true
+    operation:
+      kind: query
+      document: 'query LiveSaleOffers($playerSlug: String, $sport: Sport, $limit: Int!) { tokens { liveSingleSaleOffers(playerSlug: $playerSlug, sport: $sport, first: $limit) { nodes { id endDate status senderSide { anyCards { slug name ... on Card { rarity season { startYear } footballPlayer { slug displayName } } } } receiverSide { amounts { wei eurCents usdCents gbpCents } } } } } }'
+      variables:
+        playerSlug: '{{params.playerSlug}}'
+        sport: '{{params.sport}}'
+        limit: '{{params.limit}}'

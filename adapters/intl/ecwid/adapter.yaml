@@ -1,0 +1,351 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: ecwid
+  name: Ecwid
+  description: 'Drive Ecwid (Lightspeed-owned e-commerce platform) from any AI agent: products, categories, orders, customers. 10 tools, OAuth2 Bearer auth, store-scoped URL.'
+  region: intl
+  category: e-commerce
+  icon: ecwid
+  docsUrl: https://api-docs.ecwid.com/
+  lint:
+    allow:
+      - description-min-60
+      - healthcheck-present
+credentials:
+  ECWID_STORE_ID:
+    required: true
+  ECWID_TOKEN:
+    required: true
+    secret: true
+transport:
+  type: http
+  baseUrl: https://app.ecwid.com/api/v3/{{env.ECWID_STORE_ID}}
+auth:
+  type: bearer
+  token: '{{env.ECWID_TOKEN}}'
+instructions: |-
+  This connector uses the Ecwid REST API v3 (api-docs.ecwid.com).
+
+  **Setup**:
+  1. Sign in to Ecwid → **My Profile → My Apps → Create App** (or use a personal Storefront API token from your Ecwid control panel).
+  2. Note your **Store ID** (numeric) — visible in your Ecwid control panel URL.
+  3. Set:
+     - `ECWID_STORE_ID` = numeric store ID
+     - `ECWID_TOKEN` = your access token (private personal token or OAuth2 access token)
+
+  **Authentication**: `Authorization: Bearer ${ECWID_TOKEN}`.
+
+  **Store-scoped URL**: `https://app.ecwid.com/api/v3/{{ECWID_STORE_ID}}`.
+
+  **Product model**: products have id, sku, name, price, originalPrice, costPrice, weight, quantity, unlimited (track stock?), enabled, inStock, categoryIds[], options[], variants[].
+
+  **Order statuses (paymentStatus)**: AWAITING_PAYMENT, PAID, CANCELLED, REFUNDED, PARTIALLY_REFUNDED, INCOMPLETE.
+  **fulfillmentStatus**: AWAITING_PROCESSING, PROCESSING, SHIPPED, DELIVERED, WILL_NOT_DELIVER, RETURNED, READY_FOR_PICKUP, OUT_FOR_DELIVERY.
+
+  **Pagination**: `?offset=N&limit=M` (max 100).
+
+  **Out of scope here**: subscription billing, ApplePay/GooglePay setup, payment gateway management, themes/storefront customization.
+tools:
+  - name: ecwid_get_profile
+    description: Get store profile (name, currency, formats, plan).
+    input:
+      type: object
+      properties: {}
+    operation:
+      method: GET
+      path: /profile
+  - name: ecwid_search_products
+    description: Search products with filters.
+    input:
+      type: object
+      properties:
+        keyword:
+          type: string
+          description: Search keyword across name/SKU/description.
+        category:
+          type: integer
+          description: Filter by category ID.
+        enabled:
+          type: boolean
+          description: true = only enabled products.
+        inStock:
+          type: boolean
+          description: true = only in-stock.
+        priceFrom:
+          type: number
+          description: Min price.
+        priceTo:
+          type: number
+          description: Max price.
+        sortBy:
+          type: string
+          description: RELEVANCE, ADDED_TIME_DESC, NAME_ASC, PRICE_ASC, etc.
+        offset:
+          type: integer
+          description: Offset.
+        limit:
+          type: integer
+          description: Per page (max 100).
+    operation:
+      method: GET
+      path: /products
+      query:
+        keyword: '{{params.keyword}}'
+        category: '{{params.category}}'
+        enabled: '{{params.enabled}}'
+        inStock: '{{params.inStock}}'
+        priceFrom: '{{params.priceFrom}}'
+        priceTo: '{{params.priceTo}}'
+        sortBy: '{{params.sortBy}}'
+        offset: '{{params.offset}}'
+        limit: '{{params.limit}}'
+  - name: ecwid_get_product
+    description: Get a product by ID.
+    input:
+      type: object
+      properties:
+        productId:
+          type: integer
+          description: Product ID.
+      required:
+        - productId
+    operation:
+      method: GET
+      path: /products/{{params.productId}}
+  - name: ecwid_create_product
+    description: 'Create a product. Required: name + price.'
+    input:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Product name.
+        sku:
+          type: string
+          description: SKU (auto-generated if omitted).
+        description:
+          type: string
+          description: HTML description.
+        price:
+          type: number
+          description: Price.
+        originalPrice:
+          type: number
+          description: Compare-at price.
+        costPrice:
+          type: number
+          description: Cost basis.
+        weight:
+          type: number
+          description: Weight.
+        quantity:
+          type: integer
+          description: Stock quantity.
+        unlimited:
+          type: boolean
+          description: If true, don't track stock.
+        enabled:
+          type: boolean
+          description: Visible on storefront.
+        categoryIds:
+          type: array
+          description: Array of category IDs.
+        tax:
+          type: object
+          description: '{enabledManualTaxes:[ids]}.'
+        media:
+          type: object
+          description: '{images:[{url, alt?}], videos:[{providerId, videoUrl}]}.'
+      required:
+        - name
+        - price
+    operation:
+      method: POST
+      path: /products
+      body:
+        value:
+          name: '{{params.name}}'
+          sku: '{{params.sku}}'
+          description: '{{params.description}}'
+          price: '{{params.price}}'
+          originalPrice: '{{params.originalPrice}}'
+          costPrice: '{{params.costPrice}}'
+          weight: '{{params.weight}}'
+          quantity: '{{params.quantity}}'
+          unlimited: '{{params.unlimited}}'
+          enabled: '{{params.enabled}}'
+          categoryIds: '{{params.categoryIds}}'
+          tax: '{{params.tax}}'
+          media: '{{params.media}}'
+  - name: ecwid_update_product
+    description: Update a product (PUT — full replacement of passed fields).
+    input:
+      type: object
+      properties:
+        productId:
+          type: integer
+          description: Product ID.
+        name:
+          type: string
+          description: New name.
+        price:
+          type: number
+          description: New price.
+        quantity:
+          type: integer
+          description: New stock.
+        enabled:
+          type: boolean
+          description: Visibility.
+        description:
+          type: string
+          description: New description.
+        categoryIds:
+          type: array
+          description: Replace categories.
+      required:
+        - productId
+    operation:
+      method: PUT
+      path: /products/{{params.productId}}
+      body:
+        value:
+          name: '{{params.name}}'
+          price: '{{params.price}}'
+          quantity: '{{params.quantity}}'
+          enabled: '{{params.enabled}}'
+          description: '{{params.description}}'
+          categoryIds: '{{params.categoryIds}}'
+  - name: ecwid_list_categories
+    description: List categories.
+    input:
+      type: object
+      properties:
+        parent:
+          type: integer
+          description: Parent category ID (default 0 = root).
+        offset:
+          type: integer
+          description: Offset.
+        limit:
+          type: integer
+          description: Per page.
+    operation:
+      method: GET
+      path: /categories
+      query:
+        parent: '{{params.parent}}'
+        offset: '{{params.offset}}'
+        limit: '{{params.limit}}'
+  - name: ecwid_search_orders
+    description: Search orders.
+    input:
+      type: object
+      properties:
+        keywords:
+          type: string
+          description: 'Full-text across customer name/email/order #.'
+        paymentStatus:
+          type: string
+          description: AWAITING_PAYMENT, PAID, CANCELLED, REFUNDED, PARTIALLY_REFUNDED, INCOMPLETE.
+        fulfillmentStatus:
+          type: string
+          description: AWAITING_PROCESSING, PROCESSING, SHIPPED, DELIVERED, etc.
+        customer:
+          type: string
+          description: Customer email.
+        createdFrom:
+          type: string
+          description: ISO 8601 datetime.
+        createdTo:
+          type: string
+          description: ISO 8601 datetime.
+        offset:
+          type: integer
+          description: Offset.
+        limit:
+          type: integer
+          description: Per page (max 100).
+    operation:
+      method: GET
+      path: /orders
+      query:
+        keywords: '{{params.keywords}}'
+        paymentStatus: '{{params.paymentStatus}}'
+        fulfillmentStatus: '{{params.fulfillmentStatus}}'
+        customer: '{{params.customer}}'
+        createdFrom: '{{params.createdFrom}}'
+        createdTo: '{{params.createdTo}}'
+        offset: '{{params.offset}}'
+        limit: '{{params.limit}}'
+  - name: ecwid_get_order
+    description: Get an order by number.
+    input:
+      type: object
+      properties:
+        orderNumber:
+          type: string
+          description: Order number (e.g. '12345').
+      required:
+        - orderNumber
+    operation:
+      method: GET
+      path: /orders/{{params.orderNumber}}
+  - name: ecwid_update_order
+    description: 'Update order — common: change paymentStatus, fulfillmentStatus, set trackingNumber.'
+    input:
+      type: object
+      properties:
+        orderNumber:
+          type: string
+          description: Order number.
+        paymentStatus:
+          type: string
+          description: New payment status.
+        fulfillmentStatus:
+          type: string
+          description: New fulfillment status.
+        trackingNumber:
+          type: string
+          description: Tracking number.
+        shippingMethod:
+          type: string
+          description: Shipping method name.
+      required:
+        - orderNumber
+    operation:
+      method: PUT
+      path: /orders/{{params.orderNumber}}
+      body:
+        value:
+          paymentStatus: '{{params.paymentStatus}}'
+          fulfillmentStatus: '{{params.fulfillmentStatus}}'
+          trackingNumber: '{{params.trackingNumber}}'
+          shippingMethod: '{{params.shippingMethod}}'
+  - name: ecwid_search_customers
+    description: Search customers.
+    input:
+      type: object
+      properties:
+        keyword:
+          type: string
+          description: Search across name/email.
+        email:
+          type: string
+          description: Exact email.
+        offset:
+          type: integer
+          description: Offset.
+        limit:
+          type: integer
+          description: Per page.
+    operation:
+      method: GET
+      path: /customers
+      query:
+        keyword: '{{params.keyword}}'
+        email: '{{params.email}}'
+        offset: '{{params.offset}}'
+        limit: '{{params.limit}}'

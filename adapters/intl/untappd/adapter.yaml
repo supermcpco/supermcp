@@ -1,0 +1,136 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: untappd
+  name: Untappd
+  description: Search Untappd's beer database from any AI assistant. Find beers by name, brewery, or style; read beer detail with ratings; look up venues and check-ins. 4 tools, requires free Untappd API client_id + client_secret.
+  region: intl
+  category: food
+  icon: untappd
+  docsUrl: https://untappd.com/api/docs
+  selfHostOnly: true
+  lint:
+    allow:
+      - description-min-60
+      - healthcheck-present
+credentials:
+  UNTAPPD_CLIENT_ID:
+    required: true
+  UNTAPPD_CLIENT_SECRET:
+    required: true
+    secret: true
+transport:
+  type: http
+  baseUrl: https://api.untappd.com/v4
+auth:
+  type: none
+instructions: |-
+  This connector wraps Untappd's REST API (api.untappd.com/v4).
+
+  **Setup**: Untappd requires a free API client_id + client_secret. Apply for them at https://untappd.com/api/register. Approval is usually fast.
+
+  Provide:
+  - `UNTAPPD_CLIENT_ID` — your app's client ID
+  - `UNTAPPD_CLIENT_SECRET` — your app's client secret
+
+  **What's exposed**: public, unauthenticated endpoints (no user OAuth needed for basic search + lookup). For per-user data (your check-ins, your wishlist), you'd need OAuth — not included in this connector.
+
+  **Rate limits**: Untappd publishes 100 req/hour per client. The connector does not auto-retry on 429; respect the limit.
+
+  **Suggested starter prompts**:
+  - "Search Untappd for a Hazy IPA with 4.0+ stars."
+  - "Look up beer ID 12345 on Untappd."
+  - "Find breweries near coordinate 48.07, 7.87."
+tools:
+  - name: untappd_search_beer
+    description: Search Untappd for beers by free-text query (name, brewery, style). Returns a paginated list with beer id, name, brewery, style, ABV, IBU, rating, label image.
+    input:
+      type: object
+      properties:
+        q:
+          type: string
+          description: Search query (e.g. 'Hazy IPA', 'Westvleteren 12').
+        limit:
+          type: integer
+          default: 25
+          minimum: 1
+          maximum: 50
+        offset:
+          type: integer
+          default: 0
+        sort:
+          type: string
+          enum:
+            - checkin
+            - name
+            - count
+            - all
+          default: checkin
+      required:
+        - q
+    proxy: true
+    operation:
+      method: GET
+      path: /search/beer
+      query:
+        q: '{{params.q}}'
+        limit: '{{params.limit}}'
+        offset: '{{params.offset}}'
+        sort: '{{params.sort}}'
+        client_id: '{{env.UNTAPPD_CLIENT_ID}}'
+        client_secret: '{{env.UNTAPPD_CLIENT_SECRET}}'
+  - name: untappd_get_beer
+    description: Full detail of one beer by ID — brewery, style, ABV, IBU, ratings, recent check-ins, label.
+    input:
+      type: object
+      properties:
+        bid:
+          type: integer
+          description: Untappd beer ID.
+      required:
+        - bid
+    proxy: true
+    operation:
+      method: GET
+      path: /beer/info/{{params.bid}}
+      query:
+        client_id: '{{env.UNTAPPD_CLIENT_ID}}'
+        client_secret: '{{env.UNTAPPD_CLIENT_SECRET}}'
+  - name: untappd_search_brewery
+    description: Search Untappd for breweries by free-text query.
+    input:
+      type: object
+      properties:
+        q:
+          type: string
+        offset:
+          type: integer
+          default: 0
+      required:
+        - q
+    proxy: true
+    operation:
+      method: GET
+      path: /search/brewery
+      query:
+        q: '{{params.q}}'
+        offset: '{{params.offset}}'
+        client_id: '{{env.UNTAPPD_CLIENT_ID}}'
+        client_secret: '{{env.UNTAPPD_CLIENT_SECRET}}'
+  - name: untappd_get_brewery
+    description: Full detail of one brewery by ID — location, beer list, social stats.
+    input:
+      type: object
+      properties:
+        brewery_id:
+          type: integer
+      required:
+        - brewery_id
+    proxy: true
+    operation:
+      method: GET
+      path: /brewery/info/{{params.brewery_id}}
+      query:
+        client_id: '{{env.UNTAPPD_CLIENT_ID}}'
+        client_secret: '{{env.UNTAPPD_CLIENT_SECRET}}'

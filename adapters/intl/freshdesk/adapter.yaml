@@ -1,0 +1,506 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: freshdesk
+  name: Freshdesk
+  description: 'Drive Freshdesk (customer support helpdesk) from any AI agent: tickets, contacts, companies, agents, conversations. 16 tools, API-key Basic-auth, per-domain base URL.'
+  region: intl
+  category: support
+  icon: freshdesk
+  docsUrl: https://developers.freshdesk.com/api/
+  lint:
+    allow:
+      - description-min-60
+      - healthcheck-present
+credentials:
+  FRESHDESK_DOMAIN:
+    required: true
+  FRESHDESK_API_KEY:
+    required: true
+    secret: true
+transport:
+  type: http
+  baseUrl: https://{{env.FRESHDESK_DOMAIN}}.freshdesk.com/api/v2
+auth:
+  type: basic
+  username: '{{env.FRESHDESK_API_KEY}}'
+  password: X
+instructions: |-
+  This connector uses the Freshdesk REST API v2 (developers.freshdesk.com).
+
+  **Setup**:
+  1. Sign in to Freshdesk → top-right avatar → **Profile Settings → Your API Key** (right sidebar).
+  2. Copy the key. Set:
+     - `FRESHDESK_DOMAIN` = your account subdomain (e.g. `acme` if URL is `acme.freshdesk.com`)
+     - `FRESHDESK_API_KEY` = the API key
+
+  **Authentication**: HTTP Basic with username=API_KEY, password='X' (any non-empty). The adapter handles this via BASIC_AUTH with username=`{{FRESHDESK_API_KEY}}` and password=`X`.
+
+  **Subdomain in base URL**: `https://{{FRESHDESK_DOMAIN}}.freshdesk.com/api/v2`. Wrong subdomain → 404 with vendor's branded 'Page not found'.
+
+  **Ticket status integer codes**: 2=Open, 3=Pending, 4=Resolved, 5=Closed. Custom statuses get integer IDs assigned in Admin UI.
+
+  **Priority codes**: 1=Low, 2=Medium, 3=High, 4=Urgent.
+
+  **Source codes**: 1=Email, 2=Portal, 3=Phone, 4=Forum, 5=Twitter, 6=Facebook, 7=Chat, 8=MobiHelp, 9=FeedbackWidget, 10=OutboundEmail, 11=Ecommerce.
+
+  **Updating ticket reply vs note**: replies (visible to requester) go to `/tickets/{id}/reply` with body. Internal notes go to `/tickets/{id}/notes` with body and private=true. The adapter exposes both.
+
+  **Pagination**: `?page=N&per_page=M` (max 100). Total count via `?include=stats` or via response Link header.
+
+  **Rate limits**: ~1000 req/hour per plan baseline (varies). On 429 honor Retry-After.
+
+  **Out of scope here**: automations/workflows, SLA policies, solution articles (Freshdesk Solutions has its own API), satisfaction surveys, Freshchat/Freshcaller integrations (separate Freshworks products).
+tools:
+  - name: freshdesk_list_tickets
+    description: List tickets. Use filter for new_and_my_open / watching / spam / deleted, or use freshdesk_search_tickets for query-based.
+    input:
+      type: object
+      properties:
+        filter:
+          type: string
+          description: new_and_my_open, watching, spam, deleted.
+        requester_id:
+          type: integer
+          description: Filter by requester.
+        email:
+          type: string
+          description: Filter by requester email.
+        company_id:
+          type: integer
+          description: Filter by company.
+        updated_since:
+          type: string
+          description: ISO 8601 — tickets updated after.
+        order_by:
+          type: string
+          description: created_at, updated_at, due_by, status, priority.
+        order_type:
+          type: string
+          description: asc or desc.
+        include:
+          type: string
+          description: 'Side-load: requester, stats, description, company.'
+        page:
+          type: integer
+          description: Page.
+        per_page:
+          type: integer
+          description: Per page (max 100).
+    operation:
+      method: GET
+      path: /tickets
+      query:
+        filter: '{{params.filter}}'
+        requester_id: '{{params.requester_id}}'
+        email: '{{params.email}}'
+        company_id: '{{params.company_id}}'
+        updated_since: '{{params.updated_since}}'
+        order_by: '{{params.order_by}}'
+        order_type: '{{params.order_type}}'
+        include: '{{params.include}}'
+        page: '{{params.page}}'
+        per_page: '{{params.per_page}}'
+  - name: freshdesk_search_tickets
+    description: 'Search tickets with a query language. Example: ''status:2 AND priority:4''. Supports field operators like status, priority, agent_id, group_id, tag, type, source, created_at, due_by, fr_due_by.'
+    input:
+      type: object
+      properties:
+        query:
+          type: string
+          description: Search query in Freshdesk syntax. Wrap whole query in single quotes.
+        page:
+          type: integer
+          description: Page (1-10 only — search is paginated to first 1000 results).
+      required:
+        - query
+    operation:
+      method: GET
+      path: /search/tickets
+      query:
+        query: '{{params.query}}'
+        page: '{{params.page}}'
+  - name: freshdesk_get_ticket
+    description: Fetch a single ticket. Use include for conversations / requester / company / stats.
+    input:
+      type: object
+      properties:
+        ticketId:
+          type: integer
+          description: Ticket ID.
+        include:
+          type: string
+          description: 'Side-load: conversations, requester, company, stats.'
+      required:
+        - ticketId
+    operation:
+      method: GET
+      path: /tickets/{{params.ticketId}}
+      query:
+        include: '{{params.include}}'
+  - name: freshdesk_create_ticket
+    description: 'Create a ticket. Required: subject + description + (email OR requester_id) + status + priority. Status/priority are integers (see instructions).'
+    input:
+      type: object
+      properties:
+        subject:
+          type: string
+          description: Ticket subject.
+        description:
+          type: string
+          description: HTML body.
+        email:
+          type: string
+          description: Requester email (auto-creates contact if missing).
+        requester_id:
+          type: integer
+          description: Existing contact ID (alternative to email).
+        status:
+          type: integer
+          description: 2=Open, 3=Pending, 4=Resolved, 5=Closed.
+        priority:
+          type: integer
+          description: 1=Low, 2=Medium, 3=High, 4=Urgent.
+        source:
+          type: integer
+          description: Source code (see instructions).
+        type:
+          type: string
+          description: Ticket type (e.g. 'Question', 'Incident').
+        responder_id:
+          type: integer
+          description: Assigned agent ID.
+        group_id:
+          type: integer
+          description: Assigned group ID.
+        tags:
+          type: array
+          description: Array of tag strings.
+        cc_emails:
+          type: array
+          description: CC email addresses.
+        custom_fields:
+          type: object
+          description: Custom fields keyed by field name.
+      required:
+        - subject
+        - description
+        - status
+        - priority
+    operation:
+      method: POST
+      path: /tickets
+      body:
+        value:
+          subject: '{{params.subject}}'
+          description: '{{params.description}}'
+          email: '{{params.email}}'
+          requester_id: '{{params.requester_id}}'
+          status: '{{params.status}}'
+          priority: '{{params.priority}}'
+          source: '{{params.source}}'
+          type: '{{params.type}}'
+          responder_id: '{{params.responder_id}}'
+          group_id: '{{params.group_id}}'
+          tags: '{{params.tags}}'
+          cc_emails: '{{params.cc_emails}}'
+          custom_fields: '{{params.custom_fields}}'
+  - name: freshdesk_update_ticket
+    description: 'Update a ticket. Common: change status (close=5), reassign (responder_id), update priority.'
+    input:
+      type: object
+      properties:
+        ticketId:
+          type: integer
+          description: Ticket ID.
+        subject:
+          type: string
+          description: New subject.
+        status:
+          type: integer
+          description: 2/3/4/5.
+        priority:
+          type: integer
+          description: 1-4.
+        responder_id:
+          type: integer
+          description: Reassign agent.
+        group_id:
+          type: integer
+          description: Reassign group.
+        tags:
+          type: array
+          description: Replace tag set.
+        custom_fields:
+          type: object
+          description: Custom field updates.
+      required:
+        - ticketId
+    operation:
+      method: PUT
+      path: /tickets/{{params.ticketId}}
+      body:
+        value:
+          subject: '{{params.subject}}'
+          status: '{{params.status}}'
+          priority: '{{params.priority}}'
+          responder_id: '{{params.responder_id}}'
+          group_id: '{{params.group_id}}'
+          tags: '{{params.tags}}'
+          custom_fields: '{{params.custom_fields}}'
+  - name: freshdesk_delete_ticket
+    description: Move ticket to trash (recoverable from UI within retention window).
+    input:
+      type: object
+      properties:
+        ticketId:
+          type: integer
+          description: Ticket ID.
+      required:
+        - ticketId
+    operation:
+      method: DELETE
+      path: /tickets/{{params.ticketId}}
+  - name: freshdesk_reply_to_ticket
+    description: Send a public reply to the requester on a ticket.
+    input:
+      type: object
+      properties:
+        ticketId:
+          type: integer
+          description: Ticket ID.
+        body:
+          type: string
+          description: HTML reply body.
+        from_email:
+          type: string
+          description: Override From email (must be a verified product email).
+        user_id:
+          type: integer
+          description: Agent ID sending the reply.
+        cc_emails:
+          type: array
+          description: CC list.
+        bcc_emails:
+          type: array
+          description: BCC list.
+      required:
+        - ticketId
+        - body
+    operation:
+      method: POST
+      path: /tickets/{{params.ticketId}}/reply
+      body:
+        value:
+          body: '{{params.body}}'
+          from_email: '{{params.from_email}}'
+          user_id: '{{params.user_id}}'
+          cc_emails: '{{params.cc_emails}}'
+          bcc_emails: '{{params.bcc_emails}}'
+  - name: freshdesk_add_note_to_ticket
+    description: Add an internal note (private=true) or a public note to a ticket. Notes don't email the requester (unlike replies).
+    input:
+      type: object
+      properties:
+        ticketId:
+          type: integer
+          description: Ticket ID.
+        body:
+          type: string
+          description: HTML note body.
+        private:
+          type: boolean
+          description: true (default) = internal only, false = public.
+        user_id:
+          type: integer
+          description: Agent ID.
+        notify_emails:
+          type: array
+          description: Agent emails to notify.
+      required:
+        - ticketId
+        - body
+    operation:
+      method: POST
+      path: /tickets/{{params.ticketId}}/notes
+      body:
+        value:
+          body: '{{params.body}}'
+          private: '{{params.private}}'
+          user_id: '{{params.user_id}}'
+          notify_emails: '{{params.notify_emails}}'
+  - name: freshdesk_list_ticket_conversations
+    description: List all conversations (replies + notes) on a ticket, in chronological order.
+    input:
+      type: object
+      properties:
+        ticketId:
+          type: integer
+          description: Ticket ID.
+        page:
+          type: integer
+          description: Page.
+        per_page:
+          type: integer
+          description: Per page (max 30).
+      required:
+        - ticketId
+    operation:
+      method: GET
+      path: /tickets/{{params.ticketId}}/conversations
+      query:
+        page: '{{params.page}}'
+        per_page: '{{params.per_page}}'
+  - name: freshdesk_list_contacts
+    description: List contacts (requesters/end-users).
+    input:
+      type: object
+      properties:
+        email:
+          type: string
+          description: Filter by email.
+        company_id:
+          type: integer
+          description: Filter by company.
+        updated_since:
+          type: string
+          description: ISO 8601.
+        page:
+          type: integer
+          description: Page.
+        per_page:
+          type: integer
+          description: Per page.
+    operation:
+      method: GET
+      path: /contacts
+      query:
+        email: '{{params.email}}'
+        company_id: '{{params.company_id}}'
+        _updated_since: '{{params.updated_since}}'
+        page: '{{params.page}}'
+        per_page: '{{params.per_page}}'
+  - name: freshdesk_get_contact
+    description: Fetch a single contact.
+    input:
+      type: object
+      properties:
+        contactId:
+          type: integer
+          description: Contact ID.
+      required:
+        - contactId
+    operation:
+      method: GET
+      path: /contacts/{{params.contactId}}
+  - name: freshdesk_create_contact
+    description: 'Create a contact. Required: name + (email OR phone OR mobile OR twitter_id OR unique_external_id).'
+    input:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Full name.
+        email:
+          type: string
+          description: Email.
+        phone:
+          type: string
+          description: Phone.
+        mobile:
+          type: string
+          description: Mobile phone.
+        twitter_id:
+          type: string
+          description: Twitter handle.
+        company_id:
+          type: integer
+          description: Linked company.
+        job_title:
+          type: string
+          description: Title.
+        address:
+          type: string
+          description: Free-text address.
+        tags:
+          type: array
+          description: Tag strings.
+        custom_fields:
+          type: object
+          description: Custom fields.
+      required:
+        - name
+    operation:
+      method: POST
+      path: /contacts
+      body:
+        value:
+          name: '{{params.name}}'
+          email: '{{params.email}}'
+          phone: '{{params.phone}}'
+          mobile: '{{params.mobile}}'
+          twitter_id: '{{params.twitter_id}}'
+          company_id: '{{params.company_id}}'
+          job_title: '{{params.job_title}}'
+          address: '{{params.address}}'
+          tags: '{{params.tags}}'
+          custom_fields: '{{params.custom_fields}}'
+  - name: freshdesk_list_companies
+    description: List companies (organizations of contacts).
+    input:
+      type: object
+      properties:
+        page:
+          type: integer
+          description: Page.
+        per_page:
+          type: integer
+          description: Per page.
+    operation:
+      method: GET
+      path: /companies
+      query:
+        page: '{{params.page}}'
+        per_page: '{{params.per_page}}'
+  - name: freshdesk_list_agents
+    description: List agents (support staff).
+    input:
+      type: object
+      properties:
+        email:
+          type: string
+          description: Filter by email.
+        mobile:
+          type: string
+          description: Filter by mobile.
+        page:
+          type: integer
+          description: Page.
+        per_page:
+          type: integer
+          description: Per page.
+    operation:
+      method: GET
+      path: /agents
+      query:
+        email: '{{params.email}}'
+        mobile: '{{params.mobile}}'
+        page: '{{params.page}}'
+        per_page: '{{params.per_page}}'
+  - name: freshdesk_list_groups
+    description: List agent groups (for group_id assignment).
+    input:
+      type: object
+      properties: {}
+    operation:
+      method: GET
+      path: /groups
+  - name: freshdesk_list_ticket_fields
+    description: List ticket fields including custom ones with their names and types. Required to compose custom_fields objects.
+    input:
+      type: object
+      properties: {}
+    operation:
+      method: GET
+      path: /ticket_fields

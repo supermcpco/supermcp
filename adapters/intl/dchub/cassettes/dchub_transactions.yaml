@@ -1,0 +1,17 @@
+# Recorded by `supermcp adapter record`; replayed by `supermcp adapter test`.
+# Credential values are replaced with SUPERMCP_CREDENTIAL_<NAME>.
+adapter: dchub
+tool: dchub_transactions
+recordedAt: 2026-09-22T22:18:02Z
+interactions:
+  - request:
+      method: GET
+      url: https://dchub.cloud/api/v1/transactions
+      headers:
+        accept: application/json
+    response:
+      status: 200
+      headers:
+        content-type: application/json
+      body: |
+        {"count":3,"data":[{"buyer":"Nvidia","date":"2026-09-21","market":"Global","region":"North America","seller":"SB Energy","type":"Equity"},{"buyer":"Brookfield","date":"2026-09-14","market":"Global","region":"Global","seller":"AREP","type":"Equity"},{"buyer":"Flex","date":"2026-09-04","market":null,"region":null,"seller":"Undisclosed","type":"acquisition"}],"data_source":"live","full_results_available":true,"note":"Free tier: showing 3 of 390 transactions with basic fields. Upgrade for full data including deal values, MW capacity, and detailed analytics.","provenance":{"cite_as":"DC Hub, dchub.cloud","default_v":"tracked","fallback_url":"https://dchub.cloud","license":"CC-BY-4.0","method":"tracked M&A / capex / AI-contract ingestion; per-deal date + value_confirmed carry row-level provenance","provenance_version":1,"source":"DC Hub deals registry (Neon `deals` \u2014 SEC filings, press releases, industry feeds)"},"success":true,"tier":"free","total_matching":390,"total_tracked":1980,"transactions":[{"buyer":"Nvidia","date":"2026-09-21","market":"Global","region":"North America","seller":"SB Energy","type":"Equity"},{"buyer":"Brookfield","date":"2026-09-14","market":"Global","region":"Global","seller":"AREP","type":"Equity"},{"buyer":"Flex","date":"2026-09-04","market":null,"region":null,"seller":"Undisclosed","type":"acquisition"}],"upgrade_options":[{"label":"$10 one-time = 1,000 API credits; each full answer here uses one","opens":"rest","plan":"pack","url":"https://dchub.cloud/go/c/bWV0ZXJlZHw.32b1f8ad0a9f4aa4f04f8276b0960e3f"},{"label":"Developer $49/mo opens this endpoint","opens":"rest","plan":"developer","url":"https://dchub.cloud/go/c/ZGV2ZWxvcGVyfA.81fd186183a71f7893d1d6ad3ddd1a9c"}],"upgrade_url":"https://dchub.cloud/go/c/bWV0ZXJlZHw.32b1f8ad0a9f4aa4f04f8276b0960e3f"}

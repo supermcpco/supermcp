@@ -1,0 +1,289 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: wrike
+  name: Wrike
+  description: 'Manage Wrike (work management: tasks, folders, projects, comments, timelogs, attachments) from any AI agent. 10 tools, Bearer token.'
+  region: intl
+  category: project-management
+  icon: wrike
+  docsUrl: https://developers.wrike.com/
+  lint:
+    allow:
+      - description-min-60
+      - healthcheck-present
+credentials:
+  WRIKE_ACCESS_TOKEN:
+    required: true
+    secret: true
+transport:
+  type: http
+  baseUrl: https://www.wrike.com/api/v4
+auth:
+  type: bearer
+  token: '{{env.WRIKE_ACCESS_TOKEN}}'
+instructions: |-
+  This connector wraps the Wrike API v4 (per-host).
+
+  **Setup**:
+  1. Log into your Wrike account → top-right profile → **Apps & Integrations → API → Create new application**.
+  2. Generate a permanent access token. Note your host — most accounts are `www.wrike.com`, but EU accounts use `app-eu.wrike.com`. Change baseUrl accordingly.
+  3. Set `WRIKE_ACCESS_TOKEN`.
+
+  **Authentication**: `Authorization: Bearer ${WRIKE_ACCESS_TOKEN}`.
+
+  **Entity model**: `Account → Folder/Project → Task → Subtask`. A folder can contain folders + tasks. Projects are folders with `project: true` metadata.
+
+  **ID format**: Wrike IDs are short opaque strings (`IEAAGYTSI4ABCDEF`). Always discover via list endpoints; don't construct.
+
+  **Pagination**: cursor-based via `nextPageToken`. Pass back as `nextPageToken` query param.
+
+  **Rate limits**: 100 req / 60s per token. 429 with `X-Rate-Limit-Remaining`.
+
+  **Out of scope here**: blueprints, custom workflows CRUD, dashboard widgets, approvals, the Wrike Integrate (Workato wrap) extras.
+tools:
+  - name: wrike_get_account
+    description: Return account info.
+    input:
+      type: object
+      properties: {}
+    operation:
+      method: GET
+      path: /account
+  - name: wrike_list_folders
+    description: List all top-level folders + projects in the account.
+    input:
+      type: object
+      properties:
+        permalink:
+          type: string
+          description: Direct lookup by full Wrike URL.
+        descendants:
+          type: boolean
+          description: If true include descendants tree.
+        metadata:
+          type: string
+          description: JSON-encoded metadata filter.
+        fields:
+          type: string
+          description: 'Optional fields: [''parentIds'',''childIds'',''customFields'',''project''].'
+    operation:
+      method: GET
+      path: /folders
+      query:
+        permalink: '{{params.permalink}}'
+        descendants: '{{params.descendants}}'
+        metadata: '{{params.metadata}}'
+        fields: '{{params.fields}}'
+  - name: wrike_get_folder
+    description: Get a folder/project by ID with details.
+    input:
+      type: object
+      properties:
+        folder_id:
+          type: string
+          description: Folder ID.
+      required:
+        - folder_id
+    operation:
+      method: GET
+      path: /folders/{{params.folder_id}}
+  - name: wrike_create_folder
+    description: Create a folder or project inside a parent folder.
+    input:
+      type: object
+      properties:
+        parent_folder_id:
+          type: string
+          description: Parent folder ID.
+        title:
+          type: string
+          description: Folder/project title.
+        description:
+          type: string
+          description: Description.
+        shareds:
+          type: array
+          description: Array of user IDs to share with.
+        project:
+          type: object
+          description: 'If present, makes it a project: {ownerIds, status, startDate, endDate}.'
+      required:
+        - parent_folder_id
+        - title
+    operation:
+      method: POST
+      path: /folders/{{params.parent_folder_id}}/folders
+      body:
+        value:
+          title: '{{params.title}}'
+          description: '{{params.description}}'
+          shareds: '{{params.shareds}}'
+          project: '{{params.project}}'
+  - name: wrike_list_tasks
+    description: List tasks. Filter by folder, status, assignee, completed/scheduled date range.
+    input:
+      type: object
+      properties:
+        folder_id:
+          type: string
+          description: Filter to folder's tasks.
+        status:
+          type: string
+          description: Active, Completed, Deferred, Cancelled.
+        responsibles:
+          type: string
+          description: JSON array of user IDs.
+        scheduledDate:
+          type: string
+          description: JSON {start, end} window.
+        fields:
+          type: string
+          description: Optional fields list.
+        nextPageToken:
+          type: string
+          description: Pagination cursor.
+    operation:
+      method: GET
+      path: /tasks
+      query:
+        folderId: '{{params.folder_id}}'
+        status: '{{params.status}}'
+        responsibles: '{{params.responsibles}}'
+        scheduledDate: '{{params.scheduledDate}}'
+        fields: '{{params.fields}}'
+        nextPageToken: '{{params.nextPageToken}}'
+  - name: wrike_get_task
+    description: Get one task with full custom fields, dates, parents, shareds.
+    input:
+      type: object
+      properties:
+        task_id:
+          type: string
+          description: Task ID.
+      required:
+        - task_id
+    operation:
+      method: GET
+      path: /tasks/{{params.task_id}}
+  - name: wrike_create_task
+    description: Create a task in a folder.
+    input:
+      type: object
+      properties:
+        folder_id:
+          type: string
+          description: Parent folder ID.
+        title:
+          type: string
+          description: Task title.
+        description:
+          type: string
+          description: Description (HTML allowed).
+        responsibles:
+          type: array
+          description: Array of user IDs to assign.
+        status:
+          type: string
+          description: Active, Completed, Deferred, Cancelled.
+        importance:
+          type: string
+          description: Low, Normal, High.
+        dates:
+          type: object
+          description: '{type:''Backlog''|''Milestone''|''Planned'', start:''YYYY-MM-DD'', due:''YYYY-MM-DD'', duration: <minutes>}.'
+      required:
+        - folder_id
+        - title
+    operation:
+      method: POST
+      path: /folders/{{params.folder_id}}/tasks
+      body:
+        value:
+          title: '{{params.title}}'
+          description: '{{params.description}}'
+          responsibles: '{{params.responsibles}}'
+          status: '{{params.status}}'
+          importance: '{{params.importance}}'
+          dates: '{{params.dates}}'
+  - name: wrike_update_task
+    description: Update task fields.
+    input:
+      type: object
+      properties:
+        task_id:
+          type: string
+          description: Task ID.
+        title:
+          type: string
+          description: New title.
+        description:
+          type: string
+          description: New description.
+        status:
+          type: string
+          description: New status.
+        addResponsibles:
+          type: array
+          description: User IDs to add.
+        removeResponsibles:
+          type: array
+          description: User IDs to remove.
+        dates:
+          type: object
+          description: Dates structure.
+      required:
+        - task_id
+    operation:
+      method: PUT
+      path: /tasks/{{params.task_id}}
+      body:
+        value:
+          title: '{{params.title}}'
+          description: '{{params.description}}'
+          status: '{{params.status}}'
+          addResponsibles: '{{params.addResponsibles}}'
+          removeResponsibles: '{{params.removeResponsibles}}'
+          dates: '{{params.dates}}'
+  - name: wrike_add_comment
+    description: Add a comment to a task.
+    input:
+      type: object
+      properties:
+        task_id:
+          type: string
+          description: Task ID.
+        text:
+          type: string
+          description: Comment body (Markdown supported).
+        plain_text:
+          type: boolean
+          description: If true, render as plain text.
+      required:
+        - task_id
+        - text
+    operation:
+      method: POST
+      path: /tasks/{{params.task_id}}/comments
+      body:
+        value:
+          text: '{{params.text}}'
+          plainText: '{{params.plain_text}}'
+  - name: wrike_list_contacts
+    description: List users (Wrike calls them 'contacts').
+    input:
+      type: object
+      properties:
+        me:
+          type: boolean
+          description: If true, only the authenticated user.
+        metadata:
+          type: string
+          description: JSON-encoded metadata filter.
+    operation:
+      method: GET
+      path: /contacts
+      query:
+        me: '{{params.me}}'
+        metadata: '{{params.metadata}}'

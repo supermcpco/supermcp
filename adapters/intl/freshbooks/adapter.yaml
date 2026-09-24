@@ -1,0 +1,295 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: freshbooks
+  name: FreshBooks
+  description: Manage FreshBooks (invoices, clients, expenses, time entries, payments) from any AI agent. 9 tools, OAuth2 auth.
+  region: intl
+  category: accounting
+  icon: freshbooks
+  docsUrl: https://www.freshbooks.com/api/start
+  lint:
+    allow:
+      - description-min-60
+      - healthcheck-present
+credentials:
+  FRESHBOOKS_CLIENT_ID:
+    required: true
+  FRESHBOOKS_CLIENT_SECRET:
+    required: true
+    secret: true
+  FRESHBOOKS_REFRESH_TOKEN:
+    required: true
+    secret: true
+  FRESHBOOKS_ACCOUNT_ID:
+    required: true
+transport:
+  type: http
+  baseUrl: https://api.freshbooks.com
+auth:
+  type: oauth2
+  grant: refresh_token
+  clientId: '{{env.FRESHBOOKS_CLIENT_ID}}'
+  clientSecret: '{{env.FRESHBOOKS_CLIENT_SECRET}}'
+  tokenUrl: https://api.freshbooks.com/auth/oauth/token
+  refreshToken: '{{env.FRESHBOOKS_REFRESH_TOKEN}}'
+instructions: |-
+  This connector wraps the FreshBooks New API (api.freshbooks.com/accounting).
+
+  **Setup — OAuth2 refresh flow**:
+  1. Go to https://my.freshbooks.com/#/developer → **Create an App**. Set redirect URI to your callback.
+  2. Run the auth flow: `https://my.freshbooks.com/oauth/authorize?response_type=code&client_id=...&redirect_uri=...&scope=user:profile:read user:clients:read user:invoices:read user:invoices:write user:expenses:read user:time_entries:read user:payments:read user:payments:write`.
+  3. Exchange the code at `https://api.freshbooks.com/auth/oauth/token` for access + refresh tokens.
+  4. **Account ID**: the FreshBooks API requires an Account ID (`bzz...`) on most endpoints — find it via `GET /auth/api/v1/users/me` (the `accountid` of your first business). Set `FRESHBOOKS_ACCOUNT_ID`.
+  5. Set `FRESHBOOKS_CLIENT_ID`, `FRESHBOOKS_CLIENT_SECRET`, `FRESHBOOKS_REFRESH_TOKEN`, `FRESHBOOKS_ACCOUNT_ID`.
+
+  **Authentication**: OAuth2 with the engine's refresh handling. Access token sent as `Bearer`. Account ID goes in the URL path on most endpoints — substituted via runtime envVar.
+
+  **Two-account-types**: classic 'accounting' (US) and 'projects' (international, the new product). This adapter covers the accounting endpoints.
+
+  **Response shape**: FreshBooks wraps everything in `{response: {result: {<entity_plural>: [...]}}}`. The adapter does not unwrap automatically — handle in the caller.
+
+  **Pagination**: `page` (1-based) + `per_page` (max 100). Cursor on some newer endpoints.
+
+  **Rate limits**: 30 req/min per token, 3600/hr. 429 → exponential.
+
+  **Out of scope here**: reports, journal entries, project tracking (separate `/projects` API).
+tools:
+  - name: freshbooks_me
+    description: Return the authenticated user with business memberships and their account IDs.
+    input:
+      type: object
+      properties: {}
+    operation:
+      method: GET
+      path: /auth/api/v1/users/me
+  - name: freshbooks_list_clients
+    description: List clients in an account.
+    input:
+      type: object
+      properties:
+        page:
+          type: integer
+          description: 1-based.
+        per_page:
+          type: integer
+          description: Max 100.
+        search_email:
+          type: string
+          description: Filter by email substring.
+    operation:
+      method: GET
+      path: /accounting/account/{{env.FRESHBOOKS_ACCOUNT_ID}}/users/clients
+      query:
+        page: '{{params.page}}'
+        per_page: '{{params.per_page}}'
+        search[email_like]: '{{params.search_email}}'
+  - name: freshbooks_create_client
+    description: Create a client.
+    input:
+      type: object
+      properties:
+        fname:
+          type: string
+          description: First name.
+        lname:
+          type: string
+          description: Last name.
+        organization:
+          type: string
+          description: Company name.
+        email:
+          type: string
+          description: Email.
+        currency_code:
+          type: string
+          description: ISO 4217.
+      required:
+        - email
+    operation:
+      method: POST
+      path: /accounting/account/{{env.FRESHBOOKS_ACCOUNT_ID}}/users/clients
+      body:
+        value:
+          client:
+            fname: '{{params.fname}}'
+            lname: '{{params.lname}}'
+            organization: '{{params.organization}}'
+            email: '{{params.email}}'
+            currency_code: '{{params.currency_code}}'
+  - name: freshbooks_list_invoices
+    description: 'List invoices. Filter by client, status, date range. Status codes: 1=Draft, 2=Sent, 3=Viewed, 4=Paid, 5=AutoPaid, 6=Retry, 7=Failed, 8=Partial, 9=Disputed.'
+    input:
+      type: object
+      properties:
+        clientid:
+          type: integer
+          description: Filter by client ID.
+        status:
+          type: integer
+          description: Status code.
+        date_from:
+          type: string
+          description: YYYY-MM-DD.
+        date_to:
+          type: string
+          description: YYYY-MM-DD.
+        page:
+          type: integer
+          description: 1-based.
+        per_page:
+          type: integer
+          description: Max 100.
+    operation:
+      method: GET
+      path: /accounting/account/{{env.FRESHBOOKS_ACCOUNT_ID}}/invoices/invoices
+      query:
+        search[clientid]: '{{params.clientid}}'
+        search[status]: '{{params.status}}'
+        search[date_min]: '{{params.date_from}}'
+        search[date_max]: '{{params.date_to}}'
+        page: '{{params.page}}'
+        per_page: '{{params.per_page}}'
+  - name: freshbooks_get_invoice
+    description: Get a single invoice with all lines + payments.
+    input:
+      type: object
+      properties:
+        invoice_id:
+          type: integer
+          description: Invoice ID.
+      required:
+        - invoice_id
+    operation:
+      method: GET
+      path: /accounting/account/{{env.FRESHBOOKS_ACCOUNT_ID}}/invoices/invoices/{{params.invoice_id}}
+  - name: freshbooks_create_invoice
+    description: Create an invoice. `lines` is an array of line items {name, qty, unit_cost, type:0|1, description}.
+    input:
+      type: object
+      properties:
+        customerid:
+          type: integer
+          description: Client ID.
+        create_date:
+          type: string
+          description: YYYY-MM-DD.
+        lines:
+          type: array
+          description: Array of line items.
+        notes:
+          type: string
+          description: Invoice notes.
+        currency_code:
+          type: string
+          description: ISO 4217.
+        terms:
+          type: string
+          description: Payment terms text.
+      required:
+        - customerid
+        - create_date
+        - lines
+    operation:
+      method: POST
+      path: /accounting/account/{{env.FRESHBOOKS_ACCOUNT_ID}}/invoices/invoices
+      body:
+        value:
+          invoice:
+            customerid: '{{params.customerid}}'
+            create_date: '{{params.create_date}}'
+            lines: '{{params.lines}}'
+            notes: '{{params.notes}}'
+            currency_code: '{{params.currency_code}}'
+            terms: '{{params.terms}}'
+  - name: freshbooks_list_expenses
+    description: List expenses.
+    input:
+      type: object
+      properties:
+        date_from:
+          type: string
+          description: YYYY-MM-DD.
+        date_to:
+          type: string
+          description: YYYY-MM-DD.
+        categoryid:
+          type: integer
+          description: Filter by category.
+        page:
+          type: integer
+          description: 1-based.
+        per_page:
+          type: integer
+          description: Max 100.
+    operation:
+      method: GET
+      path: /accounting/account/{{env.FRESHBOOKS_ACCOUNT_ID}}/expenses/expenses
+      query:
+        search[date_min]: '{{params.date_from}}'
+        search[date_max]: '{{params.date_to}}'
+        search[categoryid]: '{{params.categoryid}}'
+        page: '{{params.page}}'
+        per_page: '{{params.per_page}}'
+  - name: freshbooks_list_payments
+    description: List payments received against invoices.
+    input:
+      type: object
+      properties:
+        invoiceid:
+          type: integer
+          description: Filter by invoice.
+        clientid:
+          type: integer
+          description: Filter by client.
+        page:
+          type: integer
+          description: 1-based.
+        per_page:
+          type: integer
+          description: Max 100.
+    operation:
+      method: GET
+      path: /accounting/account/{{env.FRESHBOOKS_ACCOUNT_ID}}/payments/payments
+      query:
+        search[invoiceid]: '{{params.invoiceid}}'
+        search[clientid]: '{{params.clientid}}'
+        page: '{{params.page}}'
+        per_page: '{{params.per_page}}'
+  - name: freshbooks_record_payment
+    description: Record a payment against an invoice.
+    input:
+      type: object
+      properties:
+        invoiceid:
+          type: integer
+          description: Invoice ID.
+        amount:
+          type: object
+          description: '{amount: ''100.00'', code: ''USD''}.'
+        date:
+          type: string
+          description: YYYY-MM-DD.
+        type:
+          type: string
+          description: Bank Transfer, Cash, Check, Credit Card, ...
+        note:
+          type: string
+          description: Free-text.
+      required:
+        - invoiceid
+        - amount
+        - date
+        - type
+    operation:
+      method: POST
+      path: /accounting/account/{{env.FRESHBOOKS_ACCOUNT_ID}}/payments/payments
+      body:
+        value:
+          payment:
+            invoiceid: '{{params.invoiceid}}'
+            amount: '{{params.amount}}'
+            date: '{{params.date}}'
+            type: '{{params.type}}'
+            note: '{{params.note}}'

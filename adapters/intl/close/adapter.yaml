@@ -1,0 +1,462 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: close
+  name: Close CRM
+  description: 'Drive Close (sales-team CRM) from any AI agent: leads, contacts, opportunities, activities (calls/emails/SMS/notes), tasks, smart views and custom fields. 16 tools, API-key Basic-auth.'
+  region: intl
+  category: crm
+  icon: close
+  docsUrl: https://developer.close.com/
+  lint:
+    allow:
+      - description-min-60
+      - healthcheck-present
+credentials:
+  CLOSE_API_KEY:
+    required: true
+    secret: true
+transport:
+  type: http
+  baseUrl: https://api.close.com/api/v1
+auth:
+  type: basic
+  username: '{{env.CLOSE_API_KEY}}'
+instructions: |-
+  This connector uses the Close API v1 (https://developer.close.com).
+
+  **Setup**:
+  1. Sign in to Close → top-right avatar → **Settings → Developer → API Keys → New API Key**.
+  2. Name it ('supermcp'), copy the key (starts with `api_`). Set `CLOSE_API_KEY`.
+
+  **Authentication**: HTTP Basic auth with username=API_KEY and password empty. The adapter passes `Authorization: Basic base64(API_KEY:)`. Same as Stripe's auth model.
+
+  **Lead is the top-level object** — a 'lead' in Close is what other CRMs call an 'account' or 'company': it groups multiple `contacts` (the actual people), `opportunities` (deal-level pipeline records), and `activities` (timeline of calls/emails/notes/SMS). When in doubt, the agent should start with `close_search_leads` (Smart View query) rather than searching contacts directly.
+
+  **Custom field IDs**: like Pipedrive, custom fields have opaque IDs. Discover via `close_list_lead_custom_fields` / `close_list_contact_custom_fields` / `close_list_opportunity_custom_fields`. Reference them in writes via `custom.cf_XYZ` keys on the resource.
+
+  **Smart Views (saved searches)**: Close's central UX is filtered queries. The API exposes them via `close_search_leads` with a `query` JSON (the same DSL the UI builds). Easiest: build the view in the UI, copy its Smart View ID, then call `close_get_smart_view` to inspect — but for ad-hoc queries the `query` param accepts the JSON directly.
+
+  **Activities are typed**: call, email, sms, note, meeting, task_completed, lead_status_change, opportunity_status_change. Use `close_create_note_activity` for plain notes; for calls/emails the SaaS expects you to use Close's built-in dialer / email integration, not POST a fake activity (the agent shouldn't fabricate a sent email).
+
+  **Pagination**: cursor-based via `_skip` + `_limit` (max 100 per page) plus `has_more` boolean. Some list endpoints return total counts in `meta`.
+
+  **Rate limits**: ~80 requests/sec burst per organization. On 429, back off — `RateLimit-Reset` header is set.
+
+  **Out of scope here**: dialer call recording, email sequences (use Close UI), reports/analytics computation, integrations (Mailchimp/Stripe sync), webhook subscription management.
+tools:
+  - name: close_get_me
+    description: Return the user the API key belongs to plus the organization context (id, name, plan, addresses). Health check + whoami.
+    input:
+      type: object
+      properties: {}
+    operation:
+      method: GET
+      path: /me/
+  - name: close_list_leads
+    description: List leads (companies) with optional query filter and pagination. Each lead has display_name, status_id, contacts[], opportunities[], custom fields, addresses, url, description, integration_links.
+    input:
+      type: object
+      properties:
+        query:
+          type: string
+          description: Close query string — e.g. 'has:opportunities lead_status:"Customer"' or 'has:contacts'. Empty string returns all.
+        _fields:
+          type: string
+          description: Comma-separated fields to return (sparse). Default returns all.
+        _limit:
+          type: integer
+          description: Max per page (default 100, max 100).
+        _skip:
+          type: integer
+          description: Pagination offset.
+    operation:
+      method: GET
+      path: /lead/
+      query:
+        query: '{{params.query}}'
+        _fields: '{{params._fields}}'
+        _limit: '{{params._limit}}'
+        _skip: '{{params._skip}}'
+  - name: close_get_lead
+    description: Fetch one lead by ID. Returns display_name, contacts[], opportunities[], tasks[], custom fields, all the activity rollups.
+    input:
+      type: object
+      properties:
+        leadId:
+          type: string
+          description: Lead ID (starts with 'lead_').
+      required:
+        - leadId
+    operation:
+      method: GET
+      path: /lead/{{params.leadId}}/
+  - name: close_create_lead
+    description: Create a new lead (company). Pass contacts inline to create them in one call. Display_name auto-derives from name if omitted.
+    input:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Company name (e.g. 'ACME Inc').
+        url:
+          type: string
+          description: Website URL.
+        description:
+          type: string
+          description: Free-text description.
+        status_id:
+          type: string
+          description: Lead status ID (discover via close_list_lead_statuses).
+        addresses:
+          type: array
+          description: Array of {address_1, address_2?, city, state, zipcode, country, label}.
+        contacts:
+          type: array
+          description: 'Inline contacts to create: [{name, title?, emails:[{type,email}], phones:[{type,phone}], urls?:[{type,url}]}].'
+        custom:
+          type: object
+          description: Custom fields keyed by 'cf_XYZ' field IDs.
+      required:
+        - name
+    operation:
+      method: POST
+      path: /lead/
+      body:
+        value:
+          name: '{{params.name}}'
+          url: '{{params.url}}'
+          description: '{{params.description}}'
+          status_id: '{{params.status_id}}'
+          addresses: '{{params.addresses}}'
+          contacts: '{{params.contacts}}'
+          custom: '{{params.custom}}'
+  - name: close_update_lead
+    description: Partial-update a lead. Pass only fields to change.
+    input:
+      type: object
+      properties:
+        leadId:
+          type: string
+          description: Lead ID.
+        name:
+          type: string
+          description: New name.
+        url:
+          type: string
+          description: New URL.
+        description:
+          type: string
+          description: New description.
+        status_id:
+          type: string
+          description: New status.
+        addresses:
+          type: array
+          description: Full address array (replaces).
+        custom:
+          type: object
+          description: Custom fields to update (cf_XYZ keys).
+      required:
+        - leadId
+    operation:
+      method: PUT
+      path: /lead/{{params.leadId}}/
+      body:
+        value:
+          name: '{{params.name}}'
+          url: '{{params.url}}'
+          description: '{{params.description}}'
+          status_id: '{{params.status_id}}'
+          addresses: '{{params.addresses}}'
+          custom: '{{params.custom}}'
+  - name: close_list_contacts
+    description: List contacts (people) — typically scoped to a lead via the lead_id query param.
+    input:
+      type: object
+      properties:
+        lead_id:
+          type: string
+          description: Filter by lead.
+        _limit:
+          type: integer
+          description: Max per page.
+        _skip:
+          type: integer
+          description: Pagination offset.
+    operation:
+      method: GET
+      path: /contact/
+      query:
+        lead_id: '{{params.lead_id}}'
+        _limit: '{{params._limit}}'
+        _skip: '{{params._skip}}'
+  - name: close_create_contact
+    description: 'Create a contact on a lead. Required: lead_id + name. Emails/phones are arrays of {type, email|phone}.'
+    input:
+      type: object
+      properties:
+        lead_id:
+          type: string
+          description: Parent lead ID.
+        name:
+          type: string
+          description: Person's full name.
+        title:
+          type: string
+          description: Job title.
+        emails:
+          type: array
+          description: '[{type:''office''|''mobile''|''home''|''direct''|''fax''|''other'', email}].'
+        phones:
+          type: array
+          description: '[{type, phone}].'
+        urls:
+          type: array
+          description: '[{type:''url'', url}].'
+        custom:
+          type: object
+          description: Custom fields (cf_XYZ).
+      required:
+        - lead_id
+        - name
+    operation:
+      method: POST
+      path: /contact/
+      body:
+        value:
+          lead_id: '{{params.lead_id}}'
+          name: '{{params.name}}'
+          title: '{{params.title}}'
+          emails: '{{params.emails}}'
+          phones: '{{params.phones}}'
+          urls: '{{params.urls}}'
+          custom: '{{params.custom}}'
+  - name: close_list_opportunities
+    description: List opportunities (deals). Filter by lead_id, status_id, status_type (active/won/lost), date_won range.
+    input:
+      type: object
+      properties:
+        lead_id:
+          type: string
+          description: Filter by lead.
+        status_id:
+          type: string
+          description: Filter by status.
+        status_type:
+          type: string
+          description: active, won, lost.
+        _limit:
+          type: integer
+          description: Per page.
+        _skip:
+          type: integer
+          description: Pagination offset.
+    operation:
+      method: GET
+      path: /opportunity/
+      query:
+        lead_id: '{{params.lead_id}}'
+        status_id: '{{params.status_id}}'
+        status_type: '{{params.status_type}}'
+        _limit: '{{params._limit}}'
+        _skip: '{{params._skip}}'
+  - name: close_create_opportunity
+    description: 'Create an opportunity (deal). Value is in cents (e.g. 100000 = $1000.00). value_period: one_time, monthly, annual.'
+    input:
+      type: object
+      properties:
+        lead_id:
+          type: string
+          description: Parent lead ID.
+        note:
+          type: string
+          description: Opportunity note (description).
+        value:
+          type: integer
+          description: Deal value in cents.
+        value_currency:
+          type: string
+          description: ISO 4217 (USD, EUR, ...).
+        value_period:
+          type: string
+          description: one_time, monthly, annual.
+        status_id:
+          type: string
+          description: Status ID.
+        confidence:
+          type: integer
+          description: Win probability 0-100.
+        custom:
+          type: object
+          description: Custom fields.
+      required:
+        - lead_id
+    operation:
+      method: POST
+      path: /opportunity/
+      body:
+        value:
+          lead_id: '{{params.lead_id}}'
+          note: '{{params.note}}'
+          value: '{{params.value}}'
+          value_currency: '{{params.value_currency}}'
+          value_period: '{{params.value_period}}'
+          status_id: '{{params.status_id}}'
+          confidence: '{{params.confidence}}'
+          custom: '{{params.custom}}'
+  - name: close_update_opportunity
+    description: 'Update an opportunity. Common uses: set status_id (move pipeline stage), update value, set confidence.'
+    input:
+      type: object
+      properties:
+        opportunityId:
+          type: string
+          description: Opportunity ID (oppo_XXX).
+        status_id:
+          type: string
+          description: New status.
+        value:
+          type: integer
+          description: New value (cents).
+        value_currency:
+          type: string
+          description: New currency.
+        value_period:
+          type: string
+          description: New period.
+        confidence:
+          type: integer
+          description: New confidence 0-100.
+        note:
+          type: string
+          description: New note.
+        custom:
+          type: object
+          description: Custom fields.
+      required:
+        - opportunityId
+    operation:
+      method: PUT
+      path: /opportunity/{{params.opportunityId}}/
+      body:
+        value:
+          status_id: '{{params.status_id}}'
+          value: '{{params.value}}'
+          value_currency: '{{params.value_currency}}'
+          value_period: '{{params.value_period}}'
+          confidence: '{{params.confidence}}'
+          note: '{{params.note}}'
+          custom: '{{params.custom}}'
+  - name: close_create_note_activity
+    description: Log a free-text note on a lead (timeline). Use for AI-generated meeting notes, summaries, observations. Do NOT use for fake emails/calls (those have their own typed activities).
+    input:
+      type: object
+      properties:
+        lead_id:
+          type: string
+          description: Lead to attach the note to.
+        note:
+          type: string
+          description: Note body. Supports basic plain-text.
+      required:
+        - lead_id
+        - note
+    operation:
+      method: POST
+      path: /activity/note/
+      body:
+        value:
+          lead_id: '{{params.lead_id}}'
+          note: '{{params.note}}'
+  - name: close_list_activities
+    description: List activities (timeline events) — call, email, sms, note, meeting, etc. Filter by lead_id, contact_id, type, date range.
+    input:
+      type: object
+      properties:
+        lead_id:
+          type: string
+          description: Filter by lead.
+        contact_id:
+          type: string
+          description: Filter by contact.
+        _type:
+          type: string
+          description: 'Activity type: call, email, sms, note, meeting, task_completed, etc.'
+        date_created__gte:
+          type: string
+          description: Created on/after (ISO 8601).
+        date_created__lt:
+          type: string
+          description: Created before (ISO 8601).
+        _limit:
+          type: integer
+          description: Per page.
+        _skip:
+          type: integer
+          description: Pagination offset.
+    operation:
+      method: GET
+      path: /activity/
+      query:
+        lead_id: '{{params.lead_id}}'
+        contact_id: '{{params.contact_id}}'
+        _type: '{{params._type}}'
+        date_created__gte: '{{params.date_created__gte}}'
+        date_created__lt: '{{params.date_created__lt}}'
+        _limit: '{{params._limit}}'
+        _skip: '{{params._skip}}'
+  - name: close_create_task
+    description: Create a task on a lead. Tasks are reminders for the assignee user.
+    input:
+      type: object
+      properties:
+        lead_id:
+          type: string
+          description: Parent lead ID.
+        text:
+          type: string
+          description: Task text.
+        due_date:
+          type: string
+          description: ISO 8601 date YYYY-MM-DD.
+        assigned_to:
+          type: string
+          description: User ID to assign to (defaults to the API key's user).
+      required:
+        - lead_id
+        - text
+    operation:
+      method: POST
+      path: /task/
+      body:
+        value:
+          lead_id: '{{params.lead_id}}'
+          text: '{{params.text}}'
+          due_date: '{{params.due_date}}'
+          assigned_to: '{{params.assigned_to}}'
+  - name: close_list_lead_statuses
+    description: List the lead status values configured on the organization (e.g. 'Potential', 'Qualified', 'Customer', 'Bad Fit').
+    input:
+      type: object
+      properties: {}
+    operation:
+      method: GET
+      path: /status/lead/
+  - name: close_list_opportunity_statuses
+    description: List the opportunity (pipeline stage) status values — typically active stages + won/lost terminal states.
+    input:
+      type: object
+      properties: {}
+    operation:
+      method: GET
+      path: /status/opportunity/
+  - name: close_list_lead_custom_fields
+    description: List the custom fields defined on leads with their IDs (cf_XYZ), types, and pick-list options. Required to compose `custom` objects in create/update.
+    input:
+      type: object
+      properties: {}
+    operation:
+      method: GET
+      path: /custom_fields/lead/

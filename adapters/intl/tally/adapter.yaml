@@ -1,0 +1,146 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: tally
+  name: Tally
+  description: Read Tally form submissions and manage forms/workspaces from any AI agent. 6 tools, Bearer-token auth. The modern free-tier-friendly alternative to Typeform.
+  region: intl
+  category: forms
+  icon: tally
+  docsUrl: https://developers.tally.so/api-reference/
+  lint:
+    allow:
+      - description-min-60
+      - healthcheck-present
+      - instructions-min-800
+credentials:
+  TALLY_API_KEY:
+    required: true
+    secret: true
+transport:
+  type: http
+  baseUrl: https://api.tally.so
+auth:
+  type: bearer
+  token: '{{env.TALLY_API_KEY}}'
+instructions: |-
+  This connector uses the Tally API (developers.tally.so).
+
+  **Setup**:
+  1. Sign in to https://tally.so → top-right avatar → **Settings → API → Create API key**.
+  2. Copy the key (starts with `tly-`). Set `TALLY_API_KEY`.
+
+  **Authentication**: `Authorization: Bearer ${TALLY_API_KEY}`.
+
+  **Forms and responses**: each form has an alphanumeric ID (e.g. `wbN0Wd`). Responses to a form are returned as an array of `{questionId, answer, type}` per submission.
+
+  **Pagination**: cursor-based with `?page=N&limit=M` for submissions. Default 50 per page, max 100.
+
+  **Webhooks** out of scope (configure in Tally UI to point at your hosted endpoint).
+
+  **Out of scope here**: creating/editing forms (Tally's editor is GUI-only and rich), file uploads, custom integrations.
+tools:
+  - name: tally_list_workspaces
+    description: List workspaces (teams). Returns id, name, slug, isOwner, isLeader.
+    input:
+      type: object
+      properties:
+        page:
+          type: integer
+          description: Page number.
+        limit:
+          type: integer
+          description: Per page (default 50, max 100).
+    operation:
+      method: GET
+      path: /workspaces
+      query:
+        page: '{{params.page}}'
+        limit: '{{params.limit}}'
+  - name: tally_list_forms
+    description: List forms in a workspace. Each form has id, name, isClosed, numberOfSubmissions, createdAt, updatedAt.
+    input:
+      type: object
+      properties:
+        workspaceId:
+          type: string
+          description: Workspace ID to filter (optional — defaults to all).
+        page:
+          type: integer
+          description: Page.
+        limit:
+          type: integer
+          description: Per page.
+    operation:
+      method: GET
+      path: /forms
+      query:
+        workspaceId: '{{params.workspaceId}}'
+        page: '{{params.page}}'
+        limit: '{{params.limit}}'
+  - name: tally_get_form
+    description: 'Fetch a form''s full definition: questions[], theme, settings, redirectUrl, isClosed.'
+    input:
+      type: object
+      properties:
+        formId:
+          type: string
+          description: Form ID.
+      required:
+        - formId
+    operation:
+      method: GET
+      path: /forms/{{params.formId}}
+  - name: tally_list_form_submissions
+    description: List submissions to a form. Each submission has id, formId, respondentId, submittedAt, isCompleted, responses[].
+    input:
+      type: object
+      properties:
+        formId:
+          type: string
+          description: Form ID.
+        page:
+          type: integer
+          description: Page.
+        limit:
+          type: integer
+          description: Per page.
+      required:
+        - formId
+    operation:
+      method: GET
+      path: /forms/{{params.formId}}/submissions
+      query:
+        page: '{{params.page}}'
+        limit: '{{params.limit}}'
+  - name: tally_get_form_submission
+    description: Fetch a single submission with its full responses[].
+    input:
+      type: object
+      properties:
+        formId:
+          type: string
+          description: Form ID.
+        submissionId:
+          type: string
+          description: Submission ID.
+      required:
+        - formId
+        - submissionId
+    operation:
+      method: GET
+      path: /forms/{{params.formId}}/submissions/{{params.submissionId}}
+  - name: tally_get_form_questions
+    description: List the questions defined on a form, with id, type, title, isRequired, options. Required to map answer questionIds to human-readable titles.
+    input:
+      type: object
+      properties:
+        formId:
+          type: string
+          description: Form ID.
+      required:
+        - formId
+    operation:
+      method: GET
+      path: /forms/{{params.formId}}/questions

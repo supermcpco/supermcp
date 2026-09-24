@@ -1,0 +1,222 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: pennylane
+  name: Pennylane
+  description: 'Pennylane — French accounting and finance for SMBs and their accountants: customer and supplier invoices, customers, suppliers, products, ledger entries and bank transactions. REST API v2, bearer token.'
+  region: fr
+  category: accounting
+  icon: pennylane
+  docsUrl: https://pennylane.readme.io/
+credentials:
+  PENNYLANE_API_TOKEN:
+    required: true
+    secret: true
+transport:
+  type: http
+  baseUrl: https://app.pennylane.com/api/external/v2
+  headers:
+    Accept: application/json
+auth:
+  type: bearer
+  token: '{{env.PENNYLANE_API_TOKEN}}'
+healthcheck:
+  tool: pennylane_list_customers
+  http:
+    method: GET
+    path: /customers?limit=1
+instructions: |-
+  **Getting a token**
+  1. Sign in to Pennylane and open **Paramètres → Intégrations → API** (Settings → Integrations → API).
+  2. Create a personal access token and put it in `PENNYLANE_API_TOKEN`. The token is scoped to one company (entreprise); an accountant handling several clients needs one connector per client.
+
+  **This adapter targets API v2** at `https://app.pennylane.com/api/external/v2`. Pennylane's v1 is still served but is being wound down, and its pagination and field names differ — if you find a v1 example online, it will not work here.
+
+  **Cursor pagination.** v2 returns `next_cursor`; pass it back as `cursor` to get the following page. There is no page number, and computing an offset is not possible.
+
+  **Customer vs supplier invoices.** `customer_invoices` are what you issue; `supplier_invoices` are what you receive. Both carry `currency_amount` (in the document's currency) and `amount` (in the company's), which are not the same number for a foreign-currency invoice.
+
+  **Filters are a JSON array**, e.g. `filter=[{"field":"date","operator":"gteq","value":"2026-01-01"}]`. Operators include `eq`, `not_eq`, `gt`, `gteq`, `lt`, `lteq`, `cont` and `in`. The tools below pass the string through verbatim so the full grammar stays available.
+
+  **Amounts are strings**, to avoid float rounding. Parse them; do not do arithmetic on the raw JSON in a prompt.
+
+  **Cloud reachability**: app.pennylane.com is public with a valid certificate.
+tools:
+  - name: pennylane_list_customers
+    description: List customers with their name, SIREN/SIRET, VAT number, address and payment terms. The quickest call for checking that the token works.
+    input:
+      type: object
+      properties:
+        limit:
+          type: number
+          description: Rows per page (default 20, max 100).
+        cursor:
+          type: string
+          description: Cursor from the previous page's next_cursor.
+        filter:
+          type: string
+          description: Filter JSON array, e.g. [{"field":"name","operator":"cont","value":"Dupont"}].
+    operation:
+      method: GET
+      path: /customers
+      query:
+        limit: '{{params.limit}}'
+        cursor: '{{params.cursor}}'
+        filter: '{{params.filter}}'
+  - name: pennylane_get_customer
+    description: Read one customer by id, with their full billing address, tax identifiers, default payment conditions and recorded balance.
+    input:
+      type: object
+      properties:
+        customerId:
+          type: string
+          description: Pennylane customer id.
+      required:
+        - customerId
+    operation:
+      method: GET
+      path: /customers/{{params.customerId}}
+  - name: pennylane_list_customer_invoices
+    description: List invoices you issued, with their number, date, deadline, customer, currency amount and paid status — the receivables view.
+    input:
+      type: object
+      properties:
+        limit:
+          type: number
+          description: Rows per page (default 20, max 100).
+        cursor:
+          type: string
+          description: Cursor from the previous page's next_cursor.
+        filter:
+          type: string
+          description: Filter JSON array, e.g. [{"field":"date","operator":"gteq","value":"2026-01-01"}].
+        sort:
+          type: string
+          description: Sort field, prefix with `-` for descending, e.g. -date.
+    operation:
+      method: GET
+      path: /customer_invoices
+      query:
+        limit: '{{params.limit}}'
+        cursor: '{{params.cursor}}'
+        filter: '{{params.filter}}'
+        sort: '{{params.sort}}'
+  - name: pennylane_get_customer_invoice
+    description: 'Read one issued invoice in full: every line with its VAT rate, the totals in both the document and company currency, and the matched payments.'
+    input:
+      type: object
+      properties:
+        invoiceId:
+          type: string
+          description: Pennylane invoice id.
+      required:
+        - invoiceId
+    operation:
+      method: GET
+      path: /customer_invoices/{{params.invoiceId}}
+  - name: pennylane_list_supplier_invoices
+    description: List supplier invoices you received, with their number, date, deadline, supplier, amount and paid status — the payables view.
+    input:
+      type: object
+      properties:
+        limit:
+          type: number
+          description: Rows per page (default 20, max 100).
+        cursor:
+          type: string
+          description: Cursor from the previous page's next_cursor.
+        filter:
+          type: string
+          description: Filter JSON array over supplier-invoice fields.
+        sort:
+          type: string
+          description: Sort field, prefix with `-` for descending.
+    operation:
+      method: GET
+      path: /supplier_invoices
+      query:
+        limit: '{{params.limit}}'
+        cursor: '{{params.cursor}}'
+        filter: '{{params.filter}}'
+        sort: '{{params.sort}}'
+  - name: pennylane_list_suppliers
+    description: List suppliers with their name, SIREN, VAT number and address, to resolve who a received invoice belongs to.
+    input:
+      type: object
+      properties:
+        limit:
+          type: number
+          description: Rows per page.
+        cursor:
+          type: string
+          description: Cursor from the previous page's next_cursor.
+        filter:
+          type: string
+          description: Filter JSON array over supplier fields.
+    operation:
+      method: GET
+      path: /suppliers
+      query:
+        limit: '{{params.limit}}'
+        cursor: '{{params.cursor}}'
+        filter: '{{params.filter}}'
+  - name: pennylane_list_products
+    description: List products and services with their label, unit price, VAT rate and the ledger account they book to.
+    input:
+      type: object
+      properties:
+        limit:
+          type: number
+          description: Rows per page.
+        cursor:
+          type: string
+          description: Cursor from the previous page's next_cursor.
+    operation:
+      method: GET
+      path: /products
+      query:
+        limit: '{{params.limit}}'
+        cursor: '{{params.cursor}}'
+  - name: pennylane_list_ledger_entries
+    description: List ledger entry lines with their account, label, debit, credit and journal — the bookkeeping view underneath the invoices.
+    input:
+      type: object
+      properties:
+        limit:
+          type: number
+          description: Rows per page.
+        cursor:
+          type: string
+          description: Cursor from the previous page's next_cursor.
+        filter:
+          type: string
+          description: Filter JSON array, e.g. by date range or ledger account number.
+    operation:
+      method: GET
+      path: /ledger_entry_lines
+      query:
+        limit: '{{params.limit}}'
+        cursor: '{{params.cursor}}'
+        filter: '{{params.filter}}'
+  - name: pennylane_list_bank_transactions
+    description: List bank transactions with their date, label, amount and reconciliation state, so unpaid invoices can be matched against money that actually arrived.
+    input:
+      type: object
+      properties:
+        limit:
+          type: number
+          description: Rows per page.
+        cursor:
+          type: string
+          description: Cursor from the previous page's next_cursor.
+        filter:
+          type: string
+          description: Filter JSON array over transaction fields.
+    operation:
+      method: GET
+      path: /bank_transactions
+      query:
+        limit: '{{params.limit}}'
+        cursor: '{{params.cursor}}'
+        filter: '{{params.filter}}'

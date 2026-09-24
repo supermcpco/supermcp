@@ -1,0 +1,280 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: sap-s4hana-cloud
+  name: SAP S/4HANA Cloud
+  description: 'Drive SAP S/4HANA Cloud Public Edition from any AI agent: business partners, customers, suppliers, sales orders, purchase orders, billing documents, products, journal entries. OAuth 2.0 client_credentials via BTP Communication Arrangement.'
+  region: intl
+  category: erp
+  icon: sap-s4hana-cloud
+  docsUrl: https://api.sap.com/package/SAPS4HANACloud
+  lint:
+    allow:
+      - description-min-60
+      - healthcheck-present
+      - tool-name-prefix
+credentials:
+  S4_BASE_URL:
+    required: true
+  S4_TOKEN_URL:
+    required: true
+    secret: true
+  S4_CLIENT_ID:
+    required: true
+  S4_CLIENT_SECRET:
+    required: true
+    secret: true
+transport:
+  type: http
+  baseUrl: '{{env.S4_BASE_URL}}/sap/opu/odata'
+auth:
+  type: oauth2
+  grant: client_credentials
+  clientId: '{{env.S4_CLIENT_ID}}'
+  clientSecret: '{{env.S4_CLIENT_SECRET}}'
+  tokenUrl: '{{env.S4_TOKEN_URL}}'
+instructions: |-
+  **Setup (one-off, done by the S/4 admin)**:
+  1. In your S/4HANA Cloud tenant open **Communication Arrangements** and create one for *SAP_COM_0008 — Business Partner Integration* (and others as needed: 0109 Sales Order, 0026 Purchase Order, 0186 Billing).
+  2. Create a **Communication User** + **Communication System**. Pick **OAuth 2.0** as the authentication method, grant type **Client Credentials**.
+  3. S/4 generates a `Client ID`, `Client Secret`, and a per-tenant **Token URL** like `https://my300000.authentication.eu10.hana.ondemand.com/oauth/token`.
+  4. The tenant **Base URL** is `https://my300000.s4hana.cloud.sap` (your tenant ID replaces 300000).
+  5. Set the four env vars below.
+
+  **Auth header method**: Public Edition strictly requires Client ID/Secret sent via **HTTP Basic Authorization header** (not form fields). This adapter does that automatically.
+
+  **Token lifetime**: typically 1 hour. The connector engine refreshes proactively 5 min before expiry, single-shot client_credentials grant (no refresh_token needed).
+tools:
+  - name: s4_list_business_partners
+    description: List business partners (combined customers + suppliers) from API_BUSINESS_PARTNER.
+    input:
+      type: object
+      properties:
+        top:
+          type: number
+          description: Max rows
+        filter:
+          type: string
+          description: OData $filter, e.g. BusinessPartnerCategory eq '1'
+    operation:
+      method: GET
+      path: /sap/API_BUSINESS_PARTNER/A_BusinessPartner
+      query:
+        $top: '{{params.top}}'
+        $filter: '{{params.filter}}'
+        $format: json
+  - name: s4_get_business_partner
+    description: Get one business partner by its 10-character ID.
+    input:
+      type: object
+      properties:
+        businessPartner:
+          type: string
+          description: 10-char Business Partner ID, e.g. 1000050
+      required:
+        - businessPartner
+    operation:
+      method: GET
+      path: /sap/API_BUSINESS_PARTNER/A_BusinessPartner('{{params.businessPartner}}')
+      query:
+        $format: json
+  - name: s4_list_customers
+    description: List customer master records (subset of business partners).
+    input:
+      type: object
+      properties:
+        top:
+          type: number
+          description: Max rows
+    operation:
+      method: GET
+      path: /sap/API_BUSINESS_PARTNER/A_Customer
+      query:
+        $top: '{{params.top}}'
+        $format: json
+  - name: s4_list_suppliers
+    description: List supplier master records (subset of business partners).
+    input:
+      type: object
+      properties:
+        top:
+          type: number
+          description: Max rows
+    operation:
+      method: GET
+      path: /sap/API_BUSINESS_PARTNER/A_Supplier
+      query:
+        $top: '{{params.top}}'
+        $format: json
+  - name: s4_list_sales_orders
+    description: List sales orders (headers).
+    input:
+      type: object
+      properties:
+        top:
+          type: number
+          description: Max rows
+        filter:
+          type: string
+          description: OData $filter, e.g. SalesOrganization eq '1710'
+    operation:
+      method: GET
+      path: /sap/API_SALES_ORDER_SRV/A_SalesOrder
+      query:
+        $top: '{{params.top}}'
+        $filter: '{{params.filter}}'
+        $format: json
+  - name: s4_get_sales_order
+    description: Get one sales order by its 10-char number.
+    input:
+      type: object
+      properties:
+        salesOrder:
+          type: string
+          description: Sales Order number, e.g. 0000000001
+      required:
+        - salesOrder
+    operation:
+      method: GET
+      path: /sap/API_SALES_ORDER_SRV/A_SalesOrder('{{params.salesOrder}}')
+      query:
+        $format: json
+  - name: s4_list_sales_order_items
+    description: List the items (line entries) of a given sales order.
+    input:
+      type: object
+      properties:
+        salesOrder:
+          type: string
+          description: Parent Sales Order number
+      required:
+        - salesOrder
+    operation:
+      method: GET
+      path: /sap/API_SALES_ORDER_SRV/A_SalesOrderItem
+      query:
+        $filter: SalesOrder eq '{{params.salesOrder}}'
+        $format: json
+  - name: s4_list_purchase_orders
+    description: List purchase orders (headers).
+    input:
+      type: object
+      properties:
+        top:
+          type: number
+          description: Max rows
+        filter:
+          type: string
+          description: OData $filter expression
+    operation:
+      method: GET
+      path: /sap/API_PURCHASEORDER_PROCESS_SRV/A_PurchaseOrder
+      query:
+        $top: '{{params.top}}'
+        $filter: '{{params.filter}}'
+        $format: json
+  - name: s4_get_purchase_order
+    description: Get one purchase order by its 10-char number.
+    input:
+      type: object
+      properties:
+        purchaseOrder:
+          type: string
+          description: Purchase Order number
+      required:
+        - purchaseOrder
+    operation:
+      method: GET
+      path: /sap/API_PURCHASEORDER_PROCESS_SRV/A_PurchaseOrder('{{params.purchaseOrder}}')
+      query:
+        $format: json
+  - name: s4_list_billing_documents
+    description: List billing documents (customer invoices, credit memos).
+    input:
+      type: object
+      properties:
+        top:
+          type: number
+          description: Max rows
+        filter:
+          type: string
+          description: OData $filter expression
+    operation:
+      method: GET
+      path: /sap/API_BILLING_DOCUMENT_SRV/A_BillingDocument
+      query:
+        $top: '{{params.top}}'
+        $filter: '{{params.filter}}'
+        $format: json
+  - name: s4_list_outbound_deliveries
+    description: List outbound delivery headers (goods leaving the warehouse).
+    input:
+      type: object
+      properties:
+        top:
+          type: number
+          description: Max rows
+    operation:
+      method: GET
+      path: /sap/API_OUTBOUND_DELIVERY_SRV/A_OutbDeliveryHeader
+      query:
+        $top: '{{params.top}}'
+        $format: json
+  - name: s4_list_journal_entries
+    description: List journal entry items (general ledger postings).
+    input:
+      type: object
+      properties:
+        top:
+          type: number
+          description: Max rows
+    operation:
+      method: GET
+      path: /sap/API_JOURNALENTRYITEMBASIC/JournalEntryItemBasic
+      query:
+        $top: '{{params.top}}'
+        $format: json
+  - name: s4_list_products
+    description: List materials / products (item master).
+    input:
+      type: object
+      properties:
+        top:
+          type: number
+          description: Max rows
+    operation:
+      method: GET
+      path: /sap/API_PRODUCT_SRV/A_Product
+      query:
+        $top: '{{params.top}}'
+        $format: json
+  - name: s4_get_product
+    description: Get one product/material by its ID.
+    input:
+      type: object
+      properties:
+        product:
+          type: string
+          description: Product ID
+      required:
+        - product
+    operation:
+      method: GET
+      path: /sap/API_PRODUCT_SRV/A_Product('{{params.product}}')
+      query:
+        $format: json
+  - name: s4_list_purchase_requisitions
+    description: List purchase requisition items (pre-PO demand requests).
+    input:
+      type: object
+      properties:
+        top:
+          type: number
+          description: Max rows
+    operation:
+      method: GET
+      path: /sap/API_PURCHASEREQ_PROCESS_SRV/A_PurchaseRequisitionItem
+      query:
+        $top: '{{params.top}}'
+        $format: json

@@ -1,0 +1,261 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: folk
+  name: Folk
+  description: 'Drive Folk (modern relationship CRM) from any AI agent: people, companies, groups, deals, custom fields. 9 tools, Bearer auth.'
+  region: intl
+  category: crm
+  icon: folk
+  docsUrl: https://developer.folk.app/
+  lint:
+    allow:
+      - description-min-60
+      - healthcheck-present
+credentials:
+  FOLK_API_TOKEN:
+    required: true
+    secret: true
+transport:
+  type: http
+  baseUrl: https://api.folk.app/v2
+auth:
+  type: bearer
+  token: '{{env.FOLK_API_TOKEN}}'
+instructions: |-
+  This connector uses the Folk REST API v2 (developer.folk.app).
+
+  **Setup**:
+  1. Sign in to https://app.folk.app → bottom-left avatar → **API & Integrations → API → Generate API token**.
+  2. Set `FOLK_API_TOKEN`.
+  3. Note your workspace's groups — Folk's groups are loose collections (use them like tags).
+
+  **Authentication**: `Authorization: Bearer ${FOLK_API_TOKEN}`.
+
+  **People / Companies / Deals**: standard CRM objects, plus the relationship-graph idea — every person is linked to one or more companies, plus a free-form network of contacts.
+
+  **Groups**: flexible — Folk's primary segmentation. Add a person to multiple groups; each group has its own custom fields visible only when the person is in that group.
+
+  **Pagination**: cursor — `nextPageToken`.
+
+  **Out of scope here**: messages composer, sequences, automations, integrations management.
+tools:
+  - name: folk_me
+    description: Return the user the token belongs to.
+    input:
+      type: object
+      properties: {}
+    operation:
+      method: GET
+      path: /users/me
+  - name: folk_list_people
+    description: List people with cursor pagination.
+    input:
+      type: object
+      properties:
+        limit:
+          type: integer
+          description: Per page (default 100).
+        cursor:
+          type: string
+          description: nextPageToken from prior response.
+        groupId:
+          type: string
+          description: Filter to people in this group.
+    operation:
+      method: GET
+      path: /people
+      query:
+        limit: '{{params.limit}}'
+        cursor: '{{params.cursor}}'
+        groupId: '{{params.groupId}}'
+  - name: folk_get_person
+    description: Fetch a person by ID with full contact details + groups + companies.
+    input:
+      type: object
+      properties:
+        personId:
+          type: string
+          description: Person ID.
+      required:
+        - personId
+    operation:
+      method: GET
+      path: /people/{{params.personId}}
+  - name: folk_create_person
+    description: 'Create a person. Required: fullName OR firstName OR lastName.'
+    input:
+      type: object
+      properties:
+        fullName:
+          type: string
+          description: Full name.
+        firstName:
+          type: string
+          description: First name.
+        lastName:
+          type: string
+          description: Last name.
+        emails:
+          type: array
+          description: '[{value:''a@b.com''}].'
+        phones:
+          type: array
+          description: '[{value:''+1...''}].'
+        jobTitle:
+          type: string
+          description: Title.
+        companies:
+          type: array
+          description: '[{id?:''companyId'', name?:''Acme''}] — link to existing or create-by-name.'
+        groupIds:
+          type: array
+          description: Array of group IDs to add this person to.
+        urls:
+          type: array
+          description: '[{value:''https://...''}].'
+        addresses:
+          type: array
+          description: '[{value:''free-text address''}].'
+        customFieldValues:
+          type: object
+          description: 'Map of {custom_field_id: value}.'
+    operation:
+      method: POST
+      path: /people
+      body:
+        value:
+          fullName: '{{params.fullName}}'
+          firstName: '{{params.firstName}}'
+          lastName: '{{params.lastName}}'
+          emails: '{{params.emails}}'
+          phones: '{{params.phones}}'
+          jobTitle: '{{params.jobTitle}}'
+          companies: '{{params.companies}}'
+          groupIds: '{{params.groupIds}}'
+          urls: '{{params.urls}}'
+          addresses: '{{params.addresses}}'
+          customFieldValues: '{{params.customFieldValues}}'
+  - name: folk_update_person
+    description: Update a person (PATCH).
+    input:
+      type: object
+      properties:
+        personId:
+          type: string
+          description: Person ID.
+        fullName:
+          type: string
+          description: New full name.
+        emails:
+          type: array
+          description: Replace emails.
+        phones:
+          type: array
+          description: Replace phones.
+        jobTitle:
+          type: string
+          description: New title.
+        companies:
+          type: array
+          description: Replace companies.
+        groupIds:
+          type: array
+          description: Replace group memberships.
+        customFieldValues:
+          type: object
+          description: Update custom fields.
+      required:
+        - personId
+    operation:
+      method: PATCH
+      path: /people/{{params.personId}}
+      body:
+        value:
+          fullName: '{{params.fullName}}'
+          emails: '{{params.emails}}'
+          phones: '{{params.phones}}'
+          jobTitle: '{{params.jobTitle}}'
+          companies: '{{params.companies}}'
+          groupIds: '{{params.groupIds}}'
+          customFieldValues: '{{params.customFieldValues}}'
+  - name: folk_list_companies
+    description: List companies.
+    input:
+      type: object
+      properties:
+        limit:
+          type: integer
+          description: Per page.
+        cursor:
+          type: string
+          description: Cursor.
+    operation:
+      method: GET
+      path: /companies
+      query:
+        limit: '{{params.limit}}'
+        cursor: '{{params.cursor}}'
+  - name: folk_create_company
+    description: Create a company.
+    input:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Company name.
+        domains:
+          type: array
+          description: '[''acme.com''].'
+        addresses:
+          type: array
+          description: '[{value:''...''}].'
+        phones:
+          type: array
+          description: '[{value:''...''}].'
+        customFieldValues:
+          type: object
+          description: Custom fields.
+      required:
+        - name
+    operation:
+      method: POST
+      path: /companies
+      body:
+        value:
+          name: '{{params.name}}'
+          domains: '{{params.domains}}'
+          addresses: '{{params.addresses}}'
+          phones: '{{params.phones}}'
+          customFieldValues: '{{params.customFieldValues}}'
+  - name: folk_list_groups
+    description: List groups (collections). Each group has id, name, type, peopleCount.
+    input:
+      type: object
+      properties:
+        limit:
+          type: integer
+          description: Per page.
+        cursor:
+          type: string
+          description: Cursor.
+    operation:
+      method: GET
+      path: /groups
+      query:
+        limit: '{{params.limit}}'
+        cursor: '{{params.cursor}}'
+  - name: folk_list_group_custom_fields
+    description: List custom fields defined on a specific group. Folk fields are group-scoped.
+    input:
+      type: object
+      properties:
+        groupId:
+          type: string
+          description: Group ID.
+      required:
+        - groupId
+    operation:
+      method: GET
+      path: /groups/{{params.groupId}}/customFields

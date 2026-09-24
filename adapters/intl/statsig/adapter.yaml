@@ -1,0 +1,249 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: statsig
+  name: Statsig
+  description: 'Drive Statsig (feature flags + experiments + analytics) from any AI agent: evaluate gates/dynamic configs/experiments, log events, manage console-side gates and experiments. 10 tools, server-secret-key auth.'
+  region: intl
+  category: analytics
+  icon: statsig
+  docsUrl: https://docs.statsig.com/server-core/http-api/
+  lint:
+    allow:
+      - description-min-60
+      - healthcheck-present
+credentials:
+  STATSIG_SERVER_SECRET_KEY:
+    required: true
+    secret: true
+  STATSIG_CONSOLE_API_KEY:
+    required: false
+    secret: true
+transport:
+  type: http
+  baseUrl: https://api.statsig.com/v1
+auth:
+  type: apiKey
+  in: header
+  name: statsig-api-key
+  value: '{{env.STATSIG_SERVER_SECRET_KEY}}'
+instructions: |-
+  This connector uses the Statsig HTTP API (docs.statsig.com).
+
+  **Two distinct APIs**:
+    - **Server SDK API** (`api.statsig.com/v1/...`) — runtime evaluation + event logging. Requires `STATSIG_SERVER_SECRET_KEY` (starts with `secret-`).
+    - **Console API** (`statsigapi.net/console/v1/...`) — admin operations like creating gates. Requires `STATSIG_CONSOLE_API_KEY` (starts with `console-`).
+  The adapter uses the Server SDK base by default; tools that hit the Console API set explicit absolute URLs in their endpointMapping.
+
+  **Setup**:
+  1. Sign in to https://console.statsig.com → **Settings → Keys & Environments**.
+  2. Copy the **Server Secret Key** (`secret-...`) for runtime ops.
+  3. Copy a **Console API Key** (`console-...`) for admin ops (Settings → Project Settings → API Keys → Create Console API Key).
+  4. Set `STATSIG_SERVER_SECRET_KEY` and (optionally, for admin tools) `STATSIG_CONSOLE_API_KEY`.
+
+  **Authentication**: Server SDK uses `statsig-api-key: ${SERVER_SECRET}` header. Console uses `STATSIG-API-KEY: ${CONSOLE_KEY}` header.
+
+  **Statsig-Client-Time header**: server SDK endpoints prefer a `STATSIG-CLIENT-TIME` header (Unix ms) — Statsig uses for evaluation timing. Skip for simple cases.
+
+  **User object**: every gate/config/experiment evaluation needs a `user` object with at minimum `userID` (your stable user ID). Add `email`, `country`, `appVersion`, `custom` for targeting accuracy.
+
+  **Out of scope here**: Layers API (experiment layers), holdouts, GitHub integration, audit log, project membership management.
+tools:
+  - name: statsig_check_gate
+    description: Evaluate a feature gate (boolean flag) for a user. Returns {name, value:bool, rule_id, group_name, secondary_exposures}.
+    input:
+      type: object
+      properties:
+        user:
+          type: object
+          description: '{userID, email?, country?, ip?, userAgent?, appVersion?, custom?:{}, customIDs?:{}, privateAttributes?:{}}.'
+        gateName:
+          type: string
+          description: Gate name (case-sensitive).
+      required:
+        - user
+        - gateName
+    operation:
+      method: POST
+      path: /check_gate
+      body:
+        value:
+          user: '{{params.user}}'
+          gateName: '{{params.gateName}}'
+  - name: statsig_get_config
+    description: Evaluate a Dynamic Config for a user. Returns {name, value:{...}, rule_id, group_name}.
+    input:
+      type: object
+      properties:
+        user:
+          type: object
+          description: User object.
+        configName:
+          type: string
+          description: Dynamic Config name.
+      required:
+        - user
+        - configName
+    operation:
+      method: POST
+      path: /get_config
+      body:
+        value:
+          user: '{{params.user}}'
+          configName: '{{params.configName}}'
+  - name: statsig_get_experiment
+    description: Evaluate an experiment for a user. Returns variant assignment + dynamic-config-like value object.
+    input:
+      type: object
+      properties:
+        user:
+          type: object
+          description: User object.
+        experimentName:
+          type: string
+          description: Experiment name.
+      required:
+        - user
+        - experimentName
+    operation:
+      method: POST
+      path: /get_experiment
+      body:
+        value:
+          user: '{{params.user}}'
+          experimentName: '{{params.experimentName}}'
+  - name: statsig_initialize
+    description: Bulk evaluate ALL gates/configs/experiments for a user in one call. Returns the complete state — useful for client bootstrap.
+    input:
+      type: object
+      properties:
+        user:
+          type: object
+          description: User object.
+        statsigMetadata:
+          type: object
+          description: '{sdkType?, sdkVersion?, sessionID?} — optional SDK metadata.'
+      required:
+        - user
+    operation:
+      method: POST
+      path: /initialize
+      body:
+        value:
+          user: '{{params.user}}'
+          statsigMetadata: '{{params.statsigMetadata}}'
+  - name: statsig_log_event
+    description: Log a custom event for analytics + experiment exposure tracking. Events are async — Statsig buffers them.
+    input:
+      type: object
+      properties:
+        events:
+          type: array
+          description: '[{user, eventName, value?, metadata?, time? (Unix ms)}]. Batch many at once.'
+      required:
+        - events
+    operation:
+      method: POST
+      path: /log_event
+      body:
+        value:
+          events: '{{params.events}}'
+  - name: statsig_list_gates
+    description: 'Console: list feature gates defined in the project. Requires CONSOLE API key (set STATSIG_CONSOLE_API_KEY).'
+    input:
+      type: object
+      properties:
+        page:
+          type: integer
+          description: Page.
+        limit:
+          type: integer
+          description: Per page.
+    operation:
+      method: GET
+      path: https://statsigapi.net/console/v1/gates
+      query:
+        page: '{{params.page}}'
+        limit: '{{params.limit}}'
+      headers:
+        STATSIG-API-KEY: '{{env.STATSIG_CONSOLE_API_KEY}}'
+  - name: statsig_get_gate_config
+    description: 'Console: fetch a gate''s definition (rules, targeting). Requires CONSOLE key.'
+    input:
+      type: object
+      properties:
+        gateName:
+          type: string
+          description: Gate name.
+      required:
+        - gateName
+    operation:
+      method: GET
+      path: https://statsigapi.net/console/v1/gates/{{params.gateName}}
+      headers:
+        STATSIG-API-KEY: '{{env.STATSIG_CONSOLE_API_KEY}}'
+  - name: statsig_create_gate
+    description: 'Console: create a new feature gate. Requires CONSOLE key.'
+    input:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Gate name (unique).
+        description:
+          type: string
+          description: Description.
+        idType:
+          type: string
+          description: userID, stableID, or custom name.
+        rules:
+          type: array
+          description: 'Targeting rules: [{name, conditions:[{type,operator,targetValue,field?}], passPercentage:0-100, returnValue?:bool}].'
+      required:
+        - name
+    operation:
+      method: POST
+      path: https://statsigapi.net/console/v1/gates
+      headers:
+        STATSIG-API-KEY: '{{env.STATSIG_CONSOLE_API_KEY}}'
+      body:
+        value:
+          name: '{{params.name}}'
+          description: '{{params.description}}'
+          idType: '{{params.idType}}'
+          rules: '{{params.rules}}'
+  - name: statsig_list_experiments
+    description: 'Console: list experiments. Requires CONSOLE key.'
+    input:
+      type: object
+      properties:
+        page:
+          type: integer
+          description: Page.
+        limit:
+          type: integer
+          description: Per page.
+    operation:
+      method: GET
+      path: https://statsigapi.net/console/v1/experiments
+      query:
+        page: '{{params.page}}'
+        limit: '{{params.limit}}'
+      headers:
+        STATSIG-API-KEY: '{{env.STATSIG_CONSOLE_API_KEY}}'
+  - name: statsig_get_experiment_results
+    description: 'Console: fetch experiment metric results (pulse readout). Requires CONSOLE key.'
+    input:
+      type: object
+      properties:
+        experimentName:
+          type: string
+          description: Experiment name.
+      required:
+        - experimentName
+    operation:
+      method: GET
+      path: https://statsigapi.net/console/v1/experiments/{{params.experimentName}}/results
+      headers:
+        STATSIG-API-KEY: '{{env.STATSIG_CONSOLE_API_KEY}}'

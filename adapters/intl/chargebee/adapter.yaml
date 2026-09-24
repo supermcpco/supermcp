@@ -1,0 +1,420 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: chargebee
+  name: Chargebee
+  description: 'Drive Chargebee (subscription billing) from any AI agent: customers, subscriptions, invoices, plans, addons, coupons. 14 tools, Basic-auth, per-site base URL.'
+  region: intl
+  category: payments
+  icon: chargebee
+  docsUrl: https://apidocs.chargebee.com/docs/api
+  lint:
+    allow:
+      - description-min-60
+      - healthcheck-present
+credentials:
+  CHARGEBEE_SITE:
+    required: true
+  CHARGEBEE_API_KEY:
+    required: true
+    secret: true
+transport:
+  type: http
+  baseUrl: https://{{env.CHARGEBEE_SITE}}.chargebee.com/api/v2
+auth:
+  type: basic
+  username: '{{env.CHARGEBEE_API_KEY}}'
+instructions: |-
+  This connector uses the Chargebee API v2 (apidocs.chargebee.com/docs/api).
+
+  **Setup**:
+  1. Sign in to Chargebee → **Settings → API Keys → + Create a Key**.
+  2. Pick a Full-Access key for write operations OR a Restricted Key for read-only.
+  3. Note your **site subdomain** (e.g. `acme-test` if your URL is `acme-test.chargebee.com`).
+  4. Set:
+     - `CHARGEBEE_SITE` = the subdomain (without `.chargebee.com`)
+     - `CHARGEBEE_API_KEY` = the full API key (`live_...` or `test_...`)
+
+  **Authentication**: HTTP Basic with username=API_KEY, password=empty.
+
+  **Site-templated URL**: `https://{{CHARGEBEE_SITE}}.chargebee.com/api/v2`. Test vs Live sites are different subdomains (e.g. `acme-test` vs `acme`) and have different API keys.
+
+  **Amount format**: monetary values are integers in MINOR units (cents) — `1000` = $10.00 USD or €10.00 EUR. Match the site's primary currency (or pass `currency_code`).
+
+  **Idempotency**: pass `chargebee-idempotency-key` header on writes to dedupe retries. (The adapter exposes this as a regular `idempotency_key` parameter on write tools.)
+
+  **Form-encoded requests**: Chargebee historically uses application/x-www-form-urlencoded for POST/PUT bodies (with nested keys as `subscription[plan_id]=...`). The adapter handles this via bodyEncoding=form-urlencoded.
+
+  **Subscription lifecycle**: future → in_trial → active → non_renewing → cancelled. Pause via `chargebee_pause_subscription` (returns paused), resume via `chargebee_resume_subscription`.
+
+  **Webhooks** out of scope.
+
+  **Rate limits**: 750 req per 5 min per site on Standard. On 429 honor X-Rate-Limit-Reset.
+
+  **Out of scope here**: hosted pages, portal session, refundable credits, gifts, transactions detail, hierarchies, comments, virtual bank accounts, gateway/payment-source CRUD.
+tools:
+  - name: chargebee_list_customers
+    description: List customers with filters.
+    input:
+      type: object
+      properties:
+        email:
+          type: string
+          description: Filter by email.
+        company:
+          type: string
+          description: Filter by company.
+        first_name:
+          type: string
+          description: First name.
+        last_name:
+          type: string
+          description: Last name.
+        auto_collection:
+          type: string
+          description: on or off.
+        limit:
+          type: integer
+          description: Per page (max 100).
+        offset:
+          type: string
+          description: Pagination offset cursor.
+    operation:
+      method: GET
+      path: /customers
+      query:
+        email[is]: '{{params.email}}'
+        company[is]: '{{params.company}}'
+        first_name[is]: '{{params.first_name}}'
+        last_name[is]: '{{params.last_name}}'
+        auto_collection[is]: '{{params.auto_collection}}'
+        limit: '{{params.limit}}'
+        offset: '{{params.offset}}'
+  - name: chargebee_get_customer
+    description: Fetch a customer by ID.
+    input:
+      type: object
+      properties:
+        customerId:
+          type: string
+          description: Customer ID (you assign it or Chargebee auto-generates).
+      required:
+        - customerId
+    operation:
+      method: GET
+      path: /customers/{{params.customerId}}
+  - name: chargebee_create_customer
+    description: Create a customer. id is optional — Chargebee generates one if omitted.
+    input:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Optional customer ID.
+        first_name:
+          type: string
+          description: First name.
+        last_name:
+          type: string
+          description: Last name.
+        email:
+          type: string
+          description: Email.
+        phone:
+          type: string
+          description: Phone.
+        company:
+          type: string
+          description: Company.
+        vat_number:
+          type: string
+          description: VAT number.
+        auto_collection:
+          type: string
+          description: on (auto-charge cards) or off (manual).
+        net_term_days:
+          type: integer
+          description: Days for invoice payment.
+        allow_direct_debit:
+          type: boolean
+          description: Allow SEPA/Bacs etc.
+        locale:
+          type: string
+          description: Customer locale (en, de, fr, ...).
+        billing_address:
+          type: object
+          description: '{first_name?, last_name?, company?, line1, city, state, country, zip, phone?}.'
+    operation:
+      method: POST
+      path: /customers
+      body:
+        encoding: form
+        value:
+          id: '{{params.id}}'
+          first_name: '{{params.first_name}}'
+          last_name: '{{params.last_name}}'
+          email: '{{params.email}}'
+          phone: '{{params.phone}}'
+          company: '{{params.company}}'
+          vat_number: '{{params.vat_number}}'
+          auto_collection: '{{params.auto_collection}}'
+          net_term_days: '{{params.net_term_days}}'
+          allow_direct_debit: '{{params.allow_direct_debit}}'
+          locale: '{{params.locale}}'
+  - name: chargebee_list_subscriptions
+    description: List subscriptions with filters.
+    input:
+      type: object
+      properties:
+        customer_id:
+          type: string
+          description: Filter by customer.
+        plan_id:
+          type: string
+          description: Filter by plan.
+        status:
+          type: string
+          description: future, in_trial, active, non_renewing, cancelled, paused.
+        limit:
+          type: integer
+          description: Per page (max 100).
+        offset:
+          type: string
+          description: Cursor.
+    operation:
+      method: GET
+      path: /subscriptions
+      query:
+        customer_id[is]: '{{params.customer_id}}'
+        plan_id[is]: '{{params.plan_id}}'
+        status[is]: '{{params.status}}'
+        limit: '{{params.limit}}'
+        offset: '{{params.offset}}'
+  - name: chargebee_get_subscription
+    description: Fetch a subscription by ID.
+    input:
+      type: object
+      properties:
+        subscriptionId:
+          type: string
+          description: Subscription ID.
+      required:
+        - subscriptionId
+    operation:
+      method: GET
+      path: /subscriptions/{{params.subscriptionId}}
+  - name: chargebee_create_subscription_for_customer
+    description: Create a subscription for an existing customer. Uses 'item-prices' model (Chargebee 2.0+).
+    input:
+      type: object
+      properties:
+        customerId:
+          type: string
+          description: Customer ID.
+        subscription_items:
+          type: array
+          description: 'Array of items: [{item_price_id:''plan-1-EUR-monthly'', quantity?:1, billing_cycles?:N}]. At least one plan item required.'
+        auto_collection:
+          type: string
+          description: on or off.
+        po_number:
+          type: string
+          description: 'Purchase order #.'
+        start_date:
+          type: integer
+          description: Unix timestamp — future start (delay). Omit for now.
+        trial_end:
+          type: integer
+          description: Unix timestamp end of trial.
+      required:
+        - customerId
+        - subscription_items
+    operation:
+      method: POST
+      path: /customers/{{params.customerId}}/subscription_for_items
+      body:
+        encoding: form
+        value:
+          subscription_items: '{{params.subscription_items}}'
+          auto_collection: '{{params.auto_collection}}'
+          po_number: '{{params.po_number}}'
+          start_date: '{{params.start_date}}'
+          trial_end: '{{params.trial_end}}'
+  - name: chargebee_cancel_subscription
+    description: Cancel a subscription. end_of_term=true delays cancellation to current period end.
+    input:
+      type: object
+      properties:
+        subscriptionId:
+          type: string
+          description: Subscription ID.
+        end_of_term:
+          type: boolean
+          description: If true, cancel at period end (graceful).
+        credit_option_for_current_term_charges:
+          type: string
+          description: none, prorate, full.
+      required:
+        - subscriptionId
+    operation:
+      method: POST
+      path: /subscriptions/{{params.subscriptionId}}/cancel_for_items
+      body:
+        encoding: form
+        value:
+          end_of_term: '{{params.end_of_term}}'
+          credit_option_for_current_term_charges: '{{params.credit_option_for_current_term_charges}}'
+  - name: chargebee_pause_subscription
+    description: Pause a subscription. Specify pause_option (immediately/end_of_term/specific_date).
+    input:
+      type: object
+      properties:
+        subscriptionId:
+          type: string
+          description: Subscription ID.
+        pause_option:
+          type: string
+          description: immediately, end_of_term, specific_date.
+        pause_date:
+          type: integer
+          description: Unix timestamp (required if pause_option=specific_date).
+        resume_date:
+          type: integer
+          description: Optional auto-resume Unix timestamp.
+      required:
+        - subscriptionId
+    operation:
+      method: POST
+      path: /subscriptions/{{params.subscriptionId}}/pause
+      body:
+        encoding: form
+        value:
+          pause_option: '{{params.pause_option}}'
+          pause_date: '{{params.pause_date}}'
+          resume_date: '{{params.resume_date}}'
+  - name: chargebee_resume_subscription
+    description: Resume a paused subscription.
+    input:
+      type: object
+      properties:
+        subscriptionId:
+          type: string
+          description: Subscription ID.
+        resume_option:
+          type: string
+          description: immediately, specific_date.
+        resume_date:
+          type: integer
+          description: Unix timestamp (required if resume_option=specific_date).
+      required:
+        - subscriptionId
+    operation:
+      method: POST
+      path: /subscriptions/{{params.subscriptionId}}/resume
+      body:
+        encoding: form
+        value:
+          resume_option: '{{params.resume_option}}'
+          resume_date: '{{params.resume_date}}'
+  - name: chargebee_list_invoices
+    description: List invoices.
+    input:
+      type: object
+      properties:
+        customer_id:
+          type: string
+          description: Filter by customer.
+        subscription_id:
+          type: string
+          description: Filter by subscription.
+        status:
+          type: string
+          description: paid, posted, payment_due, not_paid, voided, pending.
+        limit:
+          type: integer
+          description: Per page.
+        offset:
+          type: string
+          description: Cursor.
+    operation:
+      method: GET
+      path: /invoices
+      query:
+        customer_id[is]: '{{params.customer_id}}'
+        subscription_id[is]: '{{params.subscription_id}}'
+        status[is]: '{{params.status}}'
+        limit: '{{params.limit}}'
+        offset: '{{params.offset}}'
+  - name: chargebee_get_invoice
+    description: Fetch an invoice with line items.
+    input:
+      type: object
+      properties:
+        invoiceId:
+          type: string
+          description: Invoice ID.
+      required:
+        - invoiceId
+    operation:
+      method: GET
+      path: /invoices/{{params.invoiceId}}
+  - name: chargebee_list_items
+    description: 'List items (Chargebee 2.0 catalog: plans + addons + charges are all items).'
+    input:
+      type: object
+      properties:
+        type:
+          type: string
+          description: plan, addon, charge.
+        status:
+          type: string
+          description: active, archived, deleted.
+        limit:
+          type: integer
+          description: Per page.
+    operation:
+      method: GET
+      path: /items
+      query:
+        type[is]: '{{params.type}}'
+        status[is]: '{{params.status}}'
+        limit: '{{params.limit}}'
+  - name: chargebee_list_item_prices
+    description: List item prices (each item has multiple prices per currency/interval).
+    input:
+      type: object
+      properties:
+        item_id:
+          type: string
+          description: Filter by item ID.
+        status:
+          type: string
+          description: active, archived, deleted.
+        limit:
+          type: integer
+          description: Per page.
+    operation:
+      method: GET
+      path: /item_prices
+      query:
+        item_id[is]: '{{params.item_id}}'
+        status[is]: '{{params.status}}'
+        limit: '{{params.limit}}'
+  - name: chargebee_list_coupons
+    description: List coupons (discounts). Each has id, name, discount_type (fixed_amount/percentage), discount_amount/percentage, valid_till, duration_type (one_time/forever/limited_period).
+    input:
+      type: object
+      properties:
+        limit:
+          type: integer
+          description: Per page.
+        status:
+          type: string
+          description: active, expired, archived, deleted.
+    operation:
+      method: GET
+      path: /coupons
+      query:
+        limit: '{{params.limit}}'
+        status[is]: '{{params.status}}'

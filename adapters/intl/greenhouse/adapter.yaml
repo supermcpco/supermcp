@@ -1,0 +1,295 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: greenhouse
+  name: Greenhouse
+  description: 'Manage Greenhouse (ATS recruiting: candidates, applications, jobs, scorecards, offers) from any AI agent. 10 tools, basic-auth.'
+  region: intl
+  category: hr
+  icon: greenhouse
+  docsUrl: https://developers.greenhouse.io/harvest.html
+  lint:
+    allow:
+      - description-min-60
+      - healthcheck-present
+credentials:
+  GREENHOUSE_API_KEY:
+    required: true
+    secret: true
+transport:
+  type: http
+  baseUrl: https://harvest.greenhouse.io/v1
+auth:
+  type: basic
+  username: '{{env.GREENHOUSE_API_KEY}}'
+instructions: |-
+  This connector wraps the Greenhouse Harvest API v1 (harvest.greenhouse.io/v1).
+
+  **Setup**:
+  1. In Greenhouse → **⚙️ Configure → Dev Center → API Credential Management → Create New API Key**.
+  2. Type: **Harvest**. Permissions: pick what you need (read candidates/applications/jobs minimum; write for create endpoints).
+  3. Set `GREENHOUSE_API_KEY`.
+
+  **Authentication**: HTTP Basic — API key as username, empty password.
+
+  **On-Behalf-Of header**: write endpoints REQUIRE `On-Behalf-Of: <user_id>` to attribute the action to a specific Greenhouse user. Pass `on_behalf_of` parameter when writing.
+
+  **Candidate model**: a `Candidate` is the person; an `Application` is their candidacy to a specific Job. One candidate can have many applications. Scorecards, interviews, and offers all hang off Application.
+
+  **Pagination**: `per_page` (max 500) + `page` (1-based). Total pages in `Link` header.
+
+  **Rate limits**: 50 req/10s per API key. 429 with `Retry-After`.
+
+  **Out of scope here**: candidate-survey responses, EEOC fields beyond list, custom-org chart navigation, the separate Partner / Job Board / Onboarding APIs (each have their own keys).
+tools:
+  - name: greenhouse_list_candidates
+    description: List candidates. Filter by created/updated date, job, status.
+    input:
+      type: object
+      properties:
+        per_page:
+          type: integer
+          description: Max 500.
+        page:
+          type: integer
+          description: 1-based.
+        created_after:
+          type: string
+          description: ISO 8601 datetime.
+        updated_after:
+          type: string
+          description: ISO 8601.
+        job_id:
+          type: integer
+          description: Filter to candidates with an application on this job.
+        email:
+          type: string
+          description: Filter by primary email.
+    operation:
+      method: GET
+      path: /candidates
+      query:
+        per_page: '{{params.per_page}}'
+        page: '{{params.page}}'
+        created_after: '{{params.created_after}}'
+        updated_after: '{{params.updated_after}}'
+        job_id: '{{params.job_id}}'
+        email: '{{params.email}}'
+  - name: greenhouse_get_candidate
+    description: Get one candidate with all applications + custom fields.
+    input:
+      type: object
+      properties:
+        candidate_id:
+          type: integer
+          description: Candidate ID.
+      required:
+        - candidate_id
+    operation:
+      method: GET
+      path: /candidates/{{params.candidate_id}}
+  - name: greenhouse_create_candidate
+    description: Create a candidate (+ optionally an application).
+    input:
+      type: object
+      properties:
+        first_name:
+          type: string
+          description: First name.
+        last_name:
+          type: string
+          description: Last name.
+        email_addresses:
+          type: array
+          description: Array of {value, type:'personal'|'work'}.
+        phone_numbers:
+          type: array
+          description: Array of {value, type}.
+        applications:
+          type: array
+          description: Array of {job_id, source_id?, initial_stage_id?}.
+        on_behalf_of:
+          type: integer
+          description: Greenhouse user ID to attribute the create to.
+      required:
+        - first_name
+        - last_name
+        - on_behalf_of
+    operation:
+      method: POST
+      path: /candidates
+      headers:
+        On-Behalf-Of: '{{params.on_behalf_of}}'
+      body:
+        value:
+          first_name: '{{params.first_name}}'
+          last_name: '{{params.last_name}}'
+          email_addresses: '{{params.email_addresses}}'
+          phone_numbers: '{{params.phone_numbers}}'
+          applications: '{{params.applications}}'
+  - name: greenhouse_list_applications
+    description: List applications. Filter by candidate, job, status (active, hired, rejected).
+    input:
+      type: object
+      properties:
+        candidate_id:
+          type: integer
+          description: Filter to one candidate.
+        job_id:
+          type: integer
+          description: Filter to one job.
+        status:
+          type: string
+          description: active, rejected, hired, converted.
+        per_page:
+          type: integer
+          description: Max 500.
+        page:
+          type: integer
+          description: 1-based.
+    operation:
+      method: GET
+      path: /applications
+      query:
+        candidate_id: '{{params.candidate_id}}'
+        job_id: '{{params.job_id}}'
+        status: '{{params.status}}'
+        per_page: '{{params.per_page}}'
+        page: '{{params.page}}'
+  - name: greenhouse_advance_application
+    description: Move an application to the next pipeline stage. Optionally specify `to_stage_id` to skip stages.
+    input:
+      type: object
+      properties:
+        application_id:
+          type: integer
+          description: Application ID.
+        on_behalf_of:
+          type: integer
+          description: Greenhouse user ID.
+        from_stage_id:
+          type: integer
+          description: Current stage (defensive concurrency check).
+        to_stage_id:
+          type: integer
+          description: Target stage. Omit to advance one.
+      required:
+        - application_id
+        - on_behalf_of
+    operation:
+      method: POST
+      path: /applications/{{params.application_id}}/advance
+      headers:
+        On-Behalf-Of: '{{params.on_behalf_of}}'
+      body:
+        value:
+          from_stage_id: '{{params.from_stage_id}}'
+          to_stage_id: '{{params.to_stage_id}}'
+  - name: greenhouse_reject_application
+    description: Reject an application with a reason.
+    input:
+      type: object
+      properties:
+        application_id:
+          type: integer
+          description: Application ID.
+        on_behalf_of:
+          type: integer
+          description: Greenhouse user ID.
+        rejection_reason_id:
+          type: integer
+          description: Rejection reason ID.
+        notes:
+          type: string
+          description: Optional notes visible to recruiters.
+      required:
+        - application_id
+        - on_behalf_of
+        - rejection_reason_id
+    operation:
+      method: POST
+      path: /applications/{{params.application_id}}/reject
+      headers:
+        On-Behalf-Of: '{{params.on_behalf_of}}'
+      body:
+        value:
+          rejection_reason_id: '{{params.rejection_reason_id}}'
+          notes: '{{params.notes}}'
+  - name: greenhouse_list_jobs
+    description: List jobs. Filter by status (open, closed, draft), department.
+    input:
+      type: object
+      properties:
+        status:
+          type: string
+          description: open, closed, draft.
+        department_id:
+          type: integer
+          description: Filter by department.
+        per_page:
+          type: integer
+          description: Max 500.
+        page:
+          type: integer
+          description: 1-based.
+    operation:
+      method: GET
+      path: /jobs
+      query:
+        status: '{{params.status}}'
+        department_id: '{{params.department_id}}'
+        per_page: '{{params.per_page}}'
+        page: '{{params.page}}'
+  - name: greenhouse_get_job
+    description: Get one job with full job_post + hiring team + openings.
+    input:
+      type: object
+      properties:
+        job_id:
+          type: integer
+          description: Job ID.
+      required:
+        - job_id
+    operation:
+      method: GET
+      path: /jobs/{{params.job_id}}
+  - name: greenhouse_list_scorecards
+    description: List scorecards for an application.
+    input:
+      type: object
+      properties:
+        application_id:
+          type: integer
+          description: Application ID.
+        per_page:
+          type: integer
+          description: Max 500.
+      required:
+        - application_id
+    operation:
+      method: GET
+      path: /applications/{{params.application_id}}/scorecards
+      query:
+        per_page: '{{params.per_page}}'
+  - name: greenhouse_list_users
+    description: List Greenhouse users (recruiters, interviewers, etc.).
+    input:
+      type: object
+      properties:
+        per_page:
+          type: integer
+          description: Max 500.
+        page:
+          type: integer
+          description: 1-based.
+        email:
+          type: string
+          description: Filter by email.
+    operation:
+      method: GET
+      path: /users
+      query:
+        per_page: '{{params.per_page}}'
+        page: '{{params.page}}'
+        email: '{{params.email}}'

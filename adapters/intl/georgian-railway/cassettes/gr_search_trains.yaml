@@ -1,0 +1,25 @@
+# Recorded by `supermcp adapter record`; replayed by `supermcp adapter test`.
+# Credential values are replaced with SUPERMCP_CREDENTIAL_<NAME>.
+adapter: georgian-railway
+tool: gr_search_trains
+recordedAt: 2026-09-22T22:18:43Z
+interactions:
+  - params:
+      departureDateFrom: "2026-10-15"
+      endStationCode: "56014"
+      startStationCode: "57151"
+    request:
+      method: POST
+      url: https://gr.com.ge/api/ticket-search
+      headers:
+        accept: application/json
+        content-type: application/json
+        interface-language: en
+        user-agent: supermcp/1.0 (+https://supermcp.dev)
+        x-device: web
+      body: '{"child_passengers":0,"departureDateFrom":"2026-10-15","disabled_passengers":0,"endStationCode":"56014","routeType":0,"standard_passengers":1,"startStationCode":"57151"}'
+    response:
+      status: 201
+      headers:
+        content-type: application/json; charset=utf-8
+      body: '[[]]'

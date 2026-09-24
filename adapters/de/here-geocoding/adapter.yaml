@@ -1,0 +1,192 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: here-geocoding
+  name: HERE Geocoding & Search
+  description: Geocode addresses, reverse-geocode coordinates, autocomplete addresses as-you-type, and search places via the HERE Location Services API. Useful for address validation, delivery-route planning, and storefront locators. Free tier covers 250k requests/month.
+  region: de
+  category: maps
+  icon: here
+  docsUrl: https://www.here.com/docs/bundle/geocoding-and-search-api-developer-guide/page/README.html
+  lint:
+    allow:
+      - healthcheck-present
+      - tool-name-prefix
+credentials:
+  HERE_API_KEY:
+    required: true
+    secret: true
+transport:
+  type: http
+  baseUrl: https://geocode.search.hereapi.com/v1
+auth:
+  type: query
+  params:
+    apiKey: '{{env.HERE_API_KEY}}'
+instructions: |-
+  This connector uses the HERE Geocoding & Search v7 REST API.
+
+  **Credentials**: generate a REST API key at https://platform.here.com → Projects → API Keys. Paste it into `HERE_API_KEY` when importing. The key is passed as a query parameter (`apiKey`), not as a header.
+
+  **Pricing**: HERE's Freemium plan includes 250,000 requests/month free. Bulk batch geocoding requires a paid plan.
+
+  **Countries**: worldwide coverage. Use `in=countryCode:DEU` or ISO 3-letter country filter for scope.
+
+  **Addressing strategies**:
+  - `/geocode` — full forward geocoding (structured or unstructured input)
+  - `/autocomplete` — very fast address autocomplete, returns short snippets
+  - `/autosuggest` — richer suggestions including POIs, chains, addresses
+  - `/revgeocode` — coordinates → address
+  - `/discover` — place search with categories, brands, opening hours
+
+  **Languages**: add `lang=de` or any BCP-47 tag to localise labels.
+
+  **In Germany / Baustoff use-case**: use `in=countryCode:DEU&lang=de` to force German labels on addresses for consistency with ERP records.
+tools:
+  - name: here_geocode
+    description: Forward-geocode an address to coordinates. Returns matches with position, label, address components (country, state, city, postalCode, street, houseNumber), result type, and match quality score.
+    input:
+      type: object
+      properties:
+        q:
+          type: string
+          description: Free-form address query (e.g. 'Kaiser-Joseph-Straße 1, 79098 Freiburg').
+        qq:
+          type: string
+          description: Qualified query — structured address as key=value;… pairs (e.g. 'city=Freiburg;street=Kaiser-Joseph-Straße;houseNumber=1'). Use for disambiguation.
+        in:
+          type: string
+          description: Area filter (e.g. 'countryCode:DEU' to scope to Germany, or 'bbox:w,s,e,n').
+        limit:
+          type: number
+          description: 'Max results (default: 20, max: 100).'
+        lang:
+          type: string
+          description: Response language BCP-47 tag (e.g. 'de', 'en-US').
+    operation:
+      method: GET
+      path: /geocode
+      query:
+        q: '{{params.q}}'
+        qq: '{{params.qq}}'
+        in: '{{params.in}}'
+        limit: '{{params.limit}}'
+        lang: '{{params.lang}}'
+  - name: here_reverse_geocode
+    description: Reverse-geocode coordinates to a human-readable address. Returns the nearest address with full components.
+    input:
+      type: object
+      properties:
+        at:
+          type: string
+          description: Coordinates as 'lat,lng' (e.g. '47.9959,7.8522' for Freiburg Münster).
+        limit:
+          type: number
+          description: 'Max results (default: 1).'
+        lang:
+          type: string
+          description: Response language.
+      required:
+        - at
+    operation:
+      method: GET
+      path: /revgeocode
+      query:
+        at: '{{params.at}}'
+        limit: '{{params.limit}}'
+        lang: '{{params.lang}}'
+  - name: here_autocomplete
+    description: Fast address-only autocomplete for as-you-type address fields. Returns short labelled snippets. Use when you only need addresses and want the lowest latency.
+    input:
+      type: object
+      properties:
+        q:
+          type: string
+          description: Partial address query.
+        at:
+          type: string
+          description: Optional anchor coordinates 'lat,lng' — biases results near the given point.
+        in:
+          type: string
+          description: Area filter like 'countryCode:DEU'.
+        limit:
+          type: number
+          description: 'Max suggestions (default: 5, max: 20).'
+        lang:
+          type: string
+          description: Response language.
+      required:
+        - q
+    operation:
+      method: GET
+      path: /autocomplete
+      query:
+        q: '{{params.q}}'
+        at: '{{params.at}}'
+        in: '{{params.in}}'
+        limit: '{{params.limit}}'
+        lang: '{{params.lang}}'
+  - name: here_autosuggest
+    description: Rich autosuggest — returns addresses AND places/POIs (shops, chains, landmarks). Ideal for search bars where users might type either an address or a business name.
+    input:
+      type: object
+      properties:
+        q:
+          type: string
+          description: Partial query (address, POI name, category).
+        at:
+          type: string
+          description: Required for place results — anchor coordinates 'lat,lng'.
+        in:
+          type: string
+          description: Area filter.
+        limit:
+          type: number
+          description: Max suggestions.
+        lang:
+          type: string
+          description: Response language.
+      required:
+        - q
+        - at
+    operation:
+      method: GET
+      path: /autosuggest
+      query:
+        q: '{{params.q}}'
+        at: '{{params.at}}'
+        in: '{{params.in}}'
+        limit: '{{params.limit}}'
+        lang: '{{params.lang}}'
+  - name: here_discover
+    description: Discover places, POIs, and businesses near a location or within an area — filterable by category (e.g. 'building-material' Baustoffhandel), chain, or brand. Returns each match with position, contact info, opening hours.
+    input:
+      type: object
+      properties:
+        q:
+          type: string
+          description: Search term (place name, category, brand).
+        at:
+          type: string
+          description: Anchor coordinates 'lat,lng' — required if `in` is not provided.
+        in:
+          type: string
+          description: Area filter (bbox or circle) — required if `at` is not provided.
+        limit:
+          type: number
+          description: Max results (default 20).
+        lang:
+          type: string
+          description: Response language.
+      required:
+        - q
+    operation:
+      method: GET
+      path: /discover
+      query:
+        q: '{{params.q}}'
+        at: '{{params.at}}'
+        in: '{{params.in}}'
+        limit: '{{params.limit}}'
+        lang: '{{params.lang}}'

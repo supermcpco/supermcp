@@ -1,0 +1,188 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: sage-100
+  name: Sage 100 (DE)
+  description: 'Sage 100 German Mittelstand ERP over the Sage 100 Web API (OData): addresses, items, sales documents and stock on your own installation. Basic auth. Partner credentials and an activated Web API required.'
+  region: de
+  category: erp
+  icon: sage-100
+  docsUrl: https://kb.sage.de/sage-100/
+credentials:
+  SAGE100_URL:
+    required: true
+  SAGE100_COMPANY:
+    required: true
+  SAGE100_USERNAME:
+    required: true
+  SAGE100_PASSWORD:
+    required: true
+    secret: true
+transport:
+  type: http
+  baseUrl: '{{env.SAGE100_URL}}/api/v1/{{env.SAGE100_COMPANY}}'
+  headers:
+    Accept: application/json
+auth:
+  type: basic
+  username: '{{env.SAGE100_USERNAME}}'
+  password: '{{env.SAGE100_PASSWORD}}'
+healthcheck:
+  tool: sage_100_get_metadata
+  http:
+    method: GET
+    path: /$metadata
+instructions: |
+  **Partner credentials required, and the Web API is a separate component.** Sage 100 (the German product, not Sage 100cloud US) does not expose HTTP out of the box. The **Sage 100 Web API** / OData service has to be installed and licensed on your application server, and Sage distributes the developer documentation through its partner portal rather than publicly. Talk to your Sage partner before wiring this up.
+
+  **Setup**
+  1. Have your partner install and start the Sage 100 Web API service and confirm which OData route it publishes — the path segment differs between Sage 100 versions and between the OData v3 and v4 services.
+  2. Create a Sage 100 user for the integration with read rights on the areas you want. Sage enforces its own rights model on top of the API.
+  3. Set `SAGE100_URL` to the Web API root (no trailing slash), `SAGE100_COMPANY` to the mandant/company identifier, and `SAGE100_USERNAME` / `SAGE100_PASSWORD`.
+
+  **OData vocabulary**: `$filter`, `$select`, `$top`, `$skip`, `$orderby`, `$expand`. German entity names are used verbatim — `Adressen`, `Artikel`, `Belege` — which is why the tools below take the entity set name as a parameter rather than hard-coding a guess.
+
+  **Start with `sage_100_get_metadata`.** It returns the $metadata document with every entity set this particular installation publishes, which is the only reliable way to know what to ask for: a Sage 100 install is heavily customised and two customers rarely expose the same set.
+
+  **Unverified.** The paths and field names below follow the vendor's published documentation and have not been exercised against a live tenant. Treat a 404 as a docs-versus-reality gap and check the developer portal before concluding that the credential is wrong. A correction from anyone running this against a real system is genuinely welcome.
+
+  **Self-hosted, which is the thing to plan for.**
+  - On a **hosted supermcp instance** the instance must be reachable from the public internet on a real hostname with a valid TLS certificate. A self-signed certificate will fail: the connector offers no trust-anything switch.
+  - On an internal host (`sage.intern`, `10.0.0.x`), self-host supermcp on the same network and add that host to `SSRF_ALLOWED_HOSTS`, or the outbound guard refuses the call before it is made.
+tools:
+  - name: sage_100_get_metadata
+    description: 'Read the OData $metadata document: every entity set this installation publishes and the fields on each. Start here — a Sage 100 install is heavily customised and no two expose the same set.'
+    input:
+      type: object
+      properties: {}
+    operation:
+      method: GET
+      path: /$metadata
+  - name: sage_100_query
+    description: 'Query any published entity set with OData. The general-purpose read: pass the entity set name from $metadata plus $filter, $select, $top and $orderby.'
+    input:
+      type: object
+      properties:
+        entitySet:
+          type: string
+          description: Entity set name from $metadata, e.g. Adressen, Artikel, Belege.
+        filter:
+          type: string
+          description: OData $filter expression, e.g. Matchcode eq 'MUSTER'.
+        select:
+          type: string
+          description: Comma-separated fields to return.
+        top:
+          type: number
+          description: Maximum rows to return.
+        skip:
+          type: number
+          description: Rows to skip, for paging.
+        orderby:
+          type: string
+          description: Sort expression, e.g. `Nummer desc`.
+        expand:
+          type: string
+          description: Navigation properties to expand inline.
+      required:
+        - entitySet
+    operation:
+      method: GET
+      path: /{{params.entitySet}}
+      query:
+        $filter: '{{params.filter}}'
+        $select: '{{params.select}}'
+        $top: '{{params.top}}'
+        $skip: '{{params.skip}}'
+        $orderby: '{{params.orderby}}'
+        $expand: '{{params.expand}}'
+  - name: sage_100_get_by_key
+    description: Read one record from an entity set by its OData key, with the navigation properties you name expanded.
+    input:
+      type: object
+      properties:
+        entitySet:
+          type: string
+          description: Entity set name, e.g. Adressen.
+        key:
+          type: string
+          description: OData key literal, e.g. 10001 or 'MUSTER'.
+        expand:
+          type: string
+          description: Navigation properties to expand inline.
+      required:
+        - entitySet
+        - key
+    operation:
+      method: GET
+      path: /{{params.entitySet}}({{params.key}})
+      query:
+        $expand: '{{params.expand}}'
+  - name: sage_100_list_addresses
+    description: List addresses (Adressen) — Sage 100's customers and suppliers — with their number, matchcode, name and city.
+    input:
+      type: object
+      properties:
+        filter:
+          type: string
+          description: OData $filter expression.
+        top:
+          type: number
+          description: Maximum rows to return.
+        skip:
+          type: number
+          description: Rows to skip, for paging.
+    operation:
+      method: GET
+      path: /Adressen
+      query:
+        $filter: '{{params.filter}}'
+        $top: '{{params.top}}'
+        $skip: '{{params.skip}}'
+  - name: sage_100_list_items
+    description: List items (Artikel) from the article master with their number, description, unit and price.
+    input:
+      type: object
+      properties:
+        filter:
+          type: string
+          description: OData $filter expression.
+        top:
+          type: number
+          description: Maximum rows to return.
+        skip:
+          type: number
+          description: Rows to skip, for paging.
+    operation:
+      method: GET
+      path: /Artikel
+      query:
+        $filter: '{{params.filter}}'
+        $top: '{{params.top}}'
+        $skip: '{{params.skip}}'
+  - name: sage_100_list_documents
+    description: List sales and purchase documents (Belege) with their type, number, date, address and total. Expand the positions navigation property to get line items.
+    input:
+      type: object
+      properties:
+        filter:
+          type: string
+          description: OData $filter expression, e.g. Belegdatum ge 2026-01-01.
+        top:
+          type: number
+          description: Maximum rows to return.
+        skip:
+          type: number
+          description: Rows to skip, for paging.
+        expand:
+          type: string
+          description: Navigation properties to expand, e.g. the positions collection.
+    operation:
+      method: GET
+      path: /Belege
+      query:
+        $filter: '{{params.filter}}'
+        $top: '{{params.top}}'
+        $skip: '{{params.skip}}'
+        $expand: '{{params.expand}}'

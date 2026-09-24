@@ -1,0 +1,19 @@
+# Recorded by `supermcp adapter record`; replayed by `supermcp adapter test`.
+# Credential values are replaced with SUPERMCP_CREDENTIAL_<NAME>.
+adapter: dchub
+tool: dchub_market_dcpi
+recordedAt: 2026-09-22T22:18:40Z
+interactions:
+  - params:
+      market_slug: london-gb
+    request:
+      method: GET
+      url: https://dchub.cloud/api/v1/dcpi/scores/london-gb
+      headers:
+        accept: application/json
+    response:
+      status: 200
+      headers:
+        content-type: application/json
+      body: |
+        {"_canonical_slug":"london","_gated":true,"_locked_fields":["composite_score","constraint_score","curtailment_pct","emergency_count_30d","excess_power_score","forecast","quality_score","queue_wait_months","reserve_margin_pct","time_to_power_months","top_opportunities_json","top_risks_json"],"_preview_only":true,"_requested_slug":"london-gb","_total_available":1,"_upgrade_cta":"A key on the Developer plan or above opens this endpoint over REST, and so does any valid key holding pack credits, at one credit per full answer.","avg_kwh_cents":null,"composite_score":null,"computed_at":"2026-09-22T21:32:35.132720+00:00","constraint_score":null,"curtailment_pct":null,"data_basis":"modeled_estimate","data_basis_note":"modeled: btm_headroom_mw, curtailment_pct, demand_growth_yoy_pct, queue_approval_rate_pct, queue_wait_months, reserve_margin_pct","data_basis_source":"DC Hub analyst estimate - calibrated from published NESO (Great Britain) disclosures; not a per-market measurement","emergency_count_30d":null,"excess_power_score":null,"forecast":{"available":false,"reason":"locked_in_preview"},"gating_matrix":"https://dchub.cloud/api/v1/gating-matrix","gen_additions_12mo_mw":null,"id":3207,"iso":"NGESO","iso_type":null,"latitude":51.51,"locked":true,"longitude":-0.13,"market_name":"London","market_slug":"london","method_version":"2.4.0","provenance":{"as_of":"2026-09-22T21:32:35.132720+00:00","cite_as":"DC Hub, dchub.cloud","cite_url_template":"https://dchub.cloud/dcpi/{market_slug}","default_v":"inferred","fallback_url":"https://dchub.cloud/markets/directory","license":"CC-BY-4.0","method":"DCPI scoring method_version=2.4.0 (full method: /api/v1/dcpi/methodology); see data_basis/data_basis_source for the score's input basis; signal_tier=low (see signal_tier_note)","provenance_version":1,"source":"DC Hub Power Index (DCPI) \u2014 market_power_scores"},"published":true,"quality_score":null,"queue_capacity_mw":null,"queue_wait_months":null,"required_plan":"developer","reserve_margin_pct":null,"signal_tier":"low","signal_tier_basis":"live_adapter_count_at_score_time","signal_tier_note":"full = all 3 live-capable adapters (interconnect_queue, planned_generators, grid_telemetry) returned data; partial = 1-2; low = 0, or this market's ISO fell through to the WECC default. 'full' does NOT mean every score input is measured \u2014 data_basis carries the per-field live/modeled split and the adapter counts.","state":"UK","stranded_capacity_mw":null,"tier_required":"free","time_to_power_months":null,"top_opportunities_json":null,"top_risks_json":null,"trend_30d":null,"upgrade_options":[{"label":"$10 one-time = 1,000 API credits; each full answer here uses one","opens":"rest","plan":"pack","url":"https://dchub.cloud/go/c/bWV0ZXJlZHw.32b1f8ad0a9f4aa4f04f8276b0960e3f"},{"label":"Developer $49/mo opens this endpoint","opens":"rest","plan":"developer","url":"https://dchub.cloud/go/c/ZGV2ZWxvcGVyfA.81fd186183a71f7893d1d6ad3ddd1a9c"}],"upgrade_url":"https://dchub.cloud/go/c/bWV0ZXJlZHw.32b1f8ad0a9f4aa4f04f8276b0960e3f","verdict":"AVOID"}

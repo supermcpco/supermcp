@@ -1,0 +1,19 @@
+# Recorded by `supermcp adapter record`; replayed by `supermcp adapter test`.
+# Credential values are replaced with SUPERMCP_CREDENTIAL_<NAME>.
+adapter: nominatim
+tool: nominatim_search
+recordedAt: 2026-09-22T22:18:48Z
+interactions:
+  - params:
+      q: Brandenburger Tor, Berlin
+    request:
+      method: GET
+      url: https://nominatim.openstreetmap.org/search
+      query: q=Brandenburger+Tor,+Berlin&format=jsonv2
+      headers:
+        user-agent: supermcp (https://supermcp.dev)
+    response:
+      status: 200
+      headers:
+        content-type: application/json; charset=utf-8
+      body: '[{"place_id":144765639,"licence":"Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright","osm_type":"way","osm_id":518071791,"lat":"52.5162699","lon":"13.3777034","category":"building","type":"gate","place_rank":30,"importance":0.5504719991549523,"addresstype":"building","name":"Brandenburger Tor","display_name":"Brandenburger Tor, 1, Pariser Platz, Friedrich-Wilhelm-Stadt, Mitte, Berlin, 10117, Deutschland","boundingbox":["52.5161170","52.5164328","13.3775798","13.3778251"]},{"place_id":144777990,"licence":"Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright","osm_type":"node","osm_id":30353086,"lat":"52.5164415","lon":"13.3818418","category":"railway","type":"halt","place_rank":30,"importance":0.425772933155395,"addresstype":"railway","name":"Brandenburger Tor","display_name":"Brandenburger Tor, Unter den Linden, Friedrich-Wilhelm-Stadt, Mitte, Berlin, 10117, Deutschland","boundingbox":["52.5163915","52.5164915","13.3817918","13.3818918"]},{"place_id":144759840,"licence":"Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright","osm_type":"node","osm_id":3862767512,"lat":"52.5166047","lon":"13.3809897","category":"railway","type":"station","place_rank":30,"importance":0.425772933155395,"addresstype":"railway","name":"Brandenburger Tor","display_name":"Brandenburger Tor, Unter den Linden, Friedrich-Wilhelm-Stadt, Mitte, Berlin, 10117, Deutschland","boundingbox":["52.5116047","52.5216047","13.3759897","13.3859897"]}]'

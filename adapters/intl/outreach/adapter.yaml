@@ -1,0 +1,287 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: outreach
+  name: Outreach
+  description: 'Drive Outreach (sales engagement platform) from any AI agent: prospects, accounts, sequences, sequence enrollment, tasks, users. 11 tools, OAuth2 Bearer auth, JSON:API spec.'
+  region: intl
+  category: crm
+  icon: outreach
+  docsUrl: https://developers.outreach.io/api/reference/
+  lint:
+    allow:
+      - healthcheck-present
+credentials:
+  OUTREACH_ACCESS_TOKEN:
+    required: true
+    secret: true
+transport:
+  type: http
+  baseUrl: https://api.outreach.io/api/v2
+auth:
+  type: bearer
+  token: '{{env.OUTREACH_ACCESS_TOKEN}}'
+instructions: |-
+  This connector uses the Outreach API v2 (developers.outreach.io).
+
+  **Setup**:
+  1. Outreach API access is OAuth2-only — no static API keys. Register an OAuth app at https://developers.outreach.io.
+  2. Run the OAuth2 authorization-code flow to obtain an access_token (short-lived, ~7200 s) + refresh_token (long-lived). The access_token is what you pass to the connector.
+  3. Set `OUTREACH_ACCESS_TOKEN`.
+  4. Refresh logic: handle refresh-token rotation externally (the engine refreshes BEARER_TOKEN on 401 if `refreshToken` + `tokenUrl` are present in authConfig — but per-tenant OAuth2 setup is outside this connector's scope).
+
+  **Authentication**: `Authorization: Bearer ${OUTREACH_ACCESS_TOKEN}`.
+
+  **JSON:API spec**: every response wraps data in `{data:{id,type,attributes,relationships}, included?:[], meta, links}`. Use `?include=` (comma-separated) to side-load related resources. Use `?fields[TYPE]=...` for sparse fieldsets.
+
+  **Outreach objects** (Outreach-specific naming):
+    - **Prospect** = a person at an account (like Salesloft 'person').
+    - **Account** = a company.
+    - **Sequence** = multi-step outreach cadence.
+    - **Sequence Step** = each touchpoint.
+    - **Sequence State** = a prospect's enrollment in a sequence (active/paused/finished/bounced).
+    - **Mailbox** = the email account used to send sequence emails.
+
+  **Sequence enrollment**: POST `/sequenceStates` with relationships {prospect, sequence, mailbox}. The mailbox must belong to the API token's user OR a delegated user.
+
+  **Filtering**: `filter[attribute]=value` query syntax. Multiple filters AND together. Example: `?filter[bounced]=true&filter[sequenceState.id]=N`.
+
+  **Pagination**: `page[size]` (default 50, max 1000) + `page[after]` cursor.
+
+  **Rate limits**: 10,000 req/hour per token (Enterprise). On 429 honor `Retry-After`.
+
+  **Out of scope here**: sequence template editing, calling, conversational intelligence, opportunity sync (use the CRM directly), task templates.
+tools:
+  - name: outreach_list_prospects
+    description: List prospects with filters. Supports filter[emails], filter[accountId], filter[ownerId], filter[stage.id], filter[engagedAt][gte], etc.
+    input:
+      type: object
+      properties:
+        filter_emails:
+          type: string
+          description: Comma-separated email exact-match.
+        filter_account_id:
+          type: string
+          description: Account ID filter.
+        filter_owner_id:
+          type: string
+          description: Owner user ID.
+        filter_stage_id:
+          type: string
+          description: Stage ID.
+        sort:
+          type: string
+          description: 'Sort attribute, prefix - for desc: -updatedAt.'
+        page_size:
+          type: integer
+          description: Per page (default 50, max 1000).
+        page_after:
+          type: string
+          description: Cursor for next page.
+        include:
+          type: string
+          description: 'Side-load: account, owner, currentlyActiveSequenceStates, etc.'
+        fields_prospect:
+          type: string
+          description: Sparse fieldset for prospect attributes.
+    operation:
+      method: GET
+      path: /prospects
+      query:
+        filter[emails]: '{{params.filter_emails}}'
+        filter[accountId]: '{{params.filter_account_id}}'
+        filter[ownerId]: '{{params.filter_owner_id}}'
+        filter[stage.id]: '{{params.filter_stage_id}}'
+        sort: '{{params.sort}}'
+        page[size]: '{{params.page_size}}'
+        page[after]: '{{params.page_after}}'
+        include: '{{params.include}}'
+        fields[prospect]: '{{params.fields_prospect}}'
+  - name: outreach_get_prospect
+    description: Fetch a prospect by ID with full attributes and relationships.
+    input:
+      type: object
+      properties:
+        prospectId:
+          type: string
+          description: Prospect ID.
+        include:
+          type: string
+          description: Side-load related resources.
+      required:
+        - prospectId
+    operation:
+      method: GET
+      path: /prospects/{{params.prospectId}}
+      query:
+        include: '{{params.include}}'
+  - name: outreach_create_prospect
+    description: 'Create a prospect. JSON:API envelope: {data: {type:''prospect'', attributes:{emails:[''a@b.com''], firstName, lastName, ...}, relationships:{account:{data:{type:''account'',id:''N''}}, owner:{data:{type:''user'',id:''M''}}}}}.'
+    input:
+      type: object
+      properties:
+        data:
+          type: object
+          description: JSON:API data envelope. {type:'prospect', attributes:{emails:['email1','email2'], firstName?, lastName?, title?, addressCity?, ...}, relationships?:{account, owner}}. Wrap inside {data:{...}}.
+      required:
+        - data
+    operation:
+      method: POST
+      path: /prospects
+      body:
+        value:
+          data: '{{params.data}}'
+  - name: outreach_update_prospect
+    description: 'Update a prospect. JSON:API PATCH envelope: {data: {type:''prospect'', id:PROSPECT_ID, attributes:{...}}}.'
+    input:
+      type: object
+      properties:
+        prospectId:
+          type: string
+          description: Prospect ID.
+        data:
+          type: object
+          description: '{type:''prospect'', id:PROSPECT_ID, attributes:{...changed fields...}}. Wrap inside {data:{...}}.'
+      required:
+        - prospectId
+        - data
+    operation:
+      method: PATCH
+      path: /prospects/{{params.prospectId}}
+      body:
+        value:
+          data: '{{params.data}}'
+  - name: outreach_list_accounts
+    description: List accounts with filters. Each account has name, domain, industry, numberOfEmployees, websiteUrl, addressCity, custom*.
+    input:
+      type: object
+      properties:
+        filter_name:
+          type: string
+          description: Name filter.
+        filter_domain:
+          type: string
+          description: Domain filter.
+        filter_owner_id:
+          type: string
+          description: Owner user ID.
+        page_size:
+          type: integer
+          description: Per page.
+        page_after:
+          type: string
+          description: Cursor.
+    operation:
+      method: GET
+      path: /accounts
+      query:
+        filter[name]: '{{params.filter_name}}'
+        filter[domain]: '{{params.filter_domain}}'
+        filter[ownerId]: '{{params.filter_owner_id}}'
+        page[size]: '{{params.page_size}}'
+        page[after]: '{{params.page_after}}'
+  - name: outreach_list_sequences
+    description: List sequences (cadences). Each has name, shareType (private/shared), enabled, numActiveProspects, numSteps.
+    input:
+      type: object
+      properties:
+        filter_enabled:
+          type: boolean
+          description: Only enabled sequences.
+        filter_share_type:
+          type: string
+          description: private, shared.
+        page_size:
+          type: integer
+          description: Per page.
+    operation:
+      method: GET
+      path: /sequences
+      query:
+        filter[enabled]: '{{params.filter_enabled}}'
+        filter[shareType]: '{{params.filter_share_type}}'
+        page[size]: '{{params.page_size}}'
+  - name: outreach_enroll_in_sequence
+    description: Enroll a prospect in a sequence (create sequenceState). The mailbox must belong to a user with permission to send through it. JSON:API envelope.
+    input:
+      type: object
+      properties:
+        data:
+          type: object
+          description: '{type:''sequenceState'', relationships:{prospect:{data:{type:''prospect'',id:''N''}}, sequence:{data:{type:''sequence'',id:''M''}}, mailbox:{data:{type:''mailbox'',id:''K''}}}}. Wrap inside {data:{...}}.'
+      required:
+        - data
+    operation:
+      method: POST
+      path: /sequenceStates
+      body:
+        value:
+          data: '{{params.data}}'
+  - name: outreach_list_mailboxes
+    description: List mailboxes (email accounts connected to Outreach for sending). Returns id, email, sendType (sequenceSend / replyFromSequence), userId.
+    input:
+      type: object
+      properties:
+        filter_user_id:
+          type: string
+          description: Filter by owner user ID.
+        page_size:
+          type: integer
+          description: Per page.
+    operation:
+      method: GET
+      path: /mailboxes
+      query:
+        filter[userId]: '{{params.filter_user_id}}'
+        page[size]: '{{params.page_size}}'
+  - name: outreach_list_users
+    description: List Outreach users. Returns id, name, email, role, locked, createdAt.
+    input:
+      type: object
+      properties:
+        filter_email:
+          type: string
+          description: Exact email filter.
+        page_size:
+          type: integer
+          description: Per page.
+    operation:
+      method: GET
+      path: /users
+      query:
+        filter[email]: '{{params.filter_email}}'
+        page[size]: '{{params.page_size}}'
+  - name: outreach_list_tasks
+    description: List tasks (manual steps in sequences that need agent action — calls, custom emails, LinkedIn DMs). Filter by state (pending/skipped/completed) and assignee.
+    input:
+      type: object
+      properties:
+        filter_state:
+          type: string
+          description: pending, skipped, completed, scheduled, expired.
+        filter_owner_id:
+          type: string
+          description: Assignee user ID.
+        filter_prospect_id:
+          type: string
+          description: Prospect ID.
+        page_size:
+          type: integer
+          description: Per page.
+    operation:
+      method: GET
+      path: /tasks
+      query:
+        filter[state]: '{{params.filter_state}}'
+        filter[ownerId]: '{{params.filter_owner_id}}'
+        filter[prospectId]: '{{params.filter_prospect_id}}'
+        page[size]: '{{params.page_size}}'
+  - name: outreach_list_stages
+    description: List prospect stages defined on the org (the funnel positions like Lead/MQL/SQL/Opportunity). Required to compose filter[stage.id] queries.
+    input:
+      type: object
+      properties: {}
+    operation:
+      method: GET
+      path: /stages

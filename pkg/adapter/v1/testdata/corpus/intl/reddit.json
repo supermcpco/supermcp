@@ -1,0 +1,254 @@
+{
+  "slug": "reddit",
+  "name": "Reddit",
+  "description": "Read Reddit from any AI agent: subreddit info and listings, global/subreddit post search, comment trees, and public user profiles + submissions. 6 read tools, OAuth2 app-only auth (tokens auto-refresh).",
+  "instructions": "This connector reads Reddit's public content through the official OAuth2 API using the **app-only** (`client_credentials`) flow. Access tokens are obtained and refreshed automatically — you never paste or rotate a token.\n\n**Setup** (2 minutes):\n1. Sign in to Reddit → https://www.reddit.com/prefs/apps → **Create another app** (or **Create an app**).\n2. Choose type **`script`**. Name it anything; set the redirect URI to `http://localhost:8080` (unused by app-only, but the form requires one).\n3. After creating it, read the two values: the **client_id** is the string shown right under the app name (\"personal use script\"), and the **secret** is the `secret` field.\n4. Set `REDDIT_CLIENT_ID` and `REDDIT_CLIENT_SECRET`. That's it — the connector exchanges them for a 1-hour token at `https://www.reddit.com/api/v1/access_token` and refreshes on demand.\n\n**Scope**: app-only tokens can read **public** data only. This connector therefore exposes reads (subreddits, posts, search, comments, public user profiles). It does NOT do actions that need a logged-in user — posting, commenting, voting, saving, `/api/v1/me`, or your subscribed subreddits — those require a user-context OAuth flow that isn't part of this app-only connector.\n\n**User-Agent**: Reddit blocks requests without a meaningful User-Agent. The adapter pins `User-Agent: supermcp/1.0 (by /u/supermcp)` on every call. If Reddit ever returns 429, change it to one specific to you (`<platform>:<app id>:<version> (by /u/<username>)`).\n\n**Resource model**: every Reddit object has a `kind` prefix — t1_ = comment, t2_ = user, t3_ = link/post, t5_ = subreddit. A full ID is `kind_id36`, e.g. `t3_abc123`; plain `id36` works for some endpoints.\n\n**Pagination**: list endpoints return a `Listing` with `after`/`before` cursors. Pass `after=t3_abc123` to page forward.\n\n**Rate limits**: ~100 queries / minute / OAuth client on the free tier. High-volume commercial use is billed — see https://www.redditinc.com/policies/data-api-terms.",
+  "region": "intl",
+  "category": "social",
+  "icon": "reddit",
+  "docsUrl": "https://www.reddit.com/dev/api",
+  "selfHostOnly": true,
+  "requiredEnvVars": [
+    "REDDIT_CLIENT_ID",
+    "REDDIT_CLIENT_SECRET"
+  ],
+  "connector": {
+    "name": "Reddit API",
+    "type": "REST",
+    "baseUrl": "https://oauth.reddit.com",
+    "authType": "OAUTH2",
+    "authConfig": {
+      "grant": "client_credentials",
+      "tokenUrl": "https://www.reddit.com/api/v1/access_token",
+      "clientId": "{{REDDIT_CLIENT_ID}}",
+      "clientSecret": "{{REDDIT_CLIENT_SECRET}}",
+      "extraHeaders": {
+        "User-Agent": "supermcp/1.0 (by /u/supermcp)"
+      }
+    }
+  },
+  "tools": [
+    {
+      "name": "reddit_get_subreddit_about",
+      "description": "Fetch a subreddit's info: id, display_name, title, public_description, subscribers, active_user_count, over18, created_utc.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "subreddit": {
+            "type": "string",
+            "description": "Subreddit name without the 'r/' prefix, e.g. 'programming'."
+          }
+        },
+        "required": [
+          "subreddit"
+        ]
+      },
+      "endpointMapping": {
+        "method": "GET",
+        "path": "/r/{subreddit}/about"
+      }
+    },
+    {
+      "name": "reddit_list_subreddit_posts",
+      "description": "List posts in a subreddit, sorted by hot/new/top/rising. Each post has id, title, author, subreddit, score, num_comments, created_utc, selftext, url, permalink, over_18.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "subreddit": {
+            "type": "string",
+            "description": "Subreddit name."
+          },
+          "sort": {
+            "type": "string",
+            "description": "hot, new, top, rising, controversial."
+          },
+          "t": {
+            "type": "string",
+            "description": "Time scope for top/controversial: hour, day, week, month, year, all."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Per page (default 25, max 100)."
+          },
+          "after": {
+            "type": "string",
+            "description": "Cursor — fullname (t3_xxx) of the post to start after."
+          },
+          "before": {
+            "type": "string",
+            "description": "Cursor — fullname of the post to start before."
+          }
+        },
+        "required": [
+          "subreddit"
+        ]
+      },
+      "endpointMapping": {
+        "method": "GET",
+        "path": "/r/{subreddit}/{sort}",
+        "queryParams": {
+          "t": "$t",
+          "limit": "$limit",
+          "after": "$after",
+          "before": "$before"
+        }
+      }
+    },
+    {
+      "name": "reddit_search",
+      "description": "Search posts globally or within a subreddit. Supports query operators: 'title:foo', 'author:bar', 'subreddit:baz', 'site:domain.com', 'self:yes', timestamp:>1234567890.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "q": {
+            "type": "string",
+            "description": "Search query."
+          },
+          "subreddit": {
+            "type": "string",
+            "description": "Restrict to this subreddit."
+          },
+          "sort": {
+            "type": "string",
+            "description": "relevance, hot, top, new, comments."
+          },
+          "t": {
+            "type": "string",
+            "description": "Time scope: hour, day, week, month, year, all."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Per page."
+          },
+          "after": {
+            "type": "string",
+            "description": "Cursor."
+          },
+          "restrict_sr": {
+            "type": "boolean",
+            "description": "If true, restrict_sr=1 (only match in subreddit, used with subreddit param)."
+          },
+          "type": {
+            "type": "string",
+            "description": "sr (subreddits), user (users), link (posts only)."
+          }
+        },
+        "required": [
+          "q"
+        ]
+      },
+      "endpointMapping": {
+        "method": "GET",
+        "path": "/search",
+        "queryParams": {
+          "q": "$q",
+          "sort": "$sort",
+          "t": "$t",
+          "limit": "$limit",
+          "after": "$after",
+          "restrict_sr": "$restrict_sr",
+          "type": "$type"
+        }
+      }
+    },
+    {
+      "name": "reddit_get_post_comments",
+      "description": "Fetch a post with its comment tree. Comments can be deep — use depth/limit to control.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "postId": {
+            "type": "string",
+            "description": "Post id36 (without t3_ prefix)."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Max comments."
+          },
+          "depth": {
+            "type": "integer",
+            "description": "Max thread depth."
+          },
+          "sort": {
+            "type": "string",
+            "description": "best, top, new, controversial, old, qa."
+          }
+        },
+        "required": [
+          "postId"
+        ]
+      },
+      "endpointMapping": {
+        "method": "GET",
+        "path": "/comments/{postId}",
+        "queryParams": {
+          "limit": "$limit",
+          "depth": "$depth",
+          "sort": "$sort"
+        }
+      }
+    },
+    {
+      "name": "reddit_get_user_about",
+      "description": "Fetch a user's public profile: id, name, link_karma, comment_karma, created_utc, is_gold, verified.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string",
+            "description": "Reddit username without u/."
+          }
+        },
+        "required": [
+          "username"
+        ]
+      },
+      "endpointMapping": {
+        "method": "GET",
+        "path": "/user/{username}/about"
+      }
+    },
+    {
+      "name": "reddit_get_user_posts",
+      "description": "List a user's public submitted posts.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string",
+            "description": "Username."
+          },
+          "sort": {
+            "type": "string",
+            "description": "new, hot, top, controversial."
+          },
+          "t": {
+            "type": "string",
+            "description": "Time scope."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Per page."
+          },
+          "after": {
+            "type": "string",
+            "description": "Cursor."
+          }
+        },
+        "required": [
+          "username"
+        ]
+      },
+      "endpointMapping": {
+        "method": "GET",
+        "path": "/user/{username}/submitted",
+        "queryParams": {
+          "sort": "$sort",
+          "t": "$t",
+          "limit": "$limit",
+          "after": "$after"
+        }
+      }
+    }
+  ]
+}

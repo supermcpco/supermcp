@@ -1,0 +1,188 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: deutsche-bahn
+  name: Deutsche Bahn Fahrplan
+  description: 'German train timetable with live delays: search stations, list departures and arrivals with real-time delay, track and cancellation status, and plan journeys between any two stations. Runs on MOTIS over the open gtfs.de timetable (ICE, IC, EC, regional trains, S-Bahn) — no bahn.de scraping, no API key.'
+  region: de
+  category: transport
+  icon: db
+  docsUrl: https://github.com/supermcpco/supermcp/blob/main/deploy/motis/README.md
+  lint:
+    allow:
+      - tool-name-prefix
+credentials:
+  MOTIS_URL:
+    required: true
+transport:
+  type: http
+  baseUrl: '{{env.MOTIS_URL}}'
+  headers:
+    User-Agent: supermcp/1.0 (+https://supermcp.dev)
+auth:
+  type: none
+healthcheck:
+  tool: db_search_locations
+  params:
+    query: Freiburg Hbf
+  http:
+    method: GET
+    path: /
+instructions: |-
+  This connector queries a **MOTIS** routing engine loaded with the open German train timetable (gtfs.de, all long-distance and regional trains incl. S-Bahn) and a live GTFS-RT feed for delays, platform changes and cancellations. a hosted supermcp instance runs its own instance; self-hosters run the bundled `motis` service (`deploy/motis/README.md`) or point `MOTIS_URL` at any MOTIS. No API key.
+
+  **Workflow**
+  1. `db_search_locations` turns a station name into a stop `id` (e.g. `fv_384020`). Ids change when the timetable is refreshed — resolve names in every session, never reuse ids from memory.
+  2. `db_get_departures` / `db_get_arrivals` with that `id` for a live board; `db_get_stop` for the station's details.
+  3. `db_get_journeys` with two ids plans a trip (station to station; there is no street routing, so coordinates are not accepted).
+
+  **Reading the fields**
+  - Times are ISO 8601 in **UTC** (`2026-09-15T13:27:00Z`). Germany is UTC+1 (winter) / UTC+2 (summer) — convert before quoting a time to the user.
+  - `departure` / `arrival` are the live prediction, `scheduledDeparture` / `scheduledArrival` the timetable. Delay in minutes = live − scheduled. `realTime: true` means the row carries live data; `false` means schedule only.
+  - `cancelled: true` on a departure or leg means that stop or leg is cancelled; `tripCancelled` means the whole train is.
+  - `track` is the live platform, `scheduledTrack` the planned one; both may be absent for smaller stops.
+  - `line` is the train name as printed on the board (`ICE 43`, `RE 7`, `S1`). The free gtfs.de feed reports every train as mode `REGIONAL_RAIL`; tell ICE/IC/EC from regional trains by the `line` prefix, not by mode.
+
+  **Boards**: omit `when` for a board starting now; `n` is the number of rows (default 12, max 100). Big stations have many S-Bahn rows — raise `n` when looking for a specific long-distance train.
+
+  **Journeys**: `time` is the departure time unless `arrive_by` is true; omit for now. `results` caps the itineraries (default 4). Legs with `mode: WALK` are transfers.
+
+  Data: DELFI e.V. / gtfs.de (CC BY 4.0), GTFS-RT gtfs.de (CC BY-SA 4.0). Engine: MOTIS (MIT).
+tools:
+  - name: db_search_locations
+    description: 'Search German train stations by name. Returns up to 10 matches with `id` (use it as `id` in db_get_departures / db_get_arrivals / db_get_stop and as `from` / `to` in db_get_journeys), `name`, `lat`, `lon` and `modes`. Ids change when the timetable is refreshed, so resolve the name each session. Search the way a German timetable spells it: ''Freiburg Hbf'', ''Berlin Hbf'', ''Frankfurt (Main) Hauptbahnhof'', ''München Hbf''.'
+    input:
+      type: object
+      properties:
+        query:
+          type: string
+          description: Station name or fragment, e.g. 'Freiburg Hbf', 'Hamburg Altona', 'Köln Messe/Deutz'.
+      required:
+        - query
+    operation:
+      method: GET
+      path: /api/v1/geocode
+      query:
+        text: '{{params.query}}'
+        type: STOP
+        language: de
+    response:
+      transform:
+        jmespath: '[].{id: id, name: name, lat: lat, lon: lon, modes: modes}'
+  - name: db_get_stop
+    description: 'Details of one station by its `id` from db_search_locations: `name`, `lat`, `lon` and the `modes` served there. Use when you already hold an id and need to confirm which station it is.'
+    input:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Stop id from db_search_locations, e.g. 'fv_384020'.
+      required:
+        - id
+    operation:
+      method: GET
+      path: /api/v1/stoptimes
+      query:
+        stopId: '{{params.id}}'
+        "n": "1"
+    response:
+      transform:
+        jmespath: 'place.{id: stopId, name: name, lat: lat, lon: lon, modes: modes}'
+  - name: db_get_departures
+    description: 'Live departure board for a station: the next `n` trains with `line` (e.g. ''ICE 43'', ''RE 7'', ''S1''), `headsign` (where the train is going), `scheduledDeparture` and live `departure` (both ISO 8601 UTC — the difference is the delay), `scheduledTrack` / `track`, `realTime` (true = live data), `cancelled` and `tripCancelled`. Omit `when` for departures from now.'
+    input:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Stop id from db_search_locations.
+        when:
+          type: string
+          description: Optional start of the board as ISO 8601 with timezone or 'Z', e.g. '2026-09-15T08:30:00+02:00'. Omit for now.
+        "n":
+          type: number
+          description: Number of departures to return (default 12, max 100). Raise it at big stations when looking for a specific long-distance train among many S-Bahn rows.
+          default: 12
+      required:
+        - id
+    operation:
+      method: GET
+      path: /api/v1/stoptimes
+      query:
+        stopId: '{{params.id}}'
+        time: '{{params.when}}'
+        "n": '{{params.n}}'
+        arriveBy: "false"
+    response:
+      transform:
+        jmespath: '{stop: place.name, stopId: place.stopId, departures: stopTimes[].{line: routeShortName, headsign: headsign, scheduledDeparture: place.scheduledDeparture, departure: place.departure, scheduledTrack: place.scheduledTrack, track: place.track, realTime: realTime, cancelled: cancelled, tripCancelled: tripCancelled, agency: agencyName}}'
+  - name: db_get_arrivals
+    description: 'Live arrival board for a station: the next `n` arriving trains with `line`, `origin` (where the train started), `headsign`, `scheduledArrival` and live `arrival` (ISO 8601 UTC — the difference is the delay), `scheduledTrack` / `track`, `realTime`, `cancelled` and `tripCancelled`. Omit `when` for arrivals from now.'
+    input:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Stop id from db_search_locations.
+        when:
+          type: string
+          description: Optional start of the board as ISO 8601 with timezone or 'Z'. Omit for now.
+        "n":
+          type: number
+          description: Number of arrivals to return (default 12, max 100).
+          default: 12
+      required:
+        - id
+    operation:
+      method: GET
+      path: /api/v1/stoptimes
+      query:
+        stopId: '{{params.id}}'
+        time: '{{params.when}}'
+        "n": '{{params.n}}'
+        arriveBy: "true"
+    response:
+      transform:
+        jmespath: '{stop: place.name, stopId: place.stopId, arrivals: stopTimes[].{line: routeShortName, origin: tripFrom.name, headsign: headsign, scheduledArrival: place.scheduledArrival, arrival: place.arrival, scheduledTrack: place.scheduledTrack, track: place.track, realTime: realTime, cancelled: cancelled, tripCancelled: tripCancelled, agency: agencyName}}'
+  - name: db_get_journeys
+    description: Plan train journeys between two stations. Returns itineraries with `departure`, `arrival` (ISO 8601 UTC), `durationMinutes`, `transfers` and `legs[]` — each leg has `mode` (`WALK` = transfer on foot), `line`, `headsign`, `from` / `to` with scheduled and live times and tracks, `realTime` and `cancelled`. Both ends must be stop ids from db_search_locations (station to station — no street routing). `time` is the departure time unless `arrive_by` is true; omit both for now.
+    input:
+      type: object
+      properties:
+        from:
+          type: string
+          description: Origin stop id from db_search_locations, e.g. 'fv_384020'.
+        to:
+          type: string
+          description: Destination stop id from db_search_locations.
+        time:
+          type: string
+          description: ISO 8601 with timezone or 'Z', e.g. '2026-09-15T08:00:00+02:00'. Departure time, or arrival time when arrive_by is true. Omit for now.
+        arrive_by:
+          type: boolean
+          description: true = `time` is the latest arrival; false/omitted = `time` is the earliest departure.
+        results:
+          type: number
+          description: Maximum number of itineraries (default 4).
+          default: 4
+        bike:
+          type: boolean
+          description: true = only trains that carry bicycles.
+      required:
+        - from
+        - to
+    operation:
+      method: GET
+      path: /api/v1/plan
+      query:
+        fromPlace: '{{params.from}}'
+        toPlace: '{{params.to}}'
+        time: '{{params.time}}'
+        arriveBy: '{{params.arrive_by}}'
+        numItineraries: '{{params.results}}'
+        requireBikeTransport: '{{params.bike}}'
+        detailedTransfers: "false"
+    response:
+      transform:
+        jmespath: 'itineraries[].{departure: startTime, arrival: endTime, durationMinutes: duration / `60`, transfers: transfers, legs: legs[].{mode: mode, line: routeShortName, headsign: headsign, from: from.name, fromId: from.stopId, scheduledDeparture: from.scheduledDeparture, departure: from.departure, departureTrack: from.track, to: to.name, toId: to.stopId, scheduledArrival: to.scheduledArrival, arrival: to.arrival, arrivalTrack: to.track, realTime: realTime, cancelled: cancelled}}'

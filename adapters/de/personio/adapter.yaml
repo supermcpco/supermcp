@@ -1,0 +1,149 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: personio
+  name: Personio HR
+  description: Access employee records, attendances, absences, and time-offs via the Personio REST API. Personio is the dominant HR platform for DACH SMBs.
+  region: de
+  category: hr
+  icon: personio
+  docsUrl: https://developer.personio.de/reference
+  lint:
+    allow:
+      - healthcheck-present
+credentials:
+  PERSONIO_TOKEN:
+    required: true
+    secret: true
+transport:
+  type: http
+  baseUrl: https://api.personio.de/v1
+auth:
+  type: bearer
+  token: '{{env.PERSONIO_TOKEN}}'
+instructions: |-
+  This connector uses the Personio v1 REST API.
+
+  **Authentication model — IMPORTANT**: Personio's /auth endpoint is not a standard OAuth2 flow. You POST {client_id, client_secret} once and get back a short-lived bearer token, which is then passed as `Authorization: Bearer <token>` on every request. Each successful API response ALSO returns a new token in its Authorization response header that must be used for the next call — effectively a token-rotation scheme. This adapter uses a single long-lived bearer token supplied by you (`PERSONIO_TOKEN`).
+
+  **Getting a token**: in Personio admin → Settings → Integrations → API credentials, create a new set, then exchange them for a token via `curl -X POST https://api.personio.de/v1/auth -d 'client_id=...&client_secret=...'`. Paste the returned `token` as `PERSONIO_TOKEN` when importing the connector.
+
+  **Token rotation limitation**: because the adapter sends the SAME token on each call, the first call succeeds but subsequent ones may fail once Personio starts rotating. In practice Personio tolerates the same token for a few minutes — good enough for ad-hoc AI workflows but not high-volume integrations. For production, generate a fresh token per session or wrap this adapter in a custom proxy.
+
+  **Scopes**: the token inherits the API credential's configured scopes (Employees, Attendances, Absences, Time Offs). Configure these in Personio before generating the token.
+
+  **Rate limit**: 10 requests/second per API credential.
+tools:
+  - name: personio_list_employees
+    description: List all employees. Returns id, first/last name, email, position, department, office, hire date, status (active/inactive/onboarding/leave/offboarded) and supervisor. Supports filtering by email, department, or status.
+    input:
+      type: object
+      properties:
+        email:
+          type: string
+          description: Filter by employee email (exact match).
+        limit:
+          type: number
+          description: 'Max results (default: 200, max: 200).'
+        offset:
+          type: number
+          description: Offset for pagination.
+    operation:
+      method: GET
+      path: /company/employees
+      query:
+        email: '{{params.email}}'
+        limit: '{{params.limit}}'
+        offset: '{{params.offset}}'
+  - name: personio_get_employee
+    description: Retrieve a single employee by id. Returns all custom attributes, contract details, salary band (if token has permission), and personal data.
+    input:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Personio employee id.
+      required:
+        - id
+    operation:
+      method: GET
+      path: /company/employees/{{params.id}}
+  - name: personio_list_absences
+    description: List absences (Abwesenheiten) — vacation, sick leave, parental leave, etc. Returns type, start/end date, half-day flag, certificate URL, and approval status.
+    input:
+      type: object
+      properties:
+        start_date:
+          type: string
+          description: 'Filter: absences overlapping on or after this ISO date (e.g. ''2026-01-01'').'
+        end_date:
+          type: string
+          description: 'Filter: absences overlapping on or before this date.'
+        employees:
+          type: string
+          description: Comma-separated employee ids to filter by.
+        limit:
+          type: number
+          description: Max results (default 200).
+        offset:
+          type: number
+          description: Offset for pagination.
+    operation:
+      method: GET
+      path: /company/time-offs
+      query:
+        start_date: '{{params.start_date}}'
+        end_date: '{{params.end_date}}'
+        employees: '{{params.employees}}'
+        limit: '{{params.limit}}'
+        offset: '{{params.offset}}'
+  - name: personio_list_attendances
+    description: List attendance records (working hours). Returns date, employee, start/end time, break minutes, project (if project tracking enabled), and comment.
+    input:
+      type: object
+      properties:
+        start_date:
+          type: string
+          description: Earliest attendance date (ISO, e.g. '2026-04-01'). Required.
+        end_date:
+          type: string
+          description: Latest attendance date (ISO). Required.
+        employees:
+          type: string
+          description: Comma-separated employee ids to scope the query.
+        limit:
+          type: number
+          description: Max results.
+        offset:
+          type: number
+          description: Offset for pagination.
+      required:
+        - start_date
+        - end_date
+    operation:
+      method: GET
+      path: /company/attendances
+      query:
+        start_date: '{{params.start_date}}'
+        end_date: '{{params.end_date}}'
+        employees: '{{params.employees}}'
+        limit: '{{params.limit}}'
+        offset: '{{params.offset}}'
+  - name: personio_list_absence_types
+    description: List the configured absence types (vacation, sick, parental leave, etc.) with id, name, category, and unit (days vs hours). Use ids when creating new absences.
+    input:
+      type: object
+      properties:
+        limit:
+          type: number
+          description: Max results.
+        offset:
+          type: number
+          description: Offset for pagination.
+    operation:
+      method: GET
+      path: /company/time-off-types
+      query:
+        limit: '{{params.limit}}'
+        offset: '{{params.offset}}'

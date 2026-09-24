@@ -1,0 +1,17 @@
+# Recorded by `supermcp adapter record`; replayed by `supermcp adapter test`.
+# Credential values are replaced with SUPERMCP_CREDENTIAL_<NAME>.
+adapter: openplz
+tool: openplz_lookup_postalcode
+recordedAt: 2026-09-22T22:18:20Z
+interactions:
+  - params:
+      postalCode: "10117"
+    request:
+      method: GET
+      url: https://openplzapi.org/de/Localities
+      query: postalCode=10117
+    response:
+      status: 200
+      headers:
+        content-type: application/json; charset=utf-8
+      body: '[{"postalCode":"10117","name":"Berlin","municipality":{"key":"11000000","name":"Berlin, Stadt","type":"Kreisfreie Stadt"},"federalState":{"key":"11","name":"Berlin"}}]'

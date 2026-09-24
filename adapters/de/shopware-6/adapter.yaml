@@ -1,0 +1,166 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: shopware-6
+  name: Shopware 6 Store API
+  description: Query a Shopware 6 storefront programmatically — product catalog, categories, cross-sells, landing pages, and search. Covers the public-facing Store API, which is how the Shopware storefront itself talks to the backend.
+  region: de
+  category: e-commerce
+  icon: shopware
+  docsUrl: https://developer.shopware.com/docs/guides/integrations-api/store-api-guide
+  lint:
+    allow:
+      - description-min-60
+      - healthcheck-present
+      - tool-name-prefix
+credentials:
+  SHOPWARE_URL:
+    required: true
+  SHOPWARE_ACCESS_KEY:
+    required: true
+    secret: true
+transport:
+  type: http
+  baseUrl: '{{env.SHOPWARE_URL}}/store-api'
+auth:
+  type: apiKey
+  in: header
+  name: sw-access-key
+  value: '{{env.SHOPWARE_ACCESS_KEY}}'
+instructions: |-
+  This connector uses the Shopware 6 Store API (not the Admin API).
+
+  **Instance URL**: every Shopware install has its own URL. Paste it into `SHOPWARE_URL` when importing — e.g. `https://shop.koch-freiburg.de`. Do NOT add `/store-api`; the adapter handles that.
+
+  **Access key**: the Store API authenticates with a single header `sw-access-key`. Find it in the Shopware admin under Settings → System → Integrations → 'Access key for sales channels', or per-sales-channel under Sales Channels → 'API access → Access key'. Set it as `SHOPWARE_ACCESS_KEY` at import time.
+
+  **Context token (optional)**: for cart/wishlist operations you also need a `sw-context-token` (obtained from POST /context) — not handled by this adapter. For public catalog browsing no context is required.
+
+  **Store API vs Admin API**: Store API is optimised for customer-facing reads and is always active. For administrative writes (create products, manage stock, order fulfilment) use the Admin API, which requires OAuth2 client_credentials and is not covered by this adapter.
+
+  **Search**: the search endpoint supports Shopware's criteria grammar (associations, filter, sort, pagination) — see https://developer.shopware.com/docs/concepts/search-queries.html
+tools:
+  - name: shopware_search_products
+    description: Search products in the sales channel. Returns product id, name, product number, price, stock, manufacturer, and cover image. Supports Shopware criteria.
+    input:
+      type: object
+      properties:
+        search:
+          type: string
+          description: Free-text search term.
+        limit:
+          type: number
+          description: 'Max results (default: 24, max: 500).'
+        page:
+          type: number
+          description: Page number, 1-based.
+        filter:
+          type: array
+          description: Array of filter objects per Shopware criteria (e.g. [{"type":"equals","field":"active","value":true}]).
+        sort:
+          type: array
+          description: Sort order (e.g. [{"field":"name","order":"ASC"}]).
+        associations:
+          type: object
+          description: Associations to load (e.g. {"manufacturer":{},"cover":{}}).
+    operation:
+      method: POST
+      path: /product
+      body:
+        value:
+          search: '{{params.search}}'
+          limit: '{{params.limit}}'
+          page: '{{params.page}}'
+          filter: '{{params.filter}}'
+          sort: '{{params.sort}}'
+          associations: '{{params.associations}}'
+  - name: shopware_get_product
+    description: Retrieve a single product by id or product number, including description, pricing tiers, cross-sells, properties, media, and associations.
+    input:
+      type: object
+      properties:
+        productId:
+          type: string
+          description: The Shopware product UUID.
+        associations:
+          type: object
+          description: Associations to load (e.g. {"media":{},"properties":{},"crossSellings":{}}).
+      required:
+        - productId
+    operation:
+      method: POST
+      path: /product/{{params.productId}}
+      body:
+        value:
+          associations: '{{params.associations}}'
+  - name: shopware_search_categories
+    description: List or search categories in the storefront category tree.
+    input:
+      type: object
+      properties:
+        limit:
+          type: number
+          description: Max results.
+        filter:
+          type: array
+          description: Shopware filter array.
+    operation:
+      method: POST
+      path: /category
+      body:
+        value:
+          limit: '{{params.limit}}'
+          filter: '{{params.filter}}'
+  - name: shopware_get_category
+    description: Retrieve a category and optionally its products by category id. Used for category listing pages.
+    input:
+      type: object
+      properties:
+        categoryId:
+          type: string
+          description: Category UUID or slug.
+        associations:
+          type: object
+          description: Associations to load.
+      required:
+        - categoryId
+    operation:
+      method: POST
+      path: /category/{{params.categoryId}}
+      body:
+        value:
+          associations: '{{params.associations}}'
+  - name: shopware_search_suggest
+    description: Shopware search suggest — returns product suggestions for as-you-type autocomplete. Lightweight, optimised for low latency.
+    input:
+      type: object
+      properties:
+        search:
+          type: string
+          description: Query term.
+        limit:
+          type: number
+          description: 'Max suggestions (default: 10).'
+      required:
+        - search
+    operation:
+      method: POST
+      path: /search-suggest
+      body:
+        value:
+          search: '{{params.search}}'
+          limit: '{{params.limit}}'
+  - name: shopware_get_cross_sells
+    description: Retrieve the cross-sell product streams configured for a product (e.g. 'Related products', 'Customers also bought').
+    input:
+      type: object
+      properties:
+        productId:
+          type: string
+          description: The product UUID.
+      required:
+        - productId
+    operation:
+      method: POST
+      path: /product/{{params.productId}}/cross-selling

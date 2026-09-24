@@ -1,0 +1,205 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: ticktick
+  name: TickTick
+  description: 'Drive TickTick (cross-platform task manager) from any AI agent: projects, tasks, completed-tasks reporting. 6 tools, OAuth2 Bearer auth.'
+  region: intl
+  category: project-management
+  icon: ticktick
+  docsUrl: https://developer.ticktick.com/api
+  lint:
+    allow:
+      - description-min-60
+      - healthcheck-present
+credentials:
+  TICKTICK_ACCESS_TOKEN:
+    required: true
+    secret: true
+transport:
+  type: http
+  baseUrl: https://api.ticktick.com/open/v1
+auth:
+  type: bearer
+  token: '{{env.TICKTICK_ACCESS_TOKEN}}'
+instructions: |-
+  This connector uses the TickTick Open API v1 (developer.ticktick.com).
+
+  **Setup**:
+  1. Register an app at https://developer.ticktick.com → **Manage Apps → New App**.
+  2. Note **Client ID** and **Client Secret**, and configure a redirect URL.
+  3. Run OAuth2 authorization-code flow with scopes `tasks:read tasks:write`.
+  4. Set `TICKTICK_ACCESS_TOKEN` to the obtained token (lifetime varies; refresh externally).
+
+  **Authentication**: `Authorization: Bearer ${TICKTICK_ACCESS_TOKEN}`.
+
+  **Project hierarchy**: Inbox + user-created projects (lists) → tasks → subtasks (items).
+
+  **Date format**: ISO 8601 with timezone (e.g. `2026-03-15T15:30:00+0000`).
+
+  **Priority**: 0 (none), 1 (low), 3 (medium), 5 (high).
+
+  **Recurring tasks**: use `repeatFlag` with iCalendar RRULE syntax.
+
+  **Out of scope here**: pomodoro, habits, calendar import/export, tags management (TickTick doesn't expose full tag CRUD).
+tools:
+  - name: ticktick_get_user_projects
+    description: List the user's projects (lists). Each project has id, name, color, sortOrder, closed, groupId, viewMode, permission, kind.
+    input:
+      type: object
+      properties: {}
+    operation:
+      method: GET
+      path: /project
+  - name: ticktick_get_project_with_data
+    description: Get a project with its tasks and columns. Returns {project, tasks[], columns[]}.
+    input:
+      type: object
+      properties:
+        projectId:
+          type: string
+          description: Project ID.
+      required:
+        - projectId
+    operation:
+      method: GET
+      path: /project/{{params.projectId}}/data
+  - name: ticktick_get_task
+    description: Get a single task by project + task ID.
+    input:
+      type: object
+      properties:
+        projectId:
+          type: string
+          description: Project ID.
+        taskId:
+          type: string
+          description: Task ID.
+      required:
+        - projectId
+        - taskId
+    operation:
+      method: GET
+      path: /project/{{params.projectId}}/task/{{params.taskId}}
+  - name: ticktick_create_task
+    description: 'Create a task. Required: title + projectId. Other common fields: content (description), startDate, dueDate, priority, items (subtasks).'
+    input:
+      type: object
+      properties:
+        title:
+          type: string
+          description: Task title.
+        projectId:
+          type: string
+          description: Target project ID (use inbox project if free-floating).
+        content:
+          type: string
+          description: Description / content.
+        desc:
+          type: string
+          description: Subtitle-style description.
+        isAllDay:
+          type: boolean
+          description: If true, all-day task.
+        startDate:
+          type: string
+          description: ISO 8601.
+        dueDate:
+          type: string
+          description: ISO 8601.
+        timeZone:
+          type: string
+          description: TZ name (e.g. 'America/New_York').
+        reminders:
+          type: array
+          description: iCalendar TRIGGER strings like 'TRIGGER:-PT0S'.
+        repeatFlag:
+          type: string
+          description: RRULE for recurrence.
+        priority:
+          type: integer
+          description: 0=none, 1=low, 3=medium, 5=high.
+        sortOrder:
+          type: integer
+          description: Display order.
+        items:
+          type: array
+          description: 'Subtasks: [{title, status?:0|2 for not_done/done, completedTime?, sortOrder?}].'
+      required:
+        - title
+        - projectId
+    operation:
+      method: POST
+      path: /task
+      body:
+        value:
+          title: '{{params.title}}'
+          projectId: '{{params.projectId}}'
+          content: '{{params.content}}'
+          desc: '{{params.desc}}'
+          isAllDay: '{{params.isAllDay}}'
+          startDate: '{{params.startDate}}'
+          dueDate: '{{params.dueDate}}'
+          timeZone: '{{params.timeZone}}'
+          reminders: '{{params.reminders}}'
+          repeatFlag: '{{params.repeatFlag}}'
+          priority: '{{params.priority}}'
+          sortOrder: '{{params.sortOrder}}'
+          items: '{{params.items}}'
+  - name: ticktick_update_task
+    description: Update a task. POST to /task/{id}. Pass full task object (TickTick replaces rather than patches).
+    input:
+      type: object
+      properties:
+        taskId:
+          type: string
+          description: Task ID.
+        title:
+          type: string
+          description: Title.
+        projectId:
+          type: string
+          description: Required for update — current project.
+        content:
+          type: string
+          description: Content.
+        dueDate:
+          type: string
+          description: ISO 8601 due.
+        priority:
+          type: integer
+          description: Priority.
+        items:
+          type: array
+          description: Subtasks.
+      required:
+        - taskId
+    operation:
+      method: POST
+      path: /task/{{params.taskId}}
+      body:
+        value:
+          title: '{{params.title}}'
+          projectId: '{{params.projectId}}'
+          content: '{{params.content}}'
+          dueDate: '{{params.dueDate}}'
+          priority: '{{params.priority}}'
+          items: '{{params.items}}'
+  - name: ticktick_complete_task
+    description: Mark a task complete.
+    input:
+      type: object
+      properties:
+        projectId:
+          type: string
+          description: Project ID.
+        taskId:
+          type: string
+          description: Task ID.
+      required:
+        - projectId
+        - taskId
+    operation:
+      method: POST
+      path: /project/{{params.projectId}}/task/{{params.taskId}}/complete

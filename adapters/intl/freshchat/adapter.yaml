@@ -1,0 +1,244 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: freshchat
+  name: Freshchat
+  description: 'Manage Freshchat (live chat + messaging: users, conversations, messages, channels, agents) from any AI agent. 9 tools, Bearer token.'
+  region: intl
+  category: support
+  icon: freshchat
+  docsUrl: https://developers.freshchat.com/api/
+  lint:
+    allow:
+      - description-min-60
+      - healthcheck-present
+credentials:
+  FRESHCHAT_API_TOKEN:
+    required: true
+    secret: true
+transport:
+  type: http
+  baseUrl: https://api.freshchat.com/v2
+auth:
+  type: bearer
+  token: '{{env.FRESHCHAT_API_TOKEN}}'
+instructions: |-
+  This connector wraps the Freshchat API v2 (per-region — api.freshchat.com/v2).
+
+  **Setup**:
+  1. Log into your Freshchat portal → **⚙️ → Account Settings → API Tokens → Generate Token**.
+  2. Note your region — Freshchat hosts data per region: `api.freshchat.com` (US), `api.eu.freshchat.com` (EU), `api.au.freshchat.com` (AU), `api.in.freshchat.com` (IN). Change baseUrl to match.
+  3. Set `FRESHCHAT_API_TOKEN`.
+
+  **Authentication**: `Authorization: Bearer ${FRESHCHAT_API_TOKEN}`.
+
+  **Conversation model**: `User → Conversation → Messages[]`. A conversation is associated with at most one user; messages carry actor + actor_type (user, agent, system).
+
+  **Pagination**: `page` (1-based) + `items_per_page` (default 25, max 100).
+
+  **Rate limits**: 60 req/min per token. 429 with `Retry-After`.
+
+  **Out of scope here**: bot flow editor, IntelliAssign automation, billing.
+tools:
+  - name: freshchat_list_users
+    description: List users (end-customers). Filter by email or reference_id.
+    input:
+      type: object
+      properties:
+        email:
+          type: string
+          description: Filter by email.
+        reference_id:
+          type: string
+          description: External system reference ID.
+        page:
+          type: integer
+          description: 1-based.
+        items_per_page:
+          type: integer
+          description: Max 100.
+    operation:
+      method: GET
+      path: /users
+      query:
+        email: '{{params.email}}'
+        reference_id: '{{params.reference_id}}'
+        page: '{{params.page}}'
+        items_per_page: '{{params.items_per_page}}'
+  - name: freshchat_get_user
+    description: Get one user by ID with profile + properties + tags.
+    input:
+      type: object
+      properties:
+        user_id:
+          type: string
+          description: User ID.
+      required:
+        - user_id
+    operation:
+      method: GET
+      path: /users/{{params.user_id}}
+  - name: freshchat_create_user
+    description: Create an end-user.
+    input:
+      type: object
+      properties:
+        first_name:
+          type: string
+          description: First name.
+        last_name:
+          type: string
+          description: Last name.
+        email:
+          type: string
+          description: Email.
+        phone:
+          type: string
+          description: Phone (E.164).
+        reference_id:
+          type: string
+          description: External ID.
+        properties:
+          type: array
+          description: Array of {name, value} custom properties.
+    operation:
+      method: POST
+      path: /users
+      body:
+        value:
+          first_name: '{{params.first_name}}'
+          last_name: '{{params.last_name}}'
+          email: '{{params.email}}'
+          phone: '{{params.phone}}'
+          reference_id: '{{params.reference_id}}'
+          properties: '{{params.properties}}'
+  - name: freshchat_list_conversations
+    description: List conversations of a user.
+    input:
+      type: object
+      properties:
+        user_id:
+          type: string
+          description: User ID.
+        items_per_page:
+          type: integer
+          description: Max 100.
+        page:
+          type: integer
+          description: 1-based.
+      required:
+        - user_id
+    operation:
+      method: GET
+      path: /users/{{params.user_id}}/conversations
+      query:
+        items_per_page: '{{params.items_per_page}}'
+        page: '{{params.page}}'
+  - name: freshchat_get_conversation
+    description: Get one conversation with status + assigned agent + recent messages.
+    input:
+      type: object
+      properties:
+        conversation_id:
+          type: string
+          description: Conversation ID.
+      required:
+        - conversation_id
+    operation:
+      method: GET
+      path: /conversations/{{params.conversation_id}}
+  - name: freshchat_send_message
+    description: Post a message into a conversation. `actor_type` = 'agent' for staff replies.
+    input:
+      type: object
+      properties:
+        conversation_id:
+          type: string
+          description: Conversation ID.
+        message_parts:
+          type: array
+          description: Array of {text:{content:'...'}}.
+        actor_id:
+          type: string
+          description: Agent or user ID sending.
+        actor_type:
+          type: string
+          description: '''agent'' or ''user''.'
+        message_type:
+          type: string
+          description: normal, private, system.
+      required:
+        - conversation_id
+        - message_parts
+        - actor_id
+        - actor_type
+    operation:
+      method: POST
+      path: /conversations/{{params.conversation_id}}/messages
+      body:
+        value:
+          message_parts: '{{params.message_parts}}'
+          actor_id: '{{params.actor_id}}'
+          actor_type: '{{params.actor_type}}'
+          message_type: '{{params.message_type}}'
+  - name: freshchat_update_conversation
+    description: Update a conversation's status, assigned agent, group, or tags.
+    input:
+      type: object
+      properties:
+        conversation_id:
+          type: string
+          description: Conversation ID.
+        status:
+          type: string
+          description: new, assigned, resolved, reopened.
+        assigned_agent_id:
+          type: string
+          description: Agent to assign.
+        assigned_group_id:
+          type: string
+          description: Group to assign.
+        properties:
+          type: object
+          description: Custom properties.
+      required:
+        - conversation_id
+    operation:
+      method: PUT
+      path: /conversations/{{params.conversation_id}}
+      body:
+        value:
+          status: '{{params.status}}'
+          assigned_agent_id: '{{params.assigned_agent_id}}'
+          assigned_group_id: '{{params.assigned_group_id}}'
+          properties: '{{params.properties}}'
+  - name: freshchat_list_agents
+    description: List agents (staff).
+    input:
+      type: object
+      properties:
+        email:
+          type: string
+          description: Email filter.
+        page:
+          type: integer
+          description: 1-based.
+        items_per_page:
+          type: integer
+          description: Max 100.
+    operation:
+      method: GET
+      path: /agents
+      query:
+        email: '{{params.email}}'
+        page: '{{params.page}}'
+        items_per_page: '{{params.items_per_page}}'
+  - name: freshchat_list_channels
+    description: List channels (topics) — the conversation routing targets.
+    input:
+      type: object
+      properties: {}
+    operation:
+      method: GET
+      path: /channels

@@ -1,0 +1,22 @@
+# Recorded by `supermcp adapter record`; replayed by `supermcp adapter test`.
+# Credential values are replaced with SUPERMCP_CREDENTIAL_<NAME>.
+adapter: georgian-railway
+tool: gr_search_stations
+recordedAt: 2026-09-22T22:18:41Z
+interactions:
+  - params:
+      search: Tbilisi
+    request:
+      method: GET
+      url: https://gr.com.ge/api/stations
+      query: search=Tbilisi&limit=20&page=1
+      headers:
+        accept: application/json
+        interface-language: en
+        user-agent: supermcp/1.0 (+https://supermcp.dev)
+        x-device: web
+    response:
+      status: 200
+      headers:
+        content-type: application/json; charset=utf-8
+      body: '{"status":"success","data":{"data":[{"id":111,"station_id":"101","priority":null,"station_code":"56020","station_country":"საქართველო","station_country_id":"4","name":"თბილისი-სატვ","name_ka":"თბილისი-სატვ","name_en":"tbilisi-satv","name_ru":"ТБИЛИСИ-ТОВ.","hide":true,"created_at":"2024-07-15T12:52:32.443Z","updated_at":"2025-01-13T07:25:15.920Z","deleted_at":null},{"id":106,"station_id":"94","priority":null,"station_code":"56010","station_country":"საქართველო","station_country_id":"4","name":"თბილისი-საკვ","name_ka":"თბილისი-საკვ","name_en":"tbilisi-sakv","name_ru":"ТБИЛИСИ-УЗЛ.","hide":true,"created_at":"2024-07-15T12:52:32.436Z","updated_at":"2025-01-13T13:54:35.676Z","deleted_at":null},{"id":97,"station_id":"89","priority":null,"station_code":"56000","station_country":"საქართველო","station_country_id":"4","name":"თბილისი-დამხ","name_ka":"თბილისი-დამხ","name_en":"tbilisi-damkh","name_ru":"ТБИЛИСИ-СОРТ.","hide":true,"created_at":"2024-07-15T12:52:32.420Z","updated_at":"2025-01-09T18:09:02.646Z","deleted_at":null},{"id":1,"station_id":"98","priority":null,"station_code":"56014","station_country":"საქართველო","station_country_id":"4","name":"თბილისი-სამგ","name_ka":"თბილისი","name_en":"Tbilisi","name_ru":"ТБИЛИСИ","hide":false,"created_at":"2024-07-15T12:52:32.240Z","updated_at":"2025-06-20T11:18:16.393Z","deleted_at":null}],"meta":{"itemsPerPage":20,"totalItems":4,"currentPage":1,"totalPages":1,"sortBy":[["station_country_id","DESC"]],"search":"Tbilisi","searchBy":["name","station_code","station_country","station_id","name_ka","name_en","name_ru"]},"links":{"current":"http://gr.com.ge/api/stations?page=1&limit=20&sortBy=station_country_id:DESC&search=Tbilisi"}}}'

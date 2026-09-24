@@ -1,0 +1,156 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: datev
+  name: DATEV Online APIs
+  description: Read accounting Mandanten (clients), document types and DATEV Unternehmen online (DUO) version metadata from DATEV's official Online APIs. OAuth2 Authorization Code + PKCE bound to a real DATEV-Konto. Required by virtually every German tax consultant (Steuerberater).
+  region: de
+  category: accounting
+  icon: datev
+  docsUrl: https://developer.datev.de/en/products/988700e4-e0c5-40bf-814b-cd7327dad67a
+  lint:
+    allow:
+      - healthcheck-present
+      - tool-name-unique-catalog
+credentials:
+  DATEV_CLIENT_ID:
+    required: true
+  DATEV_CLIENT_SECRET:
+    required: true
+    secret: true
+transport:
+  type: http
+  baseUrl: https://accounting-clients.api.datev.de/platform/v2
+  headers:
+    X-DATEV-Client-Id: '{{env.DATEV_CLIENT_ID}}'
+auth:
+  type: oauth2
+  grant: authorization_code
+  clientId: '{{env.DATEV_CLIENT_ID}}'
+  clientSecret: '{{env.DATEV_CLIENT_SECRET}}'
+  tokenUrl: https://api.datev.de/token
+  authorizationUrl: https://login.datev.de/openid/authorize
+  scopes:
+    - datev:accounting:clients
+    - accounting:clients:read
+    - accounting:documents
+  clientAuth: basic
+instructions: |-
+  **Important — this connector is NOT plug-and-play.** DATEV's Online APIs require:
+
+  1. A registered app on the DATEV-Entwicklerportal (https://developer.datev.de) → **Confidential client** + **OpenID Connect Authorization Code Flow**. Set the redirect URI to `<your-server>/api/mcp-oauth/callback`.
+  2. A subscription to each API product you want to use — currently `accounting-clients v2.0` and `accounting-documents v2.0`. Both are *Already subscribed* checks on the product page.
+  3. A real DATEV-Konto user with SmartLogin or SmartCard/mIDentity. DATEV does NOT expose `client_credentials` — every call is on-behalf-of a human accountant. Confidential clients get 2-year rolling refresh tokens (the engine refreshes proactively).
+  4. For *.api.datev.de (production) you must complete DATEV's production-approval review. Until then, point the connector at the **sandbox** (see below).
+
+  **Authentication endpoints** (canonical, from `https://login.datev.de/openid/.well-known/openid-configuration`):
+  - Production: `authorize=https://login.datev.de/openid/authorize`, `token=https://api.datev.de/token`
+  - Sandbox: `authorize=https://login.datev.de/openidsandbox/authorize`, `token=https://sandbox-api.datev.de/token`
+
+  **Setup**:
+  1. Set `DATEV_CLIENT_ID` and `DATEV_CLIENT_SECRET` (from the DATEV portal).
+  2. Import this adapter — defaults to **production** auth URLs.
+  3. Run the one-time OAuth flow: `POST /api/connectors/{id}/oauth/authorize` → open the returned URL → log in with your DATEV-Konto → the platform stores an encrypted refresh token automatically.
+  4. From now on every call sends `Authorization: Bearer <token>` AND the mandatory `X-DATEV-Client-Id: <DATEV_CLIENT_ID>` header automatically.
+
+  **Testing first?** Every DATEV app runs in the sandbox until DATEV grants production approval. For sandbox testing use the dedicated **DATEV Online APIs (Sandbox)** connector (pre-configured for the sandbox endpoints) rather than editing this one — then switch to this production connector once approved, using the same credentials.
+
+  **Scopes requested**: `datev:accounting:clients accounting:clients:read accounting:documents`. These cover both API products in one consent screen. Note: the current DATEV `datev_openid` flow does NOT include `openid` in its scope list (it's the issuer name, not a requested scope) — confirmed in the OpenAPI security schemes.
+
+  **Mandant scoping**: every per-client tool takes a `clientId` parameter — that's the **Mandant UUID** (RFC4122 8-4-4-4-12), returned by `datev_list_clients`. **Distinct** from `DATEV_CLIENT_ID` (the OAuth app identifier, sent in the header).
+
+  **Not exposed here** (engine limitation):
+  - `POST /clients/{id}/documents`, `PUT /clients/{id}/documents/{guid}`, `PUT /clients/{id}/documents/stapled`: all require `multipart/form-data` with a binary file part. The REST engine currently serializes form-data field values via `String(v)`, which corrupts binary PDFs/images. These upload tools land once the engine accepts `Buffer`/base64 in form-data values.
+  - `accounting:dataexchange`, `accounting:dxso-jobs`, `accounting:extf-files`, HR / Lohn, DMS, addressee: separate adapters per product line.
+  - The `datev_idp_next` security option (next-gen `signin.datev.de/datevam/...` IdP) is defined in the spec but not yet exposed here.
+tools:
+  - name: datev_list_clients
+    description: List DATEV accounting Mandanten (clients) your DATEV-Konto user is provisioned for, from the accounting-clients v2 master-data product. Returns each client's UUID, consultant number, client number and display name. Use the returned UUID as the `clientId` parameter on all other tools.
+    input:
+      type: object
+      properties:
+        skip:
+          type: integer
+          description: Pagination offset (>= 0).
+        top:
+          type: integer
+          description: Max items per page (1-100).
+    operation:
+      method: GET
+      path: https://accounting-clients.api.datev.de/platform/v2/clients
+      query:
+        skip: '{{params.skip}}'
+        top: '{{params.top}}'
+      headers:
+        Accept: application/json
+  - name: datev_get_client
+    description: Get one Mandant's master data (consultant/client number, name, address) from accounting-clients v2.
+    input:
+      type: object
+      properties:
+        clientId:
+          type: string
+          description: Mandant UUID (RFC4122 8-4-4-4-12). Get this from datev_list_clients.
+      required:
+        - clientId
+    operation:
+      method: GET
+      path: https://accounting-clients.api.datev.de/platform/v2/clients/{{params.clientId}}
+      headers:
+        Accept: application/json
+  - name: datev_documents_list_clients
+    description: List the subset of Mandanten that have DATEV Unternehmen online (DUO) document access via the accounting-documents v2 product. This may be smaller than datev_list_clients — only clients with active DUO subscriptions appear here.
+    input:
+      type: object
+      properties: {}
+    operation:
+      method: GET
+      path: https://accounting-documents.api.datev.de/platform/v2/clients
+      headers:
+        Accept: application/json
+  - name: datev_get_documents_client
+    description: Get one Mandant's basic data as exposed by the accounting-documents v2 product (the DUO view, distinct from the accounting-clients master record).
+    input:
+      type: object
+      properties:
+        clientId:
+          type: string
+          description: Mandant UUID (from datev_list_clients or datev_documents_list_clients).
+      required:
+        - clientId
+    operation:
+      method: GET
+      path: https://accounting-documents.api.datev.de/platform/v2/clients/{{params.clientId}}
+      headers:
+        Accept: application/json
+  - name: datev_list_document_types
+    description: List the document types (Belegtypen) configured for a Mandant on DATEV Unternehmen online — needed before uploading documents so you know which `documentType` values are accepted.
+    input:
+      type: object
+      properties:
+        clientId:
+          type: string
+          description: Mandant UUID (from datev_list_clients).
+      required:
+        - clientId
+    operation:
+      method: GET
+      path: https://accounting-documents.api.datev.de/platform/v2/clients/{{params.clientId}}/document-types
+      headers:
+        Accept: application/json
+  - name: datev_get_duo_version
+    description: Get the DATEV Unternehmen online (DUO) version and the permitted file extensions for document upload on a given Mandant. Useful before generating uploads to know what file formats DUO will accept (PDF, JPG, TIFF, etc.) and any DUO-version-specific limits.
+    input:
+      type: object
+      properties:
+        clientId:
+          type: string
+          description: Mandant UUID (from datev_list_clients).
+      required:
+        - clientId
+    operation:
+      method: GET
+      path: https://accounting-documents.api.datev.de/platform/v2/clients/{{params.clientId}}/duo-version
+      headers:
+        Accept: application/json

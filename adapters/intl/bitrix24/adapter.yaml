@@ -1,0 +1,260 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: bitrix24
+  name: Bitrix24
+  description: Manage Bitrix24 (CRM + tasks + workgroups + chat) via inbound webhooks from any AI agent. 10 tools, webhook-URL auth.
+  region: intl
+  category: crm
+  icon: bitrix24
+  docsUrl: https://training.bitrix24.com/rest_help/
+  lint:
+    allow:
+      - description-min-60
+      - healthcheck-present
+credentials:
+  BITRIX24_WEBHOOK_URL:
+    required: true
+transport:
+  type: http
+  baseUrl: '{{env.BITRIX24_WEBHOOK_URL}}'
+auth:
+  type: none
+instructions: |-
+  This connector wraps the Bitrix24 REST API exposed via inbound webhooks.
+
+  **Setup**:
+  1. Log into your Bitrix24 portal (e.g. `myteam.bitrix24.com`) → **Developer resources → Other → Inbound webhook**.
+  2. Pick scopes: at minimum `crm` (deals/contacts/companies/leads), `task` (tasks), `user` (users). Add `chat`, `socialnetwork` if needed.
+  3. Save → copy the generated webhook URL of the form `https://YOURACCOUNT.bitrix24.com/rest/USER_ID/WEBHOOK_CODE/`. This is the secret — anyone with this URL can call the API as that user.
+  4. Set `BITRIX24_WEBHOOK_URL` to the full URL (no trailing slash — the adapter adds it).
+
+  **Authentication**: NO header / no token — auth is embedded in the URL path itself (`/rest/USER_ID/WEBHOOK_CODE/method.name`). Each method name (`crm.deal.list`, `tasks.task.add`, ...) becomes the last path segment.
+
+  **Method naming**: Bitrix24 methods are dot-separated noun.entity.action — `crm.deal.list`, `crm.contact.add`, `tasks.task.update`. The adapter exposes a generic `bitrix24_call` wildcard plus typed wrappers for the most common CRM methods.
+
+  **Parameters**: Bitrix uses POST with form-encoded body (`fields[TITLE]=...&fields[STAGE_ID]=...`). The adapter wraps this — pass `fields` as an object and the engine form-encodes it.
+
+  **Pagination**: `start` (0-based offset). Response has `next` (next offset) and `total`.
+
+  **Rate limits**: 2 req/sec per webhook URL; 10k methods/day on free plans, higher on paid. 429 returns `error: QUERY_LIMIT_EXCEEDED` — back off 1s.
+
+  **On-premise**: same API works on self-hosted Bitrix24 — just point `BITRIX24_WEBHOOK_URL` at your install.
+
+  **Out of scope here**: outbound webhook subscription, bizproc workflow execution, Bitrix24 cloud telephony (separate scope).
+tools:
+  - name: bitrix24_call
+    description: 'Generic Bitrix24 method invoker. Pass the `method` name and a `params` object holding the method''s NATIVE top-level arguments (they are sent at the body root, NOT wrapped under a `params` key). Examples: tasks.task.get → {taskId: 123}; tasks.task.add → {fields: {TITLE: ''...'', RESPONSIBLE_ID: 1}}; crm.deal.list → {select: [''*''], filter: {STAGE_ID: ''NEW''}, start: 0}; crm.timeline.comment.add → {fields: {ENTITY_ID: 42, ENTITY_TYPE: ''deal'', COMMENT: ''...''}}. Use the method''s exact argument names from the Bitrix REST docs.'
+    input:
+      type: object
+      properties:
+        method:
+          type: string
+          description: Bitrix method name, e.g. 'crm.deal.list', 'tasks.task.get'.
+        params:
+          type: object
+          description: 'The method''s native arguments, keyed exactly as Bitrix expects them at the top level (e.g. {taskId: 1} or {fields: {...}, filter: {...}}). The engine bracket-encodes nested objects/arrays as Bitrix''s PHP-style form body requires.'
+      required:
+        - method
+    operation:
+      method: POST
+      path: /{{params.method}}
+      body:
+        encoding: form
+        value:
+          __spread: '{{params.params}}'
+  - name: bitrix24_list_deals
+    description: List CRM deals (opportunities). Returns each deal's ID, TITLE, STAGE_ID, OPPORTUNITY, CURRENCY_ID, ASSIGNED_BY_ID, COMPANY_ID, CONTACT_ID, DATE_CREATE.
+    input:
+      type: object
+      properties:
+        select:
+          type: array
+          description: Array of field names to return. '*' for all.
+        filter:
+          type: object
+          description: Field-value filter map.
+        order:
+          type: object
+          description: Field → 'ASC'|'DESC' sort map.
+        start:
+          type: integer
+          description: 0-based pagination offset (step 50).
+    operation:
+      method: POST
+      path: /crm.deal.list
+      body:
+        encoding: form
+        value:
+          select: '{{params.select}}'
+          filter: '{{params.filter}}'
+          order: '{{params.order}}'
+          start: '{{params.start}}'
+  - name: bitrix24_get_deal
+    description: Get one deal by ID with all standard + custom fields.
+    input:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: Deal ID.
+      required:
+        - id
+    operation:
+      method: POST
+      path: /crm.deal.get
+      body:
+        encoding: form
+        value:
+          id: '{{params.id}}'
+  - name: bitrix24_add_deal
+    description: Create a new deal. `fields` is an object of Bitrix deal field names → values (TITLE, STAGE_ID, OPPORTUNITY, CURRENCY_ID, CONTACT_ID, COMPANY_ID, ASSIGNED_BY_ID, CATEGORY_ID, COMMENTS, ...).
+    input:
+      type: object
+      properties:
+        fields:
+          type: object
+          description: Deal field map.
+        params:
+          type: object
+          description: Behaviour flags, e.g. {REGISTER_SONET_EVENT:'Y'}.
+      required:
+        - fields
+    operation:
+      method: POST
+      path: /crm.deal.add
+      body:
+        encoding: form
+        value:
+          fields: '{{params.fields}}'
+          params: '{{params.params}}'
+  - name: bitrix24_update_deal
+    description: Update a deal's fields.
+    input:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: Deal ID.
+        fields:
+          type: object
+          description: Field map to update.
+      required:
+        - id
+        - fields
+    operation:
+      method: POST
+      path: /crm.deal.update
+      body:
+        encoding: form
+        value:
+          id: '{{params.id}}'
+          fields: '{{params.fields}}'
+  - name: bitrix24_list_contacts
+    description: List CRM contacts.
+    input:
+      type: object
+      properties:
+        select:
+          type: array
+          description: Field names.
+        filter:
+          type: object
+          description: Filter map.
+        order:
+          type: object
+          description: Sort map.
+        start:
+          type: integer
+          description: Offset (step 50).
+    operation:
+      method: POST
+      path: /crm.contact.list
+      body:
+        encoding: form
+        value:
+          select: '{{params.select}}'
+          filter: '{{params.filter}}'
+          order: '{{params.order}}'
+          start: '{{params.start}}'
+  - name: bitrix24_add_contact
+    description: 'Create a contact. Standard fields: NAME, LAST_NAME, SECOND_NAME, EMAIL (array of {VALUE,VALUE_TYPE}), PHONE (same shape), COMPANY_ID, ASSIGNED_BY_ID.'
+    input:
+      type: object
+      properties:
+        fields:
+          type: object
+          description: Contact field map.
+      required:
+        - fields
+    operation:
+      method: POST
+      path: /crm.contact.add
+      body:
+        encoding: form
+        value:
+          fields: '{{params.fields}}'
+  - name: bitrix24_list_companies
+    description: List CRM companies.
+    input:
+      type: object
+      properties:
+        select:
+          type: array
+          description: Field names.
+        filter:
+          type: object
+          description: Filter map.
+        start:
+          type: integer
+          description: Offset.
+    operation:
+      method: POST
+      path: /crm.company.list
+      body:
+        encoding: form
+        value:
+          select: '{{params.select}}'
+          filter: '{{params.filter}}'
+          start: '{{params.start}}'
+  - name: bitrix24_add_task
+    description: 'Create a task. Required fields: TITLE, RESPONSIBLE_ID. Other useful: DESCRIPTION, DEADLINE (ISO 8601), PRIORITY (0=normal, 2=high), GROUP_ID (project), CREATED_BY.'
+    input:
+      type: object
+      properties:
+        fields:
+          type: object
+          description: Task field map.
+      required:
+        - fields
+    operation:
+      method: POST
+      path: /tasks.task.add
+      body:
+        encoding: form
+        value:
+          fields: '{{params.fields}}'
+  - name: bitrix24_list_users
+    description: List users in the portal. Returns each user's ID, NAME, LAST_NAME, EMAIL, WORK_POSITION, ACTIVE.
+    input:
+      type: object
+      properties:
+        FILTER:
+          type: object
+          description: Filter map.
+        SORT:
+          type: string
+          description: Field name to sort by.
+        ORDER:
+          type: string
+          description: ASC or DESC.
+    operation:
+      method: POST
+      path: /user.get
+      body:
+        encoding: form
+        value:
+          FILTER: '{{params.FILTER}}'
+          SORT: '{{params.SORT}}'
+          ORDER: '{{params.ORDER}}'

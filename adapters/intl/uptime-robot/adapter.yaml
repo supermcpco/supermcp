@@ -1,0 +1,263 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: uptime-robot
+  name: UptimeRobot
+  description: Manage UptimeRobot (uptime monitoring) monitors, alert contacts, maintenance windows, public status pages from any AI agent. 8 tools, API-key auth.
+  region: intl
+  category: monitoring
+  icon: uptime-robot
+  docsUrl: https://uptimerobot.com/api/
+  lint:
+    allow:
+      - description-min-60
+      - healthcheck-present
+      - tool-name-prefix
+credentials:
+  UPTIMEROBOT_API_KEY:
+    required: true
+    secret: true
+transport:
+  type: http
+  baseUrl: https://api.uptimerobot.com/v2
+auth:
+  type: query
+  params:
+    api_key: '{{env.UPTIMEROBOT_API_KEY}}'
+    format: json
+instructions: |-
+  This connector wraps the UptimeRobot API v2 (api.uptimerobot.com/v2).
+
+  **Setup**:
+  1. Sign in to https://uptimerobot.com → **My Settings → API Settings**.
+  2. Generate the **Main API Key** (full access to your monitors) OR a per-monitor read-only key. Most users want the Main key.
+  3. Set `UPTIMEROBOT_API_KEY`.
+
+  **Authentication**: every request POSTs to /v2/* with `api_key=...` injected as a query parameter on the URL. The API accepts the key either in the URL or in the body — this adapter uses the URL so each tool's body remains clean form-encoded params. We also always send `format=json` so responses are JSON instead of XML.
+
+  **Monitor types** (integer codes):
+  - 1: HTTP(s)
+  - 2: Keyword (HTTP body must/must-not contain string)
+  - 3: Ping (ICMP)
+  - 4: Port (TCP)
+  - 5: Heartbeat (cron-style — your job pings UptimeRobot every N minutes)
+
+  **Status codes** (integer):
+  - 0: paused
+  - 1: not checked yet
+  - 2: up
+  - 8: seems down
+  - 9: down
+
+  **Pagination**: `offset` (0-based) + `limit` (max 50). Total returned in the `pagination.total` field.
+
+  **Rate limits**: 10 req/min per API key on the free plan; higher on paid. 429 has no Retry-After — back off 6s.
+
+  **Out of scope here**: subscription management, agent / probe location selection (paid feature), white-label status page customization.
+tools:
+  - name: uptimerobot_get_account_details
+    description: 'Returns account info: email, monitor_limit, monitor_interval, up_monitors, down_monitors, paused_monitors.'
+    input:
+      type: object
+      properties: {}
+    operation:
+      method: POST
+      path: /getAccountDetails
+  - name: uptimerobot_get_monitors
+    description: List monitors. Optional filters by id, status, search string. Use `logs=1` to include up/down event history; `response_times=1` for response-time series; both add latency.
+    input:
+      type: object
+      properties:
+        monitors:
+          type: string
+          description: 'Comma-separated monitor IDs to fetch (default: all).'
+        types:
+          type: string
+          description: Comma-separated type codes (1-5).
+        statuses:
+          type: string
+          description: Comma-separated status codes (0,1,2,8,9).
+        search:
+          type: string
+          description: Substring filter against friendly_name or url.
+        logs:
+          type: integer
+          description: 1 to include event log; 0 to skip.
+        response_times:
+          type: integer
+          description: 1 to include response time series.
+        offset:
+          type: integer
+          description: Pagination offset (0-based).
+        limit:
+          type: integer
+          description: Page size (max 50).
+    operation:
+      method: POST
+      path: /getMonitors
+      body:
+        encoding: form
+        value:
+          monitors: '{{params.monitors}}'
+          types: '{{params.types}}'
+          statuses: '{{params.statuses}}'
+          search: '{{params.search}}'
+          logs: '{{params.logs}}'
+          response_times: '{{params.response_times}}'
+          offset: '{{params.offset}}'
+          limit: '{{params.limit}}'
+  - name: uptimerobot_new_monitor
+    description: Create a new monitor. `type` is required (1=HTTP, 2=Keyword, 3=Ping, 4=Port, 5=Heartbeat). For type=2 you must also supply `keyword_type` (1=exists, 2=not exists) + `keyword_value`.
+    input:
+      type: object
+      properties:
+        friendly_name:
+          type: string
+          description: Display name.
+        url:
+          type: string
+          description: URL or IP to monitor.
+        type:
+          type: integer
+          description: 1=HTTP, 2=Keyword, 3=Ping, 4=Port, 5=Heartbeat.
+        interval:
+          type: integer
+          description: Check interval in seconds (60-86400). Free plan minimum 300.
+        timeout:
+          type: integer
+          description: Timeout in seconds.
+        port:
+          type: integer
+          description: Port number (required if type=4).
+        keyword_type:
+          type: integer
+          description: 1=exists, 2=not exists (required if type=2).
+        keyword_value:
+          type: string
+          description: Keyword to look for (required if type=2).
+        alert_contacts:
+          type: string
+          description: 'Format: ''<contactId>_<threshold>_<recurrence>-<contactId2>_..''.'
+      required:
+        - friendly_name
+        - url
+        - type
+    operation:
+      method: POST
+      path: /newMonitor
+      body:
+        encoding: form
+        value:
+          friendly_name: '{{params.friendly_name}}'
+          url: '{{params.url}}'
+          type: '{{params.type}}'
+          interval: '{{params.interval}}'
+          timeout: '{{params.timeout}}'
+          port: '{{params.port}}'
+          keyword_type: '{{params.keyword_type}}'
+          keyword_value: '{{params.keyword_value}}'
+          alert_contacts: '{{params.alert_contacts}}'
+  - name: uptimerobot_edit_monitor
+    description: Edit an existing monitor. Pass `id` + any field you want to update.
+    input:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: Monitor ID.
+        friendly_name:
+          type: string
+          description: New display name.
+        url:
+          type: string
+          description: New URL.
+        interval:
+          type: integer
+          description: New check interval.
+        status:
+          type: integer
+          description: 0 to pause, 1 to resume.
+      required:
+        - id
+    operation:
+      method: POST
+      path: /editMonitor
+      body:
+        encoding: form
+        value:
+          id: '{{params.id}}'
+          friendly_name: '{{params.friendly_name}}'
+          url: '{{params.url}}'
+          interval: '{{params.interval}}'
+          status: '{{params.status}}'
+  - name: uptimerobot_delete_monitor
+    description: Permanently delete a monitor. Irreversible.
+    input:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: Monitor ID.
+      required:
+        - id
+    operation:
+      method: POST
+      path: /deleteMonitor
+      body:
+        encoding: form
+        value:
+          id: '{{params.id}}'
+  - name: uptimerobot_get_alert_contacts
+    description: List configured alert contacts (email, webhook, Slack, Telegram, SMS).
+    input:
+      type: object
+      properties:
+        alert_contacts:
+          type: string
+          description: 'Comma-separated IDs (default: all).'
+        offset:
+          type: integer
+          description: Pagination offset.
+        limit:
+          type: integer
+          description: Page size.
+    operation:
+      method: POST
+      path: /getAlertContacts
+      body:
+        encoding: form
+        value:
+          alert_contacts: '{{params.alert_contacts}}'
+          offset: '{{params.offset}}'
+          limit: '{{params.limit}}'
+  - name: uptimerobot_get_mwindows
+    description: List maintenance windows.
+    input:
+      type: object
+      properties:
+        mwindows:
+          type: string
+          description: 'Comma-separated maintenance window IDs (default: all).'
+    operation:
+      method: POST
+      path: /getMWindows
+      body:
+        encoding: form
+        value:
+          mwindows: '{{params.mwindows}}'
+  - name: uptimerobot_get_psps
+    description: List public status pages (PSPs) configured for this account.
+    input:
+      type: object
+      properties:
+        psps:
+          type: string
+          description: 'Comma-separated PSP IDs (default: all).'
+    operation:
+      method: POST
+      path: /getPSPs
+      body:
+        encoding: form
+        value:
+          psps: '{{params.psps}}'

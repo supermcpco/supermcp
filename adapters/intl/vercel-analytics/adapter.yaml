@@ -1,0 +1,137 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: vercel-analytics
+  name: Vercel Analytics
+  description: Read Vercel Analytics / Speed Insights / Audience data via the Vercel API. 4 tools, Bearer auth.
+  region: intl
+  category: analytics
+  icon: vercel
+  docsUrl: https://vercel.com/docs/rest-api
+  lint:
+    allow:
+      - description-min-60
+      - healthcheck-present
+credentials:
+  VERCEL_ACCESS_TOKEN:
+    required: true
+    secret: true
+transport:
+  type: http
+  baseUrl: https://api.vercel.com
+auth:
+  type: bearer
+  token: '{{env.VERCEL_ACCESS_TOKEN}}'
+instructions: |-
+  This connector uses the Vercel Platform API (vercel.com/docs/rest-api).
+
+  **Setup**:
+  1. Sign in to https://vercel.com → top-right avatar → **Settings → Tokens → Create Token**.
+  2. Pick scope (account-level or team-level). Set `VERCEL_ACCESS_TOKEN`.
+  3. For team-scoped queries also set `VERCEL_TEAM_ID` (visible in Team Settings).
+
+  **Authentication**: `Authorization: Bearer ${VERCEL_ACCESS_TOKEN}`.
+
+  **Note**: Vercel's Web Analytics + Speed Insights data endpoints went through major changes in 2024-2025. Some endpoints are paywall/plan-gated. The adapter uses the stable public endpoints; some analytics queries require Pro+ plan.
+
+  **Pagination**: cursor-based via `until` Unix ms (return items older than this).
+
+  **Out of scope here**: deployments/builds CRUD (large surface, separate connector if needed), Edge Config, KV/Postgres data, Edge Functions logs.
+tools:
+  - name: vercel_analytics_get_user
+    description: Return the user the token belongs to.
+    input:
+      type: object
+      properties: {}
+    operation:
+      method: GET
+      path: /v2/user
+  - name: vercel_analytics_list_projects
+    description: List projects in the team / account.
+    input:
+      type: object
+      properties:
+        teamId:
+          type: string
+          description: Team ID (omit for personal account).
+        limit:
+          type: integer
+          description: Per page (max 100).
+        from:
+          type: integer
+          description: Unix ms — projects created after.
+        search:
+          type: string
+          description: Substring filter on project name.
+    operation:
+      method: GET
+      path: /v9/projects
+      query:
+        teamId: '{{params.teamId}}'
+        limit: '{{params.limit}}'
+        from: '{{params.from}}'
+        search: '{{params.search}}'
+  - name: vercel_analytics_get_deployments
+    description: List deployments for a project. Returns each deployment's url, state, source, created.
+    input:
+      type: object
+      properties:
+        projectId:
+          type: string
+          description: Project ID or name.
+        teamId:
+          type: string
+          description: Team ID if team-scoped.
+        limit:
+          type: integer
+          description: Per page (default 20, max 100).
+        state:
+          type: string
+          description: BUILDING, ERROR, INITIALIZING, QUEUED, READY, CANCELED.
+        until:
+          type: integer
+          description: Unix ms — deployments before.
+        since:
+          type: integer
+          description: Unix ms — deployments after.
+    operation:
+      method: GET
+      path: /v6/deployments
+      query:
+        projectId: '{{params.projectId}}'
+        teamId: '{{params.teamId}}'
+        limit: '{{params.limit}}'
+        state: '{{params.state}}'
+        until: '{{params.until}}'
+        since: '{{params.since}}'
+  - name: vercel_analytics_get_speed_insights
+    description: Get Speed Insights (Core Web Vitals) data for a project — requires Vercel Speed Insights enabled on the project + Pro plan.
+    input:
+      type: object
+      properties:
+        projectId:
+          type: string
+          description: Project ID.
+        teamId:
+          type: string
+          description: Team ID.
+        from:
+          type: integer
+          description: Unix ms range start.
+        to:
+          type: integer
+          description: Unix ms range end.
+        interval:
+          type: string
+          description: 1h, 1d, 7d, 30d.
+      required:
+        - projectId
+    operation:
+      method: GET
+      path: /web-analytics/v1/projects/{{params.projectId}}/speed-insights
+      query:
+        teamId: '{{params.teamId}}'
+        from: '{{params.from}}'
+        to: '{{params.to}}'
+        interval: '{{params.interval}}'

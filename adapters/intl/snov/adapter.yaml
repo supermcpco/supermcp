@@ -1,0 +1,228 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: snov
+  name: Snov.io
+  description: 'Drive Snov.io (lead enrichment + email finder + outreach) from any AI agent: email finder, verifier, domain search, prospect lists, drip campaigns. 9 tools, OAuth2 client-credentials auth.'
+  region: intl
+  category: enrichment
+  icon: snov
+  docsUrl: https://snov.io/api
+  lint:
+    allow:
+      - description-min-60
+      - healthcheck-present
+credentials:
+  SNOV_ACCESS_TOKEN:
+    required: true
+    secret: true
+transport:
+  type: http
+  baseUrl: https://api.snov.io/v1
+auth:
+  type: bearer
+  token: '{{env.SNOV_ACCESS_TOKEN}}'
+instructions: |-
+  This connector uses the Snov.io API v1 (snov.io/api).
+
+  **Setup**:
+  1. Sign in to https://app.snov.io → **Account → API**.
+  2. Copy the **Client ID** and **Client Secret**.
+  3. Run OAuth2 client_credentials flow:
+     ```
+     POST https://api.snov.io/v1/oauth/access_token
+     grant_type=client_credentials&client_id=...&client_secret=...
+     ```
+     to obtain an access_token. Tokens are valid for 1 hour.
+  4. Set `SNOV_ACCESS_TOKEN` to the access token. Refresh externally.
+
+  **Authentication**: `Authorization: Bearer ${SNOV_ACCESS_TOKEN}`.
+
+  **Credit model**: every find/verify/enrich consumes credits per your plan. `/balance` is free.
+
+  **Workflow**: domain search → email finder → email verifier → add prospects to a list → drip campaign.
+
+  **Out of scope here**: drip campaign content editing, LinkedIn extension, sender management, deals (Snov.io CRM lite).
+tools:
+  - name: snov_balance
+    description: Return remaining credit balance for the account. Free call — use to monitor before bulk operations.
+    input:
+      type: object
+      properties: {}
+    operation:
+      method: POST
+      path: /get-balance
+  - name: snov_domain_search
+    description: Find emails associated with a domain. Returns up to 100 emails per call with name, position, type (personal/generic).
+    input:
+      type: object
+      properties:
+        domain:
+          type: string
+          description: Domain to search.
+        type:
+          type: string
+          description: personal, generic, all.
+        limit:
+          type: integer
+          description: Max emails (default 100).
+        lastId:
+          type: integer
+          description: Cursor — return emails after this ID.
+      required:
+        - domain
+    operation:
+      method: POST
+      path: /get-domain-emails-with-info
+      body:
+        encoding: form
+        value:
+          domain: '{{params.domain}}'
+          type: '{{params.type}}'
+          limit: '{{params.limit}}'
+          lastId: '{{params.lastId}}'
+  - name: snov_email_finder
+    description: Find a person's email by first/last name + domain.
+    input:
+      type: object
+      properties:
+        domain:
+          type: string
+          description: Company domain.
+        firstName:
+          type: string
+          description: First name.
+        lastName:
+          type: string
+          description: Last name.
+      required:
+        - domain
+        - firstName
+        - lastName
+    operation:
+      method: POST
+      path: /get-emails-from-names
+      body:
+        encoding: form
+        value:
+          domain: '{{params.domain}}'
+          firstName: '{{params.firstName}}'
+          lastName: '{{params.lastName}}'
+  - name: snov_email_verifier
+    description: Verify a single email deliverability. Returns status (valid/invalid/catchAll/disposable/webmail/unknown) + smtp/mx checks.
+    input:
+      type: object
+      properties:
+        email:
+          type: string
+          description: Email to verify.
+      required:
+        - email
+    operation:
+      method: POST
+      path: /get-emails-verification-status
+      body:
+        encoding: form
+        value:
+          emails[]: '{{params.email}}'
+  - name: snov_email_finder_by_url
+    description: Find emails from a LinkedIn URL (or other recognized social URL).
+    input:
+      type: object
+      properties:
+        url:
+          type: string
+          description: LinkedIn profile URL.
+      required:
+        - url
+    operation:
+      method: POST
+      path: /get-emails-by-url
+      body:
+        encoding: form
+        value:
+          url: '{{params.url}}'
+  - name: snov_list_prospect_lists
+    description: List your prospect lists (saved leads).
+    input:
+      type: object
+      properties: {}
+    operation:
+      method: GET
+      path: /get-user-lists
+  - name: snov_create_prospect_list
+    description: Create a prospect list.
+    input:
+      type: object
+      properties:
+        name:
+          type: string
+          description: List name.
+      required:
+        - name
+    operation:
+      method: POST
+      path: /add-user-list
+      body:
+        encoding: form
+        value:
+          name: '{{params.name}}'
+  - name: snov_add_prospect_to_list
+    description: 'Add a prospect (person) to a list. Required: email + listId.'
+    input:
+      type: object
+      properties:
+        email:
+          type: string
+          description: Prospect email.
+        fullName:
+          type: string
+          description: Full name.
+        firstName:
+          type: string
+          description: First name.
+        lastName:
+          type: string
+          description: Last name.
+        position:
+          type: string
+          description: Job title.
+        companyName:
+          type: string
+          description: Company name.
+        country:
+          type: string
+          description: Country.
+        listId:
+          type: integer
+          description: Target list ID.
+        customFields:
+          type: object
+          description: Custom fields object.
+      required:
+        - email
+        - listId
+    operation:
+      method: POST
+      path: /add-prospect-to-list
+      body:
+        encoding: form
+        value:
+          email: '{{params.email}}'
+          fullName: '{{params.fullName}}'
+          firstName: '{{params.firstName}}'
+          lastName: '{{params.lastName}}'
+          position: '{{params.position}}'
+          companyName: '{{params.companyName}}'
+          country: '{{params.country}}'
+          listId: '{{params.listId}}'
+          customFields: '{{params.customFields}}'
+  - name: snov_list_drip_campaigns
+    description: List your drip (outreach) campaigns.
+    input:
+      type: object
+      properties: {}
+    operation:
+      method: GET
+      path: /get-user-campaigns

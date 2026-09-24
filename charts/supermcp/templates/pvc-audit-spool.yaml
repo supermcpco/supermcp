@@ -1,0 +1,23 @@
+{{- if and .Values.audit.spool.enabled (not .Values.audit.spool.existingClaim) }}
+{{- /*
+  A spool is only worth having if it outlives the pod, so the chart asks
+  for a volume rather than quietly writing to the ephemeral layer. One
+  claim is shared by the replica set, which needs a storage class that
+  allows ReadWriteMany; with ReadWriteOnce, set audit.spool.existingClaim
+  per replica or run the spool on a single-replica deployment.
+*/ -}}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "supermcp.fullname" . }}-audit-spool
+  labels:
+    {{- include "supermcp.labels" . | nindent 4 }}
+spec:
+  accessModes: [ReadWriteMany]
+  {{- with .Values.audit.spool.storageClass }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.audit.spool.size }}
+{{- end }}

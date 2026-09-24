@@ -1,0 +1,33 @@
+{
+  "openapi": "3.0.3",
+  "info": { "title": "Comment Threads", "version": "1.0.0" },
+  "servers": [{ "url": "https://threads.example.com" }],
+  "paths": {
+    "/comments": {
+      "post": {
+        "operationId": "postComment",
+        "summary": "Post a comment, optionally as a reply to another comment in the thread",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/Comment" } }
+          }
+        },
+        "responses": { "201": { "description": "created" } }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Comment": {
+        "type": "object",
+        "required": ["body"],
+        "properties": {
+          "body": { "type": "string" },
+          "parent": { "$ref": "#/components/schemas/Comment" },
+          "replies": { "type": "array", "items": { "$ref": "#/components/schemas/Comment" } }
+        }
+      }
+    }
+  }
+}

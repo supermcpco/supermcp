@@ -1,0 +1,264 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: omnisend
+  name: Omnisend
+  description: 'Manage Omnisend (e-commerce marketing automation: contacts, campaigns, events, products, categories) from any AI agent. 9 tools, X-API-KEY auth.'
+  region: intl
+  category: email
+  icon: omnisend
+  docsUrl: https://api-docs.omnisend.com/
+  lint:
+    allow:
+      - description-min-60
+      - healthcheck-present
+credentials:
+  OMNISEND_API_KEY:
+    required: true
+    secret: true
+transport:
+  type: http
+  baseUrl: https://api.omnisend.com/v3
+auth:
+  type: apiKey
+  in: header
+  name: X-API-KEY
+  value: '{{env.OMNISEND_API_KEY}}'
+instructions: |-
+  This connector wraps the Omnisend REST API v3 (api.omnisend.com/v3).
+
+  **Setup**:
+  1. Log into https://app.omnisend.com → top-right avatar → **Store settings → Integrations & API → API keys → Create API key**.
+  2. Set `OMNISEND_API_KEY`.
+
+  **Authentication**: `X-API-KEY: ${OMNISEND_API_KEY}`.
+
+  **Contact statuses**: `subscribed`, `unsubscribed`, `nonSubscribed` — per channel (email vs SMS).
+
+  **Custom events**: trigger automations via the events endpoint. Send an event with name + email/contactID + properties; Omnisend matches it to active workflows.
+
+  **Pagination**: cursor-based via `paging.next`. `limit` (max 250).
+
+  **Rate limits**: 400 req/min per token. 429 with `Retry-After`.
+
+  **Out of scope here**: workflow editor, SMS sender ID setup, product feed sync (use the dedicated `/products` endpoint), GDPR-erasure flow.
+tools:
+  - name: omnisend_list_contacts
+    description: List contacts. Filter by email, status, channel.
+    input:
+      type: object
+      properties:
+        email:
+          type: string
+          description: Filter by email.
+        status:
+          type: string
+          description: subscribed, unsubscribed, nonSubscribed.
+        channel:
+          type: string
+          description: email or sms.
+        limit:
+          type: integer
+          description: Max 250.
+        offset:
+          type: integer
+          description: 0-based offset.
+    operation:
+      method: GET
+      path: /contacts
+      query:
+        email: '{{params.email}}'
+        status: '{{params.status}}'
+        channel: '{{params.channel}}'
+        limit: '{{params.limit}}'
+        offset: '{{params.offset}}'
+  - name: omnisend_get_contact
+    description: Get one contact by Omnisend contactID OR email.
+    input:
+      type: object
+      properties:
+        contact_id:
+          type: string
+          description: Contact ID.
+      required:
+        - contact_id
+    operation:
+      method: GET
+      path: /contacts/{{params.contact_id}}
+  - name: omnisend_upsert_contact
+    description: 'Create or update a contact. Required: `identifiers` (array of {type: ''email''|''phone'', id, channels: {email: {status}}}). `tags`, `customProperties` optional.'
+    input:
+      type: object
+      properties:
+        identifiers:
+          type: array
+          description: Array of identifier objects.
+        firstName:
+          type: string
+          description: First name.
+        lastName:
+          type: string
+          description: Last name.
+        tags:
+          type: array
+          description: Array of tag strings.
+        customProperties:
+          type: object
+          description: Free-form custom field map.
+        country:
+          type: string
+          description: ISO 3166-1 alpha-2 country code.
+      required:
+        - identifiers
+    operation:
+      method: POST
+      path: /contacts
+      body:
+        value:
+          identifiers: '{{params.identifiers}}'
+          firstName: '{{params.firstName}}'
+          lastName: '{{params.lastName}}'
+          tags: '{{params.tags}}'
+          customProperties: '{{params.customProperties}}'
+          country: '{{params.country}}'
+  - name: omnisend_trigger_event
+    description: Trigger a custom event for a contact. Used by Omnisend automations as a workflow start node.
+    input:
+      type: object
+      properties:
+        eventName:
+          type: string
+          description: Custom event name (matches workflow trigger).
+        email:
+          type: string
+          description: Contact email.
+        phone:
+          type: string
+          description: Contact phone.
+        contactID:
+          type: string
+          description: Omnisend contact ID (alternative to email/phone).
+        fields:
+          type: object
+          description: Event payload — free-form key/value.
+      required:
+        - eventName
+    operation:
+      method: POST
+      path: /events
+      body:
+        value:
+          eventName: '{{params.eventName}}'
+          email: '{{params.email}}'
+          phone: '{{params.phone}}'
+          contactID: '{{params.contactID}}'
+          fields: '{{params.fields}}'
+  - name: omnisend_list_campaigns
+    description: List campaigns.
+    input:
+      type: object
+      properties:
+        status:
+          type: string
+          description: draft, sending, sent, paused, scheduled, ...
+        type:
+          type: string
+          description: standard, ab, sms.
+        limit:
+          type: integer
+          description: Max 250.
+        offset:
+          type: integer
+          description: 0-based.
+    operation:
+      method: GET
+      path: /campaigns
+      query:
+        status: '{{params.status}}'
+        type: '{{params.type}}'
+        limit: '{{params.limit}}'
+        offset: '{{params.offset}}'
+  - name: omnisend_get_campaign
+    description: Get one campaign with stats.
+    input:
+      type: object
+      properties:
+        campaign_id:
+          type: string
+          description: Campaign ID.
+      required:
+        - campaign_id
+    operation:
+      method: GET
+      path: /campaigns/{{params.campaign_id}}
+  - name: omnisend_list_products
+    description: List products in the Omnisend catalog (used by product-recommendation blocks).
+    input:
+      type: object
+      properties:
+        limit:
+          type: integer
+          description: Max 250.
+        offset:
+          type: integer
+          description: 0-based.
+    operation:
+      method: GET
+      path: /products
+      query:
+        limit: '{{params.limit}}'
+        offset: '{{params.offset}}'
+  - name: omnisend_upsert_product
+    description: Add or update a product in the catalog.
+    input:
+      type: object
+      properties:
+        productID:
+          type: string
+          description: Your internal product ID.
+        title:
+          type: string
+          description: Product title.
+        status:
+          type: string
+          description: inStock, outOfStock, notAvailable.
+        description:
+          type: string
+          description: Description.
+        currency:
+          type: string
+          description: ISO 4217.
+        productUrl:
+          type: string
+          description: Public URL.
+        imageUrl:
+          type: string
+          description: Product image URL.
+        variants:
+          type: array
+          description: Array of variant objects.
+      required:
+        - productID
+        - title
+    operation:
+      method: POST
+      path: /products
+      body:
+        value:
+          productID: '{{params.productID}}'
+          title: '{{params.title}}'
+          status: '{{params.status}}'
+          description: '{{params.description}}'
+          currency: '{{params.currency}}'
+          productUrl: '{{params.productUrl}}'
+          imageUrl: '{{params.imageUrl}}'
+          variants: '{{params.variants}}'
+  - name: omnisend_list_categories
+    description: List product categories.
+    input:
+      type: object
+      properties: {}
+    operation:
+      method: GET
+      path: /categories

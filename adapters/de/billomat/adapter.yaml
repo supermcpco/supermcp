@@ -1,0 +1,153 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: billomat
+  name: Billomat Invoicing
+  description: Manage invoices, clients, articles, and accounting with Billomat. German online invoicing and bookkeeping platform for freelancers and SMBs.
+  region: de
+  category: finance
+  icon: billomat
+  docsUrl: https://www.billomat.com/en/api/
+  lint:
+    allow:
+      - description-min-60
+      - healthcheck-present
+      - instructions-min-800
+credentials:
+  BILLOMAT_SUBDOMAIN:
+    required: true
+  BILLOMAT_API_KEY:
+    required: true
+    secret: true
+transport:
+  type: http
+  baseUrl: https://{{env.BILLOMAT_SUBDOMAIN}}.billomat.net/api
+auth:
+  type: apiKey
+  in: header
+  name: X-BillomatApiKey
+  value: '{{env.BILLOMAT_API_KEY}}'
+tools:
+  - name: billomat_list_clients
+    description: List clients from Billomat. Returns client name, number, address, email, and payment terms.
+    input:
+      type: object
+      properties:
+        page:
+          type: number
+          description: 'Page number (default: 1)'
+        per_page:
+          type: number
+          description: 'Results per page (default: 25, max: 100)'
+        name:
+          type: string
+          description: Filter by client name
+    operation:
+      method: GET
+      path: /clients
+      query:
+        page: '{{params.page}}'
+        per_page: '{{params.per_page}}'
+        name: '{{params.name}}'
+      headers:
+        Accept: application/json
+  - name: billomat_get_client
+    description: Get detailed information about a specific client by ID.
+    input:
+      type: object
+      properties:
+        clientId:
+          type: string
+          description: The Billomat client ID
+      required:
+        - clientId
+    operation:
+      method: GET
+      path: /clients/{{params.clientId}}
+      headers:
+        Accept: application/json
+  - name: billomat_list_invoices
+    description: List invoices from Billomat. Returns invoice number, date, total, status, and client info.
+    input:
+      type: object
+      properties:
+        page:
+          type: number
+          description: 'Page number (default: 1)'
+        per_page:
+          type: number
+          description: 'Results per page (default: 25, max: 100)'
+        client_id:
+          type: string
+          description: Filter by client ID
+        status:
+          type: string
+          description: 'Filter by status: DRAFT, OPEN, OVERDUE, PAID, CANCELED'
+    operation:
+      method: GET
+      path: /invoices
+      query:
+        page: '{{params.page}}'
+        per_page: '{{params.per_page}}'
+        client_id: '{{params.client_id}}'
+        status: '{{params.status}}'
+      headers:
+        Accept: application/json
+  - name: billomat_get_invoice
+    description: Get detailed information about a specific invoice including line items, taxes, and payment info.
+    input:
+      type: object
+      properties:
+        invoiceId:
+          type: string
+          description: The Billomat invoice ID
+      required:
+        - invoiceId
+    operation:
+      method: GET
+      path: /invoices/{{params.invoiceId}}
+      headers:
+        Accept: application/json
+  - name: billomat_list_articles
+    description: List articles (products/services) from Billomat. Returns article number, title, unit price, and tax info.
+    input:
+      type: object
+      properties:
+        page:
+          type: number
+          description: 'Page number (default: 1)'
+        per_page:
+          type: number
+          description: 'Results per page (default: 25, max: 100)'
+    operation:
+      method: GET
+      path: /articles
+      query:
+        page: '{{params.page}}'
+        per_page: '{{params.per_page}}'
+      headers:
+        Accept: application/json
+  - name: billomat_list_offers
+    description: List offers (quotes) from Billomat. Returns offer number, date, total, status, and client info.
+    input:
+      type: object
+      properties:
+        page:
+          type: number
+          description: 'Page number (default: 1)'
+        per_page:
+          type: number
+          description: 'Results per page (default: 25, max: 100)'
+        client_id:
+          type: string
+          description: Filter by client ID
+    operation:
+      method: GET
+      path: /offers
+      query:
+        page: '{{params.page}}'
+        per_page: '{{params.per_page}}'
+        client_id: '{{params.client_id}}'
+      headers:
+        Accept: application/json

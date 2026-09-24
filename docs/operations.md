@@ -1,0 +1,192 @@
+# Running supermcp
+
+What an operator needs to know that the code cannot tell them: which
+settings matter, what the failure modes look like, and which commands to
+reach for when something is wrong.
+
+## The settings that decide behaviour
+
+| Setting | Default | What it decides |
+|---|---|---|
+| `DATABASE_URL` | none, required | Where everything lives. The application connects as a role that cannot bypass row-level security. |
+| `SUPERMCP_PUBLIC_URL` | none, required | The address clients reach. It appears in token audiences, the single sign-on redirect and the MCP endpoints, so changing it invalidates tokens that named the old one. Must be https unless it points at loopback. |
+| `SUPERMCP_KEK_PROVIDER` | `local` | `local` reads the master key from the environment; `awskms` leaves it in a key service and never in the pod. |
+| `ENCRYPTION_KEK` | none for `local` | 32 bytes, base64. A wrong length fails the boot rather than encrypting with a key nobody meant. |
+| `SUPERMCP_REDIS_URL` | empty | Shared rate-limit budgets. Without it each replica keeps its own, divided by `SUPERMCP_EXPECTED_REPLICAS`. |
+| `SUPERMCP_EXPECTED_REPLICAS` | 1 | Only used when Redis is absent. Set it to the replica count or the cluster together allows several times the intended ceiling. |
+| `SUPERMCP_ADMIN_LISTEN` | empty | Where `/metrics` is served. Empty means the exposition is off; it must never share the public listener. |
+| `SUPERMCP_OPEN_REGISTRATION` | off | Whether anyone who reaches the sign-in page can create a workspace. The first registration on an empty instance is always allowed. |
+| `SUPERMCP_OTLP_ENDPOINT` | empty | An OTLP/HTTP collector for traces. Empty is off; `OTEL_EXPORTER_OTLP_ENDPOINT` is read too. A collector that cannot be reached is a log line, never a failed boot. |
+| `SUPERMCP_TRACE_SAMPLE` | 0.01 | The fraction of traces kept. |
+| `SUPERMCP_AUDIT_ON_UNAVAILABLE` | `degrade` | What happens when the database will not take an event: `degrade` drops it and records the gap, `block` makes callers wait, `spool` writes it to disk and replays it. |
+| `SUPERMCP_AUDIT_SPOOL_DIR` | `/var/lib/supermcp/audit-spool` | Where `spool` writes. It must be a persistent volume: a spool in a pod's ephemeral layer buys nothing over `degrade`. |
+| `SUPERMCP_AUDIT_SPOOL_MAX_BYTES` | 256 MiB | Past this, events are dropped and counted as they are without a spool. |
+| `SUPERMCP_DCR_MODE` | `approval` | Whether an MCP client can register itself: `open`, `approval` or `closed`. |
+
+Rate-limit budgets are written `count/duration`, for example `10/1m`. A
+malformed value fails the boot, because a limit nobody notices is off is
+worse than no limit at all.
+
+## The audit trail
+
+Every sign-in, administrative change, secret operation, tool call and
+refused request lands in one append-only stream. Each row carries the hash
+of the one before it, so removing or editing one breaks the chain at a
+point the verifier can name.
+
+```
+supermcp audit verify              # exits non-zero when the chain is broken
+supermcp audit verify -format json # for a deployment check
+```
+
+It needs `DATABASE_URL` and the master key settings, and nothing else:
+the commands that do not serve a request do not ask for the address
+clients reach. The same is true of `keys verify` and `keys rotate-kek`.
+
+Run it after a restore and on a schedule. A broken chain means either a
+bug or someone editing the database directly; both deserve the same
+attention.
+
+**What a tool call records** is the workspace's decision, on the audit
+screen: nothing, the shape of the arguments, their masked values, or
+everything. The default keeps shapes, which is enough to reconstruct who
+called what without storing what they typed.
+
+**Where it goes** is the workspace's decision too: a signed webhook, a
+syslog collector (RFC 5424, or CEF), Splunk's event collector, or OTLP
+logs. Delivery resumes from where it stopped, and a destination that
+cannot be reached backs off rather than blocking anything.
+
+**Retention** runs hourly. Each workspace's own window is honoured by
+removing the content of its older events while leaving them in the chain;
+rows are deleted only by one contiguous cut across the whole instance, at
+the longest window any workspace still asks for. A legal hold stops that
+cut where it sits. Deleting one tenant's rows out of the middle of a
+shared sequence would leave a gap no anchor can bridge, which is why it is
+not offered.
+
+## Rotating the master key
+
+The data keys are what the master key protects, so a rotation re-wraps
+them and touches no ciphertext. It needs no maintenance window if the
+steps are taken in this order.
+
+1. `supermcp keys verify` with the current settings. It must exit zero.
+   If keys are already stranded, fix that first.
+2. Deploy every replica with the new key as the active one and the old key
+   named in `SUPERMCP_KEK_PREVIOUS`. Both halves of the roll can read
+   everything: old pods hold the old key, new pods hold both.
+3. `supermcp keys rotate-kek`. It proves each new wrapping opens before
+   overwriting the old one, and skips what it has already moved, so it is
+   safe to interrupt and run again.
+4. `supermcp keys verify` again.
+5. Deploy again without `SUPERMCP_KEK_PREVIOUS` and remove the old key
+   material from the secret store.
+
+Keep the old key for as long as you keep backups. A restored dump still
+carries keys wrapped by it.
+
+## Rotating a data key
+
+The data keys are what seal the rows, so rotating one rewrites every
+sealed value in its scope. Reach for it when the sealed values themselves
+are suspect — a data key may have been exposed in a heap dump or a backup
+— or when a workspace's contract asks for periodic re-keying. It is not a
+substitute for `keys rotate-kek`, which changes the master key and
+touches no ciphertext.
+
+1. `supermcp keys rotate-dek -org <id> -dry-run`. It refuses to go on if
+   any sealed column in the schema has no rotation target, and otherwise
+   says how many rows each table would rewrite.
+2. `supermcp keys rotate-dek -org <id>`. Use `-all` for every workspace
+   and the instance scope, `-instance` for the signing keys alone, and
+   `-batch N` to change the rows per transaction from the default 500.
+   Every value is opened again before the row holding it is overwritten,
+   and every statement has to match exactly the row it named, so a run
+   either moves a row or fails with that row's name.
+3. `supermcp keys verify`.
+
+It is safe to interrupt and safe to run twice. The command works out for
+itself whether it is starting a rotation or finishing one: a superseded
+key that rows still sit on means the last run stopped part way, so it
+carries on onto the key that run minted rather than minting another, and
+says so. Run it once more afterwards to move the workspace onto a key of
+its own. Only one rotation of a scope runs at a time — the others leave
+rather than queue — while different workspaces rotate independently.
+
+The lock is held on the connection for the length of the run, so point
+`SUPERMCP_MAINT_DATABASE_URL` at Postgres directly rather than through a
+transaction-pooling proxy.
+
+The superseded key is left `decrypt_only` and becomes `retired` only once
+a count over every sealed column finds nothing referencing it. A key that
+stays `decrypt_only` is telling you rows were left behind; the report says
+how many and in which table. Nothing is ever deleted: a retired key still
+opens a restored backup, and you should keep the master key that wraps it
+for as long as you keep the backups.
+
+## What the alerts mean
+
+The chart ships six rules. Each is a symptom rather than a cause.
+
+- **Nothing answering.** No replica responded. Clients cannot reach any tool.
+- **A quarter of tool calls failing.** Usually the upstreams, not this
+  system. Check the connectors' own services before this one.
+- **The slowest calls over ten seconds.** Look at
+  `supermcp_upstream_duration_seconds` first: if that moved and the tool
+  call duration followed, the problem is outside.
+- **A connector's breaker open.** Calls are being refused locally because
+  the upstream was failing. It closes itself when the upstream recovers.
+- **The rate limiter degraded.** Redis is unreachable, so budgets are per
+  replica and the effective ceiling is lower and uneven.
+- **The audit writer falling behind.** Events queue before they are
+  written and a full queue drops them, which is a gap in the record. This
+  one is worth waking someone. With `SUPERMCP_AUDIT_ON_UNAVAILABLE=spool`
+  they go to disk instead, and `supermcp_audit_spool_depth` above zero
+  means part of the record is somewhere a database backup does not reach.
+
+## Traces
+
+A trace answers what a metric cannot: where inside one slow call the time
+went. Name a collector and spans appear for the MCP request, the tool
+call and the upstream exchange, sampled at one in a hundred by default.
+
+Trace context is deliberately not sent upstream. A connector points at
+somebody else's system, and a header invented here would be data leaving
+this instance to a vendor who never asked for it.
+
+## The dashboard
+
+`metrics.dashboard.enabled=true` ships a Grafana dashboard as a ConfigMap
+carrying the label the Grafana sidecar watches, so it appears without
+anybody importing anything. Ten panels, in the order an incident is
+usually read: what the instance is doing, what is failing and why,
+latency end to end beside the time spent waiting on the upstream (when
+those two move together the problem is outside this system), the surface
+build, MCP methods, refusals, open breakers, the audit queue and whether
+the rate limiter is degraded.
+
+The JSON is `charts/supermcp/dashboards/supermcp.json` for anyone not
+running that sidecar.
+
+## When something is wrong
+
+**A tool call fails but the connector tests fine.** The credential is per
+connector and sealed; a test uses the same path as a call, so look at the
+tool's own mapping first. The audit trail records the failure with the
+error class.
+
+**Single sign-on stops working.** The provider's signing keys rotate, and
+they are cached for ten minutes. If a sign-in fails immediately after a
+rotation at the provider, the next attempt usually succeeds. If it does
+not, check the issuer still publishes the metadata document.
+
+**A client gets 401 from the MCP endpoint.** The response carries the
+address of the resource metadata, which is what a compliant client follows
+to discover how to authenticate. A client that ignores it is not
+configured for this server.
+
+**Migrations will not apply.** They take an advisory lock, so a second
+process waits rather than racing. A migration numbered below the current
+version is refused; that means two branches added migrations at once and
+one needs renumbering.

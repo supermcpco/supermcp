@@ -1,0 +1,320 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: sevdesk
+  name: sevDesk
+  description: 'sevDesk cloud bookkeeping for German SMBs and freelancers: contacts, invoices, vouchers (Belege), orders, parts and bank accounts. REST API v1, API-key auth — the key goes in a bare Authorization header, with no Bearer prefix.'
+  region: de
+  category: accounting
+  icon: sevdesk
+  docsUrl: https://api.sevdesk.de/
+credentials:
+  SEVDESK_API_KEY:
+    required: true
+    secret: true
+transport:
+  type: http
+  baseUrl: https://my.sevdesk.de/api/v1
+auth:
+  type: apiKey
+  in: header
+  name: Authorization
+  value: '{{env.SEVDESK_API_KEY}}'
+healthcheck:
+  tool: sevdesk_list_users
+  http:
+    method: GET
+    path: /SevUser
+instructions: |-
+  **Getting a key**
+  1. Sign in to sevDesk and open **Einstellungen → Benutzer → (your user) → API-Token**.
+  2. Copy the token into `SEVDESK_API_KEY`. It belongs to one user in one client (Mandant) and inherits that user's permissions — create a dedicated API user with read rights if the agent should not be able to write.
+
+  **The Authorization header has no scheme.** sevDesk expects the raw token (`Authorization: abc123…`), *not* `Bearer abc123…`. This adapter sends it that way; if you build a custom connector against sevDesk by hand, that is the single most common reason for a 401.
+
+  **Object names are capitalised and singular**: the collection is `/Contact`, `/Invoice`, `/Voucher`, `/Order`, `/Part` — not `/contacts`. Responses wrap the rows in `{"objects": [...]}`.
+
+  **Embedded objects**: most rows reference other objects only by `{id, objectName}`. Pass a comma-separated `embed` (e.g. `embed=contact,contactPerson`) to have sevDesk expand them inline rather than making the agent fetch each one.
+
+  **API version**: v1 at `https://my.sevdesk.de/api/v1`. sevDesk has published a v2 preview; v1 remains the supported production surface.
+
+  **Writes**: `sevdesk_create_contact` creates a real contact. Invoice creation is deliberately not exposed — sevDesk requires a multi-step create-position-then-book flow whose partial failure leaves an unusable draft, so an invoice is better created in the UI.
+
+  **Cloud reachability**: my.sevdesk.de is public with a valid certificate; a hosted supermcp instance reaches it directly.
+tools:
+  - name: sevdesk_list_users
+    description: List the sevDesk users in this client, with their names and e-mail addresses. Fast call with no parameters — use it to confirm the API key is accepted.
+    input:
+      type: object
+      properties: {}
+    operation:
+      method: GET
+      path: /SevUser
+  - name: sevdesk_list_contacts
+    description: List contacts (customers, suppliers, partners). Narrow by customer number or by depth, and page through larger result sets.
+    input:
+      type: object
+      properties:
+        limit:
+          type: number
+          description: Maximum rows to return (default 100).
+        offset:
+          type: number
+          description: Rows to skip, for paging.
+        depth:
+          type: boolean
+          description: When true, include contact persons attached to organisations.
+        customerNumber:
+          type: string
+          description: Exact customer number (Kundennummer) to look up.
+        embed:
+          type: string
+          description: Comma-separated related objects to expand inline, e.g. addresses,communicationWays.
+    operation:
+      method: GET
+      path: /Contact
+      query:
+        limit: '{{params.limit}}'
+        offset: '{{params.offset}}'
+        depth: '{{params.depth}}'
+        customerNumber: '{{params.customerNumber}}'
+        embed: '{{params.embed}}'
+  - name: sevdesk_get_contact
+    description: Read one contact by its numeric sevDesk id, with its category, customer number, tax settings and default payment terms.
+    input:
+      type: object
+      properties:
+        id:
+          type: number
+          description: Numeric contact id.
+        embed:
+          type: string
+          description: Comma-separated related objects to expand, e.g. category,parent.
+      required:
+        - id
+    operation:
+      method: GET
+      path: /Contact/{{params.id}}
+      query:
+        embed: '{{params.embed}}'
+  - name: sevdesk_list_invoices
+    description: List outgoing invoices, newest first. Filter by status to answer 'what is unpaid' — status 200 is open, 1000 is paid, 100 is draft.
+    input:
+      type: object
+      properties:
+        limit:
+          type: number
+          description: Maximum rows to return (default 100).
+        offset:
+          type: number
+          description: Rows to skip, for paging.
+        status:
+          type: number
+          description: 'Invoice status: 50 draft, 100 open draft, 200 delivered/open, 750 partially paid, 1000 paid.'
+        startDate:
+          type: number
+          description: Earliest invoice date as a Unix timestamp in seconds.
+        endDate:
+          type: number
+          description: Latest invoice date as a Unix timestamp in seconds.
+        embed:
+          type: string
+          description: Comma-separated related objects to expand, e.g. contact,contactPerson.
+    operation:
+      method: GET
+      path: /Invoice
+      query:
+        limit: '{{params.limit}}'
+        offset: '{{params.offset}}'
+        status: '{{params.status}}'
+        startDate: '{{params.startDate}}'
+        endDate: '{{params.endDate}}'
+        embed: '{{params.embed}}'
+  - name: sevdesk_get_invoice_positions
+    description: 'Read the line items (Positionen) of one invoice: article, quantity, unit price, tax rate and the resulting net and gross sums.'
+    input:
+      type: object
+      properties:
+        invoiceId:
+          type: number
+          description: Numeric invoice id.
+        limit:
+          type: number
+          description: Maximum line items to return.
+      required:
+        - invoiceId
+    operation:
+      method: GET
+      path: /InvoicePos
+      query:
+        invoice[id]: '{{params.invoiceId}}'
+        invoice[objectName]: Invoice
+        limit: '{{params.limit}}'
+  - name: sevdesk_list_vouchers
+    description: List vouchers (Belege) — incoming supplier invoices and receipts. This is the bookkeeping side of sevDesk, separate from outgoing invoices.
+    input:
+      type: object
+      properties:
+        limit:
+          type: number
+          description: Maximum rows to return (default 100).
+        offset:
+          type: number
+          description: Rows to skip, for paging.
+        status:
+          type: number
+          description: 'Voucher status: 50 draft, 100 unpaid, 1000 paid.'
+        creditDebit:
+          type: string
+          description: '`C` for credit (income) or `D` for debit (expense).'
+        startDate:
+          type: number
+          description: Earliest voucher date as a Unix timestamp in seconds.
+        endDate:
+          type: number
+          description: Latest voucher date as a Unix timestamp in seconds.
+        embed:
+          type: string
+          description: Comma-separated related objects to expand, e.g. supplier,document.
+    operation:
+      method: GET
+      path: /Voucher
+      query:
+        limit: '{{params.limit}}'
+        offset: '{{params.offset}}'
+        status: '{{params.status}}'
+        creditDebit: '{{params.creditDebit}}'
+        startDate: '{{params.startDate}}'
+        endDate: '{{params.endDate}}'
+        embed: '{{params.embed}}'
+  - name: sevdesk_list_orders
+    description: List orders and quotations (Aufträge und Angebote). The `orderType` field distinguishes AN (Angebot), AB (Auftragsbestätigung) and LI (Lieferschein).
+    input:
+      type: object
+      properties:
+        limit:
+          type: number
+          description: Maximum rows to return (default 100).
+        offset:
+          type: number
+          description: Rows to skip, for paging.
+        status:
+          type: number
+          description: 'Order status: 100 draft, 200 delivered, 300 partly calculated, 500 calculated, 750 partly accepted, 1000 accepted.'
+        embed:
+          type: string
+          description: Comma-separated related objects to expand, e.g. contact.
+    operation:
+      method: GET
+      path: /Order
+      query:
+        limit: '{{params.limit}}'
+        offset: '{{params.offset}}'
+        status: '{{params.status}}'
+        embed: '{{params.embed}}'
+  - name: sevdesk_list_parts
+    description: List parts (Artikel) from the sevDesk product catalogue with their price, stock level, unit and tax rate.
+    input:
+      type: object
+      properties:
+        limit:
+          type: number
+          description: Maximum rows to return (default 100).
+        offset:
+          type: number
+          description: Rows to skip, for paging.
+        partNumber:
+          type: string
+          description: Exact article number to look up.
+    operation:
+      method: GET
+      path: /Part
+      query:
+        limit: '{{params.limit}}'
+        offset: '{{params.offset}}'
+        partNumber: '{{params.partNumber}}'
+  - name: sevdesk_list_check_accounts
+    description: List the bank and cash accounts (Kassen und Bankkonten) configured in sevDesk, with their current balance and import type.
+    input:
+      type: object
+      properties:
+        limit:
+          type: number
+          description: Maximum rows to return.
+    operation:
+      method: GET
+      path: /CheckAccount
+      query:
+        limit: '{{params.limit}}'
+  - name: sevdesk_list_transactions
+    description: List bank transactions on one check account, so unpaid invoices can be matched against money that actually arrived.
+    input:
+      type: object
+      properties:
+        checkAccountId:
+          type: number
+          description: Numeric id of the check account, from sevdesk_list_check_accounts.
+        limit:
+          type: number
+          description: Maximum rows to return (default 100).
+        offset:
+          type: number
+          description: Rows to skip, for paging.
+        status:
+          type: number
+          description: 'Transaction status: 100 created, 200 linked, 300 private, 350 auto-booked, 400 booked.'
+      required:
+        - checkAccountId
+    operation:
+      method: GET
+      path: /CheckAccountTransaction
+      query:
+        checkAccount[id]: '{{params.checkAccountId}}'
+        checkAccount[objectName]: CheckAccount
+        limit: '{{params.limit}}'
+        offset: '{{params.offset}}'
+        status: '{{params.status}}'
+  - name: sevdesk_create_contact
+    description: Create a new contact. Writes to the live client — search with sevdesk_list_contacts first so a duplicate customer number is not created.
+    input:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Organisation name, or the family name for a private person.
+        categoryId:
+          type: number
+          description: 'Contact category id: 3 = supplier, 2 = customer, 4 = partner. Required by sevDesk.'
+        customerNumber:
+          type: string
+          description: Customer number. Left blank, sevDesk assigns the next free one.
+        surename:
+          type: string
+          description: Given name, for a private person.
+        familyname:
+          type: string
+          description: Family name, for a private person.
+        vatNumber:
+          type: string
+          description: VAT identification number (USt-IdNr.).
+        description:
+          type: string
+          description: Free-text note stored on the contact.
+      required:
+        - name
+        - categoryId
+    operation:
+      method: POST
+      path: /Contact
+      body:
+        value:
+          name: '{{params.name}}'
+          category:
+            id: '{{params.categoryId}}'
+            objectName: Category
+          customerNumber: '{{params.customerNumber}}'
+          surename: '{{params.surename}}'
+          familyname: '{{params.familyname}}'
+          vatNumber: '{{params.vatNumber}}'
+          description: '{{params.description}}'

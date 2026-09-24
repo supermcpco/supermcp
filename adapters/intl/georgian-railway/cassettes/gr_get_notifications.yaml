@@ -1,0 +1,20 @@
+# Recorded by `supermcp adapter record`; replayed by `supermcp adapter test`.
+# Credential values are replaced with SUPERMCP_CREDENTIAL_<NAME>.
+adapter: georgian-railway
+tool: gr_get_notifications
+recordedAt: 2026-09-22T22:18:04Z
+interactions:
+  - request:
+      method: GET
+      url: https://gr.com.ge/api/info-content
+      query: type=notifications
+      headers:
+        accept: application/json
+        interface-language: en
+        user-agent: supermcp/1.0 (+https://supermcp.dev)
+        x-device: web
+    response:
+      status: 200
+      headers:
+        content-type: application/json; charset=utf-8
+      body: '{"status":"success","code":200,"data":{"id":24,"created_at":"2025-09-29T12:01:45.200Z","updated_at":"2025-09-29T12:01:45.200Z","deleted_at":null,"type":"notifications","content":"{\"rides_not_found\":{\"ka\":\"მითითებული რეისი არ არსებობს. გთხოვთ, გადაამოწმეთ არჩეული სადგურები და თარიღი\",\"en\":\"The selected route does not exist. Please check the chosen stations and date\"},\"tickets_sold\":{\"ka\":\"სამწუხაროდ, არჩეულ რეისზე თავისუფალი ბილეთები აღარ არის\",\"en\":\"Unfortunately, there are no available tickets for the selected route\"}}"}}'

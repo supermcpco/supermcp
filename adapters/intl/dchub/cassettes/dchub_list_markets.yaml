@@ -1,0 +1,17 @@
+# Recorded by `supermcp adapter record`; replayed by `supermcp adapter test`.
+# Credential values are replaced with SUPERMCP_CREDENTIAL_<NAME>.
+adapter: dchub
+tool: dchub_list_markets
+recordedAt: 2026-09-22T22:18:01Z
+interactions:
+  - request:
+      method: GET
+      url: https://dchub.cloud/api/v1/markets
+      headers:
+        accept: application/json
+    response:
+      status: 200
+      headers:
+        content-type: application/json
+      body: |
+        {"count":5,"data":[{"cities":["Ashburn","Loudoun","Sterling","Reston","Herndon"],"contained_in":[],"facility_count":456,"id":"northern virginia","name":"Northern Virginia","total_power_mw":9956.0},{"auto_discovered":true,"cities":["London"],"country":"GB","facility_count":368,"id":"london-gb","international":true,"name":"London","total_power_mw":702.0},{"auto_discovered":true,"cities":["Singapore"],"country":"SG","facility_count":311,"id":"singapore-sg","international":true,"name":"Singapore","total_power_mw":672.0},{"auto_discovered":true,"cities":["Tokyo"],"country":"JP","facility_count":266,"id":"tokyo-jp","international":true,"name":"Tokyo","total_power_mw":485.0},{"auto_discovered":true,"cities":["Amsterdam"],"country":"NL","facility_count":247,"id":"amsterdam-nl","international":true,"name":"Amsterdam","total_power_mw":993.0}],"locked":127,"provenance":{"as_of":"2026-09-22T22:06:32.671689+00:00","basis":"operational_deduped","cite_as":"DC Hub, dchub.cloud","cite_url_template":"https://dchub.cloud/markets/{id}","license":"CC-BY-4.0","method":"total_power_mw and facility_count count OPERATIONAL facilities only, per util/status_taxonomy, de-duplicated on COALESCE(is_duplicate,0)=0 \u2014 the same basis routes/mcp_tier1_tools.rank_markets and the DCPI market reads use. pipeline_mw_total is de-duplicated but NOT lifecycle-filtered: it is the construction/planned/permitting sum by definition.","source":"DC Hub facility registry (discovered_facilities)","summing_note":"Markets may OVERLAP. Any row with a non-empty `contained_in` is a strict subset of the market(s) it names \u2014 e.g. ashburn sits inside northern virginia. Do not add their MW together."},"signup_url":"https://dchub.cloud/signup","tier":"anonymous","total":132,"upgrade_url":"https://dchub.cloud/signup","upsell":"Sign up free for 10 markets"}

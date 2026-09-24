@@ -1,0 +1,239 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: exact-online
+  name: Exact Online
+  description: 'Exact Online — the Dutch accounting and ERP standard: accounts, sales and purchase invoices, items, stock, GL accounts and outstanding receivables. OData REST API, OAuth 2.0, scoped to one administration.'
+  region: nl
+  category: accounting
+  icon: exact-online
+  docsUrl: https://start.exactonline.nl/docs/HlpRestAPIResources.aspx
+credentials:
+  EXACT_CLIENT_ID:
+    required: true
+  EXACT_CLIENT_SECRET:
+    required: true
+    secret: true
+  EXACT_REFRESH_TOKEN:
+    required: true
+    secret: true
+  EXACT_BASE_HOST:
+    required: true
+  EXACT_DIVISION:
+    required: true
+transport:
+  type: http
+  baseUrl: https://{{env.EXACT_BASE_HOST}}/api/v1
+  headers:
+    Accept: application/json
+auth:
+  type: oauth2
+  grant: refresh_token
+  clientId: '{{env.EXACT_CLIENT_ID}}'
+  clientSecret: '{{env.EXACT_CLIENT_SECRET}}'
+  tokenUrl: https://{{env.EXACT_BASE_HOST}}/api/oauth2/token
+  refreshToken: '{{env.EXACT_REFRESH_TOKEN}}'
+healthcheck:
+  tool: exact_online_get_me
+  http:
+    method: GET
+    path: /current/Me
+instructions: |-
+  **Getting a token**
+  1. Register an app in the **Exact Online App Centre** for your country (`apps.exactonline.com`). You receive a client id and client secret.
+  2. Run the authorization-code flow once against your country's host. Keep the **refresh token** — Exact's access tokens last ten minutes, so the refresh token is the only value worth storing.
+  3. Set `EXACT_CLIENT_ID`, `EXACT_CLIENT_SECRET`, `EXACT_REFRESH_TOKEN`, `EXACT_BASE_HOST` and `EXACT_DIVISION`.
+
+  **The host is country-specific.** `start.exactonline.nl` for the Netherlands, `.be` for Belgium, `.de` for Germany, `.co.uk`, `.fr`, `.es`, `.com` for the US. A token issued on one host does not work on another, and this is the most common cause of a 401 that looks like a bad secret. Set `EXACT_BASE_HOST` to the one your customer is on, hostname only.
+
+  **Division is the administration id**, a number. One Exact account can hold dozens of administrations and every data path carries one. `exact_online_get_me` returns `CurrentDivision` — use it to find the right value for `EXACT_DIVISION`.
+
+  **Rate limits are strict and enforced per app.** Exact allows on the order of 60 calls a minute and a few thousand a day. The response headers carry the remaining budget. Bulk work needs pacing, not retrying.
+
+  **OData v3-flavoured.** `$select`, `$filter`, `$top`, `$orderby`, `$expand` all work. `$filter` uses single quotes for strings and `datetime'2026-01-01'` for dates. Always `$select` — Exact entities have very many columns.
+
+  **Cloud reachability**: the Exact hosts are public with valid certificates.
+tools:
+  - name: exact_online_get_me
+    description: Read the authenticated user and, importantly, their CurrentDivision — the administration id every other path needs. Start here to find the right EXACT_DIVISION.
+    input:
+      type: object
+      properties: {}
+    operation:
+      method: GET
+      path: /current/Me
+      query:
+        $select: UserName,FullName,Email,CurrentDivision,Language
+  - name: exact_online_list_divisions
+    description: List the administrations (divisions) this account can reach, with their code, description and currency. A customer with several companies has several divisions.
+    input:
+      type: object
+      properties:
+        select:
+          type: string
+          description: OData $select list, e.g. Code,Description,Currency.
+    operation:
+      method: GET
+      path: /{{env.EXACT_DIVISION}}/hrm/Divisions
+      query:
+        $select: '{{params.select}}'
+  - name: exact_online_list_accounts
+    description: List accounts — Exact's customers, suppliers and prospects — with their code, name, VAT number and status. Always $select; accounts have well over a hundred columns.
+    input:
+      type: object
+      properties:
+        select:
+          type: string
+          description: OData $select list, e.g. ID,Code,Name,VATNumber,City,IsSales,IsSupplier.
+        filter:
+          type: string
+          description: OData $filter expression, e.g. IsSales eq true.
+        top:
+          type: number
+          description: Maximum rows to return (Exact pages at 60).
+        orderby:
+          type: string
+          description: Sort expression, e.g. `Name asc`.
+    operation:
+      method: GET
+      path: /{{env.EXACT_DIVISION}}/crm/Accounts
+      query:
+        $select: '{{params.select}}'
+        $filter: '{{params.filter}}'
+        $top: '{{params.top}}'
+        $orderby: '{{params.orderby}}'
+  - name: exact_online_list_sales_invoices
+    description: List sales invoices with their number, date, account, amounts and status. Filter by InvoiceDate for a period, or by Status for what is still open.
+    input:
+      type: object
+      properties:
+        select:
+          type: string
+          description: OData $select list, e.g. InvoiceNumber,InvoiceDate,OrderedBy,AmountDC,Status.
+        filter:
+          type: string
+          description: OData $filter, e.g. InvoiceDate ge datetime'2026-01-01'.
+        top:
+          type: number
+          description: Maximum rows to return.
+        orderby:
+          type: string
+          description: Sort expression, e.g. `InvoiceDate desc`.
+    operation:
+      method: GET
+      path: /{{env.EXACT_DIVISION}}/salesinvoice/SalesInvoices
+      query:
+        $select: '{{params.select}}'
+        $filter: '{{params.filter}}'
+        $top: '{{params.top}}'
+        $orderby: '{{params.orderby}}'
+  - name: exact_online_list_receivables
+    description: List outstanding receivables with their invoice number, account, due date and amount still open — the direct answer to 'who owes us money'.
+    input:
+      type: object
+      properties:
+        select:
+          type: string
+          description: OData $select list, e.g. InvoiceNumber,AccountName,DueDate,AmountDC.
+        filter:
+          type: string
+          description: OData $filter, e.g. DueDate lt datetime'2026-09-01' for overdue only.
+        top:
+          type: number
+          description: Maximum rows to return.
+        orderby:
+          type: string
+          description: Sort expression, e.g. `DueDate asc`.
+    operation:
+      method: GET
+      path: /{{env.EXACT_DIVISION}}/read/financial/ReceivablesList
+      query:
+        $select: '{{params.select}}'
+        $filter: '{{params.filter}}'
+        $top: '{{params.top}}'
+        $orderby: '{{params.orderby}}'
+  - name: exact_online_list_purchase_invoices
+    description: List purchase invoices with their supplier, date, due date and amount — the payables side of the ledger.
+    input:
+      type: object
+      properties:
+        select:
+          type: string
+          description: OData $select list.
+        filter:
+          type: string
+          description: OData $filter expression.
+        top:
+          type: number
+          description: Maximum rows to return.
+        orderby:
+          type: string
+          description: Sort expression.
+    operation:
+      method: GET
+      path: /{{env.EXACT_DIVISION}}/purchase/PurchaseInvoices
+      query:
+        $select: '{{params.select}}'
+        $filter: '{{params.filter}}'
+        $top: '{{params.top}}'
+        $orderby: '{{params.orderby}}'
+  - name: exact_online_list_items
+    description: List items from the product catalogue with their code, description, sales price, cost price and unit.
+    input:
+      type: object
+      properties:
+        select:
+          type: string
+          description: OData $select list, e.g. ID,Code,Description,SalesVatCode,CostPriceStandard.
+        filter:
+          type: string
+          description: OData $filter expression, e.g. IsSalesItem eq true.
+        top:
+          type: number
+          description: Maximum rows to return.
+    operation:
+      method: GET
+      path: /{{env.EXACT_DIVISION}}/logistics/Items
+      query:
+        $select: '{{params.select}}'
+        $filter: '{{params.filter}}'
+        $top: '{{params.top}}'
+  - name: exact_online_list_stock_positions
+    description: Read current stock positions per item and warehouse — the availability answer, separate from the item master.
+    input:
+      type: object
+      properties:
+        select:
+          type: string
+          description: OData $select list, e.g. ItemCode,Warehouse,CurrentStock.
+        filter:
+          type: string
+          description: OData $filter expression, e.g. ItemCode eq 'ART001'.
+        top:
+          type: number
+          description: Maximum rows to return.
+    operation:
+      method: GET
+      path: /{{env.EXACT_DIVISION}}/read/logistics/StockPosition
+      query:
+        $select: '{{params.select}}'
+        $filter: '{{params.filter}}'
+        $top: '{{params.top}}'
+  - name: exact_online_list_gl_accounts
+    description: List general ledger accounts with their code, description, type and balance side, for questions that need the chart of accounts.
+    input:
+      type: object
+      properties:
+        select:
+          type: string
+          description: OData $select list, e.g. Code,Description,Type,BalanceSide.
+        top:
+          type: number
+          description: Maximum rows to return.
+    operation:
+      method: GET
+      path: /{{env.EXACT_DIVISION}}/financial/GLAccounts
+      query:
+        $select: '{{params.select}}'
+        $top: '{{params.top}}'

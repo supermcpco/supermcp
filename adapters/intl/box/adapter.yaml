@@ -1,0 +1,292 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: box
+  name: Box
+  description: 'Manage Box (enterprise content: files, folders, collaborations, comments, tasks, metadata) from any AI agent. 10 tools, OAuth2 token.'
+  region: intl
+  category: storage
+  icon: box
+  docsUrl: https://developer.box.com/reference/
+  lint:
+    allow:
+      - description-min-60
+      - healthcheck-present
+credentials:
+  BOX_CLIENT_ID:
+    required: true
+  BOX_CLIENT_SECRET:
+    required: true
+    secret: true
+  BOX_REFRESH_TOKEN:
+    required: true
+    secret: true
+transport:
+  type: http
+  baseUrl: https://api.box.com/2.0
+auth:
+  type: oauth2
+  grant: refresh_token
+  clientId: '{{env.BOX_CLIENT_ID}}'
+  clientSecret: '{{env.BOX_CLIENT_SECRET}}'
+  tokenUrl: https://api.box.com/oauth2/token
+  refreshToken: '{{env.BOX_REFRESH_TOKEN}}'
+instructions: |-
+  This connector wraps the Box Content API v2 (api.box.com/2.0).
+
+  **Setup — OAuth2**:
+  1. Register at https://app.box.com/developers/console → **Create New App** → 'OAuth 2.0 with JWT' or 'OAuth 2.0 with User Authentication'.
+  2. For user OAuth: complete the auth flow at `https://account.box.com/api/oauth2/authorize?response_type=code&client_id=...&redirect_uri=...`.
+  3. Exchange the code at `https://api.box.com/oauth2/token`. Save the refresh_token.
+  4. For JWT (server auth): generate an enterprise-level access token differently — out of scope for this OAuth-based adapter.
+  5. Set `BOX_CLIENT_ID`, `BOX_CLIENT_SECRET`, `BOX_REFRESH_TOKEN`.
+
+  **Authentication**: OAuth2 refresh handled by engine. Sends `Authorization: Bearer ACCESS_TOKEN`.
+
+  **Folder ID 0** is the root folder of the authenticated user.
+
+  **File-vs-Folder IDs**: Box assigns numeric IDs that are unique within file-space and folder-space but can collide across (file 123 ≠ folder 123). Always know whether you're operating on a file or folder.
+
+  **Upload**: file upload uses a different host (`upload.box.com`) with multipart. Out of scope here for content upload — use the create_shared_link pattern with externally-hosted files for ingest.
+
+  **Pagination**: `limit` (max 1000) + `offset` (0-based). Some endpoints support `marker` cursor pagination — pass `usemarker=true`.
+
+  **Rate limits**: ~16 req/sec per token, soft. 429 with `Retry-After`.
+
+  **Out of scope here**: file upload multipart, Box Sign workflows, retention policies, the new Box AI inference endpoints.
+tools:
+  - name: box_get_current_user
+    description: Return the authenticated user.
+    input:
+      type: object
+      properties: {}
+    operation:
+      method: GET
+      path: /users/me
+  - name: box_get_folder_items
+    description: List items in a folder (files + subfolders). Use folder_id=0 for the root.
+    input:
+      type: object
+      properties:
+        folder_id:
+          type: string
+          description: Folder ID (use '0' for root).
+        fields:
+          type: string
+          description: Comma-separated fields to project, e.g. 'name,size,modified_at,modified_by'.
+        limit:
+          type: integer
+          description: Max 1000.
+        offset:
+          type: integer
+          description: 0-based offset.
+      required:
+        - folder_id
+    operation:
+      method: GET
+      path: /folders/{{params.folder_id}}/items
+      query:
+        fields: '{{params.fields}}'
+        limit: '{{params.limit}}'
+        offset: '{{params.offset}}'
+  - name: box_get_folder
+    description: Get folder metadata (name, created_by, modified_by, item_collection summary).
+    input:
+      type: object
+      properties:
+        folder_id:
+          type: string
+          description: Folder ID.
+        fields:
+          type: string
+          description: Fields to project.
+      required:
+        - folder_id
+    operation:
+      method: GET
+      path: /folders/{{params.folder_id}}
+      query:
+        fields: '{{params.fields}}'
+  - name: box_create_folder
+    description: Create a folder inside a parent.
+    input:
+      type: object
+      properties:
+        parent_id:
+          type: string
+          description: Parent folder ID.
+        name:
+          type: string
+          description: Folder name.
+      required:
+        - parent_id
+        - name
+    operation:
+      method: POST
+      path: /folders
+      body:
+        value:
+          name: '{{params.name}}'
+          parent:
+            id: '{{params.parent_id}}'
+  - name: box_get_file
+    description: Get file metadata.
+    input:
+      type: object
+      properties:
+        file_id:
+          type: string
+          description: File ID.
+        fields:
+          type: string
+          description: Fields to project.
+      required:
+        - file_id
+    operation:
+      method: GET
+      path: /files/{{params.file_id}}
+      query:
+        fields: '{{params.fields}}'
+  - name: box_copy_file
+    description: Copy a file to a different folder.
+    input:
+      type: object
+      properties:
+        file_id:
+          type: string
+          description: Source file ID.
+        parent_id:
+          type: string
+          description: Destination folder ID.
+        name:
+          type: string
+          description: Optional new name.
+        version:
+          type: string
+          description: Copy a specific version.
+      required:
+        - file_id
+        - parent_id
+    operation:
+      method: POST
+      path: /files/{{params.file_id}}/copy
+      body:
+        value:
+          parent:
+            id: '{{params.parent_id}}'
+          name: '{{params.name}}'
+          version: '{{params.version}}'
+  - name: box_move_or_rename_file
+    description: Move file to a different folder and/or rename. Update other fields too.
+    input:
+      type: object
+      properties:
+        file_id:
+          type: string
+          description: File ID.
+        parent_id:
+          type: string
+          description: New parent folder.
+        name:
+          type: string
+          description: New name.
+        description:
+          type: string
+          description: New description.
+      required:
+        - file_id
+    operation:
+      method: PUT
+      path: /files/{{params.file_id}}
+      body:
+        value:
+          parent:
+            id: '{{params.parent_id}}'
+          name: '{{params.name}}'
+          description: '{{params.description}}'
+  - name: box_delete_file
+    description: Delete a file (moves to trash; restore via /files/{id}/trash endpoint).
+    input:
+      type: object
+      properties:
+        file_id:
+          type: string
+          description: File ID.
+      required:
+        - file_id
+    operation:
+      method: DELETE
+      path: /files/{{params.file_id}}
+  - name: box_search
+    description: Search across content. Filter by type (file/folder/web_link), file extensions, content types, date range.
+    input:
+      type: object
+      properties:
+        query:
+          type: string
+          description: Search query.
+        type:
+          type: string
+          description: file, folder, web_link.
+        file_extensions:
+          type: string
+          description: Comma-separated extensions.
+        content_types:
+          type: string
+          description: 'Comma-separated: name, description, file_content, comments, tags.'
+        ancestor_folder_ids:
+          type: string
+          description: Comma-separated folder IDs to restrict search to.
+        limit:
+          type: integer
+          description: Max 200.
+        offset:
+          type: integer
+          description: 0-based.
+      required:
+        - query
+    operation:
+      method: GET
+      path: /search
+      query:
+        query: '{{params.query}}'
+        type: '{{params.type}}'
+        file_extensions: '{{params.file_extensions}}'
+        content_types: '{{params.content_types}}'
+        ancestor_folder_ids: '{{params.ancestor_folder_ids}}'
+        limit: '{{params.limit}}'
+        offset: '{{params.offset}}'
+  - name: box_create_shared_link
+    description: Create or update a shared link on a file. Returns the shared URL.
+    input:
+      type: object
+      properties:
+        file_id:
+          type: string
+          description: File ID.
+        access:
+          type: string
+          description: open (public), company, collaborators.
+        password:
+          type: string
+          description: Optional password.
+        unshared_at:
+          type: string
+          description: Optional ISO 8601 expiry.
+        can_download:
+          type: boolean
+          description: Allow downloads.
+      required:
+        - file_id
+    operation:
+      method: PUT
+      path: /files/{{params.file_id}}
+      body:
+        value:
+          shared_link:
+            access: '{{params.access}}'
+            password: '{{params.password}}'
+            unshared_at: '{{params.unshared_at}}'
+            permissions:
+              can_download: '{{params.can_download}}'

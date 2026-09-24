@@ -1,0 +1,187 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://supermcp.dev/schema/adapter/v2.json",
+  "title": "supermcp adapter (v2)",
+  "description": "A pre-built connector: one upstream (transport + auth) and a list of MCP tools. See docs/adapters.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "kind", "metadata", "transport", "auth", "tools"],
+  "properties": {
+    "apiVersion": { "const": "supermcp.dev/v2" },
+    "kind": { "const": "Adapter" },
+    "metadata": { "$ref": "#/$defs/metadata" },
+    "credentials": {
+      "type": "object",
+      "propertyNames": { "pattern": "^[A-Z][A-Z0-9_]*$" },
+      "additionalProperties": { "$ref": "#/$defs/credential" }
+    },
+    "transport": { "$ref": "#/$defs/transport" },
+    "auth": { "$ref": "#/$defs/auth" },
+    "healthcheck": { "$ref": "#/$defs/healthcheck" },
+    "instructions": { "type": "string" },
+    "tools": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/tool" } }
+  },
+  "$defs": {
+    "duration": { "type": "string", "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$", "examples": ["30s", "5m", "1h30m"] },
+    "placeholderString": { "type": "string", "description": "May contain {{params.x}}, {{env.X}}, {{caller.email}}, {{auth.token}} placeholders." },
+    "stringMap": { "type": "object", "additionalProperties": { "type": "string" } },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["slug", "name", "description", "region", "category", "icon", "docsUrl"],
+      "properties": {
+        "slug": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$" },
+        "name": { "type": "string", "minLength": 1 },
+        "description": { "type": "string", "minLength": 1 },
+        "region": { "enum": ["be", "br", "ch", "de", "dk", "es", "fr", "gb", "in", "intl", "it", "jp", "ng", "nl", "se"] },
+        "category": { "enum": ["accounting", "analytics", "banking", "cms", "crm", "data", "database", "documents", "e-commerce", "e-signature", "email", "enrichment", "entertainment", "erp", "finance", "food", "forms", "government", "healthcare", "hr", "infrastructure", "itsm", "knowledge", "logistics", "maps", "marketing-automation", "messaging", "monitoring", "operations", "payments", "productivity", "project-management", "publishing", "real-estate", "scheduling", "social", "sports", "storage", "support", "time-tracking", "transport", "travel"] },
+        "icon": { "type": "string" },
+        "docsUrl": { "type": "string", "format": "uri" },
+        "priority": { "type": "integer" },
+        "featured": { "type": "boolean" },
+        "selfHostOnly": { "type": "boolean" },
+        "lint": { "type": "object", "additionalProperties": false, "properties": { "allow": { "type": "array", "items": { "type": "string" } } } }
+      }
+    },
+    "credential": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required"],
+      "properties": {
+        "required": { "type": "boolean" },
+        "secret": { "type": "boolean" },
+        "usage": { "enum": ["template", "manual"] },
+        "description": { "type": "string" }
+      }
+    },
+    "rateLimit": {
+      "type": "object", "additionalProperties": false, "required": ["rps"],
+      "properties": { "rps": { "type": "number", "exclusiveMinimum": 0 }, "burst": { "type": "integer", "minimum": 1 } }
+    },
+    "transport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type": { "enum": ["http", "graphql", "database", "soap", "mcp"] },
+        "baseUrl": { "$ref": "#/$defs/placeholderString" },
+        "dsn": { "$ref": "#/$defs/placeholderString" },
+        "driver": { "enum": ["postgres", "mysql", "mssql", "oracle", "sqlite", "mongodb"] },
+        "headers": { "$ref": "#/$defs/stringMap" },
+        "timeout": { "$ref": "#/$defs/duration" },
+        "rateLimit": { "$ref": "#/$defs/rateLimit" },
+        "proxy": { "type": "boolean" }
+      },
+      "allOf": [
+        { "if": { "properties": { "type": { "const": "database" } } }, "then": { "required": ["dsn", "driver"] }, "else": { "required": ["baseUrl"] } }
+      ]
+    },
+    "inject": {
+      "type": "object", "additionalProperties": false,
+      "properties": { "header": { "type": "string" }, "prefix": { "type": "string" }, "template": { "type": "string" }, "cookie": { "type": "string" } }
+    },
+    "loginRequest": {
+      "type": "object", "additionalProperties": false, "required": ["method", "url"],
+      "properties": {
+        "method": { "enum": ["GET", "POST", "PUT"] },
+        "url": { "$ref": "#/$defs/placeholderString" },
+        "headers": { "$ref": "#/$defs/stringMap" },
+        "query": { "type": "object" },
+        "body": {}
+      }
+    },
+    "auth": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": { "enum": ["none", "apiKey", "bearer", "basic", "query", "oauth2", "oauth1", "login", "hmac", "database", "wsSecurity", "mtls"] },
+        "optional": { "type": "boolean" }
+      },
+      "allOf": [
+        { "if": { "properties": { "type": { "const": "none" } } }, "then": { "additionalProperties": false, "properties": { "type": {}, "optional": {} } } },
+        { "if": { "properties": { "type": { "const": "apiKey" } } }, "then": { "additionalProperties": false, "required": ["in", "name", "value"], "properties": { "type": {}, "optional": {}, "in": { "enum": ["header", "query", "cookie"] }, "name": { "type": "string" }, "value": { "$ref": "#/$defs/placeholderString" }, "prefix": { "type": "string" }, "extraHeaders": { "$ref": "#/$defs/stringMap" } } } },
+        { "if": { "properties": { "type": { "const": "bearer" } } }, "then": { "additionalProperties": false, "required": ["token"], "properties": { "type": {}, "optional": {}, "token": { "$ref": "#/$defs/placeholderString" }, "prefix": { "type": "string" }, "header": { "type": "string" }, "extraHeaders": { "$ref": "#/$defs/stringMap" } } } },
+        { "if": { "properties": { "type": { "const": "basic" } } }, "then": { "additionalProperties": false, "properties": { "type": {}, "optional": {}, "username": { "$ref": "#/$defs/placeholderString" }, "password": { "$ref": "#/$defs/placeholderString" }, "extraHeaders": { "$ref": "#/$defs/stringMap" } } } },
+        { "if": { "properties": { "type": { "const": "query" } } }, "then": { "additionalProperties": false, "required": ["params"], "properties": { "type": {}, "optional": {}, "params": { "$ref": "#/$defs/stringMap" } } } },
+        { "if": { "properties": { "type": { "const": "oauth2" } } }, "then": { "additionalProperties": false, "required": ["grant", "clientId", "tokenUrl"], "properties": { "type": {}, "optional": {}, "grant": { "enum": ["client_credentials", "refresh_token", "authorization_code"] }, "clientId": { "$ref": "#/$defs/placeholderString" }, "clientSecret": { "$ref": "#/$defs/placeholderString" }, "tokenUrl": { "$ref": "#/$defs/placeholderString" }, "authorizationUrl": { "$ref": "#/$defs/placeholderString" }, "scopes": { "type": "array", "items": { "type": "string" } }, "clientAuth": { "enum": ["basic", "body"] }, "refreshToken": { "$ref": "#/$defs/placeholderString" }, "extraTokenParams": { "$ref": "#/$defs/stringMap" }, "inject": { "$ref": "#/$defs/inject" }, "extraHeaders": { "$ref": "#/$defs/stringMap" } } } },
+        { "if": { "properties": { "type": { "const": "oauth1" } } }, "then": { "additionalProperties": false, "required": ["consumerKey", "consumerSecret"], "properties": { "type": {}, "optional": {}, "consumerKey": { "$ref": "#/$defs/placeholderString" }, "consumerSecret": { "$ref": "#/$defs/placeholderString" }, "token": { "$ref": "#/$defs/placeholderString" }, "tokenSecret": { "$ref": "#/$defs/placeholderString" }, "signature": { "enum": ["HMAC-SHA1", "HMAC-SHA256"] } } } },
+        { "if": { "properties": { "type": { "const": "login" } } }, "then": { "additionalProperties": false, "required": ["request", "tokenSource", "inject"], "properties": { "type": {}, "optional": {}, "request": { "$ref": "#/$defs/loginRequest" }, "credentials": { "$ref": "#/$defs/stringMap" }, "preprocess": { "type": "array", "items": { "type": "object", "additionalProperties": false, "required": ["kind", "input", "output"], "properties": { "kind": { "enum": ["bcrypt"] }, "input": { "type": "string" }, "output": { "type": "string" }, "salt": { "type": "object", "additionalProperties": false, "properties": { "value": { "type": "string" }, "request": { "$ref": "#/$defs/loginRequest" }, "jsonPath": { "type": "string" } } } } } }, "tokenSource": { "type": "object", "additionalProperties": false, "required": ["from"], "properties": { "from": { "enum": ["body", "setCookie"] }, "jsonPath": { "type": "string" }, "cookieName": { "type": "string" } } }, "expiry": { "type": "object", "additionalProperties": false, "properties": { "jsonPath": { "type": "string" }, "format": { "enum": ["iso8601", "unix", "ttl_seconds"] }, "ttl": { "$ref": "#/$defs/duration" }, "refreshBefore": { "$ref": "#/$defs/duration" }, "refreshOn401": { "type": "boolean" } } }, "inject": { "$ref": "#/$defs/inject" }, "extraHeaders": { "$ref": "#/$defs/stringMap" } } } },
+        { "if": { "properties": { "type": { "const": "hmac" } } }, "then": { "additionalProperties": false, "required": ["secret", "stringToSign", "signatureHeader"], "properties": { "type": {}, "optional": {}, "algorithm": { "enum": ["sha256", "sha1", "sha512"] }, "encoding": { "enum": ["hex", "base64"] }, "secret": { "$ref": "#/$defs/placeholderString" }, "stringToSign": { "type": "string" }, "signatureHeader": { "type": "string" }, "timestampHeader": { "type": "string" }, "timestampFormat": { "enum": ["unix", "unix_ms", "iso8601"] }, "extraHeaders": { "$ref": "#/$defs/stringMap" } } } },
+        { "if": { "properties": { "type": { "const": "database" } } }, "then": { "additionalProperties": false, "properties": { "type": {}, "optional": {}, "username": { "$ref": "#/$defs/placeholderString" }, "password": { "$ref": "#/$defs/placeholderString" }, "domain": { "$ref": "#/$defs/placeholderString" } } } },
+        { "if": { "properties": { "type": { "const": "mtls" } } }, "then": { "additionalProperties": false, "required": ["cert", "key"], "properties": { "type": {}, "optional": {}, "cert": { "$ref": "#/$defs/placeholderString" }, "key": { "$ref": "#/$defs/placeholderString" }, "ca": { "$ref": "#/$defs/placeholderString" } } } },
+        { "if": { "properties": { "type": { "const": "wsSecurity" } } }, "then": { "additionalProperties": false, "required": ["username", "password"], "properties": { "type": {}, "optional": {}, "username": { "$ref": "#/$defs/placeholderString" }, "password": { "$ref": "#/$defs/placeholderString" } } } }
+      ]
+    },
+    "healthcheck": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "tool": { "type": "string" },
+        "params": { "type": "object" },
+        "http": { "type": "object", "additionalProperties": false, "required": ["path"], "properties": { "method": { "type": "string" }, "path": { "type": "string" }, "status": { "type": "array", "items": { "type": "integer" } } } }
+      },
+      "anyOf": [{ "required": ["tool"] }, { "required": ["http"] }]
+    },
+    "annotations": {
+      "type": "object", "additionalProperties": false,
+      "properties": { "title": { "type": "string" }, "readOnlyHint": { "type": "boolean" }, "destructiveHint": { "type": "boolean" }, "idempotentHint": { "type": "boolean" }, "openWorldHint": { "type": "boolean" } }
+    },
+    "inputSchema": {
+      "type": "object",
+      "required": ["type", "properties"],
+      "properties": { "type": { "const": "object" }, "properties": { "type": "object" }, "required": { "type": "array", "items": { "type": "string" } }, "additionalProperties": { "type": "boolean" } },
+      "not": { "anyOf": [{ "required": ["$ref"] }, { "required": ["oneOf"] }, { "required": ["anyOf"] }, { "required": ["allOf"] }] }
+    },
+    "body": {
+      "type": "object", "additionalProperties": false, "required": ["value"],
+      "properties": { "encoding": { "enum": ["json", "form", "multipart", "raw"] }, "value": {} }
+    },
+    "operation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "method": { "enum": ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"] },
+        "path": { "$ref": "#/$defs/placeholderString" },
+        "query": { "type": "object" },
+        "headers": { "$ref": "#/$defs/stringMap" },
+        "body": { "$ref": "#/$defs/body" },
+        "kind": { "enum": ["query", "mutation", "sql", "schema", "static"] },
+        "document": { "type": "string" },
+        "variables": { "type": "object" },
+        "statement": { "type": "string" },
+        "maxRows": { "type": "integer", "minimum": 1 },
+        "value": {},
+        "action": { "type": "string" },
+        "envelope": { "type": "string" },
+        "tool": { "type": "string" },
+        "argsMap": { "type": "object" }
+      }
+    },
+    "response": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "transform": { "type": "object", "additionalProperties": false, "required": ["jmespath"], "properties": { "jmespath": { "type": "string" } } },
+        "cache": { "$ref": "#/$defs/duration" },
+        "exposeHeaders": { "type": "array", "items": { "type": "string" } },
+        "maxBytes": { "type": "integer", "minimum": 1 },
+        "fallbackToRaw": { "type": "boolean" }
+      }
+    },
+    "tool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "description", "input", "operation"],
+      "properties": {
+        "name": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+        "description": { "type": "string", "minLength": 1 },
+        "input": { "$ref": "#/$defs/inputSchema" },
+        "output": { "type": "object" },
+        "annotations": { "$ref": "#/$defs/annotations" },
+        "timeout": { "$ref": "#/$defs/duration" },
+        "rateLimit": { "$ref": "#/$defs/rateLimit" },
+        "proxy": { "type": "boolean" },
+        "operation": { "$ref": "#/$defs/operation" },
+        "response": { "$ref": "#/$defs/response" }
+      }
+    }
+  }
+}

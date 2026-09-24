@@ -1,0 +1,84 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Lending Library",
+    "description": "Books, borrowers and loans. Written against OpenAPI 3.1, so nullable types are written as type lists.",
+    "version": "2.0.0"
+  },
+  "servers": [{ "url": "https://library.example.com/api" }],
+  "security": [{ "oauth": ["loans:read", "loans:write"] }],
+  "webhooks": {
+    "loanOverdue": {
+      "post": { "operationId": "loanOverdue", "responses": { "200": { "description": "ok" } } }
+    }
+  },
+  "paths": {
+    "/books": {
+      "get": {
+        "operationId": "searchBooks",
+        "summary": "Search the catalogue",
+        "description": "Finds books by title or author. An empty query returns the whole catalogue, which is large.",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "description": "Free text matched against title and author",
+            "schema": { "type": ["string", "null"] }
+          },
+          {
+            "name": "available",
+            "in": "query",
+            "schema": { "type": "boolean", "default": true }
+          }
+        ],
+        "responses": { "200": { "description": "Matching books" } }
+      }
+    },
+    "/loans/{loanId}": {
+      "patch": {
+        "operationId": "extendLoan",
+        "summary": "Extend a loan by a number of days, up to the lending limit",
+        "parameters": [
+          { "name": "loanId", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["days"],
+                "properties": {
+                  "days": { "type": "integer", "minimum": 1, "maximum": 28 },
+                  "note": { "type": ["string", "null"], "description": "Why the loan was extended" }
+                }
+              }
+            }
+          }
+        },
+        "responses": { "200": { "description": "The extended loan" } }
+      },
+      "head": {
+        "operationId": "loanExists",
+        "summary": "Report whether a loan exists without transferring its representation",
+        "parameters": [
+          { "name": "loanId", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "It exists" } }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "oauth": {
+        "type": "oauth2",
+        "flows": {
+          "clientCredentials": {
+            "tokenUrl": "/oauth/token",
+            "scopes": { "loans:read": "Read loans", "loans:write": "Change loans" }
+          }
+        }
+      }
+    }
+  }
+}

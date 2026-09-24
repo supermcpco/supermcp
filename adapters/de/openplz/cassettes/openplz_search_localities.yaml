@@ -1,0 +1,17 @@
+# Recorded by `supermcp adapter record`; replayed by `supermcp adapter test`.
+# Credential values are replaced with SUPERMCP_CREDENTIAL_<NAME>.
+adapter: openplz
+tool: openplz_search_localities
+recordedAt: 2026-09-22T22:18:21Z
+interactions:
+  - params:
+      name: Berlin
+    request:
+      method: GET
+      url: https://openplzapi.org/de/Localities
+      query: name=Berlin
+    response:
+      status: 200
+      headers:
+        content-type: application/json; charset=utf-8
+      body: '[{"postalCode":"10115","name":"Berlin","municipality":{"key":"11000000","name":"Berlin, Stadt","type":"Kreisfreie Stadt"},"federalState":{"key":"11","name":"Berlin"}},{"postalCode":"10117","name":"Berlin","municipality":{"key":"11000000","name":"Berlin, Stadt","type":"Kreisfreie Stadt"},"federalState":{"key":"11","name":"Berlin"}},{"postalCode":"10119","name":"Berlin","municipality":{"key":"11000000","name":"Berlin, Stadt","type":"Kreisfreie Stadt"},"federalState":{"key":"11","name":"Berlin"}},{"postalCode":"10178","name":"Berlin","municipality":{"key":"11000000","name":"Berlin, Stadt","type":"Kreisfreie Stadt"},"federalState":{"key":"11","name":"Berlin"}},{"postalCode":"10179","name":"Berlin","municipality":{"key":"11000000","name":"Berlin, Stadt","type":"Kreisfreie Stadt"},"federalState":{"key":"11","name":"Berlin"}},{"postalCode":"10243","name":"Berlin","municipality":{"key":"11000000","name":"Berlin, Stadt","type":"Kreisfreie Stadt"},"federalState":{"key":"11","name":"Berlin"}},{"postalCode":"10245","name":"Berlin","municipality":{"key":"11000000","name":"Berlin, Stadt","type":"Kreisfreie Stadt"},"federalState":{"key":"11","name":"Berlin"}},{"postalCode":"10247","name":"Berlin","municipality":{"key":"11000000","name":"Berlin, Stadt","type":"Kreisfreie Stadt"},"federalState":{"key":"11","name":"Berlin"}},{"postalCode":"10249","name":"Berlin","municipality":{"key":"11000000","name":"Berlin, Stadt","type":"Kreisfreie Stadt"},"federalState":{"key":"11","name":"Berlin"}},{"postalCode":"10315","name":"Berlin","municipality":{"key":"11000000","name":"Berlin, Stadt","type":"Kreisfreie Stadt"},"federalState":{"key":"11","name":"Berlin"}}]'

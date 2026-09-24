@@ -1,0 +1,172 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: timetac
+  name: TimeTac
+  description: 'TimeTac time and attendance for DACH teams: time trackings, users, projects, tasks, absences and the live clock-in state. REST API v3 on the customer''s own timetac.com subdomain, OAuth 2.0.'
+  region: de
+  category: time-tracking
+  icon: timetac
+  docsUrl: https://www.timetac.com/en/api-documentation/
+credentials:
+  TIMETAC_ACCOUNT:
+    required: true
+  TIMETAC_CLIENT_ID:
+    required: true
+  TIMETAC_CLIENT_SECRET:
+    required: true
+    secret: true
+  TIMETAC_REFRESH_TOKEN:
+    required: true
+    secret: true
+transport:
+  type: http
+  baseUrl: https://{{env.TIMETAC_ACCOUNT}}.timetac.com/{{env.TIMETAC_ACCOUNT}}/api/v3
+auth:
+  type: oauth2
+  grant: refresh_token
+  clientId: '{{env.TIMETAC_CLIENT_ID}}'
+  clientSecret: '{{env.TIMETAC_CLIENT_SECRET}}'
+  tokenUrl: https://{{env.TIMETAC_ACCOUNT}}.timetac.com/{{env.TIMETAC_ACCOUNT}}/oauth2/token
+  refreshToken: '{{env.TIMETAC_REFRESH_TOKEN}}'
+healthcheck:
+  tool: timetac_list_users
+  http:
+    method: GET
+    path: /users/read
+instructions: |-
+  **Your account name is part of every URL.** TimeTac gives each customer a subdomain *and* repeats the account name in the path: `https://<account>.timetac.com/<account>/api/v3/`. Set `TIMETAC_ACCOUNT` to that name (the part before `.timetac.com`) and the adapter builds both halves.
+
+  **Getting OAuth credentials**
+  1. Ask TimeTac support to enable API access and issue an OAuth 2.0 client for your account — it is not self-service in the web UI.
+  2. You receive a **client id** and **client secret**. Complete the authorization-code flow once against `https://<account>.timetac.com/<account>/oauth2/authorize` and keep the **refresh token**.
+  3. Set `TIMETAC_ACCOUNT`, `TIMETAC_CLIENT_ID`, `TIMETAC_CLIENT_SECRET` and `TIMETAC_REFRESH_TOKEN`. supermcp refreshes the access token on its own from then on.
+
+  **Reads end in `/read`.** TimeTac's v3 API is not REST-shaped: the list endpoint for a resource is `<resource>/read`, and filters go in query parameters like `filter=[{"field":"date","comparison":"gt","value":"2026-09-01"}]`. The tools below pass a `filter` string through verbatim so the agent can express whatever the docs allow.
+
+  **Responses are wrapped** in `{"Success": true, "Results": [...], "NumResults": n}`. An empty `Results` with `Success: true` means the filter matched nothing, not that the call failed.
+
+  **Unverified**: these paths follow TimeTac's published v3 documentation and have not been run against a live account. Check the docs before concluding a credential is wrong.
+
+  **Cloud reachability**: `<account>.timetac.com` is public with a valid certificate.
+tools:
+  - name: timetac_list_users
+    description: List the users in the TimeTac account with their name, employee number, department and active state. No parameters — the quickest check that the OAuth client works.
+    input:
+      type: object
+      properties:
+        filter:
+          type: string
+          description: TimeTac filter JSON, e.g. [{"field":"status","comparison":"eq","value":"active"}].
+        limit:
+          type: number
+          description: Maximum rows to return.
+    operation:
+      method: GET
+      path: /users/read
+      query:
+        filter: '{{params.filter}}'
+        limit: '{{params.limit}}'
+  - name: timetac_list_time_trackings
+    description: 'Read time trackings in a date range: start, end, duration, the user and the task booked against. This is the core reporting query.'
+    input:
+      type: object
+      properties:
+        filter:
+          type: string
+          description: TimeTac filter JSON, e.g. [{"field":"start_time","comparison":"gt","value":"2026-09-01 00:00:00"}].
+        limit:
+          type: number
+          description: Maximum rows to return.
+        start:
+          type: number
+          description: Rows to skip, for paging.
+        sort:
+          type: string
+          description: Sort JSON, e.g. [{"property":"start_time","direction":"DESC"}].
+    operation:
+      method: GET
+      path: /timeTrackings/read
+      query:
+        filter: '{{params.filter}}'
+        limit: '{{params.limit}}'
+        start: '{{params.start}}'
+        sort: '{{params.sort}}'
+  - name: timetac_list_projects
+    description: List projects with their client, budget and status, so a time tracking can be attributed to a piece of work.
+    input:
+      type: object
+      properties:
+        filter:
+          type: string
+          description: TimeTac filter JSON.
+        limit:
+          type: number
+          description: Maximum rows to return.
+    operation:
+      method: GET
+      path: /projects/read
+      query:
+        filter: '{{params.filter}}'
+        limit: '{{params.limit}}'
+  - name: timetac_list_tasks
+    description: List tasks — the things users actually clock onto — with the project they belong to and whether they are still open.
+    input:
+      type: object
+      properties:
+        filter:
+          type: string
+          description: TimeTac filter JSON, e.g. by project_id.
+        limit:
+          type: number
+          description: Maximum rows to return.
+    operation:
+      method: GET
+      path: /tasks/read
+      query:
+        filter: '{{params.filter}}'
+        limit: '{{params.limit}}'
+  - name: timetac_list_absences
+    description: List absences (holiday, sick leave, special leave) with their type, date range and approval state, for the roster view.
+    input:
+      type: object
+      properties:
+        filter:
+          type: string
+          description: TimeTac filter JSON, e.g. by user_id or date range.
+        limit:
+          type: number
+          description: Maximum rows to return.
+    operation:
+      method: GET
+      path: /absences/read
+      query:
+        filter: '{{params.filter}}'
+        limit: '{{params.limit}}'
+  - name: timetac_list_departments
+    description: List the departments configured in the account, so users and reports can be grouped the way the org chart does.
+    input:
+      type: object
+      properties:
+        limit:
+          type: number
+          description: Maximum rows to return.
+    operation:
+      method: GET
+      path: /departments/read
+      query:
+        limit: '{{params.limit}}'
+  - name: timetac_get_live_status
+    description: Read who is currently clocked in and on what — the live attendance board, answering 'who is working right now'.
+    input:
+      type: object
+      properties:
+        filter:
+          type: string
+          description: TimeTac filter JSON, e.g. restrict to one department.
+    operation:
+      method: GET
+      path: /timeTrackings/readLive
+      query:
+        filter: '{{params.filter}}'

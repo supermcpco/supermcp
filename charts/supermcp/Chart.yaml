@@ -1,0 +1,13 @@
+apiVersion: v2
+name: supermcp
+description: Turn REST, GraphQL, SQL, SOAP and MCP systems into MCP tools for Claude, ChatGPT and Copilot.
+type: application
+version: 1.2.0
+appVersion: "1.2.0"
+kubeVersion: ">=1.29.0-0"
+home: https://supermcp.dev
+sources:
+  - https://github.com/supermcpco/supermcp
+keywords: [mcp, ai, gateway, connectors]
+maintainers:
+  - name: supermcp maintainers

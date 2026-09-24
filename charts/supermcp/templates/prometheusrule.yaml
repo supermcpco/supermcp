@@ -1,0 +1,63 @@
+{{- if .Values.metrics.prometheusRule.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "supermcp.fullname" . }}
+  labels:
+    {{- include "supermcp.labels" . | nindent 4 }}
+spec:
+  groups:
+    - name: supermcp
+      rules:
+        # Symptoms, not causes. Each one is something a person can act on
+        # at three in the morning; anything that is merely interesting
+        # belongs on a dashboard instead.
+        - alert: SupermcpDown
+          expr: up{job=~".*{{ include "supermcp.fullname" . }}.*"} == 0
+          for: {{ .Values.metrics.prometheusRule.for.down }}
+          labels: { severity: critical }
+          annotations:
+            summary: "supermcp is not answering"
+            description: "No replica has responded for {{ .Values.metrics.prometheusRule.for.down }}. AI clients cannot reach any tool."
+
+        - alert: SupermcpToolCallsFailing
+          expr: |
+            sum(rate(supermcp_tool_calls_total{status!="success"}[5m]))
+              / clamp_min(sum(rate(supermcp_tool_calls_total[5m])), 0.001) > 0.25
+          for: {{ .Values.metrics.prometheusRule.for.errors }}
+          labels: { severity: warning }
+          annotations:
+            summary: "a quarter of tool calls are failing"
+            description: "Most failures are upstream, so check the connectors' own systems before this one."
+
+        - alert: SupermcpToolCallsSlow
+          expr: histogram_quantile(0.99, sum by (le) (rate(supermcp_tool_call_duration_seconds_bucket[10m]))) > 10
+          for: {{ .Values.metrics.prometheusRule.for.latency }}
+          labels: { severity: warning }
+          annotations:
+            summary: "the slowest tool calls are taking over ten seconds"
+
+        - alert: SupermcpBreakerOpen
+          expr: max by (connector) (supermcp_breaker_state) == 2
+          for: {{ .Values.metrics.prometheusRule.for.errors }}
+          labels: { severity: warning }
+          annotations:
+            summary: "a connector's circuit breaker is open"
+            description: "Calls to {{`{{ $labels.connector }}`}} are being refused locally because its upstream was failing."
+
+        - alert: SupermcpRateLimiterDegraded
+          expr: max(supermcp_ratelimit_degraded) == 1
+          for: {{ .Values.metrics.prometheusRule.for.errors }}
+          labels: { severity: warning }
+          annotations:
+            summary: "the rate limiter has lost its shared store"
+            description: "Budgets are being enforced per replica, so the effective ceiling is lower and uneven. Check Redis."
+
+        - alert: SupermcpAuditQueueBacklog
+          expr: max(supermcp_audit_queue_depth) > 200
+          for: {{ .Values.metrics.prometheusRule.for.errors }}
+          labels: { severity: critical }
+          annotations:
+            summary: "the audit writer is falling behind"
+            description: "Events queue before they are written, and a full queue drops them. A dropped event is a gap in the record."
+{{- end }}

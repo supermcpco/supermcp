@@ -1,0 +1,56 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: vies-vat
+  name: VIES VAT Validation
+  description: Validate EU VAT numbers via the European Commission VIES (VAT Information Exchange System) REST API. Confirms that a VAT number is registered for intra-Community trade and returns the trader name and address when the member state exposes them.
+  region: de
+  category: government
+  icon: vies
+  docsUrl: https://ec.europa.eu/taxation_customs/vies/
+  lint:
+    allow:
+      - tool-name-prefix
+transport:
+  type: http
+  baseUrl: https://ec.europa.eu/taxation_customs/vies/rest-api
+auth:
+  type: none
+healthcheck:
+  tool: vies_check_vat
+  params:
+    countryCode: DE
+    vatNumber: "811907980"
+instructions: |-
+  Use for B2B invoice compliance: before issuing an intra-EU invoice without VAT, confirm the buyer's VAT number is valid via this adapter.
+
+  **Country codes**: ISO 3166-1 alpha-2, plus EL for Greece and XI for Northern Ireland. Common codes: DE, AT, FR, IT, ES, NL, BE, PL, DK, SE, FI, IE, PT, CZ, HU, RO.
+
+  **Format**: VAT number must NOT include the country code prefix (e.g. for DE123456789 pass countryCode='DE' and vatNumber='123456789').
+
+  **Response**: `valid: true/false`, plus `name` and `address` when provided by the member state. Some countries (DE, ES) do not return name/address for privacy reasons — in that case only `valid` is authoritative.
+
+  **Rate limit**: VIES is free but rate-limited per source IP. Batch validations with care; if you see `MS_UNAVAILABLE` or `SERVICE_UNAVAILABLE`, retry after a short delay.
+tools:
+  - name: vies_check_vat
+    description: Check whether an EU VAT number is valid and, when available, return the registered trader name and address.
+    input:
+      type: object
+      properties:
+        countryCode:
+          type: string
+          description: ISO country code of the member state (e.g. 'DE', 'FR', 'IT'). Use 'EL' for Greece and 'XI' for Northern Ireland.
+        vatNumber:
+          type: string
+          description: VAT number without the country prefix (e.g. '123456789' for DE123456789).
+      required:
+        - countryCode
+        - vatNumber
+    operation:
+      method: POST
+      path: /check-vat-number
+      body:
+        value:
+          countryCode: '{{params.countryCode}}'
+          vatNumber: '{{params.vatNumber}}'

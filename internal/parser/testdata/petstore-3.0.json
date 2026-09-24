@@ -1,0 +1,101 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Pet Store",
+    "description": "A small pet store API. It keeps pets, the people who own them, and the tags they are filed under.",
+    "version": "1.0.0",
+    "contact": { "url": "https://docs.petstore.example.com" }
+  },
+  "servers": [{ "url": "https://api.petstore.example.com/v1" }],
+  "security": [{ "bearerAuth": [] }],
+  "paths": {
+    "/pets": {
+      "parameters": [
+        {
+          "name": "X-Request-Id",
+          "in": "header",
+          "description": "Correlation id, echoed back on the response",
+          "schema": { "type": "string" }
+        }
+      ],
+      "get": {
+        "operationId": "listPets",
+        "summary": "List pets",
+        "description": "Returns every pet in the store, newest first, a page at a time. Use the cursor from the previous page to continue.",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "How many pets to return, at most 100",
+            "schema": { "type": "integer", "maximum": 100 }
+          },
+          {
+            "name": "session",
+            "in": "cookie",
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": { "200": { "description": "A page of pets" } }
+      },
+      "post": {
+        "operationId": "createPet",
+        "summary": "Add a pet to the store, giving it a name and an optional tag",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/NewPet" } }
+          }
+        },
+        "responses": { "201": { "description": "The pet that was created" } }
+      }
+    },
+    "/pets/{petId}": {
+      "get": {
+        "operationId": "getPet",
+        "description": "Fetch one pet by its identifier, including the owner it belongs to and the tag it was filed under.",
+        "parameters": [
+          { "name": "petId", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "One pet" } }
+      },
+      "delete": {
+        "operationId": "deletePet",
+        "summary": "Remove a pet from the store for good, along with everything filed against it",
+        "parameters": [{ "$ref": "#/components/parameters/PetId" }],
+        "responses": { "204": { "description": "Gone" } }
+      }
+    }
+  },
+  "components": {
+    "parameters": {
+      "PetId": {
+        "name": "petId",
+        "in": "path",
+        "required": true,
+        "description": "Identifier of the pet",
+        "schema": { "type": "string" }
+      }
+    },
+    "schemas": {
+      "NewPet": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string", "description": "The pet's name" },
+          "tag": { "type": "string", "description": "A tag to file the pet under" },
+          "owner": { "$ref": "#/components/schemas/Owner" }
+        }
+      },
+      "Owner": {
+        "type": "object",
+        "properties": {
+          "email": { "type": "string", "format": "email" },
+          "name": { "type": "string" }
+        }
+      }
+    },
+    "securitySchemes": {
+      "bearerAuth": { "type": "http", "scheme": "bearer", "bearerFormat": "JWT" }
+    }
+  }
+}

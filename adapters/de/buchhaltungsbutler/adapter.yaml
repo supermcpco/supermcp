@@ -1,0 +1,183 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: buchhaltungsbutler
+  name: BuchhaltungsButler
+  description: 'BuchhaltungsButler — German automated bookkeeping: postings, receipts, bank transactions, customers and suppliers. Every endpoint is a POST; auth is HTTP Basic (API client id and secret) plus an api_key field in the request body.'
+  region: de
+  category: accounting
+  icon: buchhaltungsbutler
+  docsUrl: https://docs.buchhaltungsbutler.de/
+credentials:
+  BUCHHALTUNGSBUTLER_CLIENT_ID:
+    required: true
+  BUCHHALTUNGSBUTLER_CLIENT_SECRET:
+    required: true
+    secret: true
+  BUCHHALTUNGSBUTLER_API_KEY:
+    required: true
+    secret: true
+transport:
+  type: http
+  baseUrl: https://webapp.buchhaltungsbutler.de/api/v1
+auth:
+  type: basic
+  username: '{{env.BUCHHALTUNGSBUTLER_CLIENT_ID}}'
+  password: '{{env.BUCHHALTUNGSBUTLER_CLIENT_SECRET}}'
+healthcheck:
+  tool: buchhaltungsbutler_list_customers
+instructions: |-
+  **Getting credentials** — BuchhaltungsButler needs *three* values, not one.
+  1. In the web app open **Einstellungen → API** and create an API client. You receive an **API client id** and an **API client secret**: these are the HTTP Basic username and password.
+  2. On the same page copy the **API key** for the client (Mandant) you want to reach. This is a separate value that travels in the JSON body of every request.
+  3. Set `BUCHHALTUNGSBUTLER_CLIENT_ID`, `BUCHHALTUNGSBUTLER_CLIENT_SECRET` and `BUCHHALTUNGSBUTLER_API_KEY`.
+
+  **Everything is a POST.** BuchhaltungsButler's API does not use GET for reads — `/postings/get`, `/receipts/get` and the rest are POST endpoints whose body carries both the api_key and the filter. That is why these tools look like writes in the HTTP trace even when they only read; the tool names here say what each one actually does.
+
+  **Paging** uses `limit` and `offset` in the body. The default page is small; ask for what you need rather than looping.
+
+  **Dates** are `YYYY-MM-DD` strings. A posting's `date` is the booking date (Buchungsdatum), which is not the same as the receipt date.
+
+  **Unverified**: the endpoint paths and field names below follow BuchhaltungsButler's published documentation but have not been exercised against a live tenant. Treat a 404 as a docs-vs-reality gap and check docs.buchhaltungsbutler.de before assuming the credential is wrong.
+
+  **Cloud reachability**: webapp.buchhaltungsbutler.de is public with a valid certificate.
+tools:
+  - name: buchhaltungsbutler_list_postings
+    description: Read bookkeeping postings (Buchungen) in a date range, with their account, amount, tax key and the receipt they belong to. This is the ledger view of the client.
+    input:
+      type: object
+      properties:
+        date_from:
+          type: string
+          description: Earliest booking date, YYYY-MM-DD.
+        date_to:
+          type: string
+          description: Latest booking date, YYYY-MM-DD.
+        limit:
+          type: number
+          description: Maximum rows to return.
+        offset:
+          type: number
+          description: Rows to skip, for paging.
+    operation:
+      method: POST
+      path: /postings/get
+      body:
+        value:
+          api_key: '{{env.BUCHHALTUNGSBUTLER_API_KEY}}'
+          date_from: '{{params.date_from}}'
+          date_to: '{{params.date_to}}'
+          limit: '{{params.limit}}'
+          offset: '{{params.offset}}'
+  - name: buchhaltungsbutler_list_receipts
+    description: Read receipts (Belege) — the scanned or uploaded documents behind the postings — with their date, gross amount, supplier and processing state.
+    input:
+      type: object
+      properties:
+        date_from:
+          type: string
+          description: Earliest receipt date, YYYY-MM-DD.
+        date_to:
+          type: string
+          description: Latest receipt date, YYYY-MM-DD.
+        limit:
+          type: number
+          description: Maximum rows to return.
+        offset:
+          type: number
+          description: Rows to skip, for paging.
+    operation:
+      method: POST
+      path: /receipts/get
+      body:
+        value:
+          api_key: '{{env.BUCHHALTUNGSBUTLER_API_KEY}}'
+          date_from: '{{params.date_from}}'
+          date_to: '{{params.date_to}}'
+          limit: '{{params.limit}}'
+          offset: '{{params.offset}}'
+  - name: buchhaltungsbutler_list_transactions
+    description: Read bank transactions imported into BuchhaltungsButler, so a posting or an open receipt can be matched against money that actually moved.
+    input:
+      type: object
+      properties:
+        date_from:
+          type: string
+          description: Earliest value date, YYYY-MM-DD.
+        date_to:
+          type: string
+          description: Latest value date, YYYY-MM-DD.
+        limit:
+          type: number
+          description: Maximum rows to return.
+        offset:
+          type: number
+          description: Rows to skip, for paging.
+    operation:
+      method: POST
+      path: /transactions/get
+      body:
+        value:
+          api_key: '{{env.BUCHHALTUNGSBUTLER_API_KEY}}'
+          date_from: '{{params.date_from}}'
+          date_to: '{{params.date_to}}'
+          limit: '{{params.limit}}'
+          offset: '{{params.offset}}'
+  - name: buchhaltungsbutler_list_customers
+    description: Read the customer master data (Debitoren) with names, customer numbers and the ledger accounts they book to. No parameters needed — good for verifying the three credentials line up.
+    input:
+      type: object
+      properties:
+        limit:
+          type: number
+          description: Maximum rows to return.
+        offset:
+          type: number
+          description: Rows to skip, for paging.
+    operation:
+      method: POST
+      path: /customers/get
+      body:
+        value:
+          api_key: '{{env.BUCHHALTUNGSBUTLER_API_KEY}}'
+          limit: '{{params.limit}}'
+          offset: '{{params.offset}}'
+  - name: buchhaltungsbutler_list_suppliers
+    description: Read the supplier master data (Kreditoren) with names, supplier numbers and their ledger accounts, to resolve who an incoming receipt belongs to.
+    input:
+      type: object
+      properties:
+        limit:
+          type: number
+          description: Maximum rows to return.
+        offset:
+          type: number
+          description: Rows to skip, for paging.
+    operation:
+      method: POST
+      path: /suppliers/get
+      body:
+        value:
+          api_key: '{{env.BUCHHALTUNGSBUTLER_API_KEY}}'
+          limit: '{{params.limit}}'
+          offset: '{{params.offset}}'
+  - name: buchhaltungsbutler_list_accounts
+    description: Read the chart of accounts (Sachkonten) available in this client, so a posting can be attributed to the right account number.
+    input:
+      type: object
+      properties:
+        limit:
+          type: number
+          description: Maximum rows to return.
+        offset:
+          type: number
+          description: Rows to skip, for paging.
+    operation:
+      method: POST
+      path: /accounts/get
+      body:
+        value:
+          api_key: '{{env.BUCHHALTUNGSBUTLER_API_KEY}}'
+          limit: '{{params.limit}}'
+          offset: '{{params.offset}}'

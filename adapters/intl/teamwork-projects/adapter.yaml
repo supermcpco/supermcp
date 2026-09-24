@@ -1,0 +1,324 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: teamwork-projects
+  name: Teamwork Projects
+  description: Manage Teamwork.com (projects, tasks, milestones, time entries, comments, people) from any AI agent. 10 tools, basic-auth with API key.
+  region: intl
+  category: project-management
+  icon: teamwork-projects
+  docsUrl: https://apidocs.teamwork.com/
+  lint:
+    allow:
+      - description-min-60
+      - healthcheck-present
+      - tool-name-prefix
+credentials:
+  TEAMWORK_SUBDOMAIN:
+    required: true
+  TEAMWORK_API_KEY:
+    required: true
+    secret: true
+transport:
+  type: http
+  baseUrl: https://{{env.TEAMWORK_SUBDOMAIN}}.teamwork.com/projects/api/v3
+auth:
+  type: basic
+  username: '{{env.TEAMWORK_API_KEY}}'
+  password: x
+instructions: |-
+  This connector wraps the Teamwork Projects REST API v3 (per-subdomain — yoursubdomain.teamwork.com/projects/api/v3).
+
+  **Setup**:
+  1. Log into your Teamwork account → top-right avatar → **Edit my details → API & Mobile → Get my API Key**.
+  2. Note your subdomain (the part before `.teamwork.com`).
+  3. Set `TEAMWORK_SUBDOMAIN` and `TEAMWORK_API_KEY`.
+
+  **Authentication**: HTTP Basic — API key as username, literal `x` as password.
+
+  **Per-tenant baseUrl**: `https://${TEAMWORK_SUBDOMAIN}.teamwork.com/projects/api/v3`. Substituted at import time.
+
+  **API versions**: v3 is the modern REST. v1/v2 still exist for some endpoints. This adapter uses v3 where available.
+
+  **Pagination**: `page` (1-based) + `pageSize` (max 250). Some endpoints use `pageOffset`.
+
+  **Rate limits**: 150 req/min per token. 429 with `Retry-After`.
+
+  **Out of scope here**: Spaces (separate product API), CRM, Desk (helpdesk), Chat — each is a sibling product with its own API.
+tools:
+  - name: teamwork_list_projects
+    description: List projects. Filter by status (active, archived, current, late, upcoming, completed).
+    input:
+      type: object
+      properties:
+        status:
+          type: string
+          description: active, archived, current, late, upcoming, completed, all.
+        searchTerm:
+          type: string
+          description: Name search.
+        page:
+          type: integer
+          description: 1-based.
+        pageSize:
+          type: integer
+          description: Max 250.
+    operation:
+      method: GET
+      path: /projects.json
+      query:
+        status: '{{params.status}}'
+        searchTerm: '{{params.searchTerm}}'
+        page: '{{params.page}}'
+        pageSize: '{{params.pageSize}}'
+  - name: teamwork_get_project
+    description: Get one project with summary metrics.
+    input:
+      type: object
+      properties:
+        project_id:
+          type: integer
+          description: Project ID.
+      required:
+        - project_id
+    operation:
+      method: GET
+      path: /projects/{{params.project_id}}.json
+  - name: teamwork_create_project
+    description: Create a project.
+    input:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Project name.
+        description:
+          type: string
+          description: Description.
+        companyId:
+          type: integer
+          description: Owning company ID.
+        categoryId:
+          type: integer
+          description: Category ID.
+        startAt:
+          type: string
+          description: YYYYMMDD.
+        endAt:
+          type: string
+          description: YYYYMMDD.
+      required:
+        - name
+    operation:
+      method: POST
+      path: /projects.json
+      body:
+        value:
+          project:
+            name: '{{params.name}}'
+            description: '{{params.description}}'
+            companyId: '{{params.companyId}}'
+            categoryId: '{{params.categoryId}}'
+            startAt: '{{params.startAt}}'
+            endAt: '{{params.endAt}}'
+  - name: teamwork_list_tasks
+    description: List tasks across all projects (or one). Filter by assignee, status, due date.
+    input:
+      type: object
+      properties:
+        project_id:
+          type: integer
+          description: Filter to one project.
+        assignedTo:
+          type: string
+          description: Comma-separated user IDs.
+        status:
+          type: string
+          description: completed, incomplete, all.
+        dueDateFrom:
+          type: string
+          description: YYYYMMDD.
+        dueDateTo:
+          type: string
+          description: YYYYMMDD.
+        page:
+          type: integer
+          description: 1-based.
+        pageSize:
+          type: integer
+          description: Max 250.
+    operation:
+      method: GET
+      path: /tasks.json
+      query:
+        projectIds: '{{params.project_id}}'
+        assignedTo: '{{params.assignedTo}}'
+        status: '{{params.status}}'
+        dueDateFrom: '{{params.dueDateFrom}}'
+        dueDateTo: '{{params.dueDateTo}}'
+        page: '{{params.page}}'
+        pageSize: '{{params.pageSize}}'
+  - name: teamwork_get_task
+    description: Get one task with all custom fields, time logs, dependencies.
+    input:
+      type: object
+      properties:
+        task_id:
+          type: integer
+          description: Task ID.
+      required:
+        - task_id
+    operation:
+      method: GET
+      path: /tasks/{{params.task_id}}.json
+  - name: teamwork_create_task
+    description: Create a task inside a task list.
+    input:
+      type: object
+      properties:
+        tasklist_id:
+          type: integer
+          description: Tasklist ID.
+        content:
+          type: string
+          description: Task title.
+        description:
+          type: string
+          description: Description (HTML).
+        responsiblePartyId:
+          type: string
+          description: User ID(s), comma-separated for multi.
+        priority:
+          type: string
+          description: low, medium, high.
+        startDate:
+          type: string
+          description: YYYYMMDD.
+        dueDate:
+          type: string
+          description: YYYYMMDD.
+        estimatedMinutes:
+          type: integer
+          description: Estimated effort.
+      required:
+        - tasklist_id
+        - content
+    operation:
+      method: POST
+      path: /tasklists/{{params.tasklist_id}}/tasks.json
+      body:
+        value:
+          todo-item:
+            content: '{{params.content}}'
+            description: '{{params.description}}'
+            responsible-party-id: '{{params.responsiblePartyId}}'
+            priority: '{{params.priority}}'
+            start-date: '{{params.startDate}}'
+            due-date: '{{params.dueDate}}'
+            estimated-minutes: '{{params.estimatedMinutes}}'
+  - name: teamwork_complete_task
+    description: Mark a task complete.
+    input:
+      type: object
+      properties:
+        task_id:
+          type: integer
+          description: Task ID.
+      required:
+        - task_id
+    operation:
+      method: PUT
+      path: /tasks/{{params.task_id}}/complete.json
+  - name: teamwork_log_time
+    description: Log time on a task or project.
+    input:
+      type: object
+      properties:
+        task_id:
+          type: integer
+          description: Task ID (or use project_id).
+        project_id:
+          type: integer
+          description: Project ID if no task.
+        person_id:
+          type: integer
+          description: User logging time.
+        date:
+          type: string
+          description: YYYYMMDD.
+        hours:
+          type: integer
+          description: Whole hours.
+        minutes:
+          type: integer
+          description: Whole minutes.
+        description:
+          type: string
+          description: Notes.
+        isbillable:
+          type: boolean
+          description: Billable.
+      required:
+        - person_id
+        - date
+        - hours
+    operation:
+      method: POST
+      path: /projects/{{params.project_id}}/time_entries.json
+      body:
+        value:
+          time-entry:
+            person-id: '{{params.person_id}}'
+            date: '{{params.date}}'
+            hours: '{{params.hours}}'
+            minutes: '{{params.minutes}}'
+            description: '{{params.description}}'
+            isbillable: '{{params.isbillable}}'
+            task-id: '{{params.task_id}}'
+  - name: teamwork_list_milestones
+    description: List milestones across projects.
+    input:
+      type: object
+      properties:
+        project_id:
+          type: integer
+          description: Filter to one project.
+        find:
+          type: string
+          description: all, upcoming, late, completed.
+        page:
+          type: integer
+          description: 1-based.
+        pageSize:
+          type: integer
+          description: Max 250.
+    operation:
+      method: GET
+      path: /milestones.json
+      query:
+        projectIds: '{{params.project_id}}'
+        find: '{{params.find}}'
+        page: '{{params.page}}'
+        pageSize: '{{params.pageSize}}'
+  - name: teamwork_list_people
+    description: List users (people).
+    input:
+      type: object
+      properties:
+        page:
+          type: integer
+          description: 1-based.
+        pageSize:
+          type: integer
+          description: Max 250.
+        showDeleted:
+          type: boolean
+          description: Include deleted users.
+    operation:
+      method: GET
+      path: /people.json
+      query:
+        page: '{{params.page}}'
+        pageSize: '{{params.pageSize}}'
+        showDeleted: '{{params.showDeleted}}'

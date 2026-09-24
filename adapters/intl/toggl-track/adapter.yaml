@@ -1,0 +1,220 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: toggl-track
+  name: Toggl Track
+  description: Manage Toggl Track (time entries, projects, clients, tags, workspaces) from any AI agent. 9 tools, basic-auth with API token.
+  region: intl
+  category: time-tracking
+  icon: toggl-track
+  docsUrl: https://engineering.toggl.com/docs/
+  lint:
+    allow:
+      - description-min-60
+      - healthcheck-present
+credentials:
+  TOGGL_API_TOKEN:
+    required: true
+    secret: true
+transport:
+  type: http
+  baseUrl: https://api.track.toggl.com/api/v9
+auth:
+  type: basic
+  username: '{{env.TOGGL_API_TOKEN}}'
+  password: api_token
+instructions: |-
+  This connector wraps the Toggl Track API v9 (api.track.toggl.com/api/v9).
+
+  **Setup**:
+  1. Log into https://track.toggl.com → bottom-left avatar → **Profile settings** → scroll to **API Token** → reveal/copy.
+  2. Set `TOGGL_API_TOKEN`.
+
+  **Authentication**: HTTP Basic, with API token as the username and the literal string `api_token` as the password:
+    `Authorization: Basic base64(TOKEN:api_token)`
+  The adapter sets this automatically via BASIC_AUTH (username=token, password=api_token). DO NOT pass real user/password — Toggl only accepts the token-pair.
+
+  **Workspace IDs**: Toggl Track is workspace-scoped. Most endpoints need a `workspace_id`. Use `toggl_track_me` first — its response contains `default_workspace_id` and `workspaces[].id`.
+
+  **Running timer**: Toggl allows exactly ONE running entry per user at a time. Starting a new one stops any prior. To start, POST a time entry with `duration: -1` and `start: <ISO now>`. To stop, PATCH the entry to set `stop: <ISO>` and `duration: <seconds>`.
+
+  **Dates**: ISO 8601 with timezone (`2026-05-20T14:30:00+00:00`). Toggl is strict about timezone — naive datetimes get rejected.
+
+  **Rate limits**: 1 req/s per IP soft, burst tolerated. 429 with `Retry-After` for hard throttling.
+
+  **Out of scope here**: Toggl Reports v3 (different host, paid plans get more — could be a sibling adapter), team management, billing.
+tools:
+  - name: toggl_track_me
+    description: Get the authenticated user including default workspace ID, all workspaces, default project/tag. Use this first to find the workspace ID needed by other tools.
+    input:
+      type: object
+      properties:
+        with_related_data:
+          type: boolean
+          description: If true, include projects/clients/tags inline (heavier response).
+    operation:
+      method: GET
+      path: /me
+      query:
+        with_related_data: '{{params.with_related_data}}'
+  - name: toggl_track_list_workspaces
+    description: List workspaces the user belongs to.
+    input:
+      type: object
+      properties: {}
+    operation:
+      method: GET
+      path: /me/workspaces
+  - name: toggl_track_list_clients
+    description: List clients in a workspace.
+    input:
+      type: object
+      properties:
+        workspace_id:
+          type: integer
+          description: Workspace ID.
+      required:
+        - workspace_id
+    operation:
+      method: GET
+      path: /workspaces/{{params.workspace_id}}/clients
+  - name: toggl_track_list_projects
+    description: List projects in a workspace. Returns id, name, client_id, color, billable, active, estimated_hours, hourly_rate.
+    input:
+      type: object
+      properties:
+        workspace_id:
+          type: integer
+          description: Workspace ID.
+        active:
+          type: boolean
+          description: Filter active.
+        billable:
+          type: boolean
+          description: Filter billable.
+        name:
+          type: string
+          description: Filter by name substring.
+      required:
+        - workspace_id
+    operation:
+      method: GET
+      path: /workspaces/{{params.workspace_id}}/projects
+      query:
+        active: '{{params.active}}'
+        billable: '{{params.billable}}'
+        name: '{{params.name}}'
+  - name: toggl_track_get_current_entry
+    description: Return the currently running time entry (if any), else null.
+    input:
+      type: object
+      properties: {}
+    operation:
+      method: GET
+      path: /me/time_entries/current
+  - name: toggl_track_list_time_entries
+    description: List time entries for the current user. Filter by start/end date window. Returns each entry with id, description, project_id, billable, duration (seconds, negative for running), start/stop.
+    input:
+      type: object
+      properties:
+        start_date:
+          type: string
+          description: ISO 8601 datetime or date.
+        end_date:
+          type: string
+          description: ISO 8601 datetime or date.
+        before:
+          type: string
+          description: 'ISO 8601: only entries with stop_time before this.'
+        since:
+          type: integer
+          description: UNIX timestamp; only entries modified after.
+    operation:
+      method: GET
+      path: /me/time_entries
+      query:
+        start_date: '{{params.start_date}}'
+        end_date: '{{params.end_date}}'
+        before: '{{params.before}}'
+        since: '{{params.since}}'
+  - name: toggl_track_create_time_entry
+    description: 'Create a new time entry. Pass `duration: -1` + `start` (ISO 8601) to start a running timer; pass positive duration (seconds) + start to log a completed entry.'
+    input:
+      type: object
+      properties:
+        workspace_id:
+          type: integer
+          description: Workspace ID.
+        description:
+          type: string
+          description: What you're working on.
+        project_id:
+          type: integer
+          description: Project ID (optional).
+        tags:
+          type: array
+          description: Array of tag name strings.
+        start:
+          type: string
+          description: ISO 8601 datetime with timezone.
+        duration:
+          type: integer
+          description: Seconds. -1 to start a running timer.
+        billable:
+          type: boolean
+          description: Mark billable.
+        created_with:
+          type: string
+          description: Client identifier (defaults to 'supermcp').
+      required:
+        - workspace_id
+        - start
+        - duration
+    operation:
+      method: POST
+      path: /workspaces/{{params.workspace_id}}/time_entries
+      body:
+        value:
+          workspace_id: '{{params.workspace_id}}'
+          description: '{{params.description}}'
+          project_id: '{{params.project_id}}'
+          tags: '{{params.tags}}'
+          start: '{{params.start}}'
+          duration: '{{params.duration}}'
+          billable: '{{params.billable}}'
+          created_with: '{{params.created_with}}'
+  - name: toggl_track_stop_time_entry
+    description: Stop a running time entry. Sets stop=now and converts duration to positive seconds.
+    input:
+      type: object
+      properties:
+        workspace_id:
+          type: integer
+          description: Workspace ID.
+        time_entry_id:
+          type: integer
+          description: Time entry ID to stop.
+      required:
+        - workspace_id
+        - time_entry_id
+    operation:
+      method: PATCH
+      path: /workspaces/{{params.workspace_id}}/time_entries/{{params.time_entry_id}}/stop
+  - name: toggl_track_delete_time_entry
+    description: Delete a time entry permanently.
+    input:
+      type: object
+      properties:
+        workspace_id:
+          type: integer
+          description: Workspace ID.
+        time_entry_id:
+          type: integer
+          description: Time entry ID.
+      required:
+        - workspace_id
+        - time_entry_id
+    operation:
+      method: DELETE
+      path: /workspaces/{{params.workspace_id}}/time_entries/{{params.time_entry_id}}

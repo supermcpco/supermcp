@@ -1,0 +1,403 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: mollie
+  name: Mollie
+  description: 'Drive Mollie (EU-friendly payments) from any AI agent: payments, refunds, customers, subscriptions, mandates, methods. 14 tools, Bearer auth.'
+  region: intl
+  category: payments
+  icon: mollie
+  docsUrl: https://docs.mollie.com/reference/
+  lint:
+    allow:
+      - description-min-60
+      - healthcheck-present
+credentials:
+  MOLLIE_API_KEY:
+    required: true
+    secret: true
+transport:
+  type: http
+  baseUrl: https://api.mollie.com/v2
+auth:
+  type: bearer
+  token: '{{env.MOLLIE_API_KEY}}'
+instructions: |-
+  This connector uses the Mollie API v2 (docs.mollie.com/reference).
+
+  **Setup**:
+  1. Sign in to https://my.mollie.com → **Developers → API keys**.
+  2. Use a **test key** (`test_...`) for development, **live key** (`live_...`) for production.
+  3. Set `MOLLIE_API_KEY` accordingly. (Mollie tells you which environment via the key prefix.)
+
+  **Authentication**: `Authorization: Bearer ${MOLLIE_API_KEY}`.
+
+  **Amount format**: every monetary amount is `{currency: 'EUR', value: '10.00'}` — value is a STRING with exactly 2 decimals (or whatever the currency requires). Sending `value: 10` (number) errors.
+
+  **Payment lifecycle**: created → open → pending → authorized → paid (success) | canceled | expired | failed.
+
+  **Profile and mode**: every payment belongs to a profile (website). On Mollie you can have multiple profiles per account. The `profileId` is implicit (uses the default profile of the key); for multi-profile accounts pass it explicitly.
+
+  **Subscriptions and mandates**: subscriptions need a mandate (a pre-authorized customer payment method). Workflow: create customer → first one-off payment with `sequenceType=first` → use the resulting mandate to create the subscription.
+
+  **Webhooks** out of scope (Mollie pushes payment.* events to a URL you host).
+
+  **Pagination**: cursor-based via `from=<resourceId>` + `limit` (max 250). Response has `_links.next.href` for next page.
+
+  **Rate limits**: 250 req per 5 sec per IP. On 429 honor headers.
+
+  **Out of scope here**: settlements, invoices, profile management, organizations, partners (Mollie Connect), permissions.
+tools:
+  - name: mollie_list_methods
+    description: List payment methods enabled for the profile. Each method has id (e.g. 'ideal', 'creditcard', 'paypal', 'klarna', 'banktransfer'), description, minimumAmount, maximumAmount, image, status.
+    input:
+      type: object
+      properties:
+        sequenceType:
+          type: string
+          description: first, recurring, oneoff.
+        locale:
+          type: string
+          description: Locale for descriptions, e.g. 'en_US', 'nl_NL'.
+        amount_currency:
+          type: string
+          description: 'Optional: only methods accepting this currency.'
+        amount_value:
+          type: string
+          description: 'Optional: only methods accepting this value (as decimal string).'
+    operation:
+      method: GET
+      path: /methods
+      query:
+        sequenceType: '{{params.sequenceType}}'
+        locale: '{{params.locale}}'
+        amount[currency]: '{{params.amount_currency}}'
+        amount[value]: '{{params.amount_value}}'
+  - name: mollie_create_payment
+    description: Create a payment. amount is {currency, value}. Always include `redirectUrl` (where the customer returns post-payment) and `webhookUrl` (where Mollie pushes status updates).
+    input:
+      type: object
+      properties:
+        amount:
+          type: object
+          description: '{currency:''EUR'', value:''10.00''} — value MUST be a string with 2 decimals.'
+        description:
+          type: string
+          description: Shown to customer on Mollie checkout (≤255 chars).
+        redirectUrl:
+          type: string
+          description: URL the customer is sent back to after payment.
+        webhookUrl:
+          type: string
+          description: Your endpoint that receives payment-status notifications.
+        method:
+          type: string
+          description: Restrict to a method (or array of methods). Omit to show Mollie's full checkout.
+        metadata:
+          type: object
+          description: Free-form key/value (≤1KB) — passes through unchanged.
+        locale:
+          type: string
+          description: 'Mollie checkout language: en_US, nl_NL, de_DE, fr_FR, es_ES, it_IT, pt_PT, pl_PL, ...'
+        customerId:
+          type: string
+          description: Mollie customer ID (for recurring or saved methods).
+        sequenceType:
+          type: string
+          description: first (creates mandate for future recurring), recurring (uses existing mandate), oneoff (default).
+        mandateId:
+          type: string
+          description: Mandate ID for recurring.
+      required:
+        - amount
+        - description
+    operation:
+      method: POST
+      path: /payments
+      body:
+        value:
+          amount: '{{params.amount}}'
+          description: '{{params.description}}'
+          redirectUrl: '{{params.redirectUrl}}'
+          webhookUrl: '{{params.webhookUrl}}'
+          method: '{{params.method}}'
+          metadata: '{{params.metadata}}'
+          locale: '{{params.locale}}'
+          customerId: '{{params.customerId}}'
+          sequenceType: '{{params.sequenceType}}'
+          mandateId: '{{params.mandateId}}'
+  - name: mollie_get_payment
+    description: Fetch a payment by ID. Returns status + _links.checkout (URL to send customer to) for pending payments.
+    input:
+      type: object
+      properties:
+        paymentId:
+          type: string
+          description: Payment ID (starts with 'tr_').
+      required:
+        - paymentId
+    operation:
+      method: GET
+      path: /payments/{{params.paymentId}}
+  - name: mollie_list_payments
+    description: List payments. Filter by profile, customer, status, mandate. Cursor-paginated.
+    input:
+      type: object
+      properties:
+        from:
+          type: string
+          description: 'Cursor: payment ID to start from.'
+        limit:
+          type: integer
+          description: Max per page (default 50, max 250).
+        profileId:
+          type: string
+          description: Filter by profile.
+        testmode:
+          type: boolean
+          description: true for test, false for live (defaults to key's environment).
+    operation:
+      method: GET
+      path: /payments
+      query:
+        from: '{{params.from}}'
+        limit: '{{params.limit}}'
+        profileId: '{{params.profileId}}'
+        testmode: '{{params.testmode}}'
+  - name: mollie_cancel_payment
+    description: Cancel a payment in 'open' state (before customer pays). After 'paid' use refund instead.
+    input:
+      type: object
+      properties:
+        paymentId:
+          type: string
+          description: Payment ID.
+      required:
+        - paymentId
+    operation:
+      method: DELETE
+      path: /payments/{{params.paymentId}}
+  - name: mollie_create_refund
+    description: 'Refund a paid payment. Full refund: omit amount. Partial: pass amount {currency,value}.'
+    input:
+      type: object
+      properties:
+        paymentId:
+          type: string
+          description: Payment ID to refund.
+        amount:
+          type: object
+          description: '{currency,value} — omit for full refund.'
+        description:
+          type: string
+          description: Refund description (shown on bank statement when possible).
+        metadata:
+          type: object
+          description: Free-form metadata.
+      required:
+        - paymentId
+    operation:
+      method: POST
+      path: /payments/{{params.paymentId}}/refunds
+      body:
+        value:
+          amount: '{{params.amount}}'
+          description: '{{params.description}}'
+          metadata: '{{params.metadata}}'
+  - name: mollie_list_refunds
+    description: List refunds (across all payments by default; pass paymentId for per-payment).
+    input:
+      type: object
+      properties:
+        paymentId:
+          type: string
+          description: 'Optional: limit to one payment.'
+        from:
+          type: string
+          description: Cursor.
+        limit:
+          type: integer
+          description: Max per page.
+    operation:
+      method: GET
+      path: /refunds
+      query:
+        paymentId: '{{params.paymentId}}'
+        from: '{{params.from}}'
+        limit: '{{params.limit}}'
+  - name: mollie_create_customer
+    description: Create a Mollie customer (required for recurring subscriptions, optional for one-off payments). Customer is the durable identity across payments.
+    input:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Customer name.
+        email:
+          type: string
+          description: Email.
+        locale:
+          type: string
+          description: Default locale for emails/checkout.
+        metadata:
+          type: object
+          description: Free-form metadata.
+    operation:
+      method: POST
+      path: /customers
+      body:
+        value:
+          name: '{{params.name}}'
+          email: '{{params.email}}'
+          locale: '{{params.locale}}'
+          metadata: '{{params.metadata}}'
+  - name: mollie_list_customers
+    description: List customers. Cursor-paginated.
+    input:
+      type: object
+      properties:
+        from:
+          type: string
+          description: Cursor.
+        limit:
+          type: integer
+          description: Per page.
+    operation:
+      method: GET
+      path: /customers
+      query:
+        from: '{{params.from}}'
+        limit: '{{params.limit}}'
+  - name: mollie_create_subscription
+    description: 'Create a subscription for a customer. Required: customerId + amount + interval. interval examples: ''1 month'', ''14 days'', ''1 year''. Requires the customer to have an active mandate (created via a `sequenceType=first` payment).'
+    input:
+      type: object
+      properties:
+        customerId:
+          type: string
+          description: Customer ID (starts with 'cst_').
+        amount:
+          type: object
+          description: '{currency, value}.'
+        times:
+          type: integer
+          description: Optional max charges (omit for unlimited).
+        interval:
+          type: string
+          description: 'Charge cadence: ''1 month'', ''14 days'', ''1 year''.'
+        startDate:
+          type: string
+          description: YYYY-MM-DD when first charge happens.
+        description:
+          type: string
+          description: Shown on each invoice.
+        method:
+          type: string
+          description: Restrict to a method (e.g. 'directdebit').
+        mandateId:
+          type: string
+          description: Mandate to use (defaults to customer's most recent).
+        webhookUrl:
+          type: string
+          description: Endpoint for subscription event notifications.
+        metadata:
+          type: object
+          description: Free-form metadata.
+      required:
+        - customerId
+        - amount
+        - interval
+        - description
+    operation:
+      method: POST
+      path: /customers/{{params.customerId}}/subscriptions
+      body:
+        value:
+          amount: '{{params.amount}}'
+          times: '{{params.times}}'
+          interval: '{{params.interval}}'
+          startDate: '{{params.startDate}}'
+          description: '{{params.description}}'
+          method: '{{params.method}}'
+          mandateId: '{{params.mandateId}}'
+          webhookUrl: '{{params.webhookUrl}}'
+          metadata: '{{params.metadata}}'
+  - name: mollie_cancel_subscription
+    description: Cancel a subscription (stops future charges immediately).
+    input:
+      type: object
+      properties:
+        customerId:
+          type: string
+          description: Customer ID.
+        subscriptionId:
+          type: string
+          description: Subscription ID (starts with 'sub_').
+      required:
+        - customerId
+        - subscriptionId
+    operation:
+      method: DELETE
+      path: /customers/{{params.customerId}}/subscriptions/{{params.subscriptionId}}
+  - name: mollie_list_subscriptions
+    description: List subscriptions for a customer.
+    input:
+      type: object
+      properties:
+        customerId:
+          type: string
+          description: Customer ID.
+        from:
+          type: string
+          description: Cursor.
+        limit:
+          type: integer
+          description: Per page.
+      required:
+        - customerId
+    operation:
+      method: GET
+      path: /customers/{{params.customerId}}/subscriptions
+      query:
+        from: '{{params.from}}'
+        limit: '{{params.limit}}'
+  - name: mollie_list_mandates
+    description: List mandates (pre-authorized payment methods) on a customer.
+    input:
+      type: object
+      properties:
+        customerId:
+          type: string
+          description: Customer ID.
+        from:
+          type: string
+          description: Cursor.
+        limit:
+          type: integer
+          description: Per page.
+      required:
+        - customerId
+    operation:
+      method: GET
+      path: /customers/{{params.customerId}}/mandates
+      query:
+        from: '{{params.from}}'
+        limit: '{{params.limit}}'
+  - name: mollie_revoke_mandate
+    description: Revoke a mandate (stops future recurring charges using it).
+    input:
+      type: object
+      properties:
+        customerId:
+          type: string
+          description: Customer ID.
+        mandateId:
+          type: string
+          description: Mandate ID (mdt_*).
+      required:
+        - customerId
+        - mandateId
+    operation:
+      method: DELETE
+      path: /customers/{{params.customerId}}/mandates/{{params.mandateId}}

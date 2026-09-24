@@ -1,0 +1,241 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: agilecrm
+  name: Agile CRM
+  description: Manage Agile CRM (contacts, deals, tasks, notes, campaigns) from any AI agent. 9 tools, basic-auth with email + API key.
+  region: intl
+  category: crm
+  icon: agilecrm
+  docsUrl: https://github.com/agilecrm/rest-api
+  lint:
+    allow:
+      - description-min-60
+      - healthcheck-present
+credentials:
+  AGILECRM_DOMAIN:
+    required: true
+  AGILECRM_EMAIL:
+    required: true
+  AGILECRM_API_KEY:
+    required: true
+    secret: true
+transport:
+  type: http
+  baseUrl: https://{{env.AGILECRM_DOMAIN}}.agilecrm.com/dev/api
+auth:
+  type: basic
+  username: '{{env.AGILECRM_EMAIL}}'
+  password: '{{env.AGILECRM_API_KEY}}'
+instructions: |-
+  This connector wraps the Agile CRM REST API (per-domain — yourdomain.agilecrm.com/dev/api).
+
+  **Setup**:
+  1. Sign in to your Agile CRM instance → top-right avatar → **Admin Settings → Developers & API → API key**. Copy.
+  2. Note your subdomain (the part before `.agilecrm.com`).
+  3. Set `AGILECRM_DOMAIN` (just subdomain), `AGILECRM_EMAIL` (your login email), `AGILECRM_API_KEY`.
+
+  **Authentication**: HTTP Basic with `email:apikey` pair. The API also accepts a `key` query param; we use Basic for consistency.
+
+  **Per-tenant baseUrl**: `https://${AGILECRM_DOMAIN}.agilecrm.com/dev/api` — substituted at import time.
+
+  **Contact properties model**: contacts have a `properties[]` array of {name, value, type, subtype} pairs (NOT a flat field map). Standard names: `first_name`, `last_name`, `email`, `phone`, `company`, `title`. Custom fields appear in the same array.
+
+  **Pagination**: cursor-based — pass `cursor` from previous response. Page size via `page_size` (max 100).
+
+  **Rate limits**: 50 req/sec per account. 429 → back off 1s.
+
+  **Out of scope here**: campaign workflow execution, web-form submission, ticket helpdesk, telephony.
+tools:
+  - name: agilecrm_list_contacts
+    description: List contacts. Cursor-paginated.
+    input:
+      type: object
+      properties:
+        page_size:
+          type: integer
+          description: Max 100.
+        cursor:
+          type: string
+          description: Pagination cursor from previous response.
+    operation:
+      method: GET
+      path: /contacts
+      query:
+        page_size: '{{params.page_size}}'
+        global_sort_key: -created_time
+        cursor: '{{params.cursor}}'
+  - name: agilecrm_get_contact
+    description: Get one contact by ID.
+    input:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Contact ID.
+      required:
+        - id
+    operation:
+      method: GET
+      path: /contacts/{{params.id}}
+  - name: agilecrm_get_contact_by_email
+    description: Look up a contact by email — much faster than scanning the list.
+    input:
+      type: object
+      properties:
+        email:
+          type: string
+          description: Email address.
+      required:
+        - email
+    operation:
+      method: GET
+      path: /contacts/search/email/{{params.email}}
+  - name: agilecrm_create_contact
+    description: Create a contact. Pass `properties` as the Agile CRM array shape.
+    input:
+      type: object
+      properties:
+        properties:
+          type: array
+          description: Array of {name, value, type:'SYSTEM'|'CUSTOM', subtype?} entries.
+        tags:
+          type: array
+          description: Array of tag strings.
+        lead_score:
+          type: integer
+          description: Initial lead score.
+      required:
+        - properties
+    operation:
+      method: POST
+      path: /contacts
+      body:
+        value:
+          properties: '{{params.properties}}'
+          tags: '{{params.tags}}'
+          lead_score: '{{params.lead_score}}'
+  - name: agilecrm_update_contact
+    description: Update a contact — supply `id` and the `properties` to merge.
+    input:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Contact ID.
+        properties:
+          type: array
+          description: Properties array to merge.
+      required:
+        - id
+        - properties
+    operation:
+      method: PUT
+      path: /contacts/edit-properties
+      body:
+        value:
+          id: '{{params.id}}'
+          properties: '{{params.properties}}'
+  - name: agilecrm_delete_contact
+    description: Delete a contact by ID.
+    input:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Contact ID.
+      required:
+        - id
+    operation:
+      method: DELETE
+      path: /contacts/{{params.id}}
+  - name: agilecrm_list_deals
+    description: List deals/opportunities.
+    input:
+      type: object
+      properties:
+        page_size:
+          type: integer
+          description: Max 100.
+    operation:
+      method: GET
+      path: /opportunity
+      query:
+        page_size: '{{params.page_size}}'
+  - name: agilecrm_create_deal
+    description: Create a deal.
+    input:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Deal name.
+        expected_value:
+          type: number
+          description: Expected revenue.
+        probability:
+          type: integer
+          description: 0-100 close probability.
+        milestone:
+          type: string
+          description: Pipeline stage name.
+        close_date:
+          type: integer
+          description: Expected close UNIX epoch (seconds).
+        contact_ids:
+          type: array
+          description: Array of contact ID strings to link.
+      required:
+        - name
+        - expected_value
+        - milestone
+    operation:
+      method: POST
+      path: /opportunity
+      body:
+        value:
+          name: '{{params.name}}'
+          expected_value: '{{params.expected_value}}'
+          probability: '{{params.probability}}'
+          milestone: '{{params.milestone}}'
+          close_date: '{{params.close_date}}'
+          contact_ids: '{{params.contact_ids}}'
+  - name: agilecrm_create_task
+    description: Create a task linked to one or more contacts.
+    input:
+      type: object
+      properties:
+        subject:
+          type: string
+          description: Task subject.
+        type:
+          type: string
+          description: CALL, EMAIL, FOLLOW_UP, MEETING, MILESTONE, SEND, TWEET, OTHER.
+        priority_type:
+          type: string
+          description: HIGH, NORMAL, LOW.
+        status:
+          type: string
+          description: YET_TO_START, IN_PROGRESS, COMPLETED.
+        due:
+          type: integer
+          description: Due UNIX epoch (seconds).
+        contacts:
+          type: array
+          description: Array of contact ID strings.
+      required:
+        - subject
+        - type
+        - due
+    operation:
+      method: POST
+      path: /tasks
+      body:
+        value:
+          subject: '{{params.subject}}'
+          task_type: '{{params.type}}'
+          priority_type: '{{params.priority_type}}'
+          status: '{{params.status}}'
+          due: '{{params.due}}'
+          contacts: '{{params.contacts}}'

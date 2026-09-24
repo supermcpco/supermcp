@@ -1,0 +1,146 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: slab
+  name: Slab
+  description: 'Drive Slab (team wiki) from any AI agent via its GraphQL API: posts, topics, users, search. 6 tools, Bearer auth.'
+  region: intl
+  category: knowledge
+  icon: slab
+  docsUrl: https://help.slab.com/en/articles/3138084-slab-api
+  lint:
+    allow:
+      - description-min-60
+      - healthcheck-present
+credentials:
+  SLAB_API_TOKEN:
+    required: true
+    secret: true
+transport:
+  type: graphql
+  baseUrl: https://api.slab.com/v1/graphql
+auth:
+  type: bearer
+  token: '{{env.SLAB_API_TOKEN}}'
+instructions: |-
+  This connector uses the Slab GraphQL API (api.slab.com/v1/graphql).
+
+  **Setup**:
+  1. Sign in to Slab → top-right avatar → **Account Settings → Tokens → Create token**.
+  2. Pick scopes: at minimum `read posts`, `read topics`, `read users`.
+  3. Set `SLAB_API_TOKEN`.
+
+  **Authentication**: `Authorization: Bearer ${SLAB_API_TOKEN}`.
+
+  **GraphQL-only**: Slab has no REST. The adapter exposes a few curated mutations + queries as wrappers; for arbitrary queries use the auto-injected GraphQL builtins (each GRAPHQL adapter gets `slab_graphql_schema`, `slab_graphql_query`, `slab_graphql_mutation` automatically).
+
+  **Post format**: Slab posts use a JSON content tree (Slate.js-like). Reading is straightforward; writing requires composing the AST OR using the markdown-import endpoint.
+
+  **Topics = folders**: posts live in topics (hierarchical).
+
+  **Out of scope here**: post-content editing via AST (use markdown import), integrations, billing.
+tools:
+  - name: slab_me
+    description: Return the user the token belongs to (id, name, email, organization). Use the auto-injected slab_graphql_query for more complex selections.
+    input:
+      type: object
+      properties: {}
+    operation:
+      kind: query
+      document: '{ me { id name email organization { id name } } }'
+  - name: slab_get_post
+    description: Fetch a post by ID with title + content (in markdown) + topics + owner.
+    input:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Post ID.
+      required:
+        - id
+    operation:
+      kind: query
+      document: 'query GetPost($id: ID!) { post(id: $id) { id title content(format: MARKDOWN) updatedAt owner { name } topics { id name } } }'
+      variables:
+        variables:
+          id: '{{params.id}}'
+  - name: slab_search_posts
+    description: Search posts by query text.
+    input:
+      type: object
+      properties:
+        query:
+          type: string
+          description: Search text.
+        first:
+          type: integer
+          description: Max results.
+      required:
+        - query
+    operation:
+      kind: query
+      document: 'query SearchPosts($q: String!, $first: Int) { search(query: $q, first: $first) { edges { node { ... on Post { id title updatedAt owner { name } } } } } }'
+      variables:
+        variables:
+          q: '{{params.query}}'
+          first: '{{params.first}}'
+  - name: slab_list_topics
+    description: List top-level topics in the organization.
+    input:
+      type: object
+      properties:
+        first:
+          type: integer
+          description: Max topics.
+    operation:
+      kind: query
+      document: 'query ListTopics($first: Int) { topics(first: $first) { edges { node { id name description parent { id name } } } } }'
+      variables:
+        variables:
+          first: '{{params.first}}'
+  - name: slab_get_topic_posts
+    description: List posts within a topic.
+    input:
+      type: object
+      properties:
+        topicId:
+          type: string
+          description: Topic ID.
+        first:
+          type: integer
+          description: Max results.
+      required:
+        - topicId
+    operation:
+      kind: query
+      document: 'query TopicPosts($id: ID!, $first: Int) { topic(id: $id) { id name posts(first: $first) { edges { node { id title updatedAt } } } } }'
+      variables:
+        variables:
+          id: '{{params.topicId}}'
+          first: '{{params.first}}'
+  - name: slab_create_post
+    description: Create a post from markdown content.
+    input:
+      type: object
+      properties:
+        title:
+          type: string
+          description: Post title.
+        content:
+          type: string
+          description: Markdown content.
+        topicIds:
+          type: array
+          description: Topic IDs to place the post in.
+      required:
+        - title
+        - content
+    operation:
+      kind: mutation
+      document: 'mutation CreatePost($title: String!, $content: String!, $topics: [ID!]) { postCreate(title: $title, content: $content, format: MARKDOWN, topicIds: $topics) { id title } }'
+      variables:
+        variables:
+          title: '{{params.title}}'
+          content: '{{params.content}}'
+          topics: '{{params.topicIds}}'

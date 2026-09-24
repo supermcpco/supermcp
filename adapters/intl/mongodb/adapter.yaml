@@ -1,0 +1,190 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: mongodb
+  name: MongoDB
+  description: 'Query a MongoDB database directly: introspect collections and their field shapes, and run read-only find queries with filter, projection, sort and limit. Installs read-only; credentials are held encrypted rather than in the connection string.'
+  region: intl
+  category: database
+  icon: mongodb
+  docsUrl: https://www.mongodb.com/docs/manual/
+credentials:
+  MONGODB_HOST:
+    required: true
+  MONGODB_PORT:
+    required: true
+  MONGODB_DATABASE:
+    required: true
+  MONGODB_USER:
+    required: true
+  MONGODB_PASSWORD:
+    required: true
+    secret: true
+  MONGODB_AUTH_SOURCE:
+    required: true
+transport:
+  type: database
+  dsn: mongodb://{{env.MONGODB_HOST}}:{{env.MONGODB_PORT}}/{{env.MONGODB_DATABASE}}?authSource={{env.MONGODB_AUTH_SOURCE}}
+  driver: mongodb
+auth:
+  type: database
+  username: '{{env.MONGODB_USER}}'
+  password: '{{env.MONGODB_PASSWORD}}'
+healthcheck:
+  tool: mongodb_schema
+instructions: |
+  **Setup**
+  1. Create a user with only `read` on the database the agent should see:
+     ```javascript
+     use admin
+     db.createUser({
+       user: "amcp_reader",
+       pwd: "change-me",
+       roles: [{ role: "read", db: "shop" }]
+     })
+     ```
+  2. Set `MONGODB_HOST`, `MONGODB_PORT` (27017), `MONGODB_DATABASE`, `MONGODB_USER` and `MONGODB_PASSWORD`.
+
+  **`MONGODB_AUTH_SOURCE` is the field that decides whether this works at all.** MongoDB authenticates a user against the database the user was *created in*, not the one you want to read. A root or admin account created the usual way lives in `admin`, so `MONGODB_AUTH_SOURCE` must be `admin` even though `MONGODB_DATABASE` is `shop`. A user created inside the target database with `use shop; db.createUser(...)` takes the database name instead. Get this wrong and every single call comes back with `Authentication failed.` and code 18 — a message that says nothing about which database it tried.
+
+  **MongoDB Atlas uses `mongodb+srv://` and a different host shape.** This adapter builds a plain `mongodb://host:port/db` DSN, which works for a self-managed replica set or a standalone server. For Atlas, create a **custom connector** with the full `mongodb+srv://cluster0.abcde.mongodb.net/shop` URI instead — the SRV form resolves the replica set from DNS and cannot be assembled from a host and a port.
+
+  **Queries are JSON, not SQL.** `mongodb_find` takes a JSON object:
+  ```json
+  {"collection": "orders",
+   "filter": {"status": "paid", "total": {"$gt": 100}},
+   "projection": {"_id": 0, "orderNo": 1, "total": 1},
+   "sort": {"createdAt": -1},
+   "limit": 50}
+  ```
+  Only `collection` is required. Extended-JSON types (`$oid`, `$date`) are not converted, so match an ObjectId by its containing field where you can, or by the string form if the collection stores it that way.
+
+  **The convenience tools have no optional arguments.** `mongodb_find_recent` and `mongodb_matching` build their query by substituting every placeholder in a JSON template, so a missing argument leaves a hole and the spec fails to parse. Pass all of them, or use `mongodb_find`, which takes the whole spec as one string and lets you leave out whatever you do not need.
+
+  **`mongodb_schema` samples one document per collection** and reports the field names and inferred types, plus an estimated document count. It is the map to draw before composing a filter — MongoDB has no information_schema, and a collection's shape is a convention rather than a constraint.
+
+  **How a database connector behaves**
+
+  - **It installs read-only.** The engine rejects anything that is not a read until you flip the switch in the connector's settings. That is a guard rail, not a security boundary: give the connection a `read` role and the guard rail never has to matter.
+  - **Credentials live in the encrypted `authConfig`**, not in the connection string. `MONGODB_USER` and `MONGODB_PASSWORD` are stored encrypted and spliced into the URI at call time.
+  - **Results are capped at 1000 documents**, and `limit` is capped at the same number. Aggregate in the query rather than in the agent.
+
+  **Reachable from where?**
+
+  - On a **hosted supermcp instance** the server must accept connections from the public internet, which for a production database usually means it should not. Point the connector at a secondary, or self-host supermcp inside the network.
+  - **Self-hosted**, add the host to `SSRF_ALLOWED_HOSTS`: the outbound guard blocks private address space by default, and `10.0.0.5` is exactly the shape it is there to block.
+tools:
+  - name: mongodb_schema
+    description: 'Introspect the database: every collection, its estimated document count and the field names and types inferred from a sampled document. The map to draw before composing any filter.'
+    input:
+      type: object
+      properties: {}
+    operation:
+      kind: schema
+  - name: mongodb_find
+    description: Run a read-only find. Pass a JSON object with `collection` and optionally `filter`, `projection`, `sort` and `limit`. Capped at 1000 documents.
+    input:
+      type: object
+      properties:
+        query:
+          type: string
+          description: JSON query spec, e.g. {"collection":"orders","filter":{"status":"paid"},"sort":{"createdAt":-1},"limit":50}.
+      required:
+        - query
+    operation:
+      kind: sql
+      statement: '{{params.query | raw}}'
+  - name: mongodb_find_recent
+    description: Read the most recent documents of one collection, newest first by a timestamp field. The usual first look at an unfamiliar collection. All three arguments are required.
+    input:
+      type: object
+      properties:
+        collection:
+          type: string
+          description: Collection name.
+        sortField:
+          type: string
+          description: Timestamp field to sort by descending, e.g. createdAt or updatedAt.
+        limit:
+          type: number
+          description: Maximum documents to return, 1-1000. Required — there is no default.
+      required:
+        - collection
+        - sortField
+        - limit
+    operation:
+      kind: sql
+      statement: '{"collection": {{params.collection}}, "sort": { {{params.sortField}}: -1}, "limit": {{params.limit}}}'
+  - name: mongodb_matching
+    description: Return the documents of one collection matching a filter, projecting only their ids, so a population can be sized without transferring it. All three arguments are required.
+    input:
+      type: object
+      properties:
+        collection:
+          type: string
+          description: Collection name.
+        filter:
+          type: object
+          description: 'MongoDB filter as an object, e.g. {"status": "open"}. Pass {} to match everything.'
+        limit:
+          type: number
+          description: Maximum documents to return, 1-1000. Required — there is no default.
+      required:
+        - collection
+        - filter
+        - limit
+    operation:
+      kind: sql
+      statement: '{"collection": {{params.collection}}, "filter": {{params.filter}}, "projection": {"_id": 1}, "limit": {{params.limit}}}'
+  - name: mongodb_query_examples
+    description: 'Show worked MongoDB query specs for this connector: filters, operators, projection, sort and the limits that apply. Costs nothing and touches no data.'
+    input:
+      type: object
+      properties: {}
+    operation:
+      kind: static
+      value: |
+        MongoDB query specs for this connector
+
+        mongodb_find takes ONE JSON object. Only `collection` is required.
+
+        -- Everything in a collection, newest first
+        {"collection": "orders", "sort": {"createdAt": -1}, "limit": 50}
+
+        -- Equality and comparison
+        {"collection": "orders",
+         "filter": {"status": "paid", "total": {"$gt": 100, "$lte": 5000}},
+         "limit": 100}
+
+        -- OR, and membership
+        {"collection": "orders",
+         "filter": {"$or": [{"status": "open"}, {"status": "pending"}],
+                    "channel": {"$in": ["web", "phone"]}}}
+
+        -- A date range. The driver receives the value as a string, so this only
+        -- works when the field stores an ISO string. For a real BSON date, filter
+        -- on a sibling field or use an ObjectId range.
+        {"collection": "events",
+         "filter": {"day": {"$gte": "2026-09-01", "$lt": "2026-10-01"}}}
+
+        -- Existence and type, for finding the documents that break a convention
+        {"collection": "customers", "filter": {"vatId": {"$exists": false}}}
+
+        -- Nested fields use dotted paths
+        {"collection": "orders", "filter": {"shipping.country": "DE"}}
+
+        -- Array membership matches if ANY element matches
+        {"collection": "products", "filter": {"tags": "sale"}}
+
+        -- Projection: 1 includes, 0 excludes. Do not mix, except to drop _id.
+        {"collection": "customers",
+         "projection": {"_id": 0, "email": 1, "createdAt": 1},
+         "limit": 200}
+
+        -- Regex, for a case-insensitive contains
+        {"collection": "customers",
+         "filter": {"company": {"$regex": "muster", "$options": "i"}}}
+
+        Limits: 1000 documents maximum, whatever `limit` says. Aggregation
+        pipelines, updates, inserts and deletes are not exposed.

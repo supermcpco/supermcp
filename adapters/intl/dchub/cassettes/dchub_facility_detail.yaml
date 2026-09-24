@@ -1,0 +1,19 @@
+# Recorded by `supermcp adapter record`; replayed by `supermcp adapter test`.
+# Credential values are replaced with SUPERMCP_CREDENTIAL_<NAME>.
+adapter: dchub
+tool: dchub_facility_detail
+recordedAt: 2026-09-22T22:18:39Z
+interactions:
+  - params:
+      facility_id: 11342
+    request:
+      method: GET
+      url: https://dchub.cloud/api/v1/facilities/11342
+      headers:
+        accept: application/json
+    response:
+      status: 200
+      headers:
+        content-type: application/json
+      body: |
+        {"_coord_precision_dp":2,"_gated":true,"_pricing_url":"https://dchub.cloud/pricing","_redacted_values":7,"_upgrade":{"checkout":"https://buy.stripe.com/7sY5kE8F4fs13ml0PEaZi0c","message":"Developer ($49/mo) unlocks exact location everywhere plus power capacity, source and nearby infrastructure. A free account first adds provider, operator, market and region, and exact location for 10 facilities a month.","price":"$49/mo","tier":"anon","url":"https://dchub.cloud/pricing#developer"},"_upgrade_cta":"Exact coordinates, street address, power capacity, operator and on-site fiber require a Developer key \u2014 dchub.cloud/pricing. A free account unlocks exact location for 10 facilities a month.","_user_facing_note":"\ud83d\udca1 This is a free preview from DC Hub \u2014 coordinates are rounded to ~1.1 km. A free account unlocks exact location for 10 facilities a month; Developer ($49/mo) unlocks exact location everywhere plus power capacity, source and nearby infrastructure \u2014 dchub.cloud/pricing","_withheld_fields":["permit_confidence","power_mw","provider","region","source"],"data":{"city":"Hampton","coordinates_status":"approximate_2dp","country":"US","id":11342,"latitude":33.38,"longitude":-84.28,"name":"Equinix Hampton xScale Campus","state":"GA","status":"Under Construction"},"success":true}

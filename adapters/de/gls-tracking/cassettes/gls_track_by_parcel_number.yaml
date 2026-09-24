@@ -1,0 +1,1169 @@
+# Recorded by `supermcp adapter record`; replayed by `supermcp adapter test`.
+# Credential values are replaced with SUPERMCP_CREDENTIAL_<NAME>.
+adapter: gls-tracking
+tool: gls_track_by_parcel_number
+recordedAt: 2026-09-22T22:18:18Z
+interactions:
+  - params:
+      country: EU
+      language: en
+      trackId: "12345678901"
+    request:
+      method: GET
+      url: https://gls-group.com/app/service/open/rest/EU/en/rstt001
+      query: match=12345678901
+    response:
+      status: 200
+      headers:
+        content-type: text/html
+      body: |2-
+        <!DOCTYPE html>
+        <html lang="en-DE" id="400814">
+        <head>
+        <meta charset="UTF-8">
+        <title>Register API Access | GLS</title>
+        <link rel="alternate" hreflang="de-DE" href="https://gls-group.com/DE/de/register-api-access/" />
+        <link rel="alternate" hreflang="en-DE" href="https://gls-group.com/DE/en/register-api-access/" />
+        <link rel="alternate" hreflang="x-default" href="https://gls-group.com/DE/en/register-api-access/" />
+        <link rel="icon" href="https://gls-group.eu/favicon.ico" type="image/x-icon" />
+        <link rel="shortcut icon" href="https://gls-group.eu/favicon.ico" type="image/x-icon" />
+        <link rel="canonical" href="https://gls-group.com/DE/en/register-api-access/" />
+        <meta name="robots" content="noimageindex,noarchive,nosnippet,nocache,none">
+        <meta property="og:image" content="/DE/media/images/2021/2021_Photo-ebike_SEO_SOCIAL_OPENGRAPH.jpg">
+        <meta property="twitter:image" content="/DE/media/images/2021/2021_Photo-ebike_SEO_SOCIAL_TWITTER.jpg">
+        <meta name="twitter:card" content="summary">
+        <meta name="publish:time" content="1785768728050">
+        <link rel="preload" as="font" href="/media/gls_group_resources/gls_group_assets/gls_group_newsongls_web_bold_woff2.woff2" crossorigin="anonymous">
+        <link rel="preload" as="font" href="/media/gls_group_resources/gls_group_assets/gls_group_newsongls_web_regular_woff2.woff2" crossorigin="anonymous">
+        <link rel="preload" as="font" href="/media/gls_group_resources/gls_group_assets/gls_group_newsongls_web_italic_woff2.woff2" crossorigin="anonymous">
+        <link rel="preload" as="image" href="/DE/media/images/register_api_access/register-api-access_M01.webp">
+        <script>
+        window.dataLayer = window.dataLayer || [];
+        function gtag() { dataLayer.push(arguments); }
+        gtag('consent', 'default', {
+        'ad_user_data': 'denied',
+        'ad_personalization': 'denied',
+        'ad_storage': 'denied',
+        'analytics_storage': 'denied'
+        });
+        </script>
+        <meta name="viewport" content="initial-scale=1.0, shrink-to-fit=no, width=device-width">
+        <link rel="stylesheet" href="/media/gls_group_resources/gls_group_vendor_css.css?1785768728050" media="all">
+        <link rel="stylesheet" href="/media/gls_group_resources/gls_group_main_css.css?1785768728050" media="all">
+        <link rel="stylesheet" href="/media/gls_group_resources/gls_group_app_css.css?1785768728050" media="all">
+        <script src="/media/gls_group_resources/gls_group_runtime_js.js?1785768728050"></script>
+        <script>
+        var isIE = window.eval("/*@cc_on!@*/false") || window.navigator.msPointerEnabled !== undefined;
+        if(isIE) {
+        var request = new XMLHttpRequest();
+        request.open('GET', '/media/gls_group_resources/gls_group_polyfills_js.js?1785768728050', false);
+        request.send(null);
+        if (request.status === 200) {
+        window.eval(request.responseText);
+        }
+        }
+        </script>
+        <script src="/media/gls_group_resources/gls_group_common_js.js?1785768728050" defer></script>
+        <script src="/media/gls_group_resources/gls_group_vendor_js.js?1785768728050" defer></script>
+        <script src="/media/gls_group_resources/gls_group_core_js.js?1785768728050" defer></script>
+        <script src="/media/gls_group_resources/gls_group_app_js.js?1785768728050" defer></script>
+        <script>
+        window.addEventListener('load', () => {
+        const locationFinders = document.querySelectorAll('.container_search-location');
+        if(locationFinders){
+        locationFinders.forEach(locationFinder => {
+        const inputLocation = locationFinder.querySelector('.form-control_package-search');
+        const buttonSearch = locationFinder.querySelector('.btn-search');
+        if(inputLocation && buttonSearch){
+        buttonSearch.addEventListener('click', () => {
+        if(inputLocation.value.length > 0){
+        sessionStorage.setItem('location-finder-query', `${inputLocation.value}, DE`);
+        }
+        })
+        }
+        })
+        }
+        const locationFinderQuery = sessionStorage.getItem('location-finder-query');
+        const mapInputSearch = document.querySelector('#glsXbpPseMap #glsXbpPseAddressSearch');
+        if(locationFinderQuery && locationFinderQuery.length > 0 && mapInputSearch){
+        mapInputSearch.value = locationFinderQuery;
+        mapInputSearch.dispatchEvent(new Event('input'));
+        setTimeout(() => {
+        const mapInputSearchResultContainer = document.querySelector('#glsXbpPseMap #glsXbpPseSearchBox #glsXbpPseAddressResultContainer');
+        if (mapInputSearchResultContainer) {
+        const firstResult = mapInputSearchResultContainer.querySelectorAll('button').item(0);
+        firstResult.dispatchEvent(new Event('click'));
+        }
+        sessionStorage.removeItem('location-finder-query');
+        }, 1200)
+        }
+        })
+        </script>
+        <script>
+        /* M21 Track and Trace - Script used to get match on URL query parameters and auto fill first input (Tracking Number) with it */
+        const queryParams = new URLSearchParams(window.location.search);
+        const match = queryParams.get('match');
+        if (match) {
+        window.addEventListener('DOMContentLoaded', () => {
+        const trackAndTraceSearchModules = document.querySelectorAll('.card_search .searchfield');
+        trackAndTraceSearchModules.forEach(trackAndTraceSearchModule => {
+        const moduleInputs = trackAndTraceSearchModule.querySelector('.form-control_package-search');
+        moduleInputs.value = match;
+        });
+        })
+        }
+        </script>
+        <script src="/media/gls_group_resources/smartsearch/smartsearch.bundle.js"></script>
+        <script>
+        const debounce = (func, delay) => {
+        let debounceTimer;
+        return function() {
+        const context = this;
+        const args = arguments;
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => func.apply(context, args), delay);
+        };
+        };
+        window.addEventListener('DOMContentLoaded', () => {
+        const SMARTSEARCH_MODAL_BODY = document.querySelector("#smartsearch-modal .modal-body");
+        const SMARTSEARCH_MODAL_LOAD_MORE_BUTTON = document.querySelector("#smartsearch-modal .modal-body .load-more");
+        const SMARTSEARCH_MODAL_SEARCH_BAR = document.querySelector("#smartsearch-modal .smartsearch-input-container .smartsearch-modal-searchbar");
+        const SMARTSEARCH_MODAL_SEARCH_BAR_LABEL = document.querySelector("#smartsearch-modal .smartsearch-input-container .searchbar-label");
+        const SMARTSEARCH_MODAL_SEARCH_RESULT_CONTAINER = document.querySelector("#smartsearch-modal .modal-body #search-result-container");
+        const SMARTSEARCH_MODAL_LOADER_BAR = document.querySelector("#smartsearch-modal .modal-body #loader-container");
+        let LOAD_MORE_PAGE_SIZE = 5;
+        const host = "https://gls-search-api.e-spirit.cloud";
+        const DK_CAREER_PROJECT_ID = 89973;
+        const DE_CAREER_PROJECT_ID = 298016;
+        let preparedSearch = ``;
+        if (152266 === DK_CAREER_PROJECT_ID){
+        preparedSearch = `SearchGLS_DK_CAREER`;
+        } else if(152266 === DE_CAREER_PROJECT_ID){
+        preparedSearch = `SearchGLS_DE_CAREER`;
+        } else {
+        preparedSearch = `SearchGLS_DE`;
+        }
+        const MIME_TYPES = {
+        HTML: ["text/html"],
+        }
+        const SmartSearchOptions = {
+        customParams: [{
+        haupia_start: 0,
+        }, {
+        haupia_rows: LOAD_MORE_PAGE_SIZE
+        },
+        {
+        [`facet.filter.mime_type`]: MIME_TYPES.HTML
+        },
+        {
+        [`facet.filter.language`]: 'en',
+        },
+        ],
+        };
+        const fsss = new SmartSearch(host, preparedSearch);
+        const PLACEHOLDER_MESSAGES = {
+        DESKTOP: {
+        MODAL_INPUT_PLACEHOLDER: "Tell us what you are looking for and we will deliver it for you :)",
+        MODAL_INPUT_HINT: "* Please, enter at least 3 characters to continue your search."
+        },
+        MOBILE: {
+        MODAL_INPUT_PLACEHOLDER: "Tell us what you are looking for :)",
+        MODAL_INPUT_HINT: "* Please, enter at least 3 characters."
+        },
+        LOAD_MORE: "load more"
+        }
+        const handlePlaceholderMessagesByResolution = () => {
+        const windowWidth = window.innerWidth;
+        SMARTSEARCH_MODAL_LOAD_MORE_BUTTON.innerHTML = PLACEHOLDER_MESSAGES.LOAD_MORE;
+        if (windowWidth > 575.98) {
+        SMARTSEARCH_MODAL_SEARCH_BAR.placeholder = PLACEHOLDER_MESSAGES.DESKTOP.MODAL_INPUT_PLACEHOLDER;
+        SMARTSEARCH_MODAL_SEARCH_BAR_LABEL.innerHTML = PLACEHOLDER_MESSAGES.DESKTOP.MODAL_INPUT_HINT;
+        } else {
+        SMARTSEARCH_MODAL_SEARCH_BAR.placeholder = PLACEHOLDER_MESSAGES.MOBILE.MODAL_INPUT_PLACEHOLDER;
+        SMARTSEARCH_MODAL_SEARCH_BAR_LABEL.innerHTML = PLACEHOLDER_MESSAGES.MOBILE.MODAL_INPUT_HINT;
+        }
+        }
+        handlePlaceholderMessagesByResolution();
+        function renderSearchResults(page) {
+        const pageRenderer = fsss.getPageRenderer(page);
+        pageRenderer.searchResultTemplate.templateFunction = (data, highlighting) => {
+        const windowWidth = window.innerWidth;
+        let truncateHighlight = "";
+        if (windowWidth < 575.98) {
+        truncateHighlight = highlighting.content && !!highlighting.content.length && highlighting.content[0].length > 100 ? `${highlighting.content[0].substring(0, 100)}...` : highlighting.content;
+        } else {
+        truncateHighlight = highlighting.content && !!highlighting.content.length && highlighting.content[0].length > 300 ? `${highlighting.content[0].substring(0, 300)}...` : highlighting.content;
+        }
+        const template = `
+        <a href="${data.link}" target="_blank" data-analytics="click" data-analytics-action="Click" data-analytics-category="search-choice">
+        <h6>${data.title}</h6>
+        ${highlighting.content != undefined ? `<p>${truncateHighlight}</p>`: ""}
+        </a>`
+        return template;
+        }
+        const languageFacet = page.getFacet('language');
+        if (languageFacet) { renderFacetFilter(page) }
+        if (page.responseData.numRows == 0) {
+        SMARTSEARCH_MODAL_SEARCH_RESULT_CONTAINER.innerHTML = "No results found!";
+        } else {
+        pageRenderer.renderSearchResultsToHTMLElement(SMARTSEARCH_MODAL_SEARCH_RESULT_CONTAINER);
+        const resultsItems = SMARTSEARCH_MODAL_SEARCH_RESULT_CONTAINER.querySelectorAll('.smart-search-search-results .smart-search-search-result');
+        if (resultsItems.length > 5) {
+        const elementToScrollIndex = resultsItems.length - 6;
+        const elementToScroll = resultsItems[elementToScrollIndex];
+        SMARTSEARCH_MODAL_BODY.scrollTo({ top: elementToScroll.getBoundingClientRect().top - elementToScroll.clientHeight + 30, behavior: 'smooth' });
+        }
+        }
+        }
+        function renderFacetFilter(page) {
+        const languageFacet = page.getFacet('language');
+        const filter = document.querySelector('#smarsearch-modal-facet-filter');
+        const resultStatus = document.querySelector('.result-status');
+        const totalResults = languageFacet.data.counts.reduce((sum, language) => sum + language.count, 0);
+        let resultByLanguage = '';
+        languageFacet.data.counts.map((language, index) => {
+        if (`en` === language.value) {
+        if(index !== languageFacet.data.counts.length - 1) {
+        resultByLanguage += `${language.count} English` + ", ";
+        } else {
+        resultByLanguage += `${language.count} English.`;
+        }
+        }
+        if (`de` === language.value) {
+        if(index !== languageFacet.data.counts.length - 1) {
+        resultByLanguage += `${language.count} Deutsch` + ", ";
+        } else {
+        resultByLanguage += `${language.count} Deutsch.`;
+        }
+        }
+        })
+        resultStatus.innerHTML = `${totalResults} search result for ${SMARTSEARCH_MODAL_SEARCH_BAR.value}: ${resultByLanguage}`;
+        if (filter.classList.contains('d-none')) {
+        filter.classList.remove('d-none');
+        }
+        filter.innerHTML = '';
+        const resultsCount = document.createElement('legend');
+        resultsCount.innerHTML = `Search result for <b>${SMARTSEARCH_MODAL_SEARCH_BAR.value}</b>: `;
+        filter.appendChild(resultsCount);
+        languageFacet.data.counts.map((language) => {
+        let lang = language.value.toUpperCase();
+        if (`en` === language.value) {
+        lang = `English`
+        }
+        if (`de` === language.value) {
+        lang = `Deutsch`
+        }
+        const languageCheckbox = `
+        <div class="form-radio">
+        <input id="radio-${language.value}" class="form-radio-input" type="radio" value="${language.value}" ${SmartSearchOptions.customParams[3][`facet.filter.language`] === language.value ? 'checked' : ''}>
+        <label class="form-radio-label" for="radio-${language.value}">${lang} (${language.count})</label>
+        </div>
+        `;
+        filter.insertAdjacentHTML('beforeend', languageCheckbox);
+        });
+        const facetCheckboxes = document.querySelectorAll('#smarsearch-modal-facet-filter .form-radio .form-radio-input');
+        facetCheckboxes.forEach((facetCheckbox) => {
+        facetCheckbox.addEventListener('input', (event) => {
+        LOAD_MORE_PAGE_SIZE = 5;
+        SmartSearchOptions.customParams[1].haupia_rows = LOAD_MORE_PAGE_SIZE;
+        if (event.target.checked) {
+        searchPageByQueryByFilter(SMARTSEARCH_MODAL_SEARCH_BAR.value, event.target.value);
+        } else {
+        searchPageByQueryByFilter(SMARTSEARCH_MODAL_SEARCH_BAR.value);
+        }
+        });
+        });
+        }
+        const searchPageByQueryByFilter = (searchQuery, languageFacetFilter) => {
+        if (languageFacetFilter) {
+        SmartSearchOptions.customParams[3][`facet.filter.language`] = languageFacetFilter;
+        }
+        SMARTSEARCH_MODAL_LOAD_MORE_BUTTON.classList.add("d-none");
+        SMARTSEARCH_MODAL_SEARCH_RESULT_CONTAINER.replaceChildren();
+        if (!SMARTSEARCH_MODAL_SEARCH_RESULT_CONTAINER.classList.contains("d-none")) {
+        SMARTSEARCH_MODAL_SEARCH_RESULT_CONTAINER.classList.add("d-none")
+        }
+        SMARTSEARCH_MODAL_LOADER_BAR.classList.remove("d-none");
+        fsss.search(searchQuery, ...SmartSearchOptions.customParams).then(page => {
+        SMARTSEARCH_MODAL_LOADER_BAR.classList.add("d-none");
+        SMARTSEARCH_MODAL_SEARCH_RESULT_CONTAINER.classList.remove("d-none");
+        if (page.responseData.numRows > LOAD_MORE_PAGE_SIZE) {
+        SMARTSEARCH_MODAL_LOAD_MORE_BUTTON.classList.remove("d-none");
+        }
+        renderSearchResults(page);
+        }).catch(error => {
+        SMARTSEARCH_MODAL_SEARCH_RESULT_CONTAINER.innerHTML = "No results found!";
+        console.error(`${error} on search page...`);
+        });
+        }
+        if (SMARTSEARCH_MODAL_SEARCH_BAR) {
+        SMARTSEARCH_MODAL_SEARCH_BAR.addEventListener("input", debounce(async function(event) {
+        LOAD_MORE_PAGE_SIZE = 5;
+        SmartSearchOptions.customParams[1].haupia_rows = LOAD_MORE_PAGE_SIZE;
+        if (event.target.value.length !== 0 && event.target.value.length >= 3) {
+        SMARTSEARCH_MODAL_SEARCH_BAR_LABEL.classList.add("d-none");
+        if (SMARTSEARCH_MODAL_BODY.classList.contains("d-none")) {
+        SMARTSEARCH_MODAL_BODY.classList.remove("d-none");
+        }
+        searchPageByQueryByFilter(event.target.value);
+        }
+        if (event.target.value.length !== 0 && event.target.value.length < 3) {
+        SMARTSEARCH_MODAL_SEARCH_BAR_LABEL.classList.remove("d-none");
+        }
+        }, 500));
+        }
+        // Select the node that will be observed for mutations
+        const targetNode = document.getElementById('smartsearch-modal');
+        // Options for the observer (which mutations to observe)
+        const config = { attributes: true, childList: false, subtree: false };
+        // Callback function to execute when mutations are observed
+        const callback = (mutationList, observer) => {
+        for (const mutation of mutationList) {
+        if (mutation.attributeName === 'class' && !mutation.target.classList.contains('show')) {
+        SMARTSEARCH_MODAL_BODY.classList.add("d-none");
+        SMARTSEARCH_MODAL_SEARCH_BAR.value = "";
+        SMARTSEARCH_MODAL_SEARCH_BAR_LABEL.classList.add("d-none");
+        SMARTSEARCH_MODAL_LOAD_MORE_BUTTON.classList.add("d-none");
+        SMARTSEARCH_MODAL_SEARCH_RESULT_CONTAINER.classList.add("d-none");
+        SMARTSEARCH_MODAL_SEARCH_RESULT_CONTAINER.replaceChildren();
+        }
+        }
+        };
+        // Create an observer instance linked to the callback function
+        const observer = new MutationObserver(callback);
+        // Start observing the target node for configured mutations
+        observer.observe(targetNode, config);
+        if (SMARTSEARCH_MODAL_LOAD_MORE_BUTTON) {
+        SMARTSEARCH_MODAL_LOAD_MORE_BUTTON.addEventListener("click", (event) => {
+        LOAD_MORE_PAGE_SIZE += 5;
+        SmartSearchOptions.customParams[1].haupia_rows = LOAD_MORE_PAGE_SIZE;
+        searchPageByQueryByFilter(SMARTSEARCH_MODAL_SEARCH_BAR.value);
+        })
+        }
+        });
+        </script>
+        <meta name="google-site-verification" content="hSlf7AefWZqBMe5iNTV8Pk6ikY8oSsOW3LeLH-sPQNM" />
+        <script src="https://web.cmp.usercentrics.eu/tcf/stub.js"></script>
+        <script id="usercentrics-cmp" src="https://web.cmp.usercentrics.eu/ui/loader.js" data-settings-id="f05aTIF0KZMUCH" async=""></script>
+        <script>
+        document.addEventListener("click", (e) => {
+        const root = document.getElementById("usercentrics-cmp-ui");
+        if (!root) return;
+        const path = (e.composedPath && e.composedPath()) || (e.path || []);
+        const match = path.find(node =>
+        node instanceof Element &&
+        (node.matches(".deny.uc-deny-button") || node.matches(".save.uc-save-button"))
+        );
+        if (match) {
+        location.reload();
+        }
+        });
+        </script>
+        </head>
+        <body class="body" id="contentwrapper">
+        <!-- gls_group_gca_site_wide_alert: start -->
+        <!-- gls_group_gca_site_wide_alert: end -->
+        <!-- 152852 (gls_group_gca_header): start -->
+        <header role="banner">
+        <div class="ce_header_desktop fixed-top">
+        <div class="container">
+        <div class="ce_page_header">
+        <a href="https://www.gls-pakete.de/en/corporate"
+        class="gls-logo"
+        data-analytics="click"
+        data-analytics-action="Click"
+        data-analytics-category="Header - Logo"
+        aria-label="GLS Logo">
+        <gls-logo></gls-logo>
+        </a>
+        <ul class="meta_navigation">
+        <li class="search desktop">
+        <button class="search-button" data-toggle="modal" type="button" data-target="#smartsearch-modal" aria-label="Search Desktop">
+        <icon-search></icon-search>
+        </button>
+        </li>
+        <li>
+        <a href="#modal_country_switch" data-toggle="modal" class="region" aria-label="Germany" data-analytics="click" data-analytics-action="Click" data-analytics-category="Header - Country Switch">
+        <icon-globe></icon-globe>
+        <span class="caption">Germany</span>
+        </a>
+        </li>
+        <li class="languages">
+        <a href="/DE/en/register-api-access/" class="active" data-analytics="click" data-analytics-action="Click" data-analytics-category="Header - Language Switch" > EN </a>
+        <a href="/DE/de/register-api-access/" data-analytics="click" data-analytics-action="Click" data-analytics-category="Header - Language Switch" > DE </a>
+        </li>
+        <li>
+        <a href="https://www.gls-pakete.de/faq/en" data-analytics="click" data-analytics-action="Click" data-analytics-category="Header - Meta Link" > FAQ </a>
+        </li>
+        <li>
+        <a href="/authenticate?locale=en-DE" class="user-login" aria-label="YourGLS" data-analytics="click" data-analytics-action="Click" data-analytics-category="Header - Login">
+        <icon-user-login></icon-user-login>
+        <span class="caption">YourGLS</span>
+        </a>
+        </li>
+        </ul>
+        </div>
+        </div>
+        </div>
+        <!-- (gls_group_header_navigation_desktop): start -->
+        <nav class="ce_desktop_navigation fixed-top" role="navigation" aria-label="Primary Navigation">
+        <div class="container">
+        <ul class="level_1">
+        <li class="subnav" data-mm-id="152919">
+        <a href="https://www.gls-pakete.de/en/corporate/about-gls-overview-page" class="level_1 level_1_with_subnav" data-analytics="click" data-analytics-action="Click" data-analytics-category="Navigation" > <span class="caption"> About us </span> </a>
+        <div id="ce_mmenu_item_152919" class="ce_mmenu">
+        <div class="container">
+        <ul class="level_2">
+        <li class="l2_no_subnav">
+        <a href="https://www.gls-pakete.de/en/corporate/our-facts" class="level_2" data-analytics="click" data-analytics-action="Click" data-analytics-category="Navigation" > <span class="caption"> Our facts </span> </a>
+        </li>
+        <li class="subnav">
+        <a href="https://www.gls-pakete.de/en/corporate/sustainability-responsibility" class="level_2 level_2_with_subnav" data-analytics="click" data-analytics-action="Click" data-analytics-category="Navigation" > <span class="caption"> Our responsibility </span> </a>
+        <ul class="level_3">
+        <li>
+        <a href="https://www.gls-pakete.de/en/corporate/klima-protect" class="level_3" data-analytics="click" data-analytics-action="Click" data-analytics-category="Navigation" > <span class="caption"> Klima Protect | Sustainable shipping </span> </a>
+        </li>
+        <li>
+        <a href="https://www.gls-pakete.de/en/corporate/social-responsibility" class="level_3" data-analytics="click" data-analytics-action="Click" data-analytics-category="Navigation" > <span class="caption"> Social responsibility </span> </a>
+        </li>
+        <li>
+        <a href="https://www.gls-pakete.de/en/corporate/certificates" class="level_3" data-analytics="click" data-analytics-action="Click" data-analytics-category="Navigation" > <span class="caption"> Certifications </span> </a>
+        </li>
+        </ul>
+        </li>
+        <li class="subnav">
+        <a href="/DE/en/about-us/gls-partners/" class="level_2 level_2_with_subnav" data-analytics="click" data-analytics-action="Click" data-analytics-category="Navigation" > <span class="caption"> Our partners </span> </a>
+        <ul class="level_3">
+        <li>
+        <a href="/DE/en/about-us/gls-partners/transport-partners/" class="level_3" data-analytics="click" data-analytics-action="Click" data-analytics-category="Navigation" > <span class="caption"> Our transport partners </span> </a>
+        </li>
+        <li>
+        <a href="/DE/en/about-us/gls-partners/our-suppliers/" class="level_3" data-analytics="click" data-analytics-action="Click" data-analytics-category="Navigation" > <span class="caption"> Our suppliers </span> </a>
+        </li>
+        <li>
+        <a href="https://www.gls-pakete.de/en/business-shipping/parcelshop-owner-application" class="level_3" data-analytics="click" data-analytics-action="Click" data-analytics-category="Navigation" > <span class="caption"> ParcelShop partners </span> </a>
+        </li>
+        <li>
+        <a href="https://www.gls-pakete.de/en/business-shipping/partner-systems" class="level_3" data-analytics="click" data-analytics-action="Click" data-analytics-category="Navigation" > <span class="caption"> Partner systems </span> </a>
+        </li>
+        </ul>
+        </li>
+        <li class="subnav">
+        <a href="https://www.gls-pakete.de/en/corporate/dlv" class="level_2 level_2_with_subnav" data-analytics="click" data-analytics-action="Click" data-analytics-category="Navigation" > <span class="caption"> Our sponsorships </span> </a>
+        <ul class="level_3">
+        <li>
+        <a href="https://www.gls-pakete.de/en/corporate/about-us" class="level_3" data-analytics="click" data-analytics-action="Click" data-analytics-category="Navigation" > <span class="caption"> Borussia Dortmund </span> </a>
+        </li>
+        <li>
+        <a href="https://www.gls-pakete.de/en/corporate/dlv" class="level_3" data-analytics="click" data-analytics-action="Click" data-analytics-category="Navigation" > <span class="caption"> Deutscher Leichtathletik Verband </span> </a>
+        </li>
+        </ul>
+        </li>
+        <li class="l2_no_subnav">
+        <a href="https://www.gls-pakete.de/en/corporate/our-history" class="level_2" data-analytics="click" data-analytics-action="Click" data-analytics-category="Navigation" > <span class="caption"> Our history </span> </a>
+        </li>
+        <li class="subnav">
+        <a href="https://www.gls-pakete.de/en/corporate/compliance-whistleblower-protection" class="level_2 level_2_with_subnav" data-analytics="click" data-analytics-action="Click" data-analytics-category="Navigation" > <span class="caption"> Compliance and Whistleblowing </span> </a>
+        <ul class="level_3">
+        <li>
+        <a href="https://www.gls-pakete.de/en/corporate/supply-chain-due-diligence-act" class="level_3" data-analytics="click" data-analytics-action="Click" data-analytics-category="Navigation" > <span class="caption"> German Supply Chain Due Diligence Act </span> </a>
+        </li>
+        </ul>
+        </li>
+        </ul>
+        </div>
+        </div>
+        </li>
+        <li class="subnav" data-mm-id="153045">
+        <a href="https://www.gls-pakete.de/en/business-shipping/gls-support-contact" class="level_1 level_1_with_subnav" data-analytics="click" data-analytics-action="Click" data-analytics-category="Navigation" > <span class="caption"> GLS informs </span> </a>
+        <div id="ce_mmenu_item_153045" class="ce_mmenu">
+        <div class="container">
+        <ul class="level_2">
+        <li class="l2_no_subnav">
+        <a href="https://www.gls-pakete.de/en/security-advice" class="level_2" data-analytics="click" data-analytics-action="Click" data-analytics-category="Navigation" > <span class="caption"> Security advice </span> </a>
+        </li>
+        </ul>
+        </div>
+        </div>
+        </li>
+        <li>
+        <a href="https://newsroom.de.gls-group.com/" class="level_1" data-analytics="click" data-analytics-action="Click" data-analytics-category="Navigation" > <span class="caption"> Newsroom </span> </a>
+        </li>
+        <li>
+        <a href="https://careers.de.gls-group.com/en/home" class="level_1" data-analytics="click" data-analytics-action="Click" data-analytics-category="Navigation" > <span class="caption"> Careers </span> </a>
+        </li>
+        <li class="subnav" data-mm-id="154751">
+        <a href="https://www.gls-pakete.de/en" class="level_1 level_1_with_subnav" data-analytics="click" data-analytics-action="Click" data-analytics-category="Navigation" > <span class="caption"> Send parcels </span> </a>
+        <div id="ce_mmenu_item_154751" class="ce_mmenu">
+        <div class="container">
+        <ul class="level_2">
+        <li class="l2_no_subnav">
+        <a href="https://www.gls-pakete.de/en/business-shipping" class="level_2" data-analytics="click" data-analytics-action="Click" data-analytics-category="Navigation" > <span class="caption"> Business shipping </span> </a>
+        </li>
+        <li class="l2_no_subnav">
+        <a href="https://www.gls-pakete.de/en/private-shipping" class="level_2" data-analytics="click" data-analytics-action="Click" data-analytics-category="Navigation" > <span class="caption"> Private shipping </span> </a>
+        </li>
+        </ul>
+        </div>
+        </div>
+        </li>
+        <li>
+        <a href="https://www.gls-pakete.de/en/receiving-parcels" class="level_1" data-analytics="click" data-analytics-action="Click" data-analytics-category="Navigation" > <span class="caption"> Receiving parcels </span> </a>
+        </li>
+        <li>
+        <a href="https://www.gls-pakete.de/en/gls-parcelshops" class="level_1" data-analytics="click" data-analytics-action="Click" data-analytics-category="Navigation" > <span class="caption"> GLS Points </span> </a>
+        </li>
+        <li>
+        <a href="https://www.gls-pakete.de/impressum-verbraucherstreitschlichtung" class="level_1" data-analytics="click" data-analytics-action="Click" data-analytics-category="Navigation" > <span class="caption"> Partner systems </span> </a>
+        </li>
+        </ul>
+        </div>
+        </nav>
+        <!-- (gls_group_header_navigation_desktop): end -->
+        <div class="ce_header_mobile fixed-top">
+        <div class="fixed-bar">
+        <button type="button" class="burger-menu collapsed" data-analytics="Click" data-analytics-category="Navigation - Burger">
+        <span class="sr-only">Toggle navigation</span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+        </button>
+        <a href="https://www.gls-pakete.de/en/corporate"
+        class="gls-logo"
+        data-analytics="click"
+        data-analytics-action="Click"
+        data-analytics-category="Header - Logo"
+        aria-label="GLS Logo">
+        <gls-logo></gls-logo>
+        </a>
+        <ul class="meta_navigation">
+        <li>
+        <button class="search-button" data-toggle="modal" type="button" data-target="#smartsearch-modal" aria-label="Search Mobile">
+        <icon-search></icon-search>
+        </button>
+        </li>
+        <li>
+        <a href="/authenticate?locale=en-DE" class="user-login" aria-label="YourGLS" data-analytics="click" data-analytics-action="Click" data-analytics-category="Header - Login">
+        <icon-user-login></icon-user-login>
+        <span class="caption">YourGLS</span>
+        </a>
+        </li>
+        </ul>
+        </div>
+        <div class="navWrapper">
+        <div class="meta_navigation">
+        <ul>
+        <li>
+        <a href="#modal_country_switch" data-toggle="modal" class="region" aria-label="Germany" data-analytics="click" data-analytics-action="Click" data-analytics-category="Header - Country Switch">
+        <icon-globe></icon-globe>
+        <span class="caption">Germany</span>
+        </a>
+        </li>
+        <li class="languages">
+        <a href="/DE/en/register-api-access/" class="active" data-analytics="click" data-analytics-action="Click" data-analytics-category="Header - Language Switch" > EN </a>
+        <a href="/DE/de/register-api-access/" data-analytics="click" data-analytics-action="Click" data-analytics-category="Header - Language Switch" > DE </a>
+        </li>
+        <li>
+        <a href="https://www.gls-pakete.de/faq/en" data-analytics="click" data-analytics-action="Click" data-analytics-category="Header - Meta Link" > FAQ </a></li>
+        </ul>
+        </div>
+        <!-- (gls_group_header_navigation_mobile): start -->
+        <nav class="ce_mobile_navigation" role="navigation" aria-label="Mobile Navigation Menu">
+        <ul class="level_1">
+        <li class="subnav">
+        <a href="https://www.gls-pakete.de/en/corporate/about-gls-overview-page" class="level_1 level_1_with_subnav" data-analytics="click" data-analytics-action="Click" data-analytics-category="Navigation" > <span class="caption"> About us </span> </a>
+        <ul class="level_2">
+        <li>
+        <a href="https://www.gls-pakete.de/en/corporate/our-facts" class="level_2" data-analytics="click" data-analytics-action="Click" data-analytics-category="Navigation" > <span class="caption"> Our facts </span> </a>
+        </li>
+        <li class="subnav">
+        <a href="https://www.gls-pakete.de/en/corporate/sustainability-responsibility" class="level_2 level_2_with_subnav" data-analytics="click" data-analytics-action="Click" data-analytics-category="Navigation" > <span class="caption"> Our responsibility </span> </a>
+        <ul class="level_3">
+        <li>
+        <a href="https://www.gls-pakete.de/en/corporate/klima-protect" class="level_3" data-analytics="click" data-analytics-action="Click" data-analytics-category="Navigation" > <span class="caption"> Klima Protect | Sustainable shipping </span> </a>
+        </li>
+        <li>
+        <a href="https://www.gls-pakete.de/en/corporate/social-responsibility" class="level_3" data-analytics="click" data-analytics-action="Click" data-analytics-category="Navigation" > <span class="caption"> Social responsibility </span> </a>
+        </li>
+        <li>
+        <a href="https://www.gls-pakete.de/en/corporate/certificates" class="level_3" data-analytics="click" data-analytics-action="Click" data-analytics-category="Navigation" > <span class="caption"> Certifications </span> </a>
+        </li>
+        </ul>
+        </li>
+        <li class="subnav">
+        <a href="/DE/en/about-us/gls-partners/" class="level_2 level_2_with_subnav" data-analytics="click" data-analytics-action="Click" data-analytics-category="Navigation" > <span class="caption"> Our partners </span> </a>
+        <ul class="level_3">
+        <li>
+        <a href="/DE/en/about-us/gls-partners/transport-partners/" class="level_3" data-analytics="click" data-analytics-action="Click" data-analytics-category="Navigation" > <span class="caption"> Our transport partners </span> </a>
+        </li>
+        <li>
+        <a href="/DE/en/about-us/gls-partners/our-suppliers/" class="level_3" data-analytics="click" data-analytics-action="Click" data-analytics-category="Navigation" > <span class="caption"> Our suppliers </span> </a>
+        </li>
+        <li>
+        <a href="https://www.gls-pakete.de/en/business-shipping/parcelshop-owner-application" class="level_3" data-analytics="click" data-analytics-action="Click" data-analytics-category="Navigation" > <span class="caption"> ParcelShop partners </span> </a>
+        </li>
+        <li>
+        <a href="https://www.gls-pakete.de/en/business-shipping/partner-systems" class="level_3" data-analytics="click" data-analytics-action="Click" data-analytics-category="Navigation" > <span class="caption"> Partner systems </span> </a>
+        </li>
+        </ul>
+        </li>
+        <li class="subnav">
+        <a href="https://www.gls-pakete.de/en/corporate/dlv" class="level_2 level_2_with_subnav" data-analytics="click" data-analytics-action="Click" data-analytics-category="Navigation" > <span class="caption"> Our sponsorships </span> </a>
+        <ul class="level_3">
+        <li>
+        <a href="https://www.gls-pakete.de/en/corporate/about-us" class="level_3" data-analytics="click" data-analytics-action="Click" data-analytics-category="Navigation" > <span class="caption"> Borussia Dortmund </span> </a>
+        </li>
+        <li>
+        <a href="https://www.gls-pakete.de/en/corporate/dlv" class="level_3" data-analytics="click" data-analytics-action="Click" data-analytics-category="Navigation" > <span class="caption"> Deutscher Leichtathletik Verband </span> </a>
+        </li>
+        </ul>
+        </li>
+        <li>
+        <a href="https://www.gls-pakete.de/en/corporate/our-history" class="level_2" data-analytics="click" data-analytics-action="Click" data-analytics-category="Navigation" > <span class="caption"> Our history </span> </a>
+        </li>
+        <li class="subnav">
+        <a href="https://www.gls-pakete.de/en/corporate/compliance-whistleblower-protection" class="level_2 level_2_with_subnav" data-analytics="click" data-analytics-action="Click" data-analytics-category="Navigation" > <span class="caption"> Compliance and Whistleblowing </span> </a>
+        <ul class="level_3">
+        <li>
+        <a href="https://www.gls-pakete.de/en/corporate/supply-chain-due-diligence-act" class="level_3" data-analytics="click" data-analytics-action="Click" data-analytics-category="Navigation" > <span class="caption"> German Supply Chain Due Diligence Act </span> </a>
+        </li>
+        </ul>
+        </li>
+        </ul>
+        </li>
+        <li class="subnav">
+        <a href="https://www.gls-pakete.de/en/business-shipping/gls-support-contact" class="level_1 level_1_with_subnav" data-analytics="click" data-analytics-action="Click" data-analytics-category="Navigation" > <span class="caption"> GLS informs </span> </a>
+        <ul class="level_2">
+        <li>
+        <a href="https://www.gls-pakete.de/en/security-advice" class="level_2" data-analytics="click" data-analytics-action="Click" data-analytics-category="Navigation" > <span class="caption"> Security advice </span> </a>
+        </li>
+        </ul>
+        </li>
+        <li>
+        <a href="https://newsroom.de.gls-group.com/" class="level_1" data-analytics="click" data-analytics-action="Click" data-analytics-category="Navigation" > <span class="caption"> Newsroom </span> </a>
+        </li>
+        <li>
+        <a href="https://careers.de.gls-group.com/en/home" class="level_1" data-analytics="click" data-analytics-action="Click" data-analytics-category="Navigation" > <span class="caption"> Careers </span> </a>
+        </li>
+        <li class="subnav">
+        <a href="https://www.gls-pakete.de/en" class="level_1 level_1_with_subnav" data-analytics="click" data-analytics-action="Click" data-analytics-category="Navigation" > <span class="caption"> Send parcels </span> </a>
+        <ul class="level_2">
+        <li>
+        <a href="https://www.gls-pakete.de/en/business-shipping" class="level_2" data-analytics="click" data-analytics-action="Click" data-analytics-category="Navigation" > <span class="caption"> Business shipping </span> </a>
+        </li>
+        <li>
+        <a href="https://www.gls-pakete.de/en/private-shipping" class="level_2" data-analytics="click" data-analytics-action="Click" data-analytics-category="Navigation" > <span class="caption"> Private shipping </span> </a>
+        </li>
+        </ul>
+        </li>
+        <li>
+        <a href="https://www.gls-pakete.de/en/receiving-parcels" class="level_1" data-analytics="click" data-analytics-action="Click" data-analytics-category="Navigation" > <span class="caption"> Receiving parcels </span> </a>
+        </li>
+        <li>
+        <a href="https://www.gls-pakete.de/en/gls-parcelshops" class="level_1" data-analytics="click" data-analytics-action="Click" data-analytics-category="Navigation" > <span class="caption"> GLS Points </span> </a>
+        </li>
+        <li>
+        <a href="https://www.gls-pakete.de/impressum-verbraucherstreitschlichtung" class="level_1" data-analytics="click" data-analytics-action="Click" data-analytics-category="Navigation" > <span class="caption"> Partner systems </span> </a>
+        </li>
+        </ul>
+        </nav>
+        <!-- (gls_group_header_navigation_mobile): end -->
+        </div>
+        </div>
+        </header>
+        <!-- 152852 (gls_group_gca_header): end -->
+        <main role="main">
+        <a id="gls_group_module_01_hero_slider" name="gls_group_module_01_hero_slider"></a>
+        <!-- 400817 (gls_group_module_01_hero_slider): start -->
+        <div id="400817" class="ce_carousel ce_carousel_heroslider carousel slide mb-60px " data-interval="8000" data-ride="carousel">
+        <div class="carousel-inner">
+        <!-- (gls_group_molecule_hero_slider_image_with_headline): start -->
+        <div class="carousel-item active">
+        <img alt="" src="data:image/svg+xml;base64,PHN2ZyB2ZXJzaW9uPSIxLjEiIGlkPSJMYXllcl8xIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHhtbG5zOnhsaW5rPSJodHRwOi8vd3d3LnczLm9yZy8xOTk5L3hsaW5rIiB4PSIwcHgiIHk9IjBweCIgdmlld0JveD0iMCAwIDE5MjAgNTQwIiBzdHlsZT0iZW5hYmxlLWJhY2tncm91bmQ6bmV3IDAgMCAxOTIwIDU0MDsiIHhtbDpzcGFjZT0icHJlc2VydmUiPjwvc3ZnPg==" width="1920" height="540" />
+        <div class="image-stage d-sm-none" style="background-image: url(/DE/media/images/register_api_access/register-api-access_M01_MOBILE.webp);">
+        <div class="text-overlay">
+        <div class="content">
+        <h1 class="text-white text-center">Track and Trace API Key Registration</h1>
+        </div>
+        </div>
+        </div>
+        <div class="image-stage d-none d-sm-block d-lg-none" style="background-image: url(/DE/media/images/register_api_access/register-api-access_M01_TABLET.webp);">
+        <div class="text-overlay">
+        <div class="content">
+        <h1 class="text-white text-center">Track and Trace API Key Registration</h1>
+        </div>
+        </div>
+        </div>
+        <div class="image-stage d-none d-lg-block" style="background-image: url(/DE/media/images/register_api_access/register-api-access_M01.webp);">
+        <div class="text-overlay">
+        <div class="content">
+        <h1 class="text-white text-center">Track and Trace API Key Registration</h1>
+        </div>
+        </div>
+        </div>
+        </div>
+        <!-- (gls_group_molecule_hero_slider_image_with_headline): end -->
+        </div>
+        </div>
+        <!-- 400817 (gls_group_module_01_hero_slider): end --><a id="gls_group_module_43_free_text" name="gls_group_module_43_free_text"></a>
+        <!-- 400818 (gls_group_module_43_free_text): start -->
+        <div class="ce_text_container">
+        <!-- (gls_group_molecule_free_text): start -->
+        <div class="container ce_text">
+        <div class="row">
+        <div class="col-sm-12">
+        <h2 class="text-center">Welcome!<br></h2><p><br></p><p>This page provides guidance on how to register for the GLS Track and Trace API.</p><p>The <b>Track &#38; Trace V1 API</b> provides real-time parcel tracking across regions. By submitting parcel numbers or other valid reference types, you can retrieve current status information and detailed event history for one or multiple shipments in a single request.</p>
+        </div>
+        </div>
+        </div>
+        <!-- (gls_group_molecule_free_text): end -->
+        </div>
+        <!-- 400818 (gls_group_module_43_free_text): end --><a id="gls_group_module_43_free_text_1" name="gls_group_module_43_free_text_1"></a>
+        <!-- 1281490 (gls_group_module_43_free_text): start -->
+        <div class="ce_text_container">
+        <!-- (gls_group_molecule_free_text): start -->
+        <div class="bg-soft-blue-sky pt-60">
+        <div class="container ce_text pb-60">
+        <div class="row">
+        <div class="col-sm-12">
+        <p><b>How to Register and Start Using the API</b></p><p>Access to the API is managed via the
+        <a href="https://dev-portal.gls-group.net/" target="_blank" rel="noopener noreferrer" class="external-url" data-analytics="click" data-analytics-action="Click" data-analytics-category="Inline Link External" data-analytics-label="GLS developer portal" > GLS Developer Portal. </a></p><p><b>Step 1: Create an Account</b></p><p>Visit the GLS Developer Portal and create your user account.</p><p><b>Step 2: Create an App and Enable the Track &#38; Trace V1 API</b></p><p>After logging in, click on &#8220;+ New App&#8221;.</p><p>Enter a mandatory App Name, then select Track &#38; Trace V1 API from the list of available APIs and click &#8220;Enable&#8221;.</p><p>Once saved, your app is automatically registered, and the API is activated for immediate use.</p><p><b>Step 3: Start Using the API</b></p><p>By default, each account includes <b>500 API calls per day</b>, which is suitable for testing and smaller integrations.</p>
+        </div>
+        </div>
+        </div>
+        </div>
+        <!-- (gls_group_molecule_free_text): end -->
+        </div>
+        <!-- 1281490 (gls_group_module_43_free_text): end --><a id="gls_group_module_43_free_text_2" name="gls_group_module_43_free_text_2"></a>
+        <!-- 1281491 (gls_group_module_43_free_text): start -->
+        <div class="ce_text_container">
+        <!-- (gls_group_molecule_free_text): start -->
+        <div class="container ce_text">
+        <div class="row">
+        <div class="col-sm-12">
+        <p><b>Where to Find Your Credentials and Documentation</b></p><p><b>API Credentials: </b><br>After enabling, you can find your API credentials in the Developer Portal under:<br><b>Apps → My Apps.</b></p><p><b>API Documentation: </b><br>The full technical documentation, including endpoints, parameters, and examples, is available directly in the Developer Portal under:<br><b>APIs → Track &#38; Trace V1.</b></p>
+        </div>
+        </div>
+        </div>
+        <!-- (gls_group_molecule_free_text): end -->
+        </div>
+        <!-- 1281491 (gls_group_module_43_free_text): end --><a id="gls_group_module_02_teasers_1_column" name="gls_group_module_02_teasers_1_column"></a>
+        <!-- 1281492 (gls_group_module_02_teasers_1_column): start -->
+        <div class="one-column-teasers container " >
+        <div class="row pb-40px">
+        <div class="col-sm-12">
+        <!-- (gls_group_molecule_teaser_card_wide): start -->
+        <div class="card card-shadow card-hover text-center card_no_btn" >
+        <div class="card-body">
+        <h4 >Need Higher Request Volumes?</h4>
+        <div class="">
+        <p>If you require a higher daily request limit for production use, please contact your responsible
+        <a href="https://gls-group.eu/GROUP/en/contact-form/" target="_blank" rel="noopener noreferrer" class="external-url" data-analytics="click" data-analytics-action="Click" data-analytics-category="Inline Link External" > GLS IT, Sales, or Partner Management contact </a>. <br>They will coordinate the next steps and arrange the appropriate access level based on your expected shipment volume.</p>
+        </div>
+        </div>
+        </div>
+        <!-- (gls_group_molecule_teaser_card_wide): end -->
+        </div>
+        </div>
+        </div>
+        <!-- 1281492 (gls_group_module_02_teasers_1_column): end -->
+        </main>
+        <aside>
+        <!-- gls_group_gca_sticky: start -->
+        <!-- gls_group_gca_sticky: end -->
+        <!-- gls_group_gca_back_to_top: start -->
+        <div id="top_link" class="top-link to-top">
+        <a href="#contentwrapper" title="" class="shadow p-0 localscroll" data-analytics="click" data-analytics-action="Click" data-analytics-category="Back to Top">
+        <img src="/media/gls_group_resources/gls_group_assets/gls_group_arrow_top_blue_svg.svg" alt="Go to Top" class="icon_48x48" />
+        </a>
+        </div>
+        <!-- gls_group_gca_back_to_top: end -->
+        <!-- gls_group_gca_overlays: start -->
+        <a id="wilh001___login_handling_1" name="wilh001___login_handling_1"></a>
+        <!-- 153744 (gls_group_wilh001): start -->
+        <div class="modal js-login" id="mdl_wilh001" tabindex="-1" role="dialog" aria-labelledby="mdl_wilh001" aria-hidden="true" data-open-tag="login">
+        <div class="modal-dialog modal-sm" role="document">
+        <div class="modal-content">
+        <div class="modal-header">
+        <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+        <span aria-hidden="true">&times;</span>
+        </button>
+        </div>
+        <div class="modal-body">
+        <wdg-wilh001 data-widget-id="wilh001" data-modal-selector="#mdl_wilh001" data-login-trigger-selector=".js-login-holder" class="widget wilh001">
+        <div class="js-widget-placeholder">
+        <div class="ph-item ph-row">
+        <div class="ph-col-6 big"></div>
+        <div class="ph-col-12 big"></div>
+        <div class="ph-col-12 big"></div>
+        <div class="ph-col-8 empty"></div>
+        <div class="ph-col-4 big"></div>
+        </div>
+        </div>
+        </wdg-wilh001>
+        <script src="/media/gls_group_resources/gls_group_wilh001_js.js?1785768728050" defer></script>
+        <script>
+        document.addEventListener('gls.api.registered', function () {
+        window.GLS.api.registerPrefix('RSLG', '/app/service/open/rest/DE/en/');
+        window.GLS.api.registerEndpoint('rslg002', '/app/service/closed/rest/DE/en/rslg002');
+        });
+        </script>
+        <script data-name="login" data-widget-id="wilh001" type="text/x-mustache-template">
+        <form name="wilh001">
+        <fieldset{{#submitting}} class="loading" disabled{{/submitting}}>
+        <h5 class="form-chapter">YourGLS / GLS-ONE</h5>
+        {{#errorMessage}}
+        <div class="message-box-forms danger-message" role="alert">
+        <div class="icon">
+        <icon-exclamation></icon-exclamation>
+        </div>
+        <div class="content">
+        <p>{{&.}}</p>
+        </div>
+        </div>
+        {{/errorMessage}}
+        <div class="form-group form-group_with_feedback">
+        <label id="label-wilh001_login_username_label" for="wilh001_login_username_input" class=""> <span class="sr-only"> User Name * </span> </label>
+        <input type="text" id="wilh001_login_username_input" name="username" value="{{data.username}}" class="form-control" required aria-required="true" placeholder="User Name" autocomplete="username" />
+        <div role="alert" id="wilh001_login_username_feedback_mandatory" class="feedback invalid-value-missing">Please enter.</div>
+        </div>
+        <div class="form-group form-group_with_feedback">
+        <label id="label-wilh001_login_password_label" for="wilh001_login_password_input" class=""> <span class="sr-only"> Password * </span> </label>
+        <input type="password" id="wilh001_login_password_input" name="password" value="{{data.password}}" class="form-control" required aria-required="true" placeholder="Password" autocomplete="current-password" />
+        <div role="alert" id="wilh001_login_password_feedback_mandatory" class="feedback invalid-value-missing">Please enter.</div>
+        </div>
+        <div class="row">
+        <div class="col-6 mt-1 login-form-links">
+        <a href="/DE/en/forgot-password/" class="discreet" data-analytics="click" data-analytics-action="Click" data-analytics-category="Link" > Forgot password? </a>
+        </div>
+        <div class="col-6 text-right">
+        <button type="submit" id="wilh001_login_submit" class="btn btn-primary" data-analytics="click" data-analytics-action="Click" data-analytics-category="Login">Login</button>
+        </div>
+        </div>
+        </fieldset>
+        </form>
+        </script>
+        <script data-name="menu" data-widget-id="wilh001" type="text/x-mustache-template">
+        <h4 class="modal-title" >{{system}}</h4>
+        {{#YourGLS}}
+        <div class="pl-2 ce_text">
+        <p><ul><li>
+        <a href="/app/service/closed/page/DE/en/wipp003" class="pl-2 ce_text" data-analytics="click" data-analytics-action="Click" data-analytics-category="Inline Link" > Send parcel </a></li></ul></p>
+        </div>
+        {{/YourGLS}}
+        {{#EasyStart}}
+        <div class="pl-2 ce_text">
+        </div>
+        {{/EasyStart}}
+        <div class="form-row">
+        <div class="col-12 text-right">
+        <div class="form-group m-0">
+        <button type="button" id="wilh001_menu_logout" class="btn btn-primary w-100 w-md-auto js-logout" data-analytics="click" data-analytics-action="Click" data-analytics-category="Logout">Logout</button>
+        </div>
+        </div>
+        </div>
+        </script>
+        </div>
+        </div>
+        </div>
+        </div>
+        <!-- 153744 (gls_group_wilh001): end -->
+        <!-- gls_group_gca_overlays: end -->
+        <!-- 152850 (gls_group_gca_country_switch): start -->
+        <div class="modal fade modal_country_switch" id="modal_country_switch" tabindex="-1" role="dialog" data-open-tag="countrySwitch" aria-label="Country Switch">
+        <div class="modal-dialog modal-lg" role="document">
+        <div class="modal-content">
+        <div class="modal-header">
+        <h2 class="modal-title">Please choose your country</h2>
+        <button type="button" class="close" data-dismiss="modal" aria-label="Close" data-analytics="click" data-analytics-action="Close" data-analytics-category="Country Switch Overlay">
+        <span aria-hidden="true">&times;</span>
+        </button>
+        </div>
+        <div class="modal-body">
+        <p class="country-switch-heading">Global</p>
+        <ul>
+        <li>
+        <a href="/GROUP/en/home/" class="group" title="Group" data-analytics="click" data-analytics-action="Click" data-analytics-category="Country Switch Link">Group</a>
+        </li>
+        </ul>
+        <p class="country-switch-heading">Europe and Middle East</p>
+        <ul>
+        <li>
+        <a href="/ES/es/home/" class="ad" title="Andorra" data-analytics="click" data-analytics-action="Click" data-analytics-category="Country Switch Link">Andorra</a>
+        </li>
+        <li>
+        <a href="/AT/de/home/" class="at" title="Austria" data-analytics="click" data-analytics-action="Click" data-analytics-category="Country Switch Link">Austria</a>
+        </li>
+        <li>
+        <a href="/BE/vl/home/" class="be" title="Belgium" data-analytics="click" data-analytics-action="Click" data-analytics-category="Country Switch Link">Belgium</a>
+        </li>
+        <li>
+        <a href="/GROUP/en/gls-partners/?partner=bulgaria" class="bg" title="Bulgaria" data-analytics="click" data-analytics-action="Click" data-analytics-category="Country Switch Link">Bulgaria</a>
+        </li>
+        <li>
+        <a href="/HR/hr/home/" class="hr" title="Croatia" data-analytics="click" data-analytics-action="Click" data-analytics-category="Country Switch Link">Croatia</a>
+        </li>
+        <li>
+        <a href="/GROUP/en/gls-partners/?partner=cyprus" class="cy" title="Cyprus" data-analytics="click" data-analytics-action="Click" data-analytics-category="Country Switch Link">Cyprus</a>
+        </li>
+        <li>
+        <a href="/CZ/cs/home/" class="cz" title="Czech Republic" data-analytics="click" data-analytics-action="Click" data-analytics-category="Country Switch Link">Czech Republic</a>
+        </li>
+        <li>
+        <a href="/DK/da/home/" class="dk" title="Denmark" data-analytics="click" data-analytics-action="Click" data-analytics-category="Country Switch Link">Denmark</a>
+        </li>
+        <li>
+        <a href="/GROUP/en/gls-partners/?partner=estonia" class="ee" title="Estonia" data-analytics="click" data-analytics-action="Click" data-analytics-category="Country Switch Link">Estonia</a>
+        </li>
+        <li>
+        <a href="/FI/fi/home/" class="fi" title="Finland" data-analytics="click" data-analytics-action="Click" data-analytics-category="Country Switch Link">Finland</a>
+        </li>
+        <li>
+        <a href="/FR/fr/home/" class="fr" title="France" data-analytics="click" data-analytics-action="Click" data-analytics-category="Country Switch Link">France</a>
+        </li>
+        <li>
+        <a href="/DE/de/home/" class="de active" title="Germany" data-analytics="click" data-analytics-action="Click" data-analytics-category="Country Switch Link">Germany</a>
+        </li>
+        <li>
+        <a href="/GROUP/en/gls-partners/?partner=greece" class="gr" title="Greece" data-analytics="click" data-analytics-action="Click" data-analytics-category="Country Switch Link">Greece</a>
+        </li>
+        <li>
+        <a href="/HU/hu/home/" class="hu" title="Hungary" data-analytics="click" data-analytics-action="Click" data-analytics-category="Country Switch Link">Hungary</a>
+        </li>
+        <li>
+        <a href="/IE/en/home/" class="ie" title="Ireland" data-analytics="click" data-analytics-action="Click" data-analytics-category="Country Switch Link">Ireland</a>
+        </li>
+        <li>
+        <a href="/IT/it/home/" class="it" title="Italy" data-analytics="click" data-analytics-action="Click" data-analytics-category="Country Switch Link">Italy</a>
+        </li>
+        <li>
+        <a href="/GROUP/en/gls-partners/?partner=latvia" class="lv" title="Latvia" data-analytics="click" data-analytics-action="Click" data-analytics-category="Country Switch Link">Latvia</a>
+        </li>
+        <li>
+        <a href="/GROUP/en/gls-partners/?partner=liechtenstein" class="li" title="Liechtenstein" data-analytics="click" data-analytics-action="Click" data-analytics-category="Country Switch Link">Liechtenstein</a>
+        </li>
+        <li>
+        <a href="/GROUP/en/gls-partners/?partner=lithuania" class="lt" title="Lithuania" data-analytics="click" data-analytics-action="Click" data-analytics-category="Country Switch Link">Lithuania</a>
+        </li>
+        <li>
+        <a href="/LU/de/home/" class="lu" title="Luxembourg" data-analytics="click" data-analytics-action="Click" data-analytics-category="Country Switch Link">Luxembourg</a>
+        </li>
+        <li>
+        <a href="/GROUP/en/gls-partners/?partner=malta" class="mt" title="Malta" data-analytics="click" data-analytics-action="Click" data-analytics-category="Country Switch Link">Malta</a>
+        </li>
+        <li>
+        <a href="/FR/fr/home/" class="mc" title="Monaco" data-analytics="click" data-analytics-action="Click" data-analytics-category="Country Switch Link">Monaco</a>
+        </li>
+        <li>
+        <a href="/NL/nl/home/" class="nl" title="Netherlands" data-analytics="click" data-analytics-action="Click" data-analytics-category="Country Switch Link">Netherlands</a>
+        </li>
+        <li>
+        <a href="/GROUP/en/gls-partners/?partner=norway" class="no" title="Norway" data-analytics="click" data-analytics-action="Click" data-analytics-category="Country Switch Link">Norway</a>
+        </li>
+        <li>
+        <a href="/PL/pl/home/" class="pl" title="Poland" data-analytics="click" data-analytics-action="Click" data-analytics-category="Country Switch Link">Poland</a>
+        </li>
+        <li>
+        <a href="/PT/pt/home/" class="pt" title="Portugal" data-analytics="click" data-analytics-action="Click" data-analytics-category="Country Switch Link">Portugal</a>
+        </li>
+        <li>
+        <a href="/RO/ro/home/" class="ro" title="Romania" data-analytics="click" data-analytics-action="Click" data-analytics-category="Country Switch Link">Romania</a>
+        </li>
+        <li>
+        <a href="/IT/it/home/" class="sm" title="San Marino" data-analytics="click" data-analytics-action="Click" data-analytics-category="Country Switch Link">San Marino</a>
+        </li>
+        <li>
+        <a href="/RS/sr/home/" class="rs" title="Serbia" data-analytics="click" data-analytics-action="Click" data-analytics-category="Country Switch Link">Serbia</a>
+        </li>
+        <li>
+        <a href="/SK/sk/home/" class="sk" title="Slovakia" data-analytics="click" data-analytics-action="Click" data-analytics-category="Country Switch Link">Slovakia</a>
+        </li>
+        <li>
+        <a href="/SI/sl/home/" class="si" title="Slovenia" data-analytics="click" data-analytics-action="Click" data-analytics-category="Country Switch Link">Slovenia</a>
+        </li>
+        <li>
+        <a href="/ES/es/home/" class="es" title="Spain" data-analytics="click" data-analytics-action="Click" data-analytics-category="Country Switch Link">Spain</a>
+        </li>
+        <li>
+        <a href="/GROUP/en/gls-partners/?partner=sweden" class="se" title="Sweden" data-analytics="click" data-analytics-action="Click" data-analytics-category="Country Switch Link">Sweden</a>
+        </li>
+        <li>
+        <a href="/GROUP/en/gls-partners/?partner=switzerland" class="ch" title="Switzerland" data-analytics="click" data-analytics-action="Click" data-analytics-category="Country Switch Link">Switzerland</a>
+        </li>
+        <li>
+        <a href="/GROUP/en/gls-partners/?partner=unitedkingdom" class="gb" title="United Kingdom" data-analytics="click" data-analytics-action="Click" data-analytics-category="Country Switch Link">United Kingdom</a>
+        </li>
+        <li>
+        <a href="/IT/it/home/" class="va" title="Vatican City" data-analytics="click" data-analytics-action="Click" data-analytics-category="Country Switch Link">Vatican City</a>
+        </li>
+        </ul>
+        <p class="country-switch-heading">North America</p>
+        <ul>
+        <li>
+        <a href="/CA/en/home/" class="ca" title="Canada" data-analytics="click" data-analytics-action="Click" data-analytics-category="Country Switch Link">Canada</a>
+        </li>
+        <li>
+        <a href="/US/en/home/" class="us" title="United States" data-analytics="click" data-analytics-action="Click" data-analytics-category="Country Switch Link">United States</a>
+        </li>
+        </ul>
+        <p class="country-switch-heading">Asia</p>
+        <ul>
+        <li>
+        <a href="/GROUP/en/gls-partners/?partner=china" class="cn" title="China" data-analytics="click" data-analytics-action="Click" data-analytics-category="Country Switch Link">China</a>
+        </li>
+        </ul>
+        </div>
+        </div>
+        </div>
+        </div>
+        <!-- 152850 (gls_group_gca_country_switch): end -->
+        <div class="modal fade" id="smartsearch-modal" tabindex="-1" role="dialog" aria-label="Smart Search">
+        <div class="modal-dialog modal-dialog-scrollable modal-lg" role="document">
+        <div class="modal-content">
+        <div class="modal-header">
+        <icon-search></icon-search>
+        <div class="smartsearch-input-container">
+        <input id="smartsearch-label" class="smartsearch-modal-searchbar form-control" type="text" autocomplete="off" />
+        <span class="result-status sr-only" role="status"></span>
+        <label class="searchbar-label d-none" for="smartsearch-label"></label>
+        </div>
+        <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+        <span aria-hidden="true">&times;</span>
+        </button>
+        </div>
+        <div class="modal-body d-none">
+        <div id="search-result-container" class="d-none"></div>
+        <div id="loader-container" class="d-none">
+        <div class="spinner-border text-primary" role="status">
+        <span class="sr-only"></span>
+        </div>
+        </div>
+        <div class="text-center mt-3">
+        <button type="button" class="load-more btn btn-secondary d-none"></button>
+        </div>
+        <fieldset id="smarsearch-modal-facet-filter" class="d-none"></fieldset>
+        </div>
+        </div>
+        </div>
+        </div>
+        </aside>
+        <!-- gls_group_gca_analytics: start -->
+        <!-- gls_group_analytics_google_tag: start -->
+        <script type="text/javascript"> (function () { var s = document.createElement('script'); s.type = 'text/javascript'; s.async = true; s.src = 'https://www.googletagmanager.com/gtag/js?id=G-YLQ5TWV13N'; var x = document.getElementsByTagName('script')[0]; x.parentNode.insertBefore(s, x); })(); window.dataLayer = window.dataLayer || []; function gtag(){dataLayer.push(arguments);} gtag('js', new Date()); gtag('config', 'G-YLQ5TWV13N'); </script>
+        <!-- gls_group_analytics_google_tag: end -->
+        <!-- gls_group_analytics_google: start -->
+        <script type="text/javascript"> (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){ (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o), m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m) })(window,document,'script','https://www.google-analytics.com/analytics.js','ga'); ga('create', 'UA-826175-35', 'auto', { 'cookieExpires': (13 * 30 * 24 * 60 * 60) }); ga('set', 'anonymizeIp', true); ga('send', 'pageview'); </script>
+        <!-- gls_group_analytics_google: end -->
+        <!-- gls_group_gca_analytics: end -->
+        <script>document.addEventListener('gls.locale.registered', function() { window.GLS.locale.load('en_DE', { days: [ "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday" ], daysShort: [ "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" ], daysMin: [ "S", "M", "T", "W", "T", "F", "S" ], months: [ "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December" ], monthsShort: [ "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" ], datePickerTodayText: "Today", datePickerMonthsTitle: "Months", datePickerClearText: "Clear", datePickerDateFormat: "dd/mm/yyyy", weekStart: 0, dateFormat: "DD/MM/YYYY", dateTimeFormat: "DD/MM/YYYY HH:mm" }); });</script>
+        <!-- 152851 (gls_group_gca_footer): start -->
+        <footer role="contentinfo">
+        <div class="container">
+        <div class="top-illustration">
+        <svg class="desktop" width="1059" height="34" viewBox="0 0 1059 34" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path fill-rule="evenodd" clip-rule="evenodd" d="M1007.46 0l12.75 12.75 4.25 4.25-4.25 4.25L1007.46 34l-4.25-4.25 9.75-9.75H0v-6h1012.96l-9.75-9.75 4.25-4.25z" fill="#fff" />
+        <circle cx="1045" cy="16" transform="rotate(-180 1045 16)" fill="#FFD100" r="14" />
+        </svg>
+        </div>
+        <ul class="sitemap" aria-label="Sitemap">
+        <li class="sitemap-item">
+        <h2>
+        <a href="https://www.gls-pakete.de/en/corporate" class="first-level" data-analytics="click" data-analytics-action="Click" data-analytics-category="navigation-footer" > GLS Germany </a></h2>
+        <ul>
+        <li><h3>
+        <a href="https://www.gls-pakete.de/en/corporate/about-gls-overview-page" class="footer-link second-level" data-analytics="click" data-analytics-action="Click" data-analytics-category="Footer - Sitemap Link" > About us </a>
+        </h3></li>
+        <li><h3>
+        <a href="https://www.gls-pakete.de/en/business-shipping/gls-support-contact" class="footer-link second-level" data-analytics="click" data-analytics-action="Click" data-analytics-category="Footer - Sitemap Link" > GLS informs </a>
+        </h3></li>
+        <li><h3>
+        <a href="https://www.gls-newsroom.de/en" target="_blank" rel="noopener noreferrer" class="footer-link second-level" data-analytics="click" data-analytics-action="Click" data-analytics-category="Footer - Sitemap Link" > Newsroom </a>
+        </h3></li>
+        <li><h3>
+        <a href="https://careers.de.gls-group.com/en/home" target="_blank" rel="noopener noreferrer" class="footer-link second-level" data-analytics="click" data-analytics-action="Click" data-analytics-category="Footer - Sitemap Link" > Careers </a>
+        </h3></li>
+        </ul>
+        </li>
+        <li class="sitemap-item">
+        <h2>
+        <a class="first-level" data-analytics="click" data-analytics-action="Click" data-analytics-category="Link" > GLS Group </a></h2>
+        <ul>
+        <li><h3>
+        <a href="https://gls-group.eu/GROUP/en/home" target="_blank" rel="noopener noreferrer" class="footer-link second-level" data-analytics="click" data-analytics-action="Click" data-analytics-category="Footer - Sitemap Link" > GLS Group Homepage </a>
+        </h3></li>
+        <li><h3>
+        <a href="/GROUP/en/dataprotection" target="_blank" class="footer-link second-level" data-analytics="click" data-analytics-action="Click" data-analytics-category="Footer - Sitemap Link" > Data protection GLS Group </a>
+        </h3></li>
+        </ul>
+        </li>
+        <li class="sitemap-item">
+        <h2>
+        <a class="first-level" data-analytics="click" data-analytics-action="Click" data-analytics-category="Link" > Send &#38; receive parcels </a></h2>
+        <ul>
+        <li><h3>
+        <a href="https://www.gls-pakete.de/en" class="footer-link second-level" data-analytics="click" data-analytics-action="Click" data-analytics-category="Footer - Sitemap Link" > Send parcels </a>
+        </h3></li>
+        <li><h3>
+        <a href="https://www.gls-pakete.de/en/receiving-parcels" class="footer-link second-level" data-analytics="click" data-analytics-action="Click" data-analytics-category="Footer - Sitemap Link" > Receive parcels </a>
+        </h3></li>
+        <li><h3>
+        <a href="/DE/en/parcel-redirection/" class="footer-link second-level" data-analytics="click" data-analytics-action="Click" data-analytics-category="Footer - Sitemap Link" > Parcel Redirection </a>
+        </h3></li>
+        <li><h3>
+        <a href="https://www.gls-pakete.de/en/parcel-tracking" target="_blank" rel="noopener noreferrer" class="footer-link second-level" data-analytics="click" data-analytics-action="Click" data-analytics-category="Footer - Sitemap Link" > Parcel Tracking </a>
+        </h3></li>
+        <li><h3>
+        <a href="https://www.gls-pakete.de/en/gls-parcelshops" class="footer-link second-level" data-analytics="click" data-analytics-action="Click" data-analytics-category="Footer - Sitemap Link" > ParcelShops </a>
+        </h3></li>
+        <li><h3>
+        <a href="https://www.gls-kontakt.de/en" target="_blank" rel="noopener noreferrer" class="footer-link second-level" data-analytics="click" data-analytics-action="Click" data-analytics-category="Footer - Sitemap Link" > FAQ service center </a>
+        </h3></li>
+        </ul>
+        </li>
+        <li class="sitemap-item">
+        <h2>
+        <a class="first-level" data-analytics="click" data-analytics-action="Click" data-analytics-category="Link" > GLS partnerships </a></h2>
+        <ul>
+        <li><h3>
+        <a href="https://www.bvb.de/" target="_blank" rel="noopener noreferrer" class="footer-link second-level" data-analytics="click" data-analytics-action="Click" data-analytics-category="Footer - Sitemap Link" > BVB Borussia Dortmund </a>
+        </h3></li>
+        <li><h3>
+        <a href="https://www.leichtathletik.de/" target="_blank" rel="noopener noreferrer" class="footer-link second-level" data-analytics="click" data-analytics-action="Click" data-analytics-category="Footer - Sitemap Link" > DLV </a>
+        </h3></li>
+        <li><h3>
+        <a href="https://www.climatepartner.com/en" target="_blank" rel="noopener noreferrer" class="footer-link second-level" data-analytics="click" data-analytics-action="Click" data-analytics-category="Footer - Sitemap Link" > ClimatePartner </a>
+        </h3></li>
+        </ul>
+        </li>
+        </ul>
+        <ul class="social-media" aria-label="Social Media">
+        <li><a href="https://www.facebook.com/GLSGermany/" target="_blank" rel="noopener noreferrer" title="Facebook" data-analytics="click" data-analytics-action="Facebook" data-analytics-category="link-social-media" > <img src="/media/gls_group_resources/gls_group_assets/gls_group_icons_social_facebook_svg.svg" alt="Facebook link" /> </a></li>
+        <li><a href="https://www.instagram.com/glsgermany/?hl=en" target="_blank" rel="noopener noreferrer" title="Instagram" data-analytics="click" data-analytics-action="Instagram" data-analytics-category="link-social-media" > <img src="/media/gls_group_resources/gls_group_assets/gls_group_icons_social_instagram_svg.svg" alt="Instagram link" /> </a></li>
+        <li><a href="https://www.xing.com/company/glsgermany" target="_blank" rel="noopener noreferrer" title="Xing" data-analytics="click" data-analytics-action="Xing" data-analytics-category="link-social-media" > <img src="/media/gls_group_resources/gls_group_assets/gls_group_icons_social_xing_svg.svg" alt="Xing link" /> </a></li>
+        <li><a href="https://twitter.com/gls_germany?lang=en" target="_blank" rel="noopener noreferrer" title="X" data-analytics="click" data-analytics-action="X" data-analytics-category="link-social-media" > <img src="/media/gls_group_resources/gls_group_assets/gls_group_icons_social_twitter_svg.svg" alt="X link" /> </a></li>
+        <li><a href="https://www.linkedin.com/company/gls-germany" target="_blank" rel="noopener noreferrer" title="LinkedIn" data-analytics="click" data-analytics-action="LinkedIn" data-analytics-category="link-social-media" > <img src="/media/gls_group_resources/gls_group_assets/gls_group_icons_social_linkedin_svg.svg" alt="LinkedIn link" /> </a></li>
+        <li><a href="https://www.youtube.com/channel/UCE66jckdnc0suFPliabA-CQ" target="_blank" rel="noopener noreferrer" title="YouTube" data-analytics="click" data-analytics-action="YouTube" data-analytics-category="link-social-media" > <img src="/media/gls_group_resources/gls_group_assets/gls_group_icons_social_youtube_svg.svg" alt="YouTube link" /> </a></li>
+        </ul>
+        <ul class="meta-navigation">
+        <li>
+        <a href="https://www.gls-pakete.de/en/privacy-policy" data-analytics="click" data-analytics-action="Click" data-analytics-category="Footer - Horizontal Link" > Privacy Policy </a></li>
+        <li>
+        <a href="https://www.gls-pakete.de/en/privacy-policy" data-analytics="click" data-analytics-action="Click" data-analytics-category="Footer - Horizontal Link" > Cookie Policy </a></li>
+        <li>
+        <a href="/DE/en/gtc-standard/" data-analytics="click" data-analytics-action="Click" data-analytics-category="Footer - Horizontal Link" > Terms and Conditions </a></li>
+        <li>
+        <a href="https://www.gls-pakete.de/en/imprint-consumer-dispute-resolution" data-analytics="click" data-analytics-action="Click" data-analytics-category="Footer - Horizontal Link" > Imprint </a></li>
+        <li>
+        <a href="https://www.gls-pakete.de/en/disclaimer" data-analytics="click" data-analytics-action="Click" data-analytics-category="Footer - Horizontal Link" > Disclaimer </a></li>
+        </ul>
+        </div>
+        <div class="bottom-illustration">
+        <svg class="desktop" width="1626" height="100" viewBox="0 0 1626 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M34 14h159.21a20 20 0 0120 20v43a20 20 0 0020 20H1626" stroke="#fff" stroke-width="6" />
+        <circle cx="14" cy="14" transform="rotate(-180 14 14)" fill="#00C2F0" r="14" />
+        </svg>
+        </div>
+        </footer>
+        <!-- 152851 (gls_group_gca_footer): end -->
+        </body>
+        </html>

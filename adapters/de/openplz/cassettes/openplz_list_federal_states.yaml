@@ -1,0 +1,14 @@
+# Recorded by `supermcp adapter record`; replayed by `supermcp adapter test`.
+# Credential values are replaced with SUPERMCP_CREDENTIAL_<NAME>.
+adapter: openplz
+tool: openplz_list_federal_states
+recordedAt: 2026-09-22T22:17:59Z
+interactions:
+  - request:
+      method: GET
+      url: https://openplzapi.org/de/FederalStates
+    response:
+      status: 200
+      headers:
+        content-type: application/json; charset=utf-8
+      body: '[{"key":"01","name":"Schleswig-Holstein","seatOfGovernment":"Kiel"},{"key":"02","name":"Hamburg","seatOfGovernment":"Hamburg"},{"key":"03","name":"Niedersachsen","seatOfGovernment":"Hannover"},{"key":"04","name":"Bremen","seatOfGovernment":"Bremen"},{"key":"05","name":"Nordrhein-Westfalen","seatOfGovernment":"Düsseldorf"},{"key":"06","name":"Hessen","seatOfGovernment":"Wiesbaden"},{"key":"07","name":"Rheinland-Pfalz","seatOfGovernment":"Mainz"},{"key":"08","name":"Baden-Württemberg","seatOfGovernment":"Stuttgart"},{"key":"09","name":"Bayern","seatOfGovernment":"München"},{"key":"10","name":"Saarland","seatOfGovernment":"Saarbrücken, Landeshauptstadt"},{"key":"11","name":"Berlin","seatOfGovernment":"Berlin"},{"key":"12","name":"Brandenburg","seatOfGovernment":"Potsdam"},{"key":"13","name":"Mecklenburg-Vorpommern","seatOfGovernment":"Schwerin"},{"key":"14","name":"Sachsen","seatOfGovernment":"Dresden"},{"key":"15","name":"Sachsen-Anhalt","seatOfGovernment":"Magdeburg"},{"key":"16","name":"Thüringen","seatOfGovernment":"Erfurt"}]'

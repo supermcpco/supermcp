@@ -1,0 +1,186 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: axonaut
+  name: Axonaut
+  description: 'Axonaut — French all-in-one CRM, invoicing and expense management for very small businesses: companies, employees, invoices, quotations, expenses, products and projects. REST API v2, API-key auth.'
+  region: fr
+  category: erp
+  icon: axonaut
+  docsUrl: https://axonaut.com/api/v2/doc
+credentials:
+  AXONAUT_API_KEY:
+    required: true
+    secret: true
+transport:
+  type: http
+  baseUrl: https://axonaut.com/api/v2
+  headers:
+    Accept: application/json
+auth:
+  type: apiKey
+  in: header
+  name: userApiKey
+  value: '{{env.AXONAUT_API_KEY}}'
+healthcheck:
+  tool: axonaut_list_companies
+  http:
+    method: GET
+    path: /companies
+instructions: |-
+  **Getting a key**
+  1. Sign in to Axonaut and open **Paramètres → API** (Settings → API).
+  2. Copy the key into `AXONAUT_API_KEY`. It is account-wide and carries full access; treat it as a password.
+
+  **The header is `userApiKey`.** Not `Authorization`, not `X-API-Key` — Axonaut's own spelling, camel-cased, is what the server checks.
+
+  **Axonaut calls customers 'companies' and people 'employees'.** A `company` is a client or prospect organisation; an `employee` is a person attached to one. This trips people up, because 'employee' sounds like your own staff and is not.
+
+  **Paging is `page`, 1-based, fixed at 100 rows.** There is no page-size parameter. The response carries the total in the `X-Total-Count` header, so you can tell when to stop.
+
+  **Dates are `DD/MM/YYYY`** on most filters — French format, not ISO. This is the single most common source of a filter that silently matches nothing.
+
+  **Amounts are floats in euros**, pre-tax (`preTaxAmount`) and inclusive (`totalAmount`) side by side.
+
+  **Unverified.** The paths and field names below follow the vendor's published documentation and have not been exercised against a live tenant. Treat a 404 as a docs-versus-reality gap and check the developer portal before concluding that the credential is wrong. A correction from anyone running this against a real system is genuinely welcome.
+
+  **Cloud reachability**: axonaut.com is public with a valid certificate.
+tools:
+  - name: axonaut_list_companies
+    description: List companies — Axonaut's clients and prospects — with their name, SIRET, address, category and assigned user. 100 rows per page, no page size.
+    input:
+      type: object
+      properties:
+        page:
+          type: number
+          description: Page number, starting at 1. Pages are fixed at 100 rows.
+        name:
+          type: string
+          description: Name fragment to filter by.
+    operation:
+      method: GET
+      path: /companies
+      query:
+        page: '{{params.page}}'
+        name: '{{params.name}}'
+  - name: axonaut_get_company
+    description: 'Read one company in full: its addresses, custom fields, the employees attached to it and its accounting identifiers.'
+    input:
+      type: object
+      properties:
+        companyId:
+          type: number
+          description: Numeric Axonaut company id.
+      required:
+        - companyId
+    operation:
+      method: GET
+      path: /companies/{{params.companyId}}
+  - name: axonaut_list_employees
+    description: List employees — the *people* attached to client companies, not your own staff — with their name, e-mail, phone and role.
+    input:
+      type: object
+      properties:
+        page:
+          type: number
+          description: Page number, starting at 1.
+    operation:
+      method: GET
+      path: /employees
+      query:
+        page: '{{params.page}}'
+  - name: axonaut_list_invoices
+    description: List invoices with their number, date, company, pre-tax and total amounts and payment state. Dates in the filters are DD/MM/YYYY, not ISO.
+    input:
+      type: object
+      properties:
+        page:
+          type: number
+          description: Page number, starting at 1.
+        date_before:
+          type: string
+          description: Latest invoice date, DD/MM/YYYY — French format, not ISO.
+        date_after:
+          type: string
+          description: Earliest invoice date, DD/MM/YYYY — French format, not ISO.
+    operation:
+      method: GET
+      path: /invoices
+      query:
+        page: '{{params.page}}'
+        date_before: '{{params.date_before}}'
+        date_after: '{{params.date_after}}'
+  - name: axonaut_get_invoice
+    description: 'Read one invoice in full: every product line with quantity, price and VAT, the totals, and the payments recorded against it.'
+    input:
+      type: object
+      properties:
+        invoiceId:
+          type: number
+          description: Numeric Axonaut invoice id.
+      required:
+        - invoiceId
+    operation:
+      method: GET
+      path: /invoices/{{params.invoiceId}}
+  - name: axonaut_list_quotations
+    description: List quotations (devis) with their number, date, company, total and whether they have been accepted.
+    input:
+      type: object
+      properties:
+        page:
+          type: number
+          description: Page number, starting at 1.
+        date_after:
+          type: string
+          description: Earliest quotation date, DD/MM/YYYY.
+    operation:
+      method: GET
+      path: /quotations
+      query:
+        page: '{{params.page}}'
+        date_after: '{{params.date_after}}'
+  - name: axonaut_list_expenses
+    description: List expenses and supplier invoices with their date, supplier, category, pre-tax amount and VAT — the cost side of the ledger.
+    input:
+      type: object
+      properties:
+        page:
+          type: number
+          description: Page number, starting at 1.
+        date_after:
+          type: string
+          description: Earliest expense date, DD/MM/YYYY.
+    operation:
+      method: GET
+      path: /expenses
+      query:
+        page: '{{params.page}}'
+        date_after: '{{params.date_after}}'
+  - name: axonaut_list_products
+    description: List catalogue products with their reference, name, pre-tax price, VAT rate and stock quantity.
+    input:
+      type: object
+      properties:
+        page:
+          type: number
+          description: Page number, starting at 1.
+    operation:
+      method: GET
+      path: /products
+      query:
+        page: '{{params.page}}'
+  - name: axonaut_list_projects
+    description: List projects with their name, company, budget, status and dates — the anchor for time and profitability questions.
+    input:
+      type: object
+      properties:
+        page:
+          type: number
+          description: Page number, starting at 1.
+    operation:
+      method: GET
+      path: /projects
+      query:
+        page: '{{params.page}}'

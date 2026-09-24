@@ -1,0 +1,197 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: mailshake
+  name: Mailshake
+  description: 'Drive Mailshake (cold email / sales engagement) from any AI agent: campaigns, recipients, leads, replies. 8 tools, Basic auth (API key as user).'
+  region: intl
+  category: crm
+  icon: mailshake
+  docsUrl: https://mailshake.com/api/v1/
+  lint:
+    allow:
+      - description-min-60
+      - healthcheck-present
+      - instructions-min-800
+credentials:
+  MAILSHAKE_API_KEY:
+    required: true
+    secret: true
+transport:
+  type: http
+  baseUrl: https://api.mailshake.com/2017-04-01
+auth:
+  type: basic
+  username: '{{env.MAILSHAKE_API_KEY}}'
+instructions: |-
+  This connector uses the Mailshake API v1 (mailshake.com/api/v1).
+
+  **Setup**:
+  1. Sign in to https://mailshake.com → top-right avatar → **API Keys → Create API Key**.
+  2. Set `MAILSHAKE_API_KEY`.
+
+  **Authentication**: HTTP Basic with username=API_KEY, password=empty.
+
+  **Campaign**: a sequence of email steps. Add recipients to a campaign → they start receiving emails on schedule.
+
+  **Recipient state**: each recipient has a status (pending, sending, paused, finished, replied, bounced, unsubscribed).
+
+  **Pagination**: `?perPage=N&cursor=...`.
+
+  **Out of scope here**: campaign content editor (UI), team management, AI features, copy-A/B-testing config.
+tools:
+  - name: mailshake_me
+    description: Return the user/team the API key belongs to. Useful as a first call to verify the API key works.
+    input:
+      type: object
+      properties: {}
+    operation:
+      method: GET
+      path: /me
+  - name: mailshake_list_campaigns
+    description: List campaigns.
+    input:
+      type: object
+      properties:
+        perPage:
+          type: integer
+          description: Per page (default 25, max 100).
+        cursor:
+          type: string
+          description: Pagination cursor.
+        search:
+          type: string
+          description: Name substring filter.
+    operation:
+      method: POST
+      path: /campaigns/list
+      body:
+        value:
+          perPage: '{{params.perPage}}'
+          cursor: '{{params.cursor}}'
+          search: '{{params.search}}'
+  - name: mailshake_get_campaign
+    description: Get a campaign by ID.
+    input:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: Campaign ID.
+      required:
+        - id
+    operation:
+      method: POST
+      path: /campaigns/get
+      body:
+        value:
+          id: '{{params.id}}'
+  - name: mailshake_pause_campaign
+    description: Pause a campaign (stops all future sends until resumed).
+    input:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: Campaign ID.
+      required:
+        - id
+    operation:
+      method: POST
+      path: /campaigns/pause
+      body:
+        value:
+          id: '{{params.id}}'
+  - name: mailshake_unpause_campaign
+    description: Resume a paused campaign.
+    input:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: Campaign ID.
+      required:
+        - id
+    operation:
+      method: POST
+      path: /campaigns/unpause
+      body:
+        value:
+          id: '{{params.id}}'
+  - name: mailshake_add_recipients_to_campaign
+    description: Add recipients to a campaign. recipients is array of {emailAddress, fullName?, firstName?, lastName?, phone?, companyName?, ...customFields}.
+    input:
+      type: object
+      properties:
+        campaignID:
+          type: integer
+          description: Campaign ID.
+        recipients:
+          type: array
+          description: '[{emailAddress, fullName?, firstName?, lastName?, phone?, companyName?, ...any custom variables defined in the campaign}].'
+        addDuplicates:
+          type: boolean
+          description: If true, add even if email already in campaign.
+      required:
+        - campaignID
+        - recipients
+    operation:
+      method: POST
+      path: /recipients/add
+      body:
+        value:
+          campaignID: '{{params.campaignID}}'
+          recipients: '{{params.recipients}}'
+          addDuplicates: '{{params.addDuplicates}}'
+  - name: mailshake_list_recipients
+    description: List recipients in a campaign with filters.
+    input:
+      type: object
+      properties:
+        campaignID:
+          type: integer
+          description: Campaign ID.
+        perPage:
+          type: integer
+          description: Per page.
+        cursor:
+          type: string
+          description: Cursor.
+        status:
+          type: string
+          description: pending, sending, paused, finished, replied, bounced, unsubscribed.
+        search:
+          type: string
+          description: Substring filter.
+    operation:
+      method: POST
+      path: /recipients/list
+      body:
+        value:
+          campaignID: '{{params.campaignID}}'
+          perPage: '{{params.perPage}}'
+          cursor: '{{params.cursor}}'
+          status: '{{params.status}}'
+          search: '{{params.search}}'
+  - name: mailshake_pause_recipient
+    description: Pause a recipient by emailAddress + campaignID (stops further emails to them without unsubscribing).
+    input:
+      type: object
+      properties:
+        emailAddress:
+          type: string
+          description: Recipient email.
+        campaignID:
+          type: integer
+          description: Campaign ID.
+      required:
+        - emailAddress
+        - campaignID
+    operation:
+      method: POST
+      path: /recipients/pause
+      body:
+        value:
+          emailAddress: '{{params.emailAddress}}'
+          campaignID: '{{params.campaignID}}'

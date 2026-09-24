@@ -1,0 +1,280 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: deel
+  name: Deel
+  description: 'Manage Deel (global EOR / contractor platform: people, contracts, invoices, payments, organizations) from any AI agent. 10 tools, Bearer token.'
+  region: intl
+  category: hr
+  icon: deel
+  docsUrl: https://developer.deel.com/reference/
+  lint:
+    allow:
+      - description-min-60
+      - healthcheck-present
+credentials:
+  DEEL_API_TOKEN:
+    required: true
+    secret: true
+transport:
+  type: http
+  baseUrl: https://api.letsdeel.com/rest/v2
+auth:
+  type: bearer
+  token: '{{env.DEEL_API_TOKEN}}'
+instructions: |-
+  This connector wraps the Deel API v2 (api.letsdeel.com/rest/v2).
+
+  **Setup**:
+  1. Log into https://app.deel.com → top-right avatar → **Developer Center → Create API token**.
+  2. Pick scopes (read/write people, contracts, invoices, etc.).
+  3. Set `DEEL_API_TOKEN`.
+
+  **Authentication**: `Authorization: Bearer ${DEEL_API_TOKEN}`.
+
+  **Entity model**: `Person` (worker) → `Contract` (engagement: EOR, contractor, direct employee) → `Invoice` (per pay period) → `Payment` (the disbursement). Each has its own endpoint.
+
+  **Pagination**: `limit` (max 250) + `offset` (0-based). Response has `total` count.
+
+  **Rate limits**: 100 req/min per token. 429 with `Retry-After`.
+
+  **Out of scope here**: equity grants, expense reimbursements multi-step (upload + claim), payroll-cycle adjustments, the legacy v1 endpoints.
+tools:
+  - name: deel_list_organizations
+    description: List organizations the token can access.
+    input:
+      type: object
+      properties: {}
+    operation:
+      method: GET
+      path: /organizations
+  - name: deel_list_people
+    description: List people (workers).
+    input:
+      type: object
+      properties:
+        limit:
+          type: integer
+          description: Max 250.
+        offset:
+          type: integer
+          description: 0-based.
+        name:
+          type: string
+          description: Name filter.
+        email:
+          type: string
+          description: Email filter.
+        hiring_status:
+          type: string
+          description: active, inactive.
+    operation:
+      method: GET
+      path: /people
+      query:
+        limit: '{{params.limit}}'
+        offset: '{{params.offset}}'
+        name: '{{params.name}}'
+        email: '{{params.email}}'
+        hiring_status: '{{params.hiring_status}}'
+  - name: deel_get_person
+    description: Get one person with full profile.
+    input:
+      type: object
+      properties:
+        person_id:
+          type: string
+          description: Person hris_id (Deel public ID).
+      required:
+        - person_id
+    operation:
+      method: GET
+      path: /people/{{params.person_id}}
+  - name: deel_list_contracts
+    description: List contracts. Filter by status (in_progress, terminated, draft), type (eor, contractor, direct_employee).
+    input:
+      type: object
+      properties:
+        after_cursor:
+          type: string
+          description: Cursor pagination.
+        limit:
+          type: integer
+          description: Max 250.
+        types:
+          type: string
+          description: Comma-separated contract types.
+        statuses:
+          type: string
+          description: Comma-separated statuses.
+    operation:
+      method: GET
+      path: /contracts
+      query:
+        after_cursor: '{{params.after_cursor}}'
+        limit: '{{params.limit}}'
+        types: '{{params.types}}'
+        statuses: '{{params.statuses}}'
+  - name: deel_get_contract
+    description: Get one contract with full terms.
+    input:
+      type: object
+      properties:
+        contract_id:
+          type: string
+          description: Contract ID.
+      required:
+        - contract_id
+    operation:
+      method: GET
+      path: /contracts/{{params.contract_id}}
+  - name: deel_terminate_contract
+    description: Terminate a contract.
+    input:
+      type: object
+      properties:
+        contract_id:
+          type: string
+          description: Contract ID.
+        termination_date:
+          type: string
+          description: YYYY-MM-DD.
+        reason:
+          type: string
+          description: Free-text termination reason.
+        additional_information:
+          type: string
+          description: Optional notes.
+      required:
+        - contract_id
+        - termination_date
+    operation:
+      method: POST
+      path: /contracts/{{params.contract_id}}/terminations
+      body:
+        value:
+          termination_date: '{{params.termination_date}}'
+          reason: '{{params.reason}}'
+          additional_information: '{{params.additional_information}}'
+  - name: deel_list_invoices
+    description: List invoices (per-contract pay period). Filter by date range, status (paid, awaiting_payment).
+    input:
+      type: object
+      properties:
+        from:
+          type: string
+          description: Issued from (YYYY-MM-DD).
+        to:
+          type: string
+          description: Issued to.
+        status:
+          type: string
+          description: paid, awaiting_payment, overdue.
+        limit:
+          type: integer
+          description: Max 250.
+        offset:
+          type: integer
+          description: 0-based.
+    operation:
+      method: GET
+      path: /invoices
+      query:
+        from: '{{params.from}}'
+        to: '{{params.to}}'
+        status: '{{params.status}}'
+        limit: '{{params.limit}}'
+        offset: '{{params.offset}}'
+  - name: deel_list_payments
+    description: List payments (disbursements to workers).
+    input:
+      type: object
+      properties:
+        from:
+          type: string
+          description: YYYY-MM-DD.
+        to:
+          type: string
+          description: YYYY-MM-DD.
+        limit:
+          type: integer
+          description: Max 250.
+        offset:
+          type: integer
+          description: 0-based.
+    operation:
+      method: GET
+      path: /payments
+      query:
+        from: '{{params.from}}'
+        to: '{{params.to}}'
+        limit: '{{params.limit}}'
+        offset: '{{params.offset}}'
+  - name: deel_list_time_offs
+    description: List time-off requests (for direct employees and EOR workers).
+    input:
+      type: object
+      properties:
+        from:
+          type: string
+          description: YYYY-MM-DD.
+        to:
+          type: string
+          description: YYYY-MM-DD.
+        type:
+          type: string
+          description: Time off type.
+        status:
+          type: string
+          description: approved, pending, rejected.
+        limit:
+          type: integer
+          description: Max 250.
+        offset:
+          type: integer
+          description: 0-based.
+    operation:
+      method: GET
+      path: /time-offs
+      query:
+        from: '{{params.from}}'
+        to: '{{params.to}}'
+        type: '{{params.type}}'
+        status: '{{params.status}}'
+        limit: '{{params.limit}}'
+        offset: '{{params.offset}}'
+  - name: deel_add_adjustment
+    description: Add a one-off pay adjustment to a contract's invoice cycle (e.g. bonus, commission, deduction).
+    input:
+      type: object
+      properties:
+        contract_id:
+          type: string
+          description: Contract ID.
+        amount:
+          type: number
+          description: Amount (positive=add, negative=deduct).
+        description:
+          type: string
+          description: What it's for.
+        date:
+          type: string
+          description: Apply on (YYYY-MM-DD).
+        category:
+          type: string
+          description: bonus, commission, overtime, expense, deduction, ...
+      required:
+        - contract_id
+        - amount
+        - description
+        - date
+    operation:
+      method: POST
+      path: /contracts/{{params.contract_id}}/adjustments
+      body:
+        value:
+          amount: '{{params.amount}}'
+          description: '{{params.description}}'
+          date: '{{params.date}}'
+          category: '{{params.category}}'

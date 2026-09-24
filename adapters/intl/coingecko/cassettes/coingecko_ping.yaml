@@ -1,0 +1,14 @@
+# Recorded by `supermcp adapter record`; replayed by `supermcp adapter test`.
+# Credential values are replaced with SUPERMCP_CREDENTIAL_<NAME>.
+adapter: coingecko
+tool: coingecko_ping
+recordedAt: 2026-09-22T22:18:00Z
+interactions:
+  - request:
+      method: GET
+      url: https://api.coingecko.com/api/v3/ping
+    response:
+      status: 200
+      headers:
+        content-type: application/json; charset=utf-8
+      body: '{"gecko_says":"(V3) To the Moon!"}'

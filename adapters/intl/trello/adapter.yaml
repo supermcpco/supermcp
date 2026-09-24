@@ -1,0 +1,415 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: trello
+  name: Trello
+  description: 'Drive Trello (Kanban boards) from any AI agent: boards, lists, cards, members, labels, checklists, attachments-by-URL. 13 tools. API key + user token query-string auth (Trello-specific).'
+  region: intl
+  category: project-management
+  icon: trello
+  docsUrl: https://developer.atlassian.com/cloud/trello/rest/
+  lint:
+    allow:
+      - description-min-60
+      - healthcheck-present
+credentials:
+  TRELLO_API_KEY:
+    required: true
+    secret: true
+  TRELLO_TOKEN:
+    required: true
+    secret: true
+transport:
+  type: http
+  baseUrl: https://api.trello.com/1
+auth:
+  type: query
+  params:
+    key: '{{env.TRELLO_API_KEY}}'
+    token: '{{env.TRELLO_TOKEN}}'
+instructions: |-
+  This connector uses the Trello REST API v1.
+
+  **Setup**:
+  1. Sign in to Trello → go to https://trello.com/power-ups/admin → **+ New** to create a Power-Up (this is just the modern way to mint API keys).
+  2. After creation, open the Power-Up → **API key** section → copy the **API key**.
+  3. Below it, click **Token** → authorize the Power-Up → copy the generated user **Token**.
+  4. Set:
+     - `TRELLO_API_KEY` = the Power-Up key (a long alphanumeric)
+     - `TRELLO_TOKEN` = the user token (much longer)
+
+  **Authentication**: query-string `?key=${TRELLO_API_KEY}&token=${TRELLO_TOKEN}` on every request. The token is per-user — actions are attributed to that user. To act as a different user, mint a separate token via their Trello account.
+
+  **Hierarchy**: Workspace (Organization) → Board → List → Card. Cards have members[], labels[], checklists[], attachments[], comments (= actions of type commentCard).
+
+  **ID format**: 24-character hex (e.g. `abc123def456789012345678`). Boards / lists / cards / members all use this format. Discover board IDs via `trello_list_my_boards` → list IDs via `trello_get_board_lists` → card IDs via `trello_list_cards_in_list`.
+
+  **`fields` parameter**: virtually every endpoint accepts `?fields=all` or `?fields=comma,separated,list`. Default returns a sensible subset — for full payloads pass `fields=all`.
+
+  **Position values**: lists and cards have a `pos` (float) for ordering. `pos=top` or `pos=bottom` shortcuts work for moves; otherwise pass an explicit number between the neighbors' positions.
+
+  **Labels**: are board-level. A label has color (green/yellow/orange/red/purple/blue/sky/lime/pink/black/null) + name. Cards reference labels by their ID. Use `trello_list_board_labels` to discover IDs.
+
+  **Attachments**: upload via multipart not supported in single call. Use URL attachments via the `url` parameter — Trello fetches it.
+
+  **Webhooks** out of scope.
+
+  **Rate limits**: 100 req per 10 sec per API key, 300 per 10 sec per token. Returns 429 with `X-Rate-Limit-Api-Key-Remaining` header.
+
+  **Out of scope here**: Power-Up actions, custom fields (Power-Up only), board backgrounds, voting, plugin data, butler automations.
+tools:
+  - name: trello_get_me
+    description: 'Return the user the token belongs to: id, username, fullName, email, avatarUrl. Health check + whoami.'
+    input:
+      type: object
+      properties: {}
+    operation:
+      method: GET
+      path: /members/me
+  - name: trello_list_my_boards
+    description: List boards the user is a member of. Each board has id, name, desc, url, closed, idOrganization.
+    input:
+      type: object
+      properties:
+        filter:
+          type: string
+          description: all, members, organization, public, open, closed, pinned, unpinned, starred.
+        fields:
+          type: string
+          description: all or comma-separated list.
+    operation:
+      method: GET
+      path: /members/me/boards
+      query:
+        filter: '{{params.filter}}'
+        fields: '{{params.fields}}'
+  - name: trello_get_board
+    description: Fetch a board with optional nested resources (lists/cards/labels/members) via inclusion params.
+    input:
+      type: object
+      properties:
+        boardId:
+          type: string
+          description: Board ID.
+        fields:
+          type: string
+          description: Board fields or 'all'.
+        lists:
+          type: string
+          description: 'Include lists: none, all, open, closed.'
+        cards:
+          type: string
+          description: 'Include cards: none, all, open, closed, visible.'
+        members:
+          type: string
+          description: 'Include members: none, normal, admins, owners, all.'
+        labels:
+          type: string
+          description: 'Include labels: none, all.'
+      required:
+        - boardId
+    operation:
+      method: GET
+      path: /boards/{{params.boardId}}
+      query:
+        fields: '{{params.fields}}'
+        lists: '{{params.lists}}'
+        cards: '{{params.cards}}'
+        members: '{{params.members}}'
+        labels: '{{params.labels}}'
+  - name: trello_get_board_lists
+    description: List the lists (columns) on a board.
+    input:
+      type: object
+      properties:
+        boardId:
+          type: string
+          description: Board ID.
+        filter:
+          type: string
+          description: all, open, closed, none.
+        fields:
+          type: string
+          description: Fields or 'all'.
+      required:
+        - boardId
+    operation:
+      method: GET
+      path: /boards/{{params.boardId}}/lists
+      query:
+        filter: '{{params.filter}}'
+        fields: '{{params.fields}}'
+  - name: trello_list_cards_in_list
+    description: List cards in a list. Each card has id, name, desc, idMembers, idLabels, due, dueComplete, shortUrl, pos.
+    input:
+      type: object
+      properties:
+        listId:
+          type: string
+          description: List ID.
+        fields:
+          type: string
+          description: Card fields or 'all'.
+      required:
+        - listId
+    operation:
+      method: GET
+      path: /lists/{{params.listId}}/cards
+      query:
+        fields: '{{params.fields}}'
+  - name: trello_get_card
+    description: Fetch a single card with optional members/labels/checklists/attachments included.
+    input:
+      type: object
+      properties:
+        cardId:
+          type: string
+          description: Card ID.
+        fields:
+          type: string
+          description: Card fields.
+        members:
+          type: boolean
+          description: Include full member objects.
+        checklists:
+          type: string
+          description: all or none.
+        attachments:
+          type: string
+          description: true, false, cover.
+      required:
+        - cardId
+    operation:
+      method: GET
+      path: /cards/{{params.cardId}}
+      query:
+        fields: '{{params.fields}}'
+        members: '{{params.members}}'
+        checklists: '{{params.checklists}}'
+        attachments: '{{params.attachments}}'
+  - name: trello_create_card
+    description: 'Create a card in a list. Required: idList + name. due is ISO 8601. idMembers/idLabels are comma-separated ID strings.'
+    input:
+      type: object
+      properties:
+        idList:
+          type: string
+          description: Target list ID.
+        name:
+          type: string
+          description: Card name.
+        desc:
+          type: string
+          description: Description (Markdown).
+        pos:
+          type: string
+          description: 'Position: ''top'', ''bottom'', or numeric (e.g. ''65535'').'
+        due:
+          type: string
+          description: Due date ISO 8601.
+        dueComplete:
+          type: boolean
+          description: If true, due is marked complete.
+        idMembers:
+          type: string
+          description: Comma-separated member IDs.
+        idLabels:
+          type: string
+          description: Comma-separated label IDs.
+        urlSource:
+          type: string
+          description: If set, attach this URL to the card on create.
+        address:
+          type: string
+          description: Location address.
+        locationName:
+          type: string
+          description: Location name.
+        coordinates:
+          type: string
+          description: lat,lng coordinates.
+      required:
+        - idList
+        - name
+    operation:
+      method: POST
+      path: /cards
+      body:
+        value:
+          idList: '{{params.idList}}'
+          name: '{{params.name}}'
+          desc: '{{params.desc}}'
+          pos: '{{params.pos}}'
+          due: '{{params.due}}'
+          dueComplete: '{{params.dueComplete}}'
+          idMembers: '{{params.idMembers}}'
+          idLabels: '{{params.idLabels}}'
+          urlSource: '{{params.urlSource}}'
+          address: '{{params.address}}'
+          locationName: '{{params.locationName}}'
+          coordinates: '{{params.coordinates}}'
+  - name: trello_update_card
+    description: 'Update a card. Common: idList (move to another column), pos, due/dueComplete, name/desc, idMembers (replace whole array via comma-separated string), idLabels.'
+    input:
+      type: object
+      properties:
+        cardId:
+          type: string
+          description: Card ID.
+        name:
+          type: string
+          description: New name.
+        desc:
+          type: string
+          description: New description.
+        closed:
+          type: boolean
+          description: Archive the card (true = archive).
+        idMembers:
+          type: string
+          description: Comma-separated member IDs (full replacement).
+        idAttachmentCover:
+          type: string
+          description: Attachment ID to use as cover.
+        idList:
+          type: string
+          description: Move to this list ID.
+        idLabels:
+          type: string
+          description: Comma-separated label IDs (full replacement).
+        idBoard:
+          type: string
+          description: Move to a different board.
+        pos:
+          type: string
+          description: top, bottom, or numeric.
+        due:
+          type: string
+          description: ISO 8601 or null to clear.
+        dueComplete:
+          type: boolean
+          description: Mark due complete.
+      required:
+        - cardId
+    operation:
+      method: PUT
+      path: /cards/{{params.cardId}}
+      body:
+        value:
+          name: '{{params.name}}'
+          desc: '{{params.desc}}'
+          closed: '{{params.closed}}'
+          idMembers: '{{params.idMembers}}'
+          idAttachmentCover: '{{params.idAttachmentCover}}'
+          idList: '{{params.idList}}'
+          idLabels: '{{params.idLabels}}'
+          idBoard: '{{params.idBoard}}'
+          pos: '{{params.pos}}'
+          due: '{{params.due}}'
+          dueComplete: '{{params.dueComplete}}'
+  - name: trello_delete_card
+    description: Permanently delete a card. Use trello_update_card with closed=true for archive (recoverable).
+    input:
+      type: object
+      properties:
+        cardId:
+          type: string
+          description: Card ID.
+      required:
+        - cardId
+    operation:
+      method: DELETE
+      path: /cards/{{params.cardId}}
+  - name: trello_add_card_comment
+    description: Add a comment to a card (creates an action of type commentCard).
+    input:
+      type: object
+      properties:
+        cardId:
+          type: string
+          description: Card ID.
+        text:
+          type: string
+          description: Comment text (Markdown).
+      required:
+        - cardId
+        - text
+    operation:
+      method: POST
+      path: /cards/{{params.cardId}}/actions/comments
+      body:
+        value:
+          text: '{{params.text}}'
+  - name: trello_attach_url_to_card
+    description: Attach a URL (link) to a card. For file uploads use the Trello UI — multipart upload via API is not supported here.
+    input:
+      type: object
+      properties:
+        cardId:
+          type: string
+          description: Card ID.
+        url:
+          type: string
+          description: URL to attach.
+        name:
+          type: string
+          description: Display name for the attachment.
+        setCover:
+          type: boolean
+          description: If true and the URL is an image, use it as the card cover.
+      required:
+        - cardId
+        - url
+    operation:
+      method: POST
+      path: /cards/{{params.cardId}}/attachments
+      body:
+        value:
+          url: '{{params.url}}'
+          name: '{{params.name}}'
+          setCover: '{{params.setCover}}'
+  - name: trello_list_board_labels
+    description: List labels available on a board. Returns id, name, color.
+    input:
+      type: object
+      properties:
+        boardId:
+          type: string
+          description: Board ID.
+      required:
+        - boardId
+    operation:
+      method: GET
+      path: /boards/{{params.boardId}}/labels
+  - name: trello_search
+    description: Universal search across boards, cards, members and organizations. Supports the same operators as the Trello UI search (board:X, list:Y, label:Z, member:W, due:next-week, has:attachments, etc.).
+    input:
+      type: object
+      properties:
+        query:
+          type: string
+          description: Search query (min 1 char).
+        modelTypes:
+          type: string
+          description: 'Comma-separated: actions,boards,cards,members,organizations.'
+        cards_limit:
+          type: integer
+          description: Max cards returned (default 10, max 1000).
+        boards_limit:
+          type: integer
+          description: Max boards.
+        partial:
+          type: boolean
+          description: Partial match (default true).
+      required:
+        - query
+    operation:
+      method: GET
+      path: /search
+      query:
+        query: '{{params.query}}'
+        modelTypes: '{{params.modelTypes}}'
+        cards_limit: '{{params.cards_limit}}'
+        boards_limit: '{{params.boards_limit}}'
+        partial: '{{params.partial}}'

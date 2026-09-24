@@ -1,0 +1,150 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: razorpay
+  name: Razorpay
+  description: India's leading payment gateway. Create orders, fetch payments, manage refunds, and issue payment links. Supports UPI, cards, netbanking, wallets. Test mode keys (`rzp_test_*`) require no KYC — sign up and create in minutes.
+  region: in
+  category: payments
+  icon: razorpay
+  docsUrl: https://razorpay.com/docs/api/
+  lint:
+    allow:
+      - healthcheck-present
+credentials:
+  RAZORPAY_KEY_ID:
+    required: true
+    secret: true
+  RAZORPAY_KEY_SECRET:
+    required: true
+    secret: true
+transport:
+  type: http
+  baseUrl: https://api.razorpay.com/v1
+auth:
+  type: basic
+  username: '{{env.RAZORPAY_KEY_ID}}'
+  password: '{{env.RAZORPAY_KEY_SECRET}}'
+instructions: |-
+  This connector uses the Razorpay v1 REST API.
+
+  **Getting test API keys**: sign up at https://dashboard.razorpay.com → Settings → API Keys → Generate Test Key. You get a `key_id` (prefix `rzp_test_`) and a `key_secret`. Both are required.
+
+  **Authentication**: HTTP Basic Auth with `key_id` as username and `key_secret` as password.
+
+  **Amount convention**: Razorpay amounts are integers in the **smallest currency unit** — for INR this is **paise**, so ₹100 = `10000`. Same for other currencies (USD → cents, EUR → cents). Pass the value already multiplied; do NOT pass decimals.
+
+  **Test mode**: completely free, no KYC required. Test cards: card number `4111 1111 1111 1111`, any future expiry, any CVV. UPI test handle: `success@razorpay`.
+
+  **Production**: requires Razorpay KYC (business documents, bank account verification). Live keys start with `rzp_live_` — never commit them.
+tools:
+  - name: razorpay_create_order
+    description: 'Create a Razorpay order. Orders are the recommended flow: create on the server, attach to a checkout, receive payment, then verify the resulting payment. Returns the order id (prefix `order_`) needed for the checkout.'
+    input:
+      type: object
+      properties:
+        amount:
+          type: number
+          description: Amount in the smallest currency unit (e.g. 10000 = ₹100.00 for INR).
+        currency:
+          type: string
+          description: 'ISO-4217 currency code: ''INR'', ''USD'', ''EUR'', ''GBP'', etc.'
+        receipt:
+          type: string
+          description: Your internal receipt / order id (max 40 chars). Shown on the Razorpay dashboard for reconciliation.
+        notes:
+          type: object
+          description: Optional key-value object of arbitrary metadata (max 15 keys, key+value ≤ 256 chars).
+        payment_capture:
+          type: number
+          description: 1 = auto-capture on payment success (default), 0 = authorize only, capture later via API.
+      required:
+        - amount
+        - currency
+    operation:
+      method: POST
+      path: /orders
+      body:
+        value:
+          amount: '{{params.amount}}'
+          currency: '{{params.currency}}'
+          receipt: '{{params.receipt}}'
+          notes: '{{params.notes}}'
+          payment_capture: '{{params.payment_capture}}'
+  - name: razorpay_fetch_payment
+    description: Fetch a single payment by its id (prefix `pay_`). Returns status (created/authorized/captured/refunded/failed), amount, method (card/upi/netbanking/wallet/emi), card/bank/upi details, fees, tax, and any error code/description.
+    input:
+      type: object
+      properties:
+        payment_id:
+          type: string
+          description: Razorpay payment id (prefix 'pay_').
+      required:
+        - payment_id
+    operation:
+      method: GET
+      path: /payments/{{params.payment_id}}
+  - name: razorpay_list_refunds
+    description: List refunds across the account, optionally filtered by payment id. Returns refund id, payment id, amount, status (pending/processed/failed), created_at, and speed (normal/optimum/instant).
+    input:
+      type: object
+      properties:
+        payment_id:
+          type: string
+          description: Optional — return only refunds for this payment id.
+        count:
+          type: number
+          description: Max results (default 10, max 100).
+        skip:
+          type: number
+          description: Offset for pagination.
+    operation:
+      method: GET
+      path: /refunds
+      query:
+        payment_id: '{{params.payment_id}}'
+        count: '{{params.count}}'
+        skip: '{{params.skip}}'
+  - name: razorpay_create_payment_link
+    description: Create a Razorpay-hosted payment link (short_url) you can send by email/SMS/WhatsApp. The customer pays on Razorpay's page; you get a webhook + can verify via fetch_payment. Returns the link id and short_url.
+    input:
+      type: object
+      properties:
+        amount:
+          type: number
+          description: Amount in smallest currency unit (e.g. 10000 = ₹100 for INR).
+        currency:
+          type: string
+          description: ISO-4217 currency code (e.g. 'INR').
+        description:
+          type: string
+          description: Description shown to the customer on the payment page (max 2048 chars).
+        customer:
+          type: object
+          description: 'Customer object: { name, email, contact }. Pre-fills the checkout form.'
+        notify:
+          type: object
+          description: 'Channels to send the link on: { sms: true/false, email: true/false }.'
+        reminder_enable:
+          type: boolean
+          description: Whether Razorpay should send automatic reminders before expiry.
+        expire_by:
+          type: number
+          description: Unix epoch seconds — link expires at this time.
+      required:
+        - amount
+        - currency
+        - description
+    operation:
+      method: POST
+      path: /payment_links
+      body:
+        value:
+          amount: '{{params.amount}}'
+          currency: '{{params.currency}}'
+          description: '{{params.description}}'
+          customer: '{{params.customer}}'
+          notify: '{{params.notify}}'
+          reminder_enable: '{{params.reminder_enable}}'
+          expire_by: '{{params.expire_by}}'

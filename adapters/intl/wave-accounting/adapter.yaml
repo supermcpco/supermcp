@@ -1,0 +1,227 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: wave-accounting
+  name: Wave Accounting
+  description: Query Wave Accounting (customers, products, invoices, accounts, transactions) via GraphQL from any AI agent. 8 tools, Bearer token auth.
+  region: intl
+  category: accounting
+  icon: wave-accounting
+  docsUrl: https://developer.waveapps.com/hc/en-us/articles/360019968212
+  lint:
+    allow:
+      - description-min-60
+      - healthcheck-present
+      - tool-name-prefix
+credentials:
+  WAVE_ACCESS_TOKEN:
+    required: true
+    secret: true
+  WAVE_BUSINESS_ID:
+    required: true
+    usage: manual
+transport:
+  type: graphql
+  baseUrl: https://gql.waveapps.com/graphql/public
+auth:
+  type: bearer
+  token: '{{env.WAVE_ACCESS_TOKEN}}'
+instructions: |-
+  This connector wraps the Wave GraphQL API (gql.waveapps.com/graphql/public).
+
+  **Setup**:
+  1. Sign in to https://my.waveapps.com → bottom-left avatar → **Manage Applications → Create Application**.
+  2. Use the OAuth flow to obtain an access token, OR (faster) generate a **Full Access Token** from the application settings (single-tenant).
+  3. **Business ID**: Wave is multi-business — find your business ID via the `wave_get_businesses` query or in the URL of any Wave page.
+  4. Set `WAVE_ACCESS_TOKEN` and `WAVE_BUSINESS_ID`.
+
+  **Authentication**: `Authorization: Bearer ${WAVE_ACCESS_TOKEN}`.
+
+  **GraphQL-only**: Wave has no REST. The auto-injected GraphQL builtins (`wave_accounting_graphql_query`, `wave_accounting_graphql_mutation`, `wave_accounting_graphql_schema`) are available for arbitrary queries. The typed wrappers below cover the most common cases.
+
+  **Cursor pagination**: edges + pageInfo {endCursor, hasNextPage}. Pass `after: "<cursor>"` to paginate.
+
+  **Money** is `{value, currency}` objects with `value` as a string in minor units (cents).
+
+  **Rate limits**: 60 req/min per token + complexity budget. 429 with `Retry-After`.
+
+  **Out of scope here**: payroll, payment-processing setup, bank-feed reconciliation UI.
+tools:
+  - name: wave_get_businesses
+    description: List all businesses the user can access — returns id, name, isClassicAccounting, currency.
+    input:
+      type: object
+      properties: {}
+    operation:
+      kind: query
+      document: '{ user { id defaultEmail businesses(page: 1, pageSize: 50) { edges { node { id name isClassicAccounting currency { code } } } } } }'
+  - name: wave_list_customers
+    description: List customers in a business.
+    input:
+      type: object
+      properties:
+        business_id:
+          type: string
+          description: Wave business ID.
+        page:
+          type: integer
+          description: 1-based.
+        page_size:
+          type: integer
+          description: Max 50.
+      required:
+        - business_id
+    operation:
+      kind: query
+      document: 'query ListCustomers($bid: ID!, $page: Int, $size: Int) { business(id: $bid) { customers(page: $page, pageSize: $size) { edges { node { id name email firstName lastName currency { code } } } pageInfo { totalCount } } } }'
+      variables:
+        variables:
+          bid: '{{params.business_id}}'
+          page: '{{params.page}}'
+          size: '{{params.page_size}}'
+  - name: wave_create_customer
+    description: Create a customer.
+    input:
+      type: object
+      properties:
+        business_id:
+          type: string
+          description: Wave business ID.
+        name:
+          type: string
+          description: Customer name.
+        email:
+          type: string
+          description: Email.
+        currency:
+          type: string
+          description: ISO 4217.
+      required:
+        - business_id
+        - name
+        - currency
+    operation:
+      kind: mutation
+      document: 'mutation CreateCustomer($input: CustomerCreateInput!) { customerCreate(input: $input) { customer { id name } didSucceed inputErrors { path message } } }'
+      variables:
+        variables:
+          input:
+            businessId: '{{params.business_id}}'
+            name: '{{params.name}}'
+            email: '{{params.email}}'
+            currency: '{{params.currency}}'
+  - name: wave_list_invoices
+    description: List invoices in a business. Filter by status (DRAFT, UNSENT, SAVED, SENT, VIEWED, PARTIAL, OVERDUE, PAID, OVERPAID).
+    input:
+      type: object
+      properties:
+        business_id:
+          type: string
+          description: Business ID.
+        status:
+          type: string
+          description: Invoice status.
+        page:
+          type: integer
+          description: 1-based.
+        page_size:
+          type: integer
+          description: Max 50.
+      required:
+        - business_id
+    operation:
+      kind: query
+      document: 'query ListInvoices($bid: ID!, $status: InvoiceStatus, $page: Int, $size: Int) { business(id: $bid) { invoices(status: $status, page: $page, pageSize: $size) { edges { node { id invoiceNumber status customer { id name } invoiceDate dueDate total { value currency { code } } } } pageInfo { totalCount } } } }'
+      variables:
+        variables:
+          bid: '{{params.business_id}}'
+          status: '{{params.status}}'
+          page: '{{params.page}}'
+          size: '{{params.page_size}}'
+  - name: wave_get_invoice
+    description: Get a single invoice with line items + memos.
+    input:
+      type: object
+      properties:
+        invoice_id:
+          type: string
+          description: Invoice ID.
+      required:
+        - invoice_id
+    operation:
+      kind: query
+      document: 'query GetInvoice($id: ID!) { invoice(id: $id) { id invoiceNumber status customer { id name } total { value currency { code } } items { description quantity unitPrice subtotal { value } } memo footer dueDate invoiceDate } }'
+      variables:
+        variables:
+          id: '{{params.invoice_id}}'
+  - name: wave_list_products
+    description: List products & services in a business.
+    input:
+      type: object
+      properties:
+        business_id:
+          type: string
+          description: Business ID.
+        page:
+          type: integer
+          description: 1-based.
+        page_size:
+          type: integer
+          description: Max 50.
+      required:
+        - business_id
+    operation:
+      kind: query
+      document: 'query ListProducts($bid: ID!, $page: Int, $size: Int) { business(id: $bid) { products(page: $page, pageSize: $size) { edges { node { id name description unitPrice isSold isBought } } } } }'
+      variables:
+        variables:
+          bid: '{{params.business_id}}'
+          page: '{{params.page}}'
+          size: '{{params.page_size}}'
+  - name: wave_list_accounts
+    description: List chart-of-accounts entries (ledger accounts) for a business.
+    input:
+      type: object
+      properties:
+        business_id:
+          type: string
+          description: Business ID.
+      required:
+        - business_id
+    operation:
+      kind: query
+      document: 'query ListAccounts($bid: ID!) { business(id: $bid) { accounts(page: 1, pageSize: 200) { edges { node { id name type { value name } currency { code } } } } } }'
+      variables:
+        variables:
+          bid: '{{params.business_id}}'
+  - name: wave_send_invoice
+    description: Send (email) an invoice to its customer.
+    input:
+      type: object
+      properties:
+        invoice_id:
+          type: string
+          description: Invoice ID.
+        to:
+          type: array
+          description: Array of email addresses.
+        subject:
+          type: string
+          description: Email subject.
+        message:
+          type: string
+          description: Email body.
+      required:
+        - invoice_id
+        - to
+    operation:
+      kind: mutation
+      document: 'mutation SendInvoice($input: InvoiceSendInput!) { invoiceSend(input: $input) { didSucceed inputErrors { path message } } }'
+      variables:
+        variables:
+          input:
+            invoiceId: '{{params.invoice_id}}'
+            to: '{{params.to}}'
+            subject: '{{params.subject}}'
+            message: '{{params.message}}'

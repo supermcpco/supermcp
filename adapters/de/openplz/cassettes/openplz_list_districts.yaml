@@ -1,0 +1,16 @@
+# Recorded by `supermcp adapter record`; replayed by `supermcp adapter test`.
+# Credential values are replaced with SUPERMCP_CREDENTIAL_<NAME>.
+adapter: openplz
+tool: openplz_list_districts
+recordedAt: 2026-09-22T22:18:23Z
+interactions:
+  - params:
+      federalStateKey: "02"
+    request:
+      method: GET
+      url: https://openplzapi.org/de/FederalStates/02/Districts
+    response:
+      status: 200
+      headers:
+        content-type: application/json; charset=utf-8
+      body: '[{"key":"02000","name":"Hamburg, Freie und Hansestadt","type":"Kreisfreie Stadt","federalState":{"key":"02","name":"Hamburg"},"administrativeHeadquarters":"Hamburg"}]'

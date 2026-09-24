@@ -1,0 +1,204 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: gitbook
+  name: GitBook
+  description: 'Drive GitBook (docs platform) from any AI agent: spaces, pages, content, search, collections. 9 tools, Bearer auth.'
+  region: intl
+  category: knowledge
+  icon: gitbook
+  docsUrl: https://developer.gitbook.com/
+  lint:
+    allow:
+      - description-min-60
+      - healthcheck-present
+credentials:
+  GITBOOK_API_TOKEN:
+    required: true
+    secret: true
+transport:
+  type: http
+  baseUrl: https://api.gitbook.com/v1
+auth:
+  type: bearer
+  token: '{{env.GITBOOK_API_TOKEN}}'
+instructions: |-
+  This connector uses the GitBook API v1 (developer.gitbook.com).
+
+  **Setup**:
+  1. Sign in to https://app.gitbook.com → bottom-left avatar → **Settings → Developer → Personal access tokens → Create new token**.
+  2. Copy the token. Set `GITBOOK_API_TOKEN`.
+
+  **Authentication**: `Authorization: Bearer ${GITBOOK_API_TOKEN}`.
+
+  **Hierarchy**: Organization → Collection → Space → Page (a tree of pages, sub-pages, content).
+
+  **Space IDs**: each space has a UUID-like ID. Discover via `gitbook_list_spaces`.
+
+  **Pages**: content lives in pages. Each page has id, slug, title, type (document, group, link), revision_id (every change creates a new revision).
+
+  **Content format**: GitBook stores content as a JSON document tree (their own AST). Reading is straightforward; writing requires constructing the AST — out of scope for most agent use. For simple writes, use 'GitBook content imports' (markdown imports) — exposed as `gitbook_import_markdown_to_page`.
+
+  **Search**: full-text across spaces.
+
+  **Pagination**: `?page=N&limit=M` (max 100).
+
+  **Out of scope here**: content editing via the AST, change requests, revisions diff, custom domains, integrations management.
+tools:
+  - name: gitbook_get_me
+    description: 'Return the user the token belongs to: id, displayName, email, photoURL.'
+    input:
+      type: object
+      properties: {}
+    operation:
+      method: GET
+      path: /user
+  - name: gitbook_list_organizations
+    description: List organizations the user is a member of.
+    input:
+      type: object
+      properties:
+        limit:
+          type: integer
+          description: Per page.
+        page:
+          type: string
+          description: Page cursor.
+    operation:
+      method: GET
+      path: /orgs
+      query:
+        limit: '{{params.limit}}'
+        page: '{{params.page}}'
+  - name: gitbook_list_spaces
+    description: List spaces in an organization. Each space has id, title, visibility (public/private), urls.
+    input:
+      type: object
+      properties:
+        organizationId:
+          type: string
+          description: Organization ID.
+        limit:
+          type: integer
+          description: Per page.
+        page:
+          type: string
+          description: Cursor.
+      required:
+        - organizationId
+    operation:
+      method: GET
+      path: /orgs/{{params.organizationId}}/spaces
+      query:
+        limit: '{{params.limit}}'
+        page: '{{params.page}}'
+  - name: gitbook_get_space
+    description: Fetch a single space with full metadata.
+    input:
+      type: object
+      properties:
+        spaceId:
+          type: string
+          description: Space ID.
+      required:
+        - spaceId
+    operation:
+      method: GET
+      path: /spaces/{{params.spaceId}}
+  - name: gitbook_get_space_content
+    description: Get the table of contents / page tree for a space (latest revision).
+    input:
+      type: object
+      properties:
+        spaceId:
+          type: string
+          description: Space ID.
+      required:
+        - spaceId
+    operation:
+      method: GET
+      path: /spaces/{{params.spaceId}}/content
+  - name: gitbook_get_page
+    description: Fetch a page's content (the JSON AST). Use format=document (default) or format=markdown for source.
+    input:
+      type: object
+      properties:
+        spaceId:
+          type: string
+          description: Space ID.
+        pageId:
+          type: string
+          description: Page ID.
+        format:
+          type: string
+          description: document (default JSON AST) or markdown.
+      required:
+        - spaceId
+        - pageId
+    operation:
+      method: GET
+      path: /spaces/{{params.spaceId}}/content/page/{{params.pageId}}
+      query:
+        format: '{{params.format}}'
+  - name: gitbook_search_content
+    description: Full-text search across spaces. Returns pages with snippets.
+    input:
+      type: object
+      properties:
+        query:
+          type: string
+          description: Search query.
+        limit:
+          type: integer
+          description: Per page.
+        page:
+          type: string
+          description: Cursor.
+      required:
+        - query
+    operation:
+      method: GET
+      path: /search
+      query:
+        query: '{{params.query}}'
+        limit: '{{params.limit}}'
+        page: '{{params.page}}'
+  - name: gitbook_list_collections
+    description: List collections in an organization.
+    input:
+      type: object
+      properties:
+        organizationId:
+          type: string
+          description: Organization ID.
+      required:
+        - organizationId
+    operation:
+      method: GET
+      path: /orgs/{{params.organizationId}}/collections
+  - name: gitbook_import_markdown_to_page
+    description: Import Markdown content into a page (replaces the page's content). The agent can write a page in plain Markdown and push it.
+    input:
+      type: object
+      properties:
+        spaceId:
+          type: string
+          description: Space ID.
+        pageId:
+          type: string
+          description: Page ID.
+        content:
+          type: string
+          description: Markdown source.
+      required:
+        - spaceId
+        - pageId
+        - content
+    operation:
+      method: PUT
+      path: /spaces/{{params.spaceId}}/content/page/{{params.pageId}}/import
+      body:
+        value:
+          format: markdown
+          content: '{{params.content}}'

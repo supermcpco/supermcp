@@ -1,0 +1,7 @@
+# Used by goreleaser: the binary is prebuilt for the target platform.
+FROM gcr.io/distroless/static-debian12:nonroot
+COPY supermcp /supermcp
+USER 65532:65532
+EXPOSE 8080
+ENTRYPOINT ["/supermcp"]
+CMD ["serve"]

@@ -1,0 +1,25 @@
+{
+  "openapi": "3.0.1",
+  "info": { "title": "Weather Service", "version": "1.0.0" },
+  "servers": [{ "url": "https://weather.example.com" }],
+  "paths": {
+    "/stations": {
+      "get": {
+        "summary": "List the stations this service reports from, with their coordinates",
+        "responses": { "200": { "description": "ok" } }
+      }
+    },
+    "/stations/{stationId}/readings": {
+      "get": {
+        "description": "Recent readings from one station, most recent first.",
+        "parameters": [
+          { "name": "stationId", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "ok" } }
+      },
+      "post": {
+        "responses": { "202": { "description": "accepted" } }
+      }
+    }
+  }
+}

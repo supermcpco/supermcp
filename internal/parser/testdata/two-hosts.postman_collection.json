@@ -1,0 +1,43 @@
+{
+  "info": {
+    "name": "Mixed estate",
+    "description": "A collection somebody grew over two years, against two different services.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Who am I",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "Authorization", "value": "Bearer ghp_9RqT2mVx7ZkLpWnB4cYdEf6HjK1sA3uG5oPi" }
+        ],
+        "url": {
+          "raw": "https://api.first.example.com/me",
+          "protocol": "https",
+          "host": ["api", "first", "example", "com"],
+          "path": ["me"]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Send a message",
+      "request": {
+        "method": "POST",
+        "body": {
+          "mode": "raw",
+          "options": { "raw": { "language": "text" } },
+          "raw": "plain text, no structure at all"
+        },
+        "url": {
+          "raw": "https://hooks.second.example.com/services/T000/B000",
+          "protocol": "https",
+          "host": ["hooks", "second", "example", "com"],
+          "path": ["services", "T000", "B000"]
+        }
+      },
+      "response": []
+    }
+  ]
+}

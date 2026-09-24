@@ -1,0 +1,218 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: timetastic
+  name: Timetastic
+  description: Manage Timetastic (PTO / annual leave tracking) users, holidays, departments, leave types from any AI agent. 8 tools, Bearer token.
+  region: intl
+  category: time-tracking
+  icon: timetastic
+  docsUrl: https://timetastic.docs.apiary.io/
+  lint:
+    allow:
+      - description-min-60
+      - healthcheck-present
+      - instructions-min-800
+credentials:
+  TIMETASTIC_API_TOKEN:
+    required: true
+    secret: true
+transport:
+  type: http
+  baseUrl: https://app.timetastic.co.uk/api
+auth:
+  type: bearer
+  token: '{{env.TIMETASTIC_API_TOKEN}}'
+instructions: |-
+  This connector wraps the Timetastic REST API v2 (app.timetastic.co.uk/api).
+
+  **Setup**:
+  1. Log into https://app.timetastic.co.uk → top-right avatar → **Settings → Integrations → API → Generate API token**.
+  2. Set `TIMETASTIC_API_TOKEN`.
+
+  **Authentication**: `Authorization: Bearer ${TIMETASTIC_API_TOKEN}`.
+
+  **Entities**: `User` (employees) → `Holiday` (leave requests). Each holiday has start/end, type (annual, sickness, etc.), status (approved/declined/pending).
+
+  **Pagination**: most endpoints return everything (paginated only by `Start`/`End` filters). Use date windows aggressively.
+
+  **Rate limits**: 60 req/min per token. 429 with `Retry-After`.
+
+  **Out of scope here**: WallChart UI, custom reports, multi-tenant org switching.
+tools:
+  - name: timetastic_list_users
+    description: List all users (employees) in the account.
+    input:
+      type: object
+      properties:
+        active_only:
+          type: boolean
+          description: If true, exclude archived users.
+    operation:
+      method: GET
+      path: /users
+      query:
+        active: '{{params.active_only}}'
+  - name: timetastic_get_user
+    description: Get one user with leave allowance, department, manager.
+    input:
+      type: object
+      properties:
+        user_id:
+          type: integer
+          description: User ID.
+      required:
+        - user_id
+    operation:
+      method: GET
+      path: /users/{{params.user_id}}
+  - name: timetastic_create_user
+    description: Create an employee.
+    input:
+      type: object
+      properties:
+        firstname:
+          type: string
+          description: First name.
+        surname:
+          type: string
+          description: Surname.
+        email:
+          type: string
+          description: Email.
+        department_id:
+          type: integer
+          description: Department ID.
+        annual_allowance:
+          type: number
+          description: Days of leave per year.
+        start_date:
+          type: string
+          description: Employment start (YYYY-MM-DD).
+      required:
+        - firstname
+        - surname
+        - email
+    operation:
+      method: POST
+      path: /users
+      body:
+        value:
+          firstname: '{{params.firstname}}'
+          surname: '{{params.surname}}'
+          email: '{{params.email}}'
+          departmentId: '{{params.department_id}}'
+          annualAllowance: '{{params.annual_allowance}}'
+          startDate: '{{params.start_date}}'
+  - name: timetastic_list_holidays
+    description: List holiday (leave) requests. Filter by date range, status, user, department.
+    input:
+      type: object
+      properties:
+        start:
+          type: string
+          description: YYYY-MM-DD.
+        end:
+          type: string
+          description: YYYY-MM-DD.
+        user_id:
+          type: integer
+          description: Filter by user.
+        department_id:
+          type: integer
+          description: Filter by department.
+        status:
+          type: string
+          description: Approved, Declined, Pending, Cancelled.
+    operation:
+      method: GET
+      path: /holidays
+      query:
+        Start: '{{params.start}}'
+        End: '{{params.end}}'
+        userId: '{{params.user_id}}'
+        departmentId: '{{params.department_id}}'
+        status: '{{params.status}}'
+  - name: timetastic_create_holiday
+    description: Create a leave request.
+    input:
+      type: object
+      properties:
+        user_id:
+          type: integer
+          description: User ID.
+        start_date:
+          type: string
+          description: YYYY-MM-DD.
+        start_type:
+          type: string
+          description: Morning, Afternoon, Fullday.
+        end_date:
+          type: string
+          description: YYYY-MM-DD.
+        end_type:
+          type: string
+          description: Morning, Afternoon, Fullday.
+        leave_type:
+          type: string
+          description: Annual leave, Sickness, ... (must match a configured type).
+        reason:
+          type: string
+          description: Free-text.
+      required:
+        - user_id
+        - start_date
+        - end_date
+    operation:
+      method: POST
+      path: /holidays
+      body:
+        value:
+          userId: '{{params.user_id}}'
+          startDate: '{{params.start_date}}'
+          startType: '{{params.start_type}}'
+          endDate: '{{params.end_date}}'
+          endType: '{{params.end_type}}'
+          leaveType: '{{params.leave_type}}'
+          reason: '{{params.reason}}'
+  - name: timetastic_decide_holiday
+    description: Approve or decline a pending holiday request.
+    input:
+      type: object
+      properties:
+        holiday_id:
+          type: integer
+          description: Holiday request ID.
+        decision:
+          type: string
+          description: Approved or Declined.
+        reason:
+          type: string
+          description: Optional decline reason.
+      required:
+        - holiday_id
+        - decision
+    operation:
+      method: POST
+      path: /holidays/{{params.holiday_id}}/decision
+      body:
+        value:
+          decision: '{{params.decision}}'
+          reason: '{{params.reason}}'
+  - name: timetastic_list_departments
+    description: List departments.
+    input:
+      type: object
+      properties: {}
+    operation:
+      method: GET
+      path: /departments
+  - name: timetastic_list_leave_types
+    description: List configured leave types (Annual leave, Sickness, etc.).
+    input:
+      type: object
+      properties: {}
+    operation:
+      method: GET
+      path: /leavetypes

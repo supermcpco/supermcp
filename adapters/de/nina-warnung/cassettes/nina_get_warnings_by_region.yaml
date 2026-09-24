@@ -1,0 +1,16 @@
+# Recorded by `supermcp adapter record`; replayed by `supermcp adapter test`.
+# Credential values are replaced with SUPERMCP_CREDENTIAL_<NAME>.
+adapter: nina-warnung
+tool: nina_get_warnings_by_region
+recordedAt: 2026-09-22T22:18:19Z
+interactions:
+  - params:
+      ags: "110000000000"
+    request:
+      method: GET
+      url: https://warnung.bund.de/api31/dashboard/110000000000.json
+    response:
+      status: 200
+      headers:
+        content-type: application/json
+      body: '[]'

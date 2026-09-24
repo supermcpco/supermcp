@@ -1,0 +1,140 @@
+name: nightly
+
+# Two jobs with deliberately different contracts.
+#
+# `cassettes` replays what we recorded, offline. It is our own code against
+# our own bytes, so it fails the build.
+#
+# `live-probe` calls the real upstreams. It fails for reasons that have
+# nothing to do with this repository — a vendor deploying, a rate limit, a
+# certificate, a country blocking a runner — so it never fails the build.
+# It reports: which adapter, which tool, and what changed.
+
+on:
+  schedule:
+    # Small hours in Europe, off the hour, so we are not in the crowd every
+    # other project's nightly is in.
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly
+  cancel-in-progress: false
+
+env:
+  GOFLAGS: -mod=readonly
+  GOPROXY: https://proxy.golang.org,direct
+  GOTOOLCHAIN: local
+
+jobs:
+  cassettes:
+    name: recorded exchanges replay
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version-file: go.mod, cache: true }
+      - run: go build -o bin/supermcp ./cmd/supermcp
+      - name: validate (strict)
+        run: bin/supermcp adapter validate --strict adapters
+      - run: bin/supermcp adapter test
+
+  live-probe:
+    name: keyless upstreams still answer what we recorded
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version-file: go.mod, cache: true }
+      - run: go build -o bin/supermcp ./cmd/supermcp
+
+      - name: re-record the keyless adapters against their live upstreams
+        id: probe
+        # Never fails the build: a live upstream is not ours to keep up.
+        # Everything it learns goes to the step summary and to annotations.
+        run: |
+          # errexit off on purpose: the runner enables it, and a probe that
+          # stops at the first upstream having a bad night reports nothing
+          # about the seventeen after it.
+          set +e -u -o pipefail
+          summary="$GITHUB_STEP_SUMMARY"
+          {
+            echo "## Live probe of the keyless adapters"
+            echo
+            echo "Each adapter below was re-recorded against its real upstream with the"
+            echo "arguments its existing cassette was recorded with. A row appears only"
+            echo "when the answer differs from what we have on disk, or when the upstream"
+            echo "did not answer at all."
+            echo
+          } >> "$summary"
+
+          probed=0; changed=0; unreachable=0
+          rows=""
+          : > /tmp/live-probe.diff
+
+          while IFS=$'\t' read -r slug dir; do
+            [ -d "adapters/$dir/cassettes" ] || continue
+            probed=$((probed + 1))
+            log="/tmp/probe-$slug.log"
+            bin/supermcp adapter record --live --adapter "$slug" > "$log" 2>&1 || true
+
+            # A tool the recorder could not call at all. The message is the
+            # upstream's own, which is what makes the report actionable.
+            while read -r tool reason; do
+              [ -n "$tool" ] || continue
+              unreachable=$((unreachable + 1))
+              echo "::warning title=live probe::$slug: $tool did not answer: $reason"
+              rows="${rows}| \`$slug\` | \`$tool\` | unreachable | $reason |\n"
+            done < <(sed -n 's/^  fail  *\([^ ]*\)  *\(.*\)$/\1 \2/p' "$log")
+
+            # A tool that answered, but not with what we recorded. recordedAt
+            # is stamped on every recording, so a diff of only that line is
+            # not a change.
+            for f in $(git diff --name-only -- "adapters/$dir/cassettes" || true); do
+              body=$(git diff -U0 -- "$f" | grep -E '^[+-][^+-]' | grep -vcE '^[+-]recordedAt:' || true)
+              [ "${body:-0}" -gt 0 ] || continue
+              tool=$(basename "$f" .yaml)
+              changed=$((changed + 1))
+              echo "::warning file=$f,title=live probe::$slug: the upstream's answer for $tool no longer matches the recorded exchange"
+              rows="${rows}| \`$slug\` | \`$tool\` | changed | $body line(s) differ |\n"
+            done
+
+            # The whole diff is kept for the artefact before the tree goes
+            # back to the committed bytes, so each adapter's diff is its own
+            # and nothing is carried into the next one. A cassette the
+            # recorder created for a tool that had none is new coverage, not
+            # a changed upstream, and is cleaned away with the rest.
+            git diff -- "adapters/$dir" >> /tmp/live-probe.diff || true
+            git checkout -- adapters || true
+            git clean -fdq adapters || true
+          done < <(jq -r '.adapters[] | select(.keyless) | [.slug, .dir] | @tsv' adapters/index.gen.json)
+
+          if [ -n "$rows" ]; then
+            {
+              echo "| adapter | tool | what happened | detail |"
+              echo "| --- | --- | --- | --- |"
+              printf "%b" "$rows"
+            } >> "$summary"
+          else
+            echo "Every recorded exchange still matches its live upstream." >> "$summary"
+          fi
+          {
+            echo
+            echo "$probed adapter(s) probed, $changed tool(s) changed, $unreachable tool(s) unreachable."
+          } >> "$summary"
+
+          echo "changed=$changed" >> "$GITHUB_OUTPUT"
+          echo "unreachable=$unreachable" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: live-probe-diff
+          path: /tmp/live-probe.diff
+          retention-days: 14
+          if-no-files-found: ignore

@@ -1,0 +1,830 @@
+{
+  "data": {
+    "__schema": {
+      "queryType": {
+        "name": "Query"
+      },
+      "mutationType": {
+        "name": "Mutation"
+      },
+      "subscriptionType": {
+        "name": "Subscription"
+      },
+      "types": [
+        {
+          "kind": "OBJECT",
+          "name": "Query",
+          "description": "The read side of the shop API.",
+          "fields": [
+            {
+              "name": "shop",
+              "description": "The shop this token belongs to.",
+              "isDeprecated": false,
+              "args": [],
+              "type": {
+                "kind": "OBJECT",
+                "name": "Shop",
+                "ofType": null
+              }
+            },
+            {
+              "name": "product",
+              "description": "Look one product up by its identifier. Returns null when nothing has that id.",
+              "isDeprecated": false,
+              "args": [
+                {
+                  "name": "id",
+                  "description": "The product's global identifier.",
+                  "defaultValue": null,
+                  "type": {
+                    "kind": "NON_NULL",
+                    "name": null,
+                    "ofType": {
+                      "kind": "SCALAR",
+                      "name": "ID",
+                      "ofType": null
+                    }
+                  }
+                }
+              ],
+              "type": {
+                "kind": "OBJECT",
+                "name": "Product",
+                "ofType": null
+              }
+            },
+            {
+              "name": "products",
+              "description": "A page of products, newest first.",
+              "isDeprecated": false,
+              "args": [
+                {
+                  "name": "first",
+                  "description": "How many products to return.",
+                  "defaultValue": "10",
+                  "type": {
+                    "kind": "SCALAR",
+                    "name": "Int",
+                    "ofType": null
+                  }
+                },
+                {
+                  "name": "status",
+                  "description": "Only products in this state.",
+                  "defaultValue": "ACTIVE",
+                  "type": {
+                    "kind": "ENUM",
+                    "name": "ProductStatus",
+                    "ofType": null
+                  }
+                },
+                {
+                  "name": "filter",
+                  "description": "Narrow the page further.",
+                  "defaultValue": null,
+                  "type": {
+                    "kind": "INPUT_OBJECT",
+                    "name": "ProductFilter",
+                    "ofType": null
+                  }
+                }
+              ],
+              "type": {
+                "kind": "NON_NULL",
+                "name": null,
+                "ofType": {
+                  "kind": "LIST",
+                  "name": null,
+                  "ofType": {
+                    "kind": "NON_NULL",
+                    "name": null,
+                    "ofType": {
+                      "kind": "OBJECT",
+                      "name": "Product",
+                      "ofType": null
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "search",
+              "description": "Search across everything the shop holds.",
+              "isDeprecated": false,
+              "args": [
+                {
+                  "name": "term",
+                  "description": "What to search for.",
+                  "defaultValue": null,
+                  "type": {
+                    "kind": "NON_NULL",
+                    "name": null,
+                    "ofType": {
+                      "kind": "SCALAR",
+                      "name": "String",
+                      "ofType": null
+                    }
+                  }
+                }
+              ],
+              "type": {
+                "kind": "NON_NULL",
+                "name": null,
+                "ofType": {
+                  "kind": "LIST",
+                  "name": null,
+                  "ofType": {
+                    "kind": "NON_NULL",
+                    "name": null,
+                    "ofType": {
+                      "kind": "UNION",
+                      "name": "SearchResult",
+                      "ofType": null
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "legacyProducts",
+              "description": "Do not use.",
+              "isDeprecated": true,
+              "args": [],
+              "type": {
+                "kind": "LIST",
+                "name": null,
+                "ofType": {
+                  "kind": "OBJECT",
+                  "name": "Product",
+                  "ofType": null
+                }
+              }
+            }
+          ],
+          "inputFields": null,
+          "enumValues": null
+        },
+        {
+          "kind": "OBJECT",
+          "name": "Mutation",
+          "description": "The write side of the shop API.",
+          "fields": [
+            {
+              "name": "createOrder",
+              "description": "Places an order for the line items given and returns it.",
+              "isDeprecated": false,
+              "args": [
+                {
+                  "name": "input",
+                  "description": "Everything the order needs.",
+                  "defaultValue": null,
+                  "type": {
+                    "kind": "NON_NULL",
+                    "name": null,
+                    "ofType": {
+                      "kind": "INPUT_OBJECT",
+                      "name": "CreateOrderInput",
+                      "ofType": null
+                    }
+                  }
+                }
+              ],
+              "type": {
+                "kind": "OBJECT",
+                "name": "Order",
+                "ofType": null
+              }
+            },
+            {
+              "name": "product",
+              "description": "Updates one product in place.",
+              "isDeprecated": false,
+              "args": [
+                {
+                  "name": "id",
+                  "description": null,
+                  "defaultValue": null,
+                  "type": {
+                    "kind": "NON_NULL",
+                    "name": null,
+                    "ofType": {
+                      "kind": "SCALAR",
+                      "name": "ID",
+                      "ofType": null
+                    }
+                  }
+                },
+                {
+                  "name": "title",
+                  "description": null,
+                  "defaultValue": null,
+                  "type": {
+                    "kind": "SCALAR",
+                    "name": "String",
+                    "ofType": null
+                  }
+                }
+              ],
+              "type": {
+                "kind": "OBJECT",
+                "name": "Product",
+                "ofType": null
+              }
+            }
+          ],
+          "inputFields": null,
+          "enumValues": null
+        },
+        {
+          "kind": "OBJECT",
+          "name": "Shop",
+          "description": "One shop.",
+          "fields": [
+            {
+              "name": "name",
+              "description": "What the shop calls itself.",
+              "isDeprecated": false,
+              "args": [],
+              "type": {
+                "kind": "NON_NULL",
+                "name": null,
+                "ofType": {
+                  "kind": "SCALAR",
+                  "name": "String",
+                  "ofType": null
+                }
+              }
+            },
+            {
+              "name": "currencyCode",
+              "description": "What its prices are in.",
+              "isDeprecated": false,
+              "args": [],
+              "type": {
+                "kind": "NON_NULL",
+                "name": null,
+                "ofType": {
+                  "kind": "ENUM",
+                  "name": "CurrencyCode",
+                  "ofType": null
+                }
+              }
+            },
+            {
+              "name": "owner",
+              "description": "Who owns it.",
+              "isDeprecated": false,
+              "args": [],
+              "type": {
+                "kind": "OBJECT",
+                "name": "Staff",
+                "ofType": null
+              }
+            }
+          ],
+          "inputFields": null,
+          "enumValues": null
+        },
+        {
+          "kind": "OBJECT",
+          "name": "Staff",
+          "description": "A person who works at the shop.",
+          "fields": [
+            {
+              "name": "id",
+              "description": null,
+              "isDeprecated": false,
+              "args": [],
+              "type": {
+                "kind": "NON_NULL",
+                "name": null,
+                "ofType": {
+                  "kind": "SCALAR",
+                  "name": "ID",
+                  "ofType": null
+                }
+              }
+            },
+            {
+              "name": "email",
+              "description": null,
+              "isDeprecated": false,
+              "args": [],
+              "type": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              }
+            }
+          ],
+          "inputFields": null,
+          "enumValues": null
+        },
+        {
+          "kind": "OBJECT",
+          "name": "Product",
+          "description": "Something the shop sells.",
+          "fields": [
+            {
+              "name": "id",
+              "description": null,
+              "isDeprecated": false,
+              "args": [],
+              "type": {
+                "kind": "NON_NULL",
+                "name": null,
+                "ofType": {
+                  "kind": "SCALAR",
+                  "name": "ID",
+                  "ofType": null
+                }
+              }
+            },
+            {
+              "name": "title",
+              "description": "What the product is called.",
+              "isDeprecated": false,
+              "args": [],
+              "type": {
+                "kind": "NON_NULL",
+                "name": null,
+                "ofType": {
+                  "kind": "SCALAR",
+                  "name": "String",
+                  "ofType": null
+                }
+              }
+            },
+            {
+              "name": "price",
+              "description": "What it costs.",
+              "isDeprecated": false,
+              "args": [],
+              "type": {
+                "kind": "NON_NULL",
+                "name": null,
+                "ofType": {
+                  "kind": "OBJECT",
+                  "name": "Money",
+                  "ofType": null
+                }
+              }
+            },
+            {
+              "name": "tags",
+              "description": "Free-form labels.",
+              "isDeprecated": false,
+              "args": [],
+              "type": {
+                "kind": "NON_NULL",
+                "name": null,
+                "ofType": {
+                  "kind": "LIST",
+                  "name": null,
+                  "ofType": {
+                    "kind": "NON_NULL",
+                    "name": null,
+                    "ofType": {
+                      "kind": "SCALAR",
+                      "name": "String",
+                      "ofType": null
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "variants",
+              "description": "The variants of this product.",
+              "isDeprecated": false,
+              "args": [
+                {
+                  "name": "first",
+                  "description": null,
+                  "defaultValue": null,
+                  "type": {
+                    "kind": "NON_NULL",
+                    "name": null,
+                    "ofType": {
+                      "kind": "SCALAR",
+                      "name": "Int",
+                      "ofType": null
+                    }
+                  }
+                }
+              ],
+              "type": {
+                "kind": "NON_NULL",
+                "name": null,
+                "ofType": {
+                  "kind": "LIST",
+                  "name": null,
+                  "ofType": {
+                    "kind": "NON_NULL",
+                    "name": null,
+                    "ofType": {
+                      "kind": "OBJECT",
+                      "name": "Variant",
+                      "ofType": null
+                    }
+                  }
+                }
+              }
+            }
+          ],
+          "inputFields": null,
+          "enumValues": null
+        },
+        {
+          "kind": "OBJECT",
+          "name": "Money",
+          "description": "An amount of money.",
+          "fields": [
+            {
+              "name": "amount",
+              "description": null,
+              "isDeprecated": false,
+              "args": [],
+              "type": {
+                "kind": "NON_NULL",
+                "name": null,
+                "ofType": {
+                  "kind": "SCALAR",
+                  "name": "Float",
+                  "ofType": null
+                }
+              }
+            },
+            {
+              "name": "currency",
+              "description": null,
+              "isDeprecated": false,
+              "args": [],
+              "type": {
+                "kind": "NON_NULL",
+                "name": null,
+                "ofType": {
+                  "kind": "SCALAR",
+                  "name": "String",
+                  "ofType": null
+                }
+              }
+            }
+          ],
+          "inputFields": null,
+          "enumValues": null
+        },
+        {
+          "kind": "OBJECT",
+          "name": "Variant",
+          "description": "One buyable variant.",
+          "fields": [
+            {
+              "name": "id",
+              "description": null,
+              "isDeprecated": false,
+              "args": [],
+              "type": {
+                "kind": "NON_NULL",
+                "name": null,
+                "ofType": {
+                  "kind": "SCALAR",
+                  "name": "ID",
+                  "ofType": null
+                }
+              }
+            },
+            {
+              "name": "sku",
+              "description": null,
+              "isDeprecated": false,
+              "args": [],
+              "type": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              }
+            }
+          ],
+          "inputFields": null,
+          "enumValues": null
+        },
+        {
+          "kind": "OBJECT",
+          "name": "Order",
+          "description": "A placed order.",
+          "fields": [
+            {
+              "name": "id",
+              "description": null,
+              "isDeprecated": false,
+              "args": [],
+              "type": {
+                "kind": "NON_NULL",
+                "name": null,
+                "ofType": {
+                  "kind": "SCALAR",
+                  "name": "ID",
+                  "ofType": null
+                }
+              }
+            },
+            {
+              "name": "total",
+              "description": null,
+              "isDeprecated": false,
+              "args": [],
+              "type": {
+                "kind": "NON_NULL",
+                "name": null,
+                "ofType": {
+                  "kind": "OBJECT",
+                  "name": "Money",
+                  "ofType": null
+                }
+              }
+            },
+            {
+              "name": "placedAt",
+              "description": null,
+              "isDeprecated": false,
+              "args": [],
+              "type": {
+                "kind": "NON_NULL",
+                "name": null,
+                "ofType": {
+                  "kind": "SCALAR",
+                  "name": "DateTime",
+                  "ofType": null
+                }
+              }
+            }
+          ],
+          "inputFields": null,
+          "enumValues": null
+        },
+        {
+          "kind": "UNION",
+          "name": "SearchResult",
+          "description": "Anything a search can turn up.",
+          "fields": null,
+          "inputFields": null,
+          "enumValues": null
+        },
+        {
+          "kind": "ENUM",
+          "name": "ProductStatus",
+          "description": "Where a product is in its life.",
+          "fields": null,
+          "inputFields": null,
+          "enumValues": [
+            {
+              "name": "ACTIVE",
+              "description": "On sale."
+            },
+            {
+              "name": "DRAFT",
+              "description": "Not on sale yet."
+            },
+            {
+              "name": "ARCHIVED",
+              "description": "No longer on sale."
+            }
+          ]
+        },
+        {
+          "kind": "ENUM",
+          "name": "CurrencyCode",
+          "description": "ISO 4217.",
+          "fields": null,
+          "inputFields": null,
+          "enumValues": [
+            {
+              "name": "GBP",
+              "description": null
+            },
+            {
+              "name": "EUR",
+              "description": null
+            },
+            {
+              "name": "USD",
+              "description": null
+            }
+          ]
+        },
+        {
+          "kind": "INPUT_OBJECT",
+          "name": "ProductFilter",
+          "description": "How to narrow a product listing.",
+          "fields": null,
+          "enumValues": null,
+          "inputFields": [
+            {
+              "name": "title",
+              "description": "Matches the product title.",
+              "defaultValue": null,
+              "type": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              }
+            },
+            {
+              "name": "status",
+              "description": null,
+              "defaultValue": null,
+              "type": {
+                "kind": "ENUM",
+                "name": "ProductStatus",
+                "ofType": null
+              }
+            },
+            {
+              "name": "and",
+              "description": "Both this filter and the one it holds.",
+              "defaultValue": null,
+              "type": {
+                "kind": "INPUT_OBJECT",
+                "name": "ProductFilter",
+                "ofType": null
+              }
+            }
+          ]
+        },
+        {
+          "kind": "INPUT_OBJECT",
+          "name": "CreateOrderInput",
+          "description": "Everything an order needs.",
+          "fields": null,
+          "enumValues": null,
+          "inputFields": [
+            {
+              "name": "customerEmail",
+              "description": "Where the confirmation goes.",
+              "defaultValue": null,
+              "type": {
+                "kind": "NON_NULL",
+                "name": null,
+                "ofType": {
+                  "kind": "SCALAR",
+                  "name": "String",
+                  "ofType": null
+                }
+              }
+            },
+            {
+              "name": "lineItems",
+              "description": "What is being bought.",
+              "defaultValue": null,
+              "type": {
+                "kind": "NON_NULL",
+                "name": null,
+                "ofType": {
+                  "kind": "LIST",
+                  "name": null,
+                  "ofType": {
+                    "kind": "NON_NULL",
+                    "name": null,
+                    "ofType": {
+                      "kind": "INPUT_OBJECT",
+                      "name": "LineItemInput",
+                      "ofType": null
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "note",
+              "description": "Anything the customer asked for.",
+              "defaultValue": "\"none\"",
+              "type": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              }
+            }
+          ]
+        },
+        {
+          "kind": "INPUT_OBJECT",
+          "name": "LineItemInput",
+          "description": "One line of an order.",
+          "fields": null,
+          "enumValues": null,
+          "inputFields": [
+            {
+              "name": "variantId",
+              "description": null,
+              "defaultValue": null,
+              "type": {
+                "kind": "NON_NULL",
+                "name": null,
+                "ofType": {
+                  "kind": "SCALAR",
+                  "name": "ID",
+                  "ofType": null
+                }
+              }
+            },
+            {
+              "name": "quantity",
+              "description": null,
+              "defaultValue": "1",
+              "type": {
+                "kind": "NON_NULL",
+                "name": null,
+                "ofType": {
+                  "kind": "SCALAR",
+                  "name": "Int",
+                  "ofType": null
+                }
+              }
+            }
+          ]
+        },
+        {
+          "kind": "SCALAR",
+          "name": "DateTime",
+          "description": "An ISO 8601 timestamp.",
+          "fields": null,
+          "inputFields": null,
+          "enumValues": null
+        },
+        {
+          "kind": "SCALAR",
+          "name": "String",
+          "description": null,
+          "fields": null,
+          "inputFields": null,
+          "enumValues": null
+        },
+        {
+          "kind": "SCALAR",
+          "name": "ID",
+          "description": null,
+          "fields": null,
+          "inputFields": null,
+          "enumValues": null
+        },
+        {
+          "kind": "SCALAR",
+          "name": "Int",
+          "description": null,
+          "fields": null,
+          "inputFields": null,
+          "enumValues": null
+        },
+        {
+          "kind": "SCALAR",
+          "name": "Float",
+          "description": null,
+          "fields": null,
+          "inputFields": null,
+          "enumValues": null
+        },
+        {
+          "kind": "SCALAR",
+          "name": "Boolean",
+          "description": null,
+          "fields": null,
+          "inputFields": null,
+          "enumValues": null
+        },
+        {
+          "kind": "OBJECT",
+          "name": "__Schema",
+          "description": "Introspection's own type, which is never a tool.",
+          "fields": [
+            {
+              "name": "types",
+              "description": null,
+              "isDeprecated": false,
+              "args": [],
+              "type": {
+                "kind": "NON_NULL",
+                "name": null,
+                "ofType": {
+                  "kind": "LIST",
+                  "name": null,
+                  "ofType": {
+                    "kind": "NON_NULL",
+                    "name": null,
+                    "ofType": {
+                      "kind": "SCALAR",
+                      "name": "String",
+                      "ofType": null
+                    }
+                  }
+                }
+              }
+            }
+          ],
+          "inputFields": null,
+          "enumValues": null
+        }
+      ]
+    }
+  }
+}

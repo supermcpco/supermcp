@@ -1,0 +1,683 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: hrworks
+  name: HR WORKS
+  description: 'Access HR WORKS, the German HR/payroll platform: employees, absences, sick leaves, remote work (home office), working times, projects, applicants, organization units, holidays and cost centers via the v2 REST API.'
+  region: de
+  category: hr
+  icon: hrworks
+  docsUrl: https://developers.hrworks.de
+  lint:
+    allow:
+      - description-min-60
+      - healthcheck-present
+credentials:
+  HRWORKS_ACCESS_KEY:
+    required: true
+    secret: true
+  HRWORKS_SECRET_ACCESS_KEY:
+    required: true
+    secret: true
+transport:
+  type: http
+  baseUrl: https://api.hrworks.de
+auth:
+  type: login
+  request:
+    method: POST
+    url: https://api.hrworks.de/v2/authentication
+    body:
+      accessKey: '{{auth.username}}'
+      secretAccessKey: '{{auth.password}}'
+  credentials:
+    username: '{{env.HRWORKS_ACCESS_KEY}}'
+    password: '{{env.HRWORKS_SECRET_ACCESS_KEY}}'
+  tokenSource:
+    from: body
+    jsonPath: token
+  expiry:
+    ttl: 15m
+    refreshBefore: 2m
+    refreshOn401: true
+  inject:
+    header: Authorization
+    prefix: Bearer
+instructions: |-
+  This connector uses the HR WORKS v2 REST API (https://developers.hrworks.de).
+
+  **Authentication — automatic token refresh**: HR WORKS issues short-lived tokens (~15 minutes). This connector uses the `LOGIN_TOKEN` flow: it POSTs `{accessKey, secretAccessKey}` to `/v2/authentication`, reads the returned `token`, sends it as `Authorization: Bearer <token>`, and refreshes it automatically before expiry (and re-logs-in on a 401). You never handle tokens manually.
+
+  **Setup**: create an API key pair in HR WORKS (Administration → API) and set:
+  - `HRWORKS_ACCESS_KEY` = your access key
+  - `HRWORKS_SECRET_ACCESS_KEY` = your secret access key
+
+  **Sandbox**: HR WORKS provides a demo environment at `https://api.demo-hrworks.de`. To test against it, change the connector's Base URL and the `loginUrl` in the auth config to the demo host.
+
+  **Identifiers**: most person-related endpoints accept either the HR WORKS personnel number or the HR WORKS username. Use the optional `personIdentifierType` / `usePersonnelNumbers` parameters when the identifier you have on hand is not the default.
+
+  **Date intervals**: most listing endpoints (absences, sick leaves, working times, remote work) require ISO `YYYY-MM-DD` `beginDate`/`endDate` — maximum span is one year (or 31 days if `interval=days`).
+
+  **Pagination**: page size is 50; the API returns a `Link` header with next/prev URLs. Pass `page` to step through results.
+
+  **Rate limit**: HR WORKS imposes per-tenant rate limits — see their developer portal for details.
+tools:
+  - name: hrworks_health_check
+    description: Check whether the HR WORKS API is reachable. Returns 200 OK with no body. Useful for connector validation; does not require authentication.
+    input:
+      type: object
+      properties: {}
+    operation:
+      method: GET
+      path: /v2/health-check
+  - name: hrworks_list_organization_units
+    description: List all active organization units (Organisationseinheiten) of the company with their uuid, number and name.
+    input:
+      type: object
+      properties: {}
+    operation:
+      method: GET
+      path: /v2/organization-units
+  - name: hrworks_get_organization_unit
+    description: Return the data of a specific organization unit. Pass the unit's uuid (preferred) or its number (deprecated).
+    input:
+      type: object
+      properties:
+        uuid:
+          type: string
+          description: The uuid (preferred) or number of the organization unit.
+      required:
+        - uuid
+    operation:
+      method: GET
+      path: /v2/organization-units/{{params.uuid}}
+  - name: hrworks_list_present_persons
+    description: List all persons currently 'in the office' for a given organization unit. Accounts for vacations, trips, sicknesses and other absences (forenoon/afternoon).
+    input:
+      type: object
+      properties:
+        number:
+          type: string
+          description: Number/ID of the organization unit to inspect.
+      required:
+        - number
+    operation:
+      method: GET
+      path: /v2/organization-units/{{params.number}}/present-persons
+  - name: hrworks_list_permanent_establishments
+    description: List all permanent establishments (Betriebsstätten) of the company with id and name.
+    input:
+      type: object
+      properties: {}
+    operation:
+      method: GET
+      path: /v2/permanent-establishments
+  - name: hrworks_list_holidays
+    description: List company holidays for a given year and (optionally) country. Country codes are ISO 3166-1 alpha-3 (e.g. DEU, AUT, CHE).
+    input:
+      type: object
+      properties:
+        year:
+          type: number
+          description: Year to fetch holidays for (e.g. 2026).
+        countryCodes:
+          type: array
+          items:
+            type: string
+          description: Optional ISO 3166-1 alpha-3 country codes to filter by (e.g. ['DEU']).
+        permanentEstablishments:
+          type: array
+          items:
+            type: string
+          description: Optional list of permanent establishment IDs.
+      required:
+        - year
+    operation:
+      method: GET
+      path: /v2/holidays
+      query:
+        year: '{{params.year}}'
+        countryCodes: '{{params.countryCodes}}'
+        permanentEstablishments: '{{params.permanentEstablishments}}'
+  - name: hrworks_list_persons
+    description: List all persons (employees) in the company. By default only active employees are returned. Optionally filter by organization unit.
+    input:
+      type: object
+      properties:
+        organizationUnits:
+          type: array
+          items:
+            type: string
+          description: Filter by one or more organization unit identifiers.
+        onlyActive:
+          type: boolean
+          description: 'If false, also returns persons that have left the company (default: true).'
+        onlyActiveOrganizationUnits:
+          type: boolean
+          description: 'If false, also returns persons assigned to deactivated org units (default: true).'
+        identifierType:
+          type: string
+          description: Type of identifier in organizationUnits ('number' or 'uuid'). Default 'number'.
+    operation:
+      method: GET
+      path: /v2/persons
+      query:
+        organizationUnits: '{{params.organizationUnits}}'
+        onlyActive: '{{params.onlyActive}}'
+        onlyActiveOrganizationUnits: '{{params.onlyActiveOrganizationUnits}}'
+        identifierType: '{{params.identifierType}}'
+  - name: hrworks_get_person
+    description: Return the base data of a specific person (employee). The personIdentifier defaults to the personnel number; pass personIdentifierType='username' or 'personId' to use a different identifier.
+    input:
+      type: object
+      properties:
+        personIdentifier:
+          type: string
+          description: Personnel number (default), HR WORKS username or personId of the person.
+        personIdentifierType:
+          type: string
+          description: 'Type of identifier: ''personnelNumber'' (default), ''username'' or ''personId''.'
+      required:
+        - personIdentifier
+    operation:
+      method: GET
+      path: /v2/persons/{{params.personIdentifier}}
+      query:
+        personIdentifierType: '{{params.personIdentifierType}}'
+  - name: hrworks_list_persons_master_data
+    description: Return the current master data (full personal data, contract details, addresses, bank info, etc.) for one or more persons. Page size is 50.
+    input:
+      type: object
+      properties:
+        persons:
+          type: array
+          items:
+            type: string
+          description: List of person identifiers to fetch. If omitted, returns master data for all active persons.
+        personIdentifierType:
+          type: string
+          description: 'Identifier type: ''personId'' (default), ''personnelNumber'' or ''username''.'
+        onlyActive:
+          type: boolean
+          description: 'If false, also returns persons that have left the company (default: true).'
+        page:
+          type: number
+          description: Page number for paginated results (page size 50).
+    operation:
+      method: GET
+      path: /v2/persons/master-data
+      query:
+        persons: '{{params.persons}}'
+        personIdentifierType: '{{params.personIdentifierType}}'
+        onlyActive: '{{params.onlyActive}}'
+        page: '{{params.page}}'
+  - name: hrworks_get_persons_today
+    description: Return day-related objects (working hours, attendance, absences) for the current day for one or more persons.
+    input:
+      type: object
+      properties:
+        persons:
+          type: array
+          items:
+            type: string
+          description: List of person identifiers. If omitted, returns data for all active persons.
+        personIdentifierType:
+          type: string
+          description: 'Identifier type: ''personId'' (default), ''personnelNumber'' or ''username''.'
+        onlyActive:
+          type: boolean
+          description: 'If false, also returns persons that have left the company (default: true).'
+        includeData:
+          type: array
+          items:
+            type: string
+          description: Optional list of data sources to include (e.g. workingTimes, absences). Target working hours and holidays are always included.
+        page:
+          type: number
+          description: Page number for paginated results (page size 50).
+    operation:
+      method: GET
+      path: /v2/persons/today
+      query:
+        persons: '{{params.persons}}'
+        personIdentifierType: '{{params.personIdentifierType}}'
+        onlyActive: '{{params.onlyActive}}'
+        includeData: '{{params.includeData}}'
+        page: '{{params.page}}'
+  - name: hrworks_get_leave_account
+    description: Return the leave account (vacation balance) of a single person up to a reference date. The interval starts at January 1st of the reference year.
+    input:
+      type: object
+      properties:
+        personnelNumber:
+          type: string
+          description: HR WORKS personnel number of the person.
+        referenceDate:
+          type: string
+          description: Reference date (YYYY-MM-DD). If omitted, defaults to today.
+      required:
+        - personnelNumber
+    operation:
+      method: GET
+      path: /v2/persons/{{params.personnelNumber}}/leave-account
+      query:
+        referenceDate: '{{params.referenceDate}}'
+  - name: hrworks_list_absences
+    description: 'List absences (vacation, parental leave, etc.) for one or more persons over a date interval. Required: beginDate and endDate (YYYY-MM-DD, max 1-year span).'
+    input:
+      type: object
+      properties:
+        beginDate:
+          type: string
+          description: Start of the date interval (YYYY-MM-DD).
+        endDate:
+          type: string
+          description: End of the date interval (YYYY-MM-DD).
+        persons:
+          type: array
+          items:
+            type: string
+          description: Optional list of HR WORKS usernames (or personnel numbers if usePersonnelNumbers=true).
+        types:
+          type: array
+          items:
+            type: string
+          description: Optional absence type keys to filter by (see hrworks_list_absence_types).
+        count:
+          type: boolean
+          description: If true, return cumulated working-day counts per absence type instead of details.
+        usePersonnelNumbers:
+          type: boolean
+          description: 'If true, treat ''persons'' values as personnel numbers (default: false → usernames).'
+        interval:
+          type: string
+          description: 'Optional interval split: ''days'' (≤31d), ''weeks'' or ''months''.'
+        onlyActive:
+          type: boolean
+          description: If false, includes persons who have left the company.
+        statusFilter:
+          type: array
+          items:
+            type: string
+          description: Optional list of absence statuses to filter by (e.g. APPROVED, PENDING).
+        page:
+          type: number
+          description: Page number for paginated results (page size 50).
+      required:
+        - beginDate
+        - endDate
+    operation:
+      method: GET
+      path: /v2/absences
+      query:
+        beginDate: '{{params.beginDate}}'
+        endDate: '{{params.endDate}}'
+        persons: '{{params.persons}}'
+        types: '{{params.types}}'
+        count: '{{params.count}}'
+        usePersonnelNumbers: '{{params.usePersonnelNumbers}}'
+        interval: '{{params.interval}}'
+        onlyActive: '{{params.onlyActive}}'
+        statusFilter: '{{params.statusFilter}}'
+        page: '{{params.page}}'
+  - name: hrworks_list_absence_types
+    description: List all absence types (vacation, parental leave, special leave, etc.) configured for the customer account, with their keys for use as filter values.
+    input:
+      type: object
+      properties:
+        onlyActive:
+          type: boolean
+          description: If true, only currently active absence types are returned.
+    operation:
+      method: GET
+      path: /v2/absences/absence-types
+      query:
+        onlyActive: '{{params.onlyActive}}'
+  - name: hrworks_list_vacation_types
+    description: List vacation types defined for the customer account (subset of absence types focused on vacation/leave).
+    input:
+      type: object
+      properties: {}
+    operation:
+      method: GET
+      path: /v2/absences/vacation-types
+  - name: hrworks_list_sick_leaves
+    description: 'List sick leaves (Krankheitstage) for one or more persons over a date interval. Required: beginDate and endDate (YYYY-MM-DD, max 1-year span).'
+    input:
+      type: object
+      properties:
+        beginDate:
+          type: string
+          description: Start of the date interval (YYYY-MM-DD).
+        endDate:
+          type: string
+          description: End of the date interval (YYYY-MM-DD).
+        persons:
+          type: array
+          items:
+            type: string
+          description: Optional list of HR WORKS usernames (or personnel numbers if usePersonnelNumbers=true).
+        types:
+          type: array
+          items:
+            type: string
+          description: Optional sick leave type keys to filter by.
+        count:
+          type: boolean
+          description: If true, return cumulated working-day counts per type instead of details.
+        usePersonnelNumbers:
+          type: boolean
+          description: If true, treat 'persons' values as personnel numbers.
+        interval:
+          type: string
+          description: 'Optional interval split: ''days'', ''weeks'' or ''months''.'
+        onlyActive:
+          type: boolean
+          description: If false, includes persons who have left the company.
+        statusFilter:
+          type: array
+          items:
+            type: string
+          description: Optional list of sick leave statuses to filter by.
+        page:
+          type: number
+          description: Page number for paginated results (page size 50).
+      required:
+        - beginDate
+        - endDate
+    operation:
+      method: GET
+      path: /v2/sick-leaves
+      query:
+        beginDate: '{{params.beginDate}}'
+        endDate: '{{params.endDate}}'
+        persons: '{{params.persons}}'
+        types: '{{params.types}}'
+        count: '{{params.count}}'
+        usePersonnelNumbers: '{{params.usePersonnelNumbers}}'
+        interval: '{{params.interval}}'
+        onlyActive: '{{params.onlyActive}}'
+        statusFilter: '{{params.statusFilter}}'
+        page: '{{params.page}}'
+  - name: hrworks_list_sick_leave_types
+    description: List all sick leave types configured for the customer account with their keys (used as filter values for hrworks_list_sick_leaves).
+    input:
+      type: object
+      properties: {}
+    operation:
+      method: GET
+      path: /v2/sick-leaves/sick-leave-types
+  - name: hrworks_list_remote_work
+    description: 'List remote work / home office records for one or more persons over a date interval. Required: beginDate and endDate (YYYY-MM-DD, max 1-year span).'
+    input:
+      type: object
+      properties:
+        beginDate:
+          type: string
+          description: Start of the date interval (YYYY-MM-DD).
+        endDate:
+          type: string
+          description: End of the date interval (YYYY-MM-DD).
+        persons:
+          type: array
+          items:
+            type: string
+          description: Optional list of HR WORKS usernames (or personnel numbers if usePersonnelNumbers=true).
+        usePersonnelNumbers:
+          type: boolean
+          description: If true, treat 'persons' values as personnel numbers.
+        interval:
+          type: string
+          description: 'Optional interval split: ''days'', ''weeks'' or ''months''.'
+        onlyActive:
+          type: boolean
+          description: If false, includes persons who have left the company.
+        statusFilter:
+          type: array
+          items:
+            type: string
+          description: Optional list of statuses to filter by.
+        page:
+          type: number
+          description: Page number for paginated results (page size 50).
+      required:
+        - beginDate
+        - endDate
+    operation:
+      method: GET
+      path: /v2/remote-work
+      query:
+        beginDate: '{{params.beginDate}}'
+        endDate: '{{params.endDate}}'
+        persons: '{{params.persons}}'
+        usePersonnelNumbers: '{{params.usePersonnelNumbers}}'
+        interval: '{{params.interval}}'
+        onlyActive: '{{params.onlyActive}}'
+        statusFilter: '{{params.statusFilter}}'
+        page: '{{params.page}}'
+  - name: hrworks_list_working_times
+    description: List logged working times (project time tracking) for one or more persons over a date interval. Only persons with a configured time tracking regulation in the requested interval are returned.
+    input:
+      type: object
+      properties:
+        beginDate:
+          type: string
+          description: Start of the date interval (YYYY-MM-DD).
+        endDate:
+          type: string
+          description: End of the date interval (YYYY-MM-DD).
+        persons:
+          type: array
+          items:
+            type: string
+          description: Optional list of HR WORKS usernames (or personnel numbers if usePersonnelNumbers=true).
+        types:
+          type: array
+          items:
+            type: string
+          description: Optional working time types to filter by (see hrworks_list_time_recording_regulations).
+        usePersonnelNumbers:
+          type: boolean
+          description: If true, treat 'persons' values as personnel numbers.
+        interval:
+          type: string
+          description: 'Optional interval split: ''days'', ''weeks'' or ''months''.'
+        page:
+          type: number
+          description: Page number for paginated results (page size 50).
+      required:
+        - beginDate
+        - endDate
+    operation:
+      method: GET
+      path: /v2/working-times
+      query:
+        beginDate: '{{params.beginDate}}'
+        endDate: '{{params.endDate}}'
+        persons: '{{params.persons}}'
+        types: '{{params.types}}'
+        usePersonnelNumbers: '{{params.usePersonnelNumbers}}'
+        interval: '{{params.interval}}'
+        page: '{{params.page}}'
+  - name: hrworks_list_time_recording_regulations
+    description: List all time-recording regulations configured for the customer (defines which working time types are allowed per regulation).
+    input:
+      type: object
+      properties: {}
+    operation:
+      method: GET
+      path: /v2/working-times/time-recording-regulations
+  - name: hrworks_list_projects
+    description: List time-tracking projects of the company.
+    input:
+      type: object
+      properties: {}
+    operation:
+      method: GET
+      path: /v2/working-times/projects
+  - name: hrworks_get_project
+    description: Return the data of a specific time-tracking project by id.
+    input:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Project id.
+      required:
+        - id
+    operation:
+      method: GET
+      path: /v2/working-times/projects/{{params.id}}
+  - name: hrworks_list_project_customers
+    description: List the customers used for project time tracking.
+    input:
+      type: object
+      properties: {}
+    operation:
+      method: GET
+      path: /v2/working-times/projects/customers
+  - name: hrworks_list_job_applications
+    description: List job applications. Optionally filter by post id and/or status.
+    input:
+      type: object
+      properties:
+        page:
+          type: number
+          description: Page number for paginated results (page size 50).
+        posts:
+          type: array
+          items:
+            type: string
+          description: Optional list of post ids to filter by.
+        statusFilter:
+          type: array
+          items:
+            type: string
+          description: Optional list of application status identifiers to filter by.
+    operation:
+      method: GET
+      path: /v2/applicant-management/job-applications
+      query:
+        page: '{{params.page}}'
+        posts: '{{params.posts}}'
+        statusFilter: '{{params.statusFilter}}'
+  - name: hrworks_list_posts
+    description: List all recruiting posts (job postings) of the company.
+    input:
+      type: object
+      properties:
+        onlyActive:
+          type: boolean
+          description: 'If false, also returns inactive posts (default: true).'
+    operation:
+      method: GET
+      path: /v2/applicant-management/posts
+      query:
+        onlyActive: '{{params.onlyActive}}'
+  - name: hrworks_get_post
+    description: Return the data of a single recruiting post by uuid.
+    input:
+      type: object
+      properties:
+        uuid:
+          type: string
+          description: The uuid (preferred) or id of the post.
+      required:
+        - uuid
+    operation:
+      method: GET
+      path: /v2/applicant-management/posts/{{params.uuid}}
+  - name: hrworks_list_applicants
+    description: List applicants (only those with at least one job application). Optionally filter by status.
+    input:
+      type: object
+      properties:
+        applicants:
+          type: array
+          items:
+            type: string
+          description: Optional list of applicant uuids.
+        statusFilter:
+          type: array
+          items:
+            type: string
+          description: Optional list of application statuses to filter by.
+        page:
+          type: number
+          description: Page number for paginated results (page size 50).
+    operation:
+      method: GET
+      path: /v2/applicant-management/applicants
+      query:
+        applicants: '{{params.applicants}}'
+        statusFilter: '{{params.statusFilter}}'
+        page: '{{params.page}}'
+  - name: hrworks_get_applicant
+    description: Return data of a specific applicant by uuid. The uuid does not change when the applicant is converted to an employee.
+    input:
+      type: object
+      properties:
+        uuid:
+          type: string
+          description: Applicant uuid.
+      required:
+        - uuid
+    operation:
+      method: GET
+      path: /v2/applicant-management/applicants/{{params.uuid}}
+  - name: hrworks_list_cost_centers
+    description: List all cost centers (Kostenstellen) of the company with their number/id and name.
+    input:
+      type: object
+      properties: {}
+    operation:
+      method: GET
+      path: /v2/cost-objects/cost-centers
+  - name: hrworks_list_cost_objectives
+    description: List all cost objectives (Kostenträger) of the company.
+    input:
+      type: object
+      properties: {}
+    operation:
+      method: GET
+      path: /v2/cost-objects/cost-objectives
+  - name: hrworks_list_wage_salary_types
+    description: List all wage/salary types defined for the customer account (used in payroll exports).
+    input:
+      type: object
+      properties: {}
+    operation:
+      method: GET
+      path: /v2/wage-and-salary/types
+  - name: hrworks_list_travel_expense_reports
+    description: List travel expense reports (Reisekostenabrechnungen). Pass optional date and person filters.
+    input:
+      type: object
+      properties:
+        beginDate:
+          type: string
+          description: Start of the date interval (YYYY-MM-DD).
+        endDate:
+          type: string
+          description: End of the date interval (YYYY-MM-DD).
+        persons:
+          type: array
+          items:
+            type: string
+          description: Optional list of person identifiers.
+        usePersonnelNumbers:
+          type: boolean
+          description: If true, treat 'persons' values as personnel numbers.
+        page:
+          type: number
+          description: Page number for paginated results (page size 50).
+    operation:
+      method: GET
+      path: /v2/travel-expenses/expense-reports
+      query:
+        beginDate: '{{params.beginDate}}'
+        endDate: '{{params.endDate}}'
+        persons: '{{params.persons}}'
+        usePersonnelNumbers: '{{params.usePersonnelNumbers}}'
+        page: '{{params.page}}'

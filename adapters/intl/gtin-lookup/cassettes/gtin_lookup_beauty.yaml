@@ -1,0 +1,20 @@
+# Recorded by `supermcp adapter record`; replayed by `supermcp adapter test`.
+# Credential values are replaced with SUPERMCP_CREDENTIAL_<NAME>.
+adapter: gtin-lookup
+tool: gtin_lookup_beauty
+recordedAt: 2026-09-22T22:18:47Z
+interactions:
+  - params:
+      barcode: "8001090662231"
+    request:
+      method: GET
+      url: https://world.openbeautyfacts.org/api/v2/product/8001090662231.json
+      query: fields=code,product_name,brands,image_url,ingredients_text,periods_after_opening
+      headers:
+        accept: application/json
+        user-agent: supermcp-GTIN-Lookup/1.0 (https://supermcp.dev)
+    response:
+      status: 200
+      headers:
+        content-type: application/json; charset=utf-8
+      body: '{"code":"8001090662231","product":{"brands":"Herbal Essences","code":"8001090662231","image_url":"https://images.openbeautyfacts.org/images/products/800/109/066/2231/front_fr.11.400.jpg","ingredients_text":"Aqua, Sodium Laureth Sulfate, Cocamidopropyl Betaine, Sodium Lauryl Sulfate, Sodium Citrate, Sodium Chloride, Sodium Xylenesulfonate, Stearyl Alcohol, Parfum, Cetyl Alcohol, Glycerin, Glycol Distearate, Dimethiconol, Citric Acid, Sodium Benzoate, Dimethicone, Guar Hydroxypropyltrimonium Chloride, Hexyl Cinnamal, Tetrasodium EDTA, Sodium Hydroxide, TEA-Dodecylbenzenesulfonate, Polyquaternium-6, Trihydroxystearin, Trideceth-10, Histidine, Benzyl Salicylate, Propylene Glycol, Limonene, Linalool, Butylene Glycol, Magnesium Nitrate, Aloe Barbadensis Leaf Juice, Alcohol Denat., Zea Mays Silk Extract, Cocos Nucifera Fruit Extract, Methylchloroisothiazolinone, Magnesium Chloride, Triethylene Glycol, Benzyl Alcohol, Methylisothiazolinone, Ecklonia Radiata Extract","product_name":"Coconut Milk"},"status":1,"status_verbose":"product found"}'

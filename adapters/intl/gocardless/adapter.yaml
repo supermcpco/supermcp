@@ -1,0 +1,367 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: gocardless
+  name: GoCardless
+  description: 'Manage GoCardless (direct-debit payment processing: customers, mandates, payments, subscriptions, payouts, refunds) from any AI agent. 10 tools, Bearer token.'
+  region: intl
+  category: payments
+  icon: gocardless
+  docsUrl: https://developer.gocardless.com/api-reference/
+  lint:
+    allow:
+      - description-min-60
+      - healthcheck-present
+credentials:
+  GOCARDLESS_ACCESS_TOKEN:
+    required: true
+    secret: true
+transport:
+  type: http
+  baseUrl: https://api.gocardless.com
+  headers:
+    GoCardless-Version: "2015-07-06"
+auth:
+  type: bearer
+  token: '{{env.GOCARDLESS_ACCESS_TOKEN}}'
+instructions: |-
+  This connector wraps the GoCardless API (per-environment).
+
+  **Setup**:
+  1. Sign in at https://manage.gocardless.com → top-right avatar → **Developers → API access → Create**.
+  2. Pick environment: `api.gocardless.com` (live) or `api-sandbox.gocardless.com` (sandbox).
+  3. Set `GOCARDLESS_ACCESS_TOKEN`.
+
+  **Authentication**: `Authorization: Bearer ${GOCARDLESS_ACCESS_TOKEN}` + `GoCardless-Version: 2015-07-06` (required).
+
+  **Entity model**: `Customer → BankAccount → Mandate → Payment(s)` and/or `Subscription → recurring Payments`. Once a mandate is active you can charge it.
+
+  **Idempotency keys**: write endpoints accept an `Idempotency-Key` header to safely retry. Best practice: pass a UUID per logical operation.
+
+  **Pagination**: cursor-based via `before` / `after` query params. `limit` (max 500).
+
+  **Rate limits**: 1000 req/min per token. 429 with `Retry-After`.
+
+  **Out of scope here**: bank-account verification, mandate import via CSV, customer-notification webhooks setup, the Connect (partner OAuth) flow.
+tools:
+  - name: gocardless_list_customers
+    description: List customers.
+    input:
+      type: object
+      properties:
+        limit:
+          type: integer
+          description: Max 500.
+        after:
+          type: string
+          description: Cursor — next page.
+        before:
+          type: string
+          description: Cursor — prev page.
+        created_at_gt:
+          type: string
+          description: ISO 8601 — created after.
+        created_at_lt:
+          type: string
+          description: ISO 8601.
+    operation:
+      method: GET
+      path: /customers
+      query:
+        limit: '{{params.limit}}'
+        after: '{{params.after}}'
+        before: '{{params.before}}'
+        created_at[gt]: '{{params.created_at_gt}}'
+        created_at[lt]: '{{params.created_at_lt}}'
+  - name: gocardless_create_customer
+    description: Create a customer.
+    input:
+      type: object
+      properties:
+        email:
+          type: string
+          description: Customer email.
+        given_name:
+          type: string
+          description: Given/first name.
+        family_name:
+          type: string
+          description: Family/last name.
+        company_name:
+          type: string
+          description: Company (instead of names).
+        address_line1:
+          type: string
+          description: Address line 1.
+        city:
+          type: string
+          description: City.
+        postal_code:
+          type: string
+          description: Postcode.
+        country_code:
+          type: string
+          description: ISO 3166-1 alpha-2.
+        language:
+          type: string
+          description: ISO 639-1.
+      required:
+        - country_code
+    operation:
+      method: POST
+      path: /customers
+      body:
+        value:
+          customers:
+            email: '{{params.email}}'
+            given_name: '{{params.given_name}}'
+            family_name: '{{params.family_name}}'
+            company_name: '{{params.company_name}}'
+            address_line1: '{{params.address_line1}}'
+            city: '{{params.city}}'
+            postal_code: '{{params.postal_code}}'
+            country_code: '{{params.country_code}}'
+            language: '{{params.language}}'
+  - name: gocardless_list_mandates
+    description: List mandates (the recurring authorisation to debit a customer's bank).
+    input:
+      type: object
+      properties:
+        customer:
+          type: string
+          description: Filter by customer ID.
+        status:
+          type: string
+          description: pending_customer_approval, pending_submission, submitted, active, failed, cancelled, expired, consumed.
+        limit:
+          type: integer
+          description: Max 500.
+        after:
+          type: string
+          description: Cursor.
+    operation:
+      method: GET
+      path: /mandates
+      query:
+        customer: '{{params.customer}}'
+        status: '{{params.status}}'
+        limit: '{{params.limit}}'
+        after: '{{params.after}}'
+  - name: gocardless_get_mandate
+    description: Get one mandate.
+    input:
+      type: object
+      properties:
+        mandate_id:
+          type: string
+          description: Mandate ID (e.g. MD0000…).
+      required:
+        - mandate_id
+    operation:
+      method: GET
+      path: /mandates/{{params.mandate_id}}
+  - name: gocardless_list_payments
+    description: List payments.
+    input:
+      type: object
+      properties:
+        customer:
+          type: string
+          description: Filter by customer.
+        mandate:
+          type: string
+          description: Filter by mandate.
+        subscription:
+          type: string
+          description: Filter by subscription.
+        status:
+          type: string
+          description: pending_customer_approval, pending_submission, submitted, confirmed, paid_out, cancelled, customer_approval_denied, failed, charged_back.
+        limit:
+          type: integer
+          description: Max 500.
+        after:
+          type: string
+          description: Cursor.
+    operation:
+      method: GET
+      path: /payments
+      query:
+        customer: '{{params.customer}}'
+        mandate: '{{params.mandate}}'
+        subscription: '{{params.subscription}}'
+        status: '{{params.status}}'
+        limit: '{{params.limit}}'
+        after: '{{params.after}}'
+  - name: gocardless_create_payment
+    description: Create a one-off payment against a mandate.
+    input:
+      type: object
+      properties:
+        amount:
+          type: integer
+          description: Amount in minor units (cents/pence).
+        currency:
+          type: string
+          description: ISO 4217 (GBP, EUR, USD, AUD, NZD, SEK, DKK, CAD).
+        mandate_id:
+          type: string
+          description: Mandate ID to debit.
+        description:
+          type: string
+          description: Description shown on statement.
+        reference:
+          type: string
+          description: Reference for your records.
+        charge_date:
+          type: string
+          description: YYYY-MM-DD when to collect.
+      required:
+        - amount
+        - currency
+        - mandate_id
+    operation:
+      method: POST
+      path: /payments
+      body:
+        value:
+          payments:
+            amount: '{{params.amount}}'
+            currency: '{{params.currency}}'
+            links:
+              mandate: '{{params.mandate_id}}'
+            description: '{{params.description}}'
+            reference: '{{params.reference}}'
+            charge_date: '{{params.charge_date}}'
+  - name: gocardless_list_subscriptions
+    description: List subscriptions (recurring payment schedules).
+    input:
+      type: object
+      properties:
+        customer:
+          type: string
+          description: Filter by customer.
+        status:
+          type: string
+          description: active, paused, cancelled, finished.
+        limit:
+          type: integer
+          description: Max 500.
+        after:
+          type: string
+          description: Cursor.
+    operation:
+      method: GET
+      path: /subscriptions
+      query:
+        customer: '{{params.customer}}'
+        status: '{{params.status}}'
+        limit: '{{params.limit}}'
+        after: '{{params.after}}'
+  - name: gocardless_create_subscription
+    description: Create a subscription. `interval_unit` is weekly/monthly/yearly.
+    input:
+      type: object
+      properties:
+        amount:
+          type: integer
+          description: Amount in minor units.
+        currency:
+          type: string
+          description: ISO 4217.
+        name:
+          type: string
+          description: Subscription name.
+        interval_unit:
+          type: string
+          description: weekly, monthly, yearly.
+        interval:
+          type: integer
+          description: Default 1.
+        day_of_month:
+          type: integer
+          description: 1-28 or -1=last day. Monthly only.
+        mandate_id:
+          type: string
+          description: Mandate to charge.
+        start_date:
+          type: string
+          description: YYYY-MM-DD.
+        count:
+          type: integer
+          description: Total number of payments (omit for indefinite).
+      required:
+        - amount
+        - currency
+        - interval_unit
+        - mandate_id
+    operation:
+      method: POST
+      path: /subscriptions
+      body:
+        value:
+          subscriptions:
+            amount: '{{params.amount}}'
+            currency: '{{params.currency}}'
+            name: '{{params.name}}'
+            interval_unit: '{{params.interval_unit}}'
+            interval: '{{params.interval}}'
+            day_of_month: '{{params.day_of_month}}'
+            links:
+              mandate: '{{params.mandate_id}}'
+            start_date: '{{params.start_date}}'
+            count: '{{params.count}}'
+  - name: gocardless_list_payouts
+    description: List payouts (settlement to your bank account).
+    input:
+      type: object
+      properties:
+        status:
+          type: string
+          description: pending, paid, bounced.
+        limit:
+          type: integer
+          description: Max 500.
+        after:
+          type: string
+          description: Cursor.
+    operation:
+      method: GET
+      path: /payouts
+      query:
+        status: '{{params.status}}'
+        limit: '{{params.limit}}'
+        after: '{{params.after}}'
+  - name: gocardless_create_refund
+    description: Refund a payment (full or partial).
+    input:
+      type: object
+      properties:
+        amount:
+          type: integer
+          description: Refund amount in minor units.
+        payment_id:
+          type: string
+          description: Payment ID to refund.
+        total_amount_confirmation:
+          type: integer
+          description: Total amount of the original payment — defensive guard.
+        reference:
+          type: string
+          description: Reference for your records.
+      required:
+        - amount
+        - payment_id
+        - total_amount_confirmation
+    operation:
+      method: POST
+      path: /refunds
+      body:
+        value:
+          refunds:
+            amount: '{{params.amount}}'
+            links:
+              payment: '{{params.payment_id}}'
+            total_amount_confirmation: '{{params.total_amount_confirmation}}'
+            reference: '{{params.reference}}'

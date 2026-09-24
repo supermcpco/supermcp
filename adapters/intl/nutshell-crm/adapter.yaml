@@ -1,0 +1,320 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: nutshell-crm
+  name: Nutshell CRM
+  description: Manage Nutshell CRM (leads, contacts, accounts, activities, tasks) from any AI agent. 9 tools, basic-auth with API token.
+  region: intl
+  category: crm
+  icon: nutshell-crm
+  docsUrl: https://developers.nutshell.com/docs
+  lint:
+    allow:
+      - description-min-60
+      - healthcheck-present
+      - tool-name-prefix
+credentials:
+  NUTSHELL_USERNAME:
+    required: true
+  NUTSHELL_API_KEY:
+    required: true
+    secret: true
+transport:
+  type: http
+  baseUrl: https://app.nutshell.com/api/v1
+auth:
+  type: basic
+  username: '{{env.NUTSHELL_USERNAME}}'
+  password: '{{env.NUTSHELL_API_KEY}}'
+instructions: |-
+  This connector wraps the Nutshell REST API v1 (app.nutshell.com/api/v1).
+
+  **Setup**:
+  1. Log into https://app.nutshell.com → top-right avatar → **Setup → API → New API key**.
+  2. Note the `Username` (your Nutshell email) and the generated `API key`.
+  3. Set `NUTSHELL_USERNAME` (email) and `NUTSHELL_API_KEY`.
+
+  **Authentication**: HTTP Basic — username = your account email, password = the API key. Nutshell ALSO supports a legacy JSON-RPC API but the REST endpoints exposed here are easier to consume.
+
+  **Entity types**: `Lead` (the main pipeline opportunity), `Contact` (person), `Account` (company), `Activity` (call/meeting log), `Task` (todo). Each has its own endpoint root.
+
+  **Pagination**: `page` (1-based) + `limit` (max 100).
+
+  **Rate limits**: 5 req/sec per user; 5k/day. 429 with `X-Rate-Limit-Remaining` header.
+
+  **Out of scope here**: web-form leads inbox, email templates, pipeline analytics, custom-app builder.
+tools:
+  - name: nutshell_list_leads
+    description: List leads. Filter by status (open, won, lost, cancelled), assignee, source.
+    input:
+      type: object
+      properties:
+        status:
+          type: string
+          description: open, won, lost, cancelled.
+        assignee_id:
+          type: integer
+          description: User ID.
+        page:
+          type: integer
+          description: 1-based.
+        limit:
+          type: integer
+          description: Max 100.
+        sort:
+          type: string
+          description: id, value, name, createdTime, modifiedTime — prefix with - for desc.
+    operation:
+      method: GET
+      path: /leads
+      query:
+        status: '{{params.status}}'
+        assignee_id: '{{params.assignee_id}}'
+        page: '{{params.page}}'
+        limit: '{{params.limit}}'
+        sort: '{{params.sort}}'
+  - name: nutshell_get_lead
+    description: Get one lead by ID with full custom fields, products, activities.
+    input:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: Lead ID.
+      required:
+        - id
+    operation:
+      method: GET
+      path: /leads/{{params.id}}
+  - name: nutshell_create_lead
+    description: 'Create a lead. Required: `description`. Useful optional: `primaryAccount.id`, `primaryContact.id`, `assignee.id`, `value.amount`, `confidence`.'
+    input:
+      type: object
+      properties:
+        description:
+          type: string
+          description: Lead description.
+        primaryAccount:
+          type: object
+          description: '{id} of the account.'
+        primaryContact:
+          type: object
+          description: '{id} of the contact.'
+        assignee:
+          type: object
+          description: '{id} of the user.'
+        value:
+          type: object
+          description: '{amount, currency} of the deal.'
+        confidence:
+          type: integer
+          description: 0-100 probability.
+        stage_id:
+          type: integer
+          description: Pipeline stage ID.
+      required:
+        - description
+    operation:
+      method: POST
+      path: /leads
+      body:
+        value:
+          description: '{{params.description}}'
+          primaryAccount: '{{params.primaryAccount}}'
+          primaryContact: '{{params.primaryContact}}'
+          assignee: '{{params.assignee}}'
+          value: '{{params.value}}'
+          confidence: '{{params.confidence}}'
+          stageId: '{{params.stage_id}}'
+  - name: nutshell_list_contacts
+    description: List contacts. Filter by name, email, account.
+    input:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Filter by name substring.
+        email:
+          type: string
+          description: Exact email match.
+        account_id:
+          type: integer
+          description: Filter to one account.
+        page:
+          type: integer
+          description: 1-based.
+        limit:
+          type: integer
+          description: Max 100.
+    operation:
+      method: GET
+      path: /contacts
+      query:
+        name: '{{params.name}}'
+        email: '{{params.email}}'
+        account_id: '{{params.account_id}}'
+        page: '{{params.page}}'
+        limit: '{{params.limit}}'
+  - name: nutshell_create_contact
+    description: 'Create a contact. Required: `name`. Common optional: `email`, `phone`, `accounts` (array of {id}).'
+    input:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Full name.
+        email:
+          type: array
+          description: Array of {value, type:'work'|'personal'}.
+        phone:
+          type: array
+          description: Array of {value, type}.
+        accounts:
+          type: array
+          description: Array of {id} account refs.
+        description:
+          type: string
+          description: Notes.
+      required:
+        - name
+    operation:
+      method: POST
+      path: /contacts
+      body:
+        value:
+          name: '{{params.name}}'
+          email: '{{params.email}}'
+          phone: '{{params.phone}}'
+          accounts: '{{params.accounts}}'
+          description: '{{params.description}}'
+  - name: nutshell_list_accounts
+    description: List accounts (companies).
+    input:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Filter by name substring.
+        page:
+          type: integer
+          description: 1-based.
+        limit:
+          type: integer
+          description: Max 100.
+    operation:
+      method: GET
+      path: /accounts
+      query:
+        name: '{{params.name}}'
+        page: '{{params.page}}'
+        limit: '{{params.limit}}'
+  - name: nutshell_create_account
+    description: 'Create a company. Required: `name`.'
+    input:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Company name.
+        url:
+          type: array
+          description: Array of {value}.
+        phone:
+          type: array
+          description: Array of {value, type}.
+        industry:
+          type: object
+          description: '{id} industry ref.'
+      required:
+        - name
+    operation:
+      method: POST
+      path: /accounts
+      body:
+        value:
+          name: '{{params.name}}'
+          url: '{{params.url}}'
+          phone: '{{params.phone}}'
+          industry: '{{params.industry}}'
+  - name: nutshell_list_activities
+    description: List activities (calls, meetings, emails, log notes).
+    input:
+      type: object
+      properties:
+        type:
+          type: string
+          description: Activity type code.
+        user_id:
+          type: integer
+          description: Filter by user.
+        lead_id:
+          type: integer
+          description: Filter to one lead.
+        from:
+          type: string
+          description: ISO 8601 date.
+        to:
+          type: string
+          description: ISO 8601 date.
+        page:
+          type: integer
+          description: 1-based.
+        limit:
+          type: integer
+          description: Max 100.
+    operation:
+      method: GET
+      path: /activities
+      query:
+        type: '{{params.type}}'
+        user_id: '{{params.user_id}}'
+        lead_id: '{{params.lead_id}}'
+        from: '{{params.from}}'
+        to: '{{params.to}}'
+        page: '{{params.page}}'
+        limit: '{{params.limit}}'
+  - name: nutshell_create_task
+    description: Create a task assigned to a user, optionally linked to a lead/contact/account.
+    input:
+      type: object
+      properties:
+        title:
+          type: string
+          description: Task title.
+        description:
+          type: string
+          description: Task body.
+        assignee_id:
+          type: integer
+          description: User ID.
+        due_time:
+          type: string
+          description: ISO 8601 datetime.
+        lead_id:
+          type: integer
+          description: Related lead.
+        contact_id:
+          type: integer
+          description: Related contact.
+        account_id:
+          type: integer
+          description: Related account.
+      required:
+        - title
+    operation:
+      method: POST
+      path: /tasks
+      body:
+        value:
+          title: '{{params.title}}'
+          description: '{{params.description}}'
+          assignee:
+            id: '{{params.assignee_id}}'
+          dueTime: '{{params.due_time}}'
+          lead:
+            id: '{{params.lead_id}}'
+          contact:
+            id: '{{params.contact_id}}'
+          account:
+            id: '{{params.account_id}}'

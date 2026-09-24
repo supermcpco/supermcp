@@ -1,0 +1,242 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: instantly
+  name: Instantly
+  description: 'Drive Instantly (cold-email outreach platform) from any AI agent: leads, campaigns, lead lists, accounts (sending mailboxes). 8 tools, Bearer auth.'
+  region: intl
+  category: crm
+  icon: instantly
+  docsUrl: https://developer.instantly.ai/
+  lint:
+    allow:
+      - description-min-60
+      - healthcheck-present
+credentials:
+  INSTANTLY_API_KEY:
+    required: true
+    secret: true
+transport:
+  type: http
+  baseUrl: https://api.instantly.ai/api/v2
+auth:
+  type: bearer
+  token: '{{env.INSTANTLY_API_KEY}}'
+instructions: |-
+  This connector uses the Instantly v2 API (developer.instantly.ai).
+
+  **Setup**:
+  1. Sign in to https://app.instantly.ai → bottom-left avatar → **Settings → Integrations → API → Generate New API Key**.
+  2. Set `INSTANTLY_API_KEY`.
+
+  **Authentication**: `Authorization: Bearer ${INSTANTLY_API_KEY}`.
+
+  **Lead state**: leads have status (Active, Paused, Completed, Unsubscribed, Bounced, Skipped, Replied). Adding a lead with `skip_if_in_workspace=true` deduplicates.
+
+  **Campaigns**: sequence of email steps. Adding a lead to a campaign enrolls it in the sequence.
+
+  **Accounts (sending mailboxes)**: each campaign sends from one or more connected mailboxes — managed in UI.
+
+  **Pagination**: `?starting_after=lead_id` cursor.
+
+  **Out of scope here**: campaign content editing (UI-only), unibox conversations API (separate), warmup management.
+tools:
+  - name: instantly_list_campaigns
+    description: List campaigns. Each has id, name, status, daily_limit.
+    input:
+      type: object
+      properties:
+        limit:
+          type: integer
+          description: Per page (default 100, max 100).
+        starting_after:
+          type: string
+          description: Cursor — campaign ID to start after.
+        search:
+          type: string
+          description: Name substring.
+    operation:
+      method: GET
+      path: /campaigns
+      query:
+        limit: '{{params.limit}}'
+        starting_after: '{{params.starting_after}}'
+        search: '{{params.search}}'
+  - name: instantly_get_campaign
+    description: Get a campaign by ID with full settings.
+    input:
+      type: object
+      properties:
+        campaignId:
+          type: string
+          description: Campaign ID.
+      required:
+        - campaignId
+    operation:
+      method: GET
+      path: /campaigns/{{params.campaignId}}
+  - name: instantly_get_campaign_analytics
+    description: Get campaign aggregated stats (sent, opened, replied, bounced, unsubscribed).
+    input:
+      type: object
+      properties:
+        campaign_id:
+          type: string
+          description: Campaign ID.
+        start_date:
+          type: string
+          description: ISO 8601.
+        end_date:
+          type: string
+          description: ISO 8601.
+    operation:
+      method: GET
+      path: /campaigns/analytics
+      query:
+        campaign_id: '{{params.campaign_id}}'
+        start_date: '{{params.start_date}}'
+        end_date: '{{params.end_date}}'
+  - name: instantly_list_leads
+    description: List leads. Filter by campaign / status.
+    input:
+      type: object
+      properties:
+        campaign_id:
+          type: string
+          description: Filter by campaign.
+        limit:
+          type: integer
+          description: Per page (max 100).
+        starting_after:
+          type: string
+          description: Cursor.
+        status:
+          type: integer
+          description: 1=Active, 2=Paused, 3=Completed, -1=Unsubscribed, -2=Bounced, -3=Skipped, 9=Replied.
+        email:
+          type: string
+          description: Exact email filter.
+    operation:
+      method: GET
+      path: /leads/list
+      query:
+        campaign_id: '{{params.campaign_id}}'
+        limit: '{{params.limit}}'
+        starting_after: '{{params.starting_after}}'
+        status: '{{params.status}}'
+        email: '{{params.email}}'
+  - name: instantly_add_lead
+    description: Add a lead to a campaign (or to a lead list if no campaign).
+    input:
+      type: object
+      properties:
+        campaign:
+          type: string
+          description: Campaign ID to add to.
+        list_id:
+          type: string
+          description: Lead list ID (alternative).
+        email:
+          type: string
+          description: Lead email.
+        first_name:
+          type: string
+          description: First name.
+        last_name:
+          type: string
+          description: Last name.
+        company_name:
+          type: string
+          description: Company.
+        phone:
+          type: string
+          description: Phone.
+        website:
+          type: string
+          description: Website URL.
+        personalization:
+          type: string
+          description: AI/manual personalization snippet for {{personalization}} template variable.
+        custom_variables:
+          type: object
+          description: Map of custom variable names to values (used in {{var_name}} template tags).
+        skip_if_in_workspace:
+          type: boolean
+          description: Skip if email exists anywhere in workspace (dedupe).
+        skip_if_in_campaign:
+          type: boolean
+          description: Skip if already in THIS campaign.
+      required:
+        - email
+    operation:
+      method: POST
+      path: /leads
+      body:
+        value:
+          campaign: '{{params.campaign}}'
+          list_id: '{{params.list_id}}'
+          email: '{{params.email}}'
+          first_name: '{{params.first_name}}'
+          last_name: '{{params.last_name}}'
+          company_name: '{{params.company_name}}'
+          phone: '{{params.phone}}'
+          website: '{{params.website}}'
+          personalization: '{{params.personalization}}'
+          custom_variables: '{{params.custom_variables}}'
+          skip_if_in_workspace: '{{params.skip_if_in_workspace}}'
+          skip_if_in_campaign: '{{params.skip_if_in_campaign}}'
+  - name: instantly_update_lead_interest_status
+    description: Update a lead's interest_status (a hot/warm/cold flag set during replies).
+    input:
+      type: object
+      properties:
+        leadId:
+          type: string
+          description: Lead ID.
+        interest_status:
+          type: integer
+          description: 1=Interested, 2=Meeting Booked, 3=Meeting Completed, 4=Closed, 5=Not Interested, 6=Wrong Person, 7=Lost.
+      required:
+        - leadId
+        - interest_status
+    operation:
+      method: POST
+      path: /leads/{{params.leadId}}
+      body:
+        value:
+          interest_status: '{{params.interest_status}}'
+  - name: instantly_list_lead_lists
+    description: List lead lists (standalone, not yet in a campaign).
+    input:
+      type: object
+      properties:
+        limit:
+          type: integer
+          description: Per page.
+        starting_after:
+          type: string
+          description: Cursor.
+    operation:
+      method: GET
+      path: /lead-lists
+      query:
+        limit: '{{params.limit}}'
+        starting_after: '{{params.starting_after}}'
+  - name: instantly_list_accounts
+    description: List sending accounts (mailboxes). Each has email, status, daily_limit, warmup status.
+    input:
+      type: object
+      properties:
+        limit:
+          type: integer
+          description: Per page.
+        starting_after:
+          type: string
+          description: Cursor.
+    operation:
+      method: GET
+      path: /accounts
+      query:
+        limit: '{{params.limit}}'
+        starting_after: '{{params.starting_after}}'

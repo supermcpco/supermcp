@@ -1,0 +1,434 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: clickup
+  name: ClickUp
+  description: 'Drive ClickUp (project management) from any AI agent: spaces, folders, lists, tasks, comments, time tracking, custom fields, teams, members. 16 tools, API token auth.'
+  region: intl
+  category: project-management
+  icon: clickup
+  docsUrl: https://clickup.com/api
+  lint:
+    allow:
+      - description-min-60
+      - healthcheck-present
+credentials:
+  CLICKUP_API_TOKEN:
+    required: true
+    secret: true
+transport:
+  type: http
+  baseUrl: https://api.clickup.com/api/v2
+auth:
+  type: apiKey
+  in: header
+  name: Authorization
+  value: '{{env.CLICKUP_API_TOKEN}}'
+instructions: |-
+  This connector uses the ClickUp API v2 (clickup.com/api).
+
+  **Setup**:
+  1. Sign in to ClickUp → top-right avatar → **Settings → Apps → API Token → Generate** (personal token).
+  2. Copy the token (starts with `pk_`). Set `CLICKUP_API_TOKEN`.
+
+  **Authentication**: header `Authorization: ${CLICKUP_API_TOKEN}` — no `Bearer ` or `Token ` prefix, just the raw key. The adapter sets this via API_KEY profile.
+
+  **Hierarchy**: Workspace (=Team) → Space → Folder (optional) → List → Task → Subtask. Lists can also exist directly inside a Space without a Folder. Discover IDs top-down: `clickup_list_teams` (returns workspaces, oddly called 'teams' in the API) → `clickup_list_spaces(teamId)` → `clickup_list_folders(spaceId)` → `clickup_list_lists(folderId)` OR `clickup_list_folderless_lists(spaceId)`.
+
+  **Task IDs**: every task has an `id` (e.g. `abc123`). The same task can also be addressed by `custom_id` (the human-readable like 'PROJ-42') if your workspace enabled custom task IDs — set `custom_task_ids=true` in calls that use custom IDs.
+
+  **Statuses are per-list**: each list has its own status set ('Open', 'In Progress', 'Done'). To move a task, set `status` to a status name (case-insensitive) that exists on the task's current list.
+
+  **Custom fields**: arrays of `{id, value}` on every task. Discover via `clickup_get_list_custom_fields(listId)`.
+
+  **Assignees**: array of user IDs (NOT emails). Get user IDs from `clickup_list_team_members(teamId)`.
+
+  **Date fields**: Unix timestamp in MILLISECONDS (not seconds), e.g. `1717200000000`.
+
+  **Pagination**: most list endpoints return up to 100 by default. Some support `page` (0-indexed) + `order_by` + `reverse`.
+
+  **Rate limits**: 100 req/min for Free Forever, scales up with plan. On 429 honor `X-RateLimit-Reset` (Unix timestamp).
+
+  **Out of scope here**: webhooks, automations, dependencies, goals/targets, attachments upload (use external URL), chat, dashboards, sprints.
+tools:
+  - name: clickup_get_authorized_user
+    description: 'Return the authenticated user: id, username, email, color, profilePicture, initials. Health check + whoami.'
+    input:
+      type: object
+      properties: {}
+    operation:
+      method: GET
+      path: /user
+  - name: clickup_list_teams
+    description: List workspaces (called 'teams' in the API — confusingly different from per-workspace 'teams' which are user groups). Each returns id, name, color, avatar, members[].
+    input:
+      type: object
+      properties: {}
+    operation:
+      method: GET
+      path: /team
+  - name: clickup_list_spaces
+    description: List spaces in a workspace. Each space has id, name, private flag, statuses[], features (multiple_assignees, due_dates, custom_fields, etc.).
+    input:
+      type: object
+      properties:
+        teamId:
+          type: string
+          description: Workspace ID.
+        archived:
+          type: boolean
+          description: Include archived. Default false.
+      required:
+        - teamId
+    operation:
+      method: GET
+      path: /team/{{params.teamId}}/space
+      query:
+        archived: '{{params.archived}}'
+  - name: clickup_list_folders
+    description: List folders in a space. Each folder has id, name, override_statuses flag, hidden flag, lists[].
+    input:
+      type: object
+      properties:
+        spaceId:
+          type: string
+          description: Space ID.
+        archived:
+          type: boolean
+          description: Include archived.
+      required:
+        - spaceId
+    operation:
+      method: GET
+      path: /space/{{params.spaceId}}/folder
+      query:
+        archived: '{{params.archived}}'
+  - name: clickup_list_lists
+    description: List lists in a folder.
+    input:
+      type: object
+      properties:
+        folderId:
+          type: string
+          description: Folder ID.
+        archived:
+          type: boolean
+          description: Include archived.
+      required:
+        - folderId
+    operation:
+      method: GET
+      path: /folder/{{params.folderId}}/list
+      query:
+        archived: '{{params.archived}}'
+  - name: clickup_list_folderless_lists
+    description: List lists that live directly in a space (no parent folder).
+    input:
+      type: object
+      properties:
+        spaceId:
+          type: string
+          description: Space ID.
+        archived:
+          type: boolean
+          description: Include archived.
+      required:
+        - spaceId
+    operation:
+      method: GET
+      path: /space/{{params.spaceId}}/list
+      query:
+        archived: '{{params.archived}}'
+  - name: clickup_list_tasks
+    description: List tasks in a list with filtering. Supports filter by assignees, statuses, due_date_gt/lt, custom_fields, tags. Cursor pagination via page (0-indexed).
+    input:
+      type: object
+      properties:
+        listId:
+          type: string
+          description: List ID.
+        archived:
+          type: boolean
+          description: Include archived.
+        page:
+          type: integer
+          description: 0-indexed page.
+        order_by:
+          type: string
+          description: id, created, updated, due_date.
+        reverse:
+          type: boolean
+          description: Sort desc.
+        subtasks:
+          type: boolean
+          description: Include subtasks.
+        statuses:
+          type: array
+          description: Filter by status names.
+        assignees:
+          type: array
+          description: Filter by assignee user IDs.
+        tags:
+          type: array
+          description: Filter by tag names.
+        due_date_gt:
+          type: integer
+          description: Due after this Unix ms.
+        due_date_lt:
+          type: integer
+          description: Due before this Unix ms.
+        include_closed:
+          type: boolean
+          description: Include closed tasks.
+      required:
+        - listId
+    operation:
+      method: GET
+      path: /list/{{params.listId}}/task
+      query:
+        archived: '{{params.archived}}'
+        page: '{{params.page}}'
+        order_by: '{{params.order_by}}'
+        reverse: '{{params.reverse}}'
+        subtasks: '{{params.subtasks}}'
+        statuses[]: '{{params.statuses}}'
+        assignees[]: '{{params.assignees}}'
+        tags[]: '{{params.tags}}'
+        due_date_gt: '{{params.due_date_gt}}'
+        due_date_lt: '{{params.due_date_lt}}'
+        include_closed: '{{params.include_closed}}'
+  - name: clickup_get_task
+    description: Fetch a single task by ID with all fields including custom_fields, checklists, comments_count, dependencies, watchers.
+    input:
+      type: object
+      properties:
+        taskId:
+          type: string
+          description: Task ID (or custom_id if custom_task_ids=true).
+        custom_task_ids:
+          type: boolean
+          description: If true, taskId is interpreted as a custom_id (like 'PROJ-42').
+        team_id:
+          type: string
+          description: Required when custom_task_ids=true.
+        include_subtasks:
+          type: boolean
+          description: Include subtasks in response.
+      required:
+        - taskId
+    operation:
+      method: GET
+      path: /task/{{params.taskId}}
+      query:
+        custom_task_ids: '{{params.custom_task_ids}}'
+        team_id: '{{params.team_id}}'
+        include_subtasks: '{{params.include_subtasks}}'
+  - name: clickup_create_task
+    description: 'Create a task in a list. Required: name. Date fields are Unix ms. Assignees are user IDs.'
+    input:
+      type: object
+      properties:
+        listId:
+          type: string
+          description: List ID.
+        name:
+          type: string
+          description: Task title.
+        description:
+          type: string
+          description: Markdown description.
+        markdown_description:
+          type: string
+          description: Explicit Markdown description (ClickUp prefers this over `description`).
+        assignees:
+          type: array
+          description: Array of user IDs.
+        tags:
+          type: array
+          description: Tag name strings.
+        status:
+          type: string
+          description: Status name (case-insensitive). Must exist on the list.
+        priority:
+          type: integer
+          description: 1=Urgent, 2=High, 3=Normal, 4=Low.
+        due_date:
+          type: integer
+          description: Due date Unix ms.
+        due_date_time:
+          type: boolean
+          description: If true, due_date includes a time component.
+        start_date:
+          type: integer
+          description: Start date Unix ms.
+        time_estimate:
+          type: integer
+          description: Time estimate in ms.
+        parent:
+          type: string
+          description: Parent task ID — creates this as a subtask.
+        custom_fields:
+          type: array
+          description: '[{id, value}] custom fields.'
+        notify_all:
+          type: boolean
+          description: Notify assignees and watchers.
+      required:
+        - listId
+        - name
+    operation:
+      method: POST
+      path: /list/{{params.listId}}/task
+      body:
+        value:
+          name: '{{params.name}}'
+          description: '{{params.description}}'
+          markdown_description: '{{params.markdown_description}}'
+          assignees: '{{params.assignees}}'
+          tags: '{{params.tags}}'
+          status: '{{params.status}}'
+          priority: '{{params.priority}}'
+          due_date: '{{params.due_date}}'
+          due_date_time: '{{params.due_date_time}}'
+          start_date: '{{params.start_date}}'
+          time_estimate: '{{params.time_estimate}}'
+          parent: '{{params.parent}}'
+          custom_fields: '{{params.custom_fields}}'
+          notify_all: '{{params.notify_all}}'
+  - name: clickup_update_task
+    description: 'Update a task. Common: change status, reassign, change due_date.'
+    input:
+      type: object
+      properties:
+        taskId:
+          type: string
+          description: Task ID.
+        name:
+          type: string
+          description: New name.
+        description:
+          type: string
+          description: New description.
+        status:
+          type: string
+          description: New status (must exist on list).
+        priority:
+          type: integer
+          description: 1-4.
+        due_date:
+          type: integer
+          description: Unix ms.
+        start_date:
+          type: integer
+          description: Unix ms.
+        time_estimate:
+          type: integer
+          description: Ms.
+        assignees:
+          type: object
+          description: '{add:[id1,id2], rem:[id3]} — incremental update of assignees (NOT a full replacement).'
+        archived:
+          type: boolean
+          description: Archive/unarchive.
+      required:
+        - taskId
+    operation:
+      method: PUT
+      path: /task/{{params.taskId}}
+      body:
+        value:
+          name: '{{params.name}}'
+          description: '{{params.description}}'
+          status: '{{params.status}}'
+          priority: '{{params.priority}}'
+          due_date: '{{params.due_date}}'
+          start_date: '{{params.start_date}}'
+          time_estimate: '{{params.time_estimate}}'
+          assignees: '{{params.assignees}}'
+          archived: '{{params.archived}}'
+  - name: clickup_delete_task
+    description: Delete a task. Moves to trash (recoverable for 30 days from UI).
+    input:
+      type: object
+      properties:
+        taskId:
+          type: string
+          description: Task ID.
+      required:
+        - taskId
+    operation:
+      method: DELETE
+      path: /task/{{params.taskId}}
+  - name: clickup_create_task_comment
+    description: Add a comment to a task.
+    input:
+      type: object
+      properties:
+        taskId:
+          type: string
+          description: Task ID.
+        comment_text:
+          type: string
+          description: Comment body (Markdown).
+        assignee:
+          type: integer
+          description: Optional user ID to assign as a follow-up.
+        notify_all:
+          type: boolean
+          description: Notify watchers.
+      required:
+        - taskId
+        - comment_text
+    operation:
+      method: POST
+      path: /task/{{params.taskId}}/comment
+      body:
+        value:
+          comment_text: '{{params.comment_text}}'
+          assignee: '{{params.assignee}}'
+          notify_all: '{{params.notify_all}}'
+  - name: clickup_list_task_comments
+    description: List comments on a task. Returns each comment's id, comment_text, assignee, resolved, date.
+    input:
+      type: object
+      properties:
+        taskId:
+          type: string
+          description: Task ID.
+        start:
+          type: integer
+          description: Pagination cursor (Unix ms of comment to start from).
+      required:
+        - taskId
+    operation:
+      method: GET
+      path: /task/{{params.taskId}}/comment
+      query:
+        start: '{{params.start}}'
+  - name: clickup_get_list_custom_fields
+    description: List custom fields available on a list, with their IDs and types. Required to compose custom_fields arrays.
+    input:
+      type: object
+      properties:
+        listId:
+          type: string
+          description: List ID.
+      required:
+        - listId
+    operation:
+      method: GET
+      path: /list/{{params.listId}}/field
+  - name: clickup_list_team_members
+    description: List members of a workspace. Returns id (use as assignee), username, email, color, role.
+    input:
+      type: object
+      properties:
+        teamId:
+          type: string
+          description: Workspace ID.
+      required:
+        - teamId
+    operation:
+      method: GET
+      path: /team/{{params.teamId}}/member

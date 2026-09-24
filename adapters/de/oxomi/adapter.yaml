@@ -1,0 +1,328 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: oxomi
+  name: Oxomi Product & Media Portal
+  description: Look up product data, datasheets, documents, brands, media and availability via the official Oxomi Public API. Oxomi is the dominant catalog/media portal for the German Baustoff (building materials) and PVH trade, covering thousands of supplier catalogs.
+  region: de
+  category: e-commerce
+  icon: oxomi
+  docsUrl: https://www.oxomi.com/system/api
+  lint:
+    allow:
+      - healthcheck-present
+credentials:
+  OXOMI_PORTAL_ID:
+    required: true
+  OXOMI_USER:
+    required: true
+  OXOMI_ACCESS_TOKEN:
+    required: true
+    secret: true
+  OXOMI_API_TOKEN:
+    required: true
+    secret: true
+transport:
+  type: http
+  baseUrl: https://oxomi.com
+auth:
+  type: query
+  params:
+    portal: '{{env.OXOMI_PORTAL_ID}}'
+    user: '{{env.OXOMI_USER}}'
+    accessToken: '{{env.OXOMI_ACCESS_TOKEN}}'
+instructions: |-
+  This connector uses the **official Oxomi Public API** (`/portals/api/...`) — JSON, documented, and not the deprecated `/service/json` frontend API (which Oxomi sunsets on 2026-12-31).
+
+  ## Credentials
+  Enter these when importing the connector; they are injected as query parameters on every call:
+  - `OXOMI_PORTAL_ID` — your numeric portal id (e.g. 3001049)
+  - `OXOMI_USER` — your Oxomi portal user (set a non-empty value; used for profile-scoped access)
+  - `OXOMI_ACCESS_TOKEN` — the portal API access token (Portal-Einstellungen → API)
+  - `OXOMI_API_TOKEN` — the API-Token **ID**, required ONLY by the product-sync tools (`oxomi_sync_products_changed`, `oxomi_get_product_spx`, `oxomi_update_sync_date`). Leave unset if you don't use sync.
+
+  ## Permissions matter
+  Each Oxomi access token is granted a specific set of API permissions and product **query blocks** on the portal side. If a call returns `403 Missing permission: <x>` or resolves a product but returns empty `queries`, ask your Oxomi admin to enable that permission/block for the token. `product/data` resolution, `resolve-gtin`, `brand/info` and `documents` are commonly enabled; `product-search` and individual data blocks (prices, attachments, …) often must be granted explicitly.
+
+  ## Typical workflows
+  - **Product lookup**: `oxomi_search_products` (text/code/GTIN) → take itemNumber + supplierNumber → `oxomi_get_product_data` with the `queries` you need (e.g. attachments, product-images, prices, pages).
+  - **Barcode**: `oxomi_resolve_gtin` → supplierNumber + itemNumber → `oxomi_get_product_data`.
+  - **Documents/brand**: `oxomi_list_documents`, `oxomi_get_brand_info`.
+  - **Bulk/ETL**: `oxomi_sync_products_changed` (incremental, continuationToken pagination) + `oxomi_get_product_spx`.
+
+  Products are identified by `itemNumber` + `supplierNumber`. Most content is German; pass a language code (e.g. `en`) where the supplier provides translations.
+tools:
+  - name: oxomi_search_products
+    description: Search products in the portal by free text, item code or GTIN (Navigator Pro logic). Returns matched products with itemNumber, supplierNumber, GTIN, model, brand, series and images. Requires the 'product-search' permission on the access token.
+    input:
+      type: object
+      properties:
+        query:
+          type: string
+          description: 'Search string: description, brand, item number or GTIN.'
+        limit:
+          type: number
+          description: Maximum number of results to return (default applied by Oxomi).
+      required:
+        - query
+    operation:
+      method: POST
+      path: /portals/api/v2/products/search
+      body:
+        value:
+          limit: '{{params.limit}}'
+          queries:
+            - '{{params.query}}'
+  - name: oxomi_get_product_data
+    description: 'Fetch rich product information for a product (by itemNumber + supplierNumber): images, attachments/documents, prices, catalog pages, cover, availability and more. Choose which data blocks via the ''queries'' array. Up to 30 products per call (this tool sends one).'
+    input:
+      type: object
+      properties:
+        itemNumber:
+          type: string
+          description: The product item/article number.
+        supplierNumber:
+          type: string
+          description: The supplier number for the item (use '-' if unknown).
+        queries:
+          type: array
+          items:
+            type: string
+            enum:
+              - base-info
+              - product-images
+              - images
+              - cover
+              - icons
+              - galleries
+              - attachments
+              - pages
+              - prices
+              - availability
+              - videos
+              - spare-parts
+              - relationships
+              - variants
+              - features
+              - properties
+              - measurements
+              - energy-label
+              - html-description
+              - tender-text
+              - texts
+              - commercial
+              - card
+          description: Which data blocks to return, e.g. ["base-info","attachments","product-images","prices"]. Each block may require its own permission on the token.
+      required:
+        - itemNumber
+        - supplierNumber
+        - queries
+    operation:
+      method: POST
+      path: /portals/api/v2/product/data
+      body:
+        value:
+          outputMode: BY_PRODUCT
+          queries: '{{params.queries}}'
+          products:
+            - itemNumber: '{{params.itemNumber}}'
+              supplierNumber: '{{params.supplierNumber}}'
+  - name: oxomi_resolve_gtin
+    description: Resolve a GTIN-13 or GTIN-14 barcode to its product, returning the supplierNumber and supplierItemNumber. Use before oxomi_get_product_data when you only have a barcode.
+    input:
+      type: object
+      properties:
+        gtin:
+          type: string
+          description: The GTIN-13 or GTIN-14 / EAN barcode to resolve.
+        filterCountry:
+          type: string
+          description: Optional ISO country filter for resolution (e.g. DE).
+        filterLanguage:
+          type: string
+          description: Optional ISO language filter for resolution (e.g. de).
+      required:
+        - gtin
+    operation:
+      method: GET
+      path: /portals/api/v1/products/resolve-gtin
+      query:
+        gtin: '{{params.gtin}}'
+        filterCountry: '{{params.filterCountry}}'
+        filterLanguage: '{{params.filterLanguage}}'
+  - name: oxomi_product_availability
+    description: Obtain manufacturer stock/availability for a product (stock status, indicator, availability dates, manufacturing time). The 'mode' value is portal-specific — consult your Oxomi documentation/admin for the valid value. Auth and endpoint are otherwise standard.
+    input:
+      type: object
+      properties:
+        itemNumber1:
+          type: string
+          description: The item/article number to check.
+        supplierNumber1:
+          type: string
+          description: The supplier number for the item.
+        mode:
+          type: string
+          description: Availability mode (portal-specific enum, required by Oxomi).
+        quantity1:
+          type: number
+          description: Optional requested quantity.
+        unit1:
+          type: string
+          description: Optional unit for the quantity.
+      required:
+        - itemNumber1
+        - mode
+    operation:
+      method: POST
+      path: /portals/api/v1/products/availability
+      query:
+        itemNumber1: '{{params.itemNumber1}}'
+        supplierNumber1: '{{params.supplierNumber1}}'
+        mode: '{{params.mode}}'
+        quantity1: '{{params.quantity1}}'
+        unit1: '{{params.unit1}}'
+  - name: oxomi_get_brand_info
+    description: 'Get information about a brand by id, name or supplier number: official name, supplier number(s), logo image URL, manufacturer and distributor contact details.'
+    input:
+      type: object
+      properties:
+        brand:
+          type: string
+          description: 'Brand identifier: brand id, brand name, or supplier number.'
+        language:
+          type: string
+          description: Optional ISO language code for human-readable content (e.g. de, en).
+      required:
+        - brand
+    operation:
+      method: GET
+      path: /portals/api/v1/brand/info
+      query:
+        brand: '{{params.brand}}'
+        language: '{{params.language}}'
+  - name: oxomi_list_documents
+    description: List documents (catalogs, price lists, brochures, promotions, etc.) in the portal with filtering and pagination. Returns id, code, type, name, previewUrl, page count, supplier, brand, tags, categories and languages.
+    input:
+      type: object
+      properties:
+        limit:
+          type: number
+          description: Maximum items to return (default 50, max 1000).
+        start:
+          type: number
+          description: Number of items to skip, for pagination.
+        sortBy:
+          type: string
+          description: 'Sort order: ''priority'' (default), ''name'', ''date'' or ''random''.'
+        includeOutdated:
+          type: boolean
+          description: Include outdated documents.
+        language:
+          type: string
+          description: Optional ISO language code filter.
+    operation:
+      method: GET
+      path: /portals/api/v1/documents
+      query:
+        limit: '{{params.limit}}'
+        start: '{{params.start}}'
+        sortBy: '{{params.sortBy}}'
+        includeOutdated: '{{params.includeOutdated}}'
+        language: '{{params.language}}'
+  - name: oxomi_render_datasheet
+    description: Render the technical datasheet of a product and return the generated HTML in a JSON response. Identify the product by itemNumber + supplierNumber.
+    input:
+      type: object
+      properties:
+        itemNumber:
+          type: string
+          description: The product item/article number.
+        supplierNumber:
+          type: string
+          description: The supplier number for the item.
+        language:
+          type: string
+          description: Optional ISO language code for the rendered datasheet.
+      required:
+        - itemNumber
+        - supplierNumber
+    operation:
+      method: POST
+      path: /portals/api/v1/product/datasheet/render
+      body:
+        value:
+          itemNumber: '{{params.itemNumber}}'
+          supplierNumber: '{{params.supplierNumber}}'
+          language: '{{params.language}}'
+  - name: oxomi_sync_products_changed
+    description: Incrementally sync products changed since a given date from the product information graph (for ETL/bulk export). Returns a products array plus a continuationToken for pagination ('-' when finished). Requires OXOMI_API_TOKEN.
+    input:
+      type: object
+      properties:
+        syncStart:
+          type: string
+          description: Sync start date/time (ISO 8601). Return products changed since this moment.
+        blocks:
+          type: string
+          description: 'Comma-separated data blocks: DETAILS, CLASSIFICATIONS, FEATURES, PROPERTIES, TEXTS, IMAGES, ATTACHMENTS, PRICES, RELATIONSHIPS, MEASUREMENTS, PACKAGES.'
+        continuationToken:
+          type: string
+          description: Pagination token returned by a previous call; omit on the first page.
+        supplierNumber:
+          type: string
+          description: Optional supplier filter.
+      required:
+        - syncStart
+    operation:
+      method: GET
+      path: /portals/api/v3/products/changed
+      query:
+        apiToken: '{{env.OXOMI_API_TOKEN}}'
+        syncStart: '{{params.syncStart}}'
+        blocks: '{{params.blocks}}'
+        continuationToken: '{{params.continuationToken}}'
+        supplierNumber: '{{params.supplierNumber}}'
+  - name: oxomi_get_product_spx
+    description: Fetch a single product in full SPX format by itemNumber or GTIN, with selectable data blocks. Returns the complete product detail structure. Requires OXOMI_API_TOKEN.
+    input:
+      type: object
+      properties:
+        itemNumber:
+          type: string
+          description: The product item/article number (provide this or gtin).
+        gtin:
+          type: string
+          description: The product GTIN (provide this or itemNumber).
+        supplierNumber:
+          type: string
+          description: Optional supplier number for disambiguation.
+        blocks:
+          type: string
+          description: Comma-separated data blocks (e.g. DETAILS, IMAGES, ATTACHMENTS, PRICES).
+    operation:
+      method: GET
+      path: /portals/api/v3/products/spx
+      query:
+        apiToken: '{{env.OXOMI_API_TOKEN}}'
+        itemNumber: '{{params.itemNumber}}'
+        gtin: '{{params.gtin}}'
+        supplierNumber: '{{params.supplierNumber}}'
+        blocks: '{{params.blocks}}'
+  - name: oxomi_update_sync_date
+    description: Update the stored sync date for the portal API token (call after a successful incremental sync so the next run starts from the right point). Requires OXOMI_API_TOKEN.
+    input:
+      type: object
+      properties:
+        date:
+          type: string
+          description: The new sync date/time to store (ISO 8601).
+      required:
+        - date
+    operation:
+      method: GET
+      path: /portals/api/v1/core/update-sync-date
+      query:
+        apiToken: '{{env.OXOMI_API_TOKEN}}'
+        date: '{{params.date}}'

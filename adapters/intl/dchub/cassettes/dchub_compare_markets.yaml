@@ -1,0 +1,20 @@
+# Recorded by `supermcp adapter record`; replayed by `supermcp adapter test`.
+# Credential values are replaced with SUPERMCP_CREDENTIAL_<NAME>.
+adapter: dchub
+tool: dchub_compare_markets
+recordedAt: 2026-09-22T22:18:39Z
+interactions:
+  - params:
+      markets: northern virginia,london-gb
+    request:
+      method: GET
+      url: https://dchub.cloud/api/v1/markets/compare
+      query: markets=northern+virginia,london-gb
+      headers:
+        accept: application/json
+    response:
+      status: 200
+      headers:
+        content-type: application/json
+      body: |
+        {"_gated":true,"_locked_fields":["avg_power_mw","max_power_mw","total_power_mw"],"_preview_only":true,"_total_available":2,"_upgrade_cta":"A key on the Developer plan or above opens this endpoint over REST, and so does any valid key holding pack credits, at one credit per full answer.","comparison":[{"display_name":"Northern Virginia","market":"northern virginia","metrics":{"avg_power_mw":null,"facilities":784,"max_power_mw":null,"operational":738,"pipeline":34,"providers":98,"total_power_mw":null},"top_providers":["Amazon Web Services","Digital Realty","Unknown","Equinix","Centersquare"]},{"display_name":"London","market":"london-gb","metrics":{"avg_power_mw":null,"facilities":266,"max_power_mw":null,"operational":202,"pipeline":63,"providers":116,"total_power_mw":null},"top_providers":["Digital Realty","Equinix","Telehouse","Unknown","Global Switch"]}],"gating_matrix":"https://dchub.cloud/api/v1/gating-matrix","generated_at":"2026-09-22T22:09:18.977439Z","required_plan":"developer","success":true,"upgrade_options":[{"label":"$10 one-time = 1,000 API credits; each full answer here uses one","opens":"rest","plan":"pack","url":"https://dchub.cloud/go/c/bWV0ZXJlZHw.32b1f8ad0a9f4aa4f04f8276b0960e3f"},{"label":"Developer $49/mo opens this endpoint","opens":"rest","plan":"developer","url":"https://dchub.cloud/go/c/ZGV2ZWxvcGVyfA.81fd186183a71f7893d1d6ad3ddd1a9c"}],"upgrade_url":"https://dchub.cloud/go/c/bWV0ZXJlZHw.32b1f8ad0a9f4aa4f04f8276b0960e3f"}

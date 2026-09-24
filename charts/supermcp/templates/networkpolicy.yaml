@@ -1,0 +1,32 @@
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "supermcp.fullname" . }}
+  labels:
+    {{- include "supermcp.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "supermcp.selectorLabels" . | nindent 6 }}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - ports:
+        - port: 8080
+          protocol: TCP
+  egress:
+    {{- if .Values.networkPolicy.egress.allowAll }}
+    - {}
+    {{- else }}
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    {{- range .Values.networkPolicy.egress.cidrs }}
+    - to:
+        - ipBlock:
+            cidr: {{ . }}
+    {{- end }}
+    {{- end }}
+{{- end }}

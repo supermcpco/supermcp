@@ -1,0 +1,294 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: dropbox-sign
+  name: Dropbox Sign (HelloSign)
+  description: 'Drive Dropbox Sign (e-signature, formerly HelloSign) from any AI agent: signature requests, templates, signature embeds, downloads. 10 tools, API-key Basic auth.'
+  region: intl
+  category: e-signature
+  icon: dropbox-sign
+  docsUrl: https://developers.hellosign.com/api/reference/
+  lint:
+    allow:
+      - description-min-60
+      - healthcheck-present
+credentials:
+  DROPBOX_SIGN_API_KEY:
+    required: true
+    secret: true
+transport:
+  type: http
+  baseUrl: https://api.hellosign.com/v3
+auth:
+  type: basic
+  username: '{{env.DROPBOX_SIGN_API_KEY}}'
+instructions: |-
+  This connector uses the Dropbox Sign API v3 (developers.hellosign.com).
+
+  **Setup**:
+  1. Sign in to https://app.hellosign.com → top-right avatar → **API → Test Mode + Live API → Generate API Key**.
+  2. Use the test API key during development; switch to live when going to production.
+  3. Set `DROPBOX_SIGN_API_KEY`.
+
+  **Authentication**: HTTP Basic with username=API_KEY, password=empty.
+
+  **test_mode**: every write endpoint accepts `test_mode=1` to NOT charge credits / NOT send real signature requests. Always test first.
+
+  **Signature Request workflow**:
+    1. Create signature request from a template (`create_with_template`) OR from file URLs (`create`).
+    2. Recipients receive emails to sign.
+    3. Poll `get` to track status (status_code: awaiting_signature, signed, declined, expired).
+    4. Download the final PDF after status=signed.
+
+  **Embedded signing**: alternative flow where you host the signature UI in your app (no Dropbox Sign emails sent). Requires `embedded_signing_enabled: true` in your account.
+
+  **Pagination**: `?page=N&page_size=M` (default 20, max 100).
+
+  **Out of scope here**: templates editing (UI), API app management, embedded request URL flows beyond basics, fax, signature accounts setup.
+tools:
+  - name: dropbox_sign_get_account
+    description: 'Return account info: email, role, quotas, callback_url.'
+    input:
+      type: object
+      properties: {}
+    operation:
+      method: GET
+      path: /account
+  - name: dropbox_sign_list_signature_requests
+    description: List signature requests, optionally filtered by account/query.
+    input:
+      type: object
+      properties:
+        account_id:
+          type: string
+          description: Filter by account.
+        page:
+          type: integer
+          description: Page (1-based).
+        page_size:
+          type: integer
+          description: Per page (max 100).
+        query:
+          type: string
+          description: Full-text search query.
+    operation:
+      method: GET
+      path: /signature_request/list
+      query:
+        account_id: '{{params.account_id}}'
+        page: '{{params.page}}'
+        page_size: '{{params.page_size}}'
+        query: '{{params.query}}'
+  - name: dropbox_sign_get_signature_request
+    description: Fetch a signature request by ID with full signer state.
+    input:
+      type: object
+      properties:
+        signature_request_id:
+          type: string
+          description: Signature request ID.
+      required:
+        - signature_request_id
+    operation:
+      method: GET
+      path: /signature_request/{{params.signature_request_id}}
+  - name: dropbox_sign_create_signature_request_with_template
+    description: 'Create a signature request from a template. Required: template_ids + signers (with role) + subject. Always set test_mode=1 for testing.'
+    input:
+      type: object
+      properties:
+        template_ids:
+          type: array
+          description: Array of template IDs.
+        subject:
+          type: string
+          description: Email subject.
+        message:
+          type: string
+          description: Email body.
+        signers:
+          type: array
+          description: '[{role:''Client'', name:''Jane Doe'', email_address:''jane@acme.com''}]. Role must match template role names.'
+        ccs:
+          type: array
+          description: '[{role:''Manager'', email_address:''mgr@acme.com''}].'
+        custom_fields:
+          type: array
+          description: '[{name:''company'', value:''ACME'', editor:''role-name'', required:true}].'
+        test_mode:
+          type: integer
+          description: 1 for test (no credits, no real emails). 0 for live.
+        client_id:
+          type: string
+          description: If using embedded signing.
+        signing_options:
+          type: object
+          description: '{draw, type, upload, phone, default:''draw''}.'
+        metadata:
+          type: object
+          description: Free-form metadata, max 10 keys.
+      required:
+        - template_ids
+        - signers
+    operation:
+      method: POST
+      path: /signature_request/send_with_template
+      body:
+        value:
+          template_ids: '{{params.template_ids}}'
+          subject: '{{params.subject}}'
+          message: '{{params.message}}'
+          signers: '{{params.signers}}'
+          ccs: '{{params.ccs}}'
+          custom_fields: '{{params.custom_fields}}'
+          test_mode: '{{params.test_mode}}'
+          client_id: '{{params.client_id}}'
+          signing_options: '{{params.signing_options}}'
+          metadata: '{{params.metadata}}'
+  - name: dropbox_sign_send_signature_request
+    description: Create a signature request from file URLs or uploaded files. Pass file_urls (publicly accessible PDF URLs) or file (multipart — NOT supported here, use file_urls).
+    input:
+      type: object
+      properties:
+        title:
+          type: string
+          description: Internal title.
+        subject:
+          type: string
+          description: Email subject.
+        message:
+          type: string
+          description: Email body.
+        signers:
+          type: array
+          description: '[{name, email_address, order?}].'
+        ccs:
+          type: array
+          description: '[{email_address}].'
+        file_urls:
+          type: array
+          description: Array of publicly-accessible PDF URLs.
+        test_mode:
+          type: integer
+          description: 1 for test.
+        use_text_tags:
+          type: boolean
+          description: If true, parse [sig|...|...] text-tags in the PDF.
+        hide_text_tags:
+          type: boolean
+          description: Hide text tags in final PDF.
+        metadata:
+          type: object
+          description: Free metadata.
+      required:
+        - signers
+        - file_urls
+    operation:
+      method: POST
+      path: /signature_request/send
+      body:
+        value:
+          title: '{{params.title}}'
+          subject: '{{params.subject}}'
+          message: '{{params.message}}'
+          signers: '{{params.signers}}'
+          ccs: '{{params.ccs}}'
+          file_urls: '{{params.file_urls}}'
+          test_mode: '{{params.test_mode}}'
+          use_text_tags: '{{params.use_text_tags}}'
+          hide_text_tags: '{{params.hide_text_tags}}'
+          metadata: '{{params.metadata}}'
+  - name: dropbox_sign_send_reminder
+    description: Send a reminder email to a pending signer.
+    input:
+      type: object
+      properties:
+        signature_request_id:
+          type: string
+          description: Signature request ID.
+        email_address:
+          type: string
+          description: Signer email to remind.
+        name:
+          type: string
+          description: Signer name (if multiple signers share email).
+      required:
+        - signature_request_id
+        - email_address
+    operation:
+      method: POST
+      path: /signature_request/remind/{{params.signature_request_id}}
+      body:
+        value:
+          email_address: '{{params.email_address}}'
+          name: '{{params.name}}'
+  - name: dropbox_sign_cancel_signature_request
+    description: Cancel an incomplete signature request. Irreversible.
+    input:
+      type: object
+      properties:
+        signature_request_id:
+          type: string
+          description: Signature request ID.
+      required:
+        - signature_request_id
+    operation:
+      method: POST
+      path: /signature_request/cancel/{{params.signature_request_id}}
+  - name: dropbox_sign_download_files
+    description: Download the final signed PDF (or zip of all docs). Returns binary.
+    input:
+      type: object
+      properties:
+        signature_request_id:
+          type: string
+          description: Signature request ID.
+        file_type:
+          type: string
+          description: pdf (default) or zip.
+        get_url:
+          type: boolean
+          description: If true, return a temp URL instead of binary.
+      required:
+        - signature_request_id
+    operation:
+      method: GET
+      path: /signature_request/files/{{params.signature_request_id}}
+      query:
+        file_type: '{{params.file_type}}'
+        get_url: '{{params.get_url}}'
+  - name: dropbox_sign_list_templates
+    description: List templates available on the account.
+    input:
+      type: object
+      properties:
+        page:
+          type: integer
+          description: Page.
+        page_size:
+          type: integer
+          description: Per page (max 100).
+        query:
+          type: string
+          description: Search query.
+    operation:
+      method: GET
+      path: /template/list
+      query:
+        page: '{{params.page}}'
+        page_size: '{{params.page_size}}'
+        query: '{{params.query}}'
+  - name: dropbox_sign_get_template
+    description: Fetch a template's details — roles, custom fields, files.
+    input:
+      type: object
+      properties:
+        template_id:
+          type: string
+          description: Template ID.
+      required:
+        - template_id
+    operation:
+      method: GET
+      path: /template/{{params.template_id}}

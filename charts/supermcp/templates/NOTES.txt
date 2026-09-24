@@ -1,0 +1,22 @@
+supermcp {{ .Chart.AppVersion }} installed as release {{ .Release.Name }}.
+
+Public URL: {{ .Values.publicUrl }}
+{{- if .Values.ingress.enabled }}
+Ingress:    https://{{ .Values.ingress.host }}
+{{- else }}
+
+No ingress is enabled. Port-forward to try it:
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "supermcp.fullname" . }} 8080:{{ .Values.service.port }}
+  open http://localhost:8080
+{{- end }}
+
+Migrations run as a pre-install/pre-upgrade hook Job named
+{{ include "supermcp.fullname" . }}-migrate under a Postgres advisory lock.
+Pods report /readyz only once the schema matches the binary.
+
+{{- if eq .Values.encryption.provider "local" }}
+
+ENCRYPTION KEY: you are using the local KEK provider. Escrow the value of
+{{ .Values.encryption.local.existingSecret }}/{{ .Values.encryption.local.key }} outside the cluster. A database backup
+without it is unrecoverable.
+{{- end }}

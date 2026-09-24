@@ -1,0 +1,275 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: erpnext
+  name: ERPNext
+  description: 'ERPNext / Frappe: read and write any DocType — customers, sales orders, invoices, items, stock and leads — with Frappe''s filter syntax, plus a generic resource escape hatch. Token auth against your own instance.'
+  region: intl
+  category: erp
+  icon: erpnext
+  docsUrl: https://frappeframework.com/docs/user/en/api/rest
+credentials:
+  ERPNEXT_URL:
+    required: true
+  ERPNEXT_API_KEY:
+    required: true
+    secret: true
+  ERPNEXT_API_SECRET:
+    required: true
+    secret: true
+transport:
+  type: http
+  baseUrl: '{{env.ERPNEXT_URL}}/api'
+  headers:
+    Accept: application/json
+auth:
+  type: apiKey
+  in: header
+  name: Authorization
+  value: token {{env.ERPNEXT_API_KEY}}:{{env.ERPNEXT_API_SECRET}}
+healthcheck:
+  tool: erpnext_get_logged_user
+  http:
+    method: GET
+    path: /method/frappe.auth.get_logged_user
+instructions: |-
+  **Getting a key**
+  1. In ERPNext open the user you want the agent to act as → **Settings → API Access** → *Generate Keys*. You receive an **API key** and an **API secret**; the secret is shown once.
+  2. Set `ERPNEXT_URL` to your instance root (no trailing slash), `ERPNEXT_API_KEY` and `ERPNEXT_API_SECRET`.
+
+  **The Authorization header is `token key:secret`** — lower-case `token`, the two values joined by a colon. Not `Bearer`, not Basic. This is the single most common reason a correct ERPNext key 401s.
+
+  **Everything is a DocType.** ERPNext has no per-entity REST paths: `/api/resource/{doctype}` covers Customer, Sales Order, Sales Invoice, Item, Lead, Stock Entry and every custom DocType your instance defines. `erpnext_list_documents` and `erpnext_get_document` are therefore the real API here; the named wrappers below are conveniences over the same route.
+
+  **`fields` is not optional in practice.** Without it ERPNext returns only `name` (the primary key). Pass `["name","customer","grand_total","status"]` or you will get a list of ids and nothing else — this surprises everyone exactly once.
+
+  **Filters are a JSON array of triples**: `[["status","=","Open"],["grand_total",">",1000]]`, implicitly AND-ed. Operators include `=`, `!=`, `>`, `<`, `>=`, `<=`, `like`, `not like`, `in`, `not in`, `between`, `is`.
+
+  **Permissions follow the user, per DocType and per role.** A restricted user gets a 403 on a DocType they cannot read, and *filtered rows* on one they can only partly read — so a short answer may be a permissions answer.
+
+  **Self-hosted, which is the thing to plan for.**
+  - On a **hosted supermcp instance** the instance must be reachable from the public internet on a real hostname with a valid TLS certificate. A self-signed certificate will fail: the connector offers no trust-anything switch.
+  - On an internal host (`erp.intern`, `10.0.0.x`), self-host supermcp on the same network and add that host to `SSRF_ALLOWED_HOSTS`, or the outbound guard refuses the call before it is made.
+
+  **Writes**: `erpnext_create_document` creates a real document and fires ERPNext's server scripts and notifications.
+tools:
+  - name: erpnext_get_logged_user
+    description: Read which user the API key belongs to. No parameters and no DocType permission needed — the fastest proof that the `token key:secret` header is right.
+    input:
+      type: object
+      properties: {}
+    operation:
+      method: GET
+      path: /method/frappe.auth.get_logged_user
+  - name: erpnext_list_documents
+    description: 'List documents of any DocType with Frappe filters. The real API: pass the DocType plus the fields you want, because without `fields` you get only the primary key.'
+    input:
+      type: object
+      properties:
+        doctype:
+          type: string
+          description: DocType name, e.g. Customer, Sales Order, Sales Invoice, Item, Lead.
+        fields:
+          type: string
+          description: JSON array of field names, e.g. ["name","customer","grand_total","status"]. Required in practice.
+        filters:
+          type: string
+          description: JSON array of triples, e.g. [["status","=","Open"]].
+        limit_page_length:
+          type: number
+          description: Rows to return (default 20; 0 means everything).
+        limit_start:
+          type: number
+          description: Rows to skip, for paging.
+        order_by:
+          type: string
+          description: Sort expression, e.g. `creation desc`.
+      required:
+        - doctype
+    operation:
+      method: GET
+      path: /resource/{{params.doctype}}
+      query:
+        fields: '{{params.fields}}'
+        filters: '{{params.filters}}'
+        limit_page_length: '{{params.limit_page_length}}'
+        limit_start: '{{params.limit_start}}'
+        order_by: '{{params.order_by}}'
+  - name: erpnext_get_document
+    description: Read one document of any DocType in full by its name (ERPNext's primary key), including its child tables.
+    input:
+      type: object
+      properties:
+        doctype:
+          type: string
+          description: DocType name, e.g. Sales Invoice.
+        name:
+          type: string
+          description: Document name — ERPNext's primary key, e.g. SINV-00042.
+      required:
+        - doctype
+        - name
+    operation:
+      method: GET
+      path: /resource/{{params.doctype}}/{{params.name}}
+  - name: erpnext_count_documents
+    description: Count the documents of a DocType matching a filter, without transferring them. Use it before a list to find out whether the answer is 12 rows or 120,000.
+    input:
+      type: object
+      properties:
+        doctype:
+          type: string
+          description: DocType name.
+        filters:
+          type: string
+          description: JSON array of triples, e.g. [["status","=","Overdue"]].
+      required:
+        - doctype
+    operation:
+      method: GET
+      path: /method/frappe.client.get_count
+      query:
+        doctype: '{{params.doctype}}'
+        filters: '{{params.filters}}'
+  - name: erpnext_get_doctype_meta
+    description: 'Describe a DocType: every field with its type, label, options and whether it is required. Read this before composing a filter against an unfamiliar DocType.'
+    input:
+      type: object
+      properties:
+        doctype:
+          type: string
+          description: DocType name, e.g. Sales Order.
+      required:
+        - doctype
+    operation:
+      method: GET
+      path: /resource/DocType/{{params.doctype}}
+  - name: erpnext_list_customers
+    description: List customers with their name, group, territory, currency and default payment terms. Convenience wrapper over the Customer DocType.
+    input:
+      type: object
+      properties:
+        filters:
+          type: string
+          description: JSON array of triples, e.g. [["customer_group","=","Commercial"]].
+        limit_page_length:
+          type: number
+          description: Rows to return.
+        limit_start:
+          type: number
+          description: Rows to skip, for paging.
+    operation:
+      method: GET
+      path: /resource/Customer
+      query:
+        fields: '["name","customer_name","customer_group","territory","default_currency","tax_id"]'
+        filters: '{{params.filters}}'
+        limit_page_length: '{{params.limit_page_length}}'
+        limit_start: '{{params.limit_start}}'
+  - name: erpnext_list_sales_orders
+    description: List sales orders with their customer, date, delivery date, status and grand total. Convenience wrapper over the Sales Order DocType.
+    input:
+      type: object
+      properties:
+        filters:
+          type: string
+          description: JSON array of triples, e.g. [["status","=","To Deliver and Bill"]].
+        limit_page_length:
+          type: number
+          description: Rows to return.
+        limit_start:
+          type: number
+          description: Rows to skip, for paging.
+    operation:
+      method: GET
+      path: /resource/Sales Order
+      query:
+        fields: '["name","customer","transaction_date","delivery_date","status","grand_total","currency"]'
+        filters: '{{params.filters}}'
+        limit_page_length: '{{params.limit_page_length}}'
+        limit_start: '{{params.limit_start}}'
+        order_by: transaction_date desc
+  - name: erpnext_list_sales_invoices
+    description: List sales invoices with their customer, posting date, due date, status and outstanding amount — the answer to 'what is still unpaid'.
+    input:
+      type: object
+      properties:
+        filters:
+          type: string
+          description: JSON array of triples, e.g. [["status","=","Overdue"]].
+        limit_page_length:
+          type: number
+          description: Rows to return.
+        limit_start:
+          type: number
+          description: Rows to skip, for paging.
+    operation:
+      method: GET
+      path: /resource/Sales Invoice
+      query:
+        fields: '["name","customer","posting_date","due_date","status","grand_total","outstanding_amount","currency"]'
+        filters: '{{params.filters}}'
+        limit_page_length: '{{params.limit_page_length}}'
+        limit_start: '{{params.limit_start}}'
+        order_by: posting_date desc
+  - name: erpnext_list_items
+    description: List items from the catalogue with their code, name, group, stock UOM and default rate.
+    input:
+      type: object
+      properties:
+        filters:
+          type: string
+          description: JSON array of triples, e.g. [["is_stock_item","=",1]].
+        limit_page_length:
+          type: number
+          description: Rows to return.
+        limit_start:
+          type: number
+          description: Rows to skip, for paging.
+    operation:
+      method: GET
+      path: /resource/Item
+      query:
+        fields: '["name","item_name","item_group","stock_uom","standard_rate","is_stock_item","disabled"]'
+        filters: '{{params.filters}}'
+        limit_page_length: '{{params.limit_page_length}}'
+        limit_start: '{{params.limit_start}}'
+  - name: erpnext_list_stock_balance
+    description: 'Read per-warehouse stock: actual, reserved and projected quantity per item. The availability answer, from the Bin DocType rather than the item master.'
+    input:
+      type: object
+      properties:
+        filters:
+          type: string
+          description: JSON array of triples, e.g. [["item_code","=","ITEM-001"]].
+        limit_page_length:
+          type: number
+          description: Rows to return.
+    operation:
+      method: GET
+      path: /resource/Bin
+      query:
+        fields: '["item_code","warehouse","actual_qty","reserved_qty","projected_qty","stock_uom"]'
+        filters: '{{params.filters}}'
+        limit_page_length: '{{params.limit_page_length}}'
+  - name: erpnext_create_document
+    description: Create a document of any DocType. Writes to the live instance and fires ERPNext's server scripts, notifications and stock ledger entries.
+    input:
+      type: object
+      properties:
+        doctype:
+          type: string
+          description: DocType name, e.g. Lead or Customer.
+        data:
+          type: object
+          description: 'Field values for the new document, e.g. {"customer_name": "Muster GmbH", "customer_group": "Commercial"}.'
+      required:
+        - doctype
+        - data
+    operation:
+      method: POST
+      path: /resource/{{params.doctype}}
+      body:
+        value:
+          __raw: '{{params.data}}'

@@ -1,0 +1,373 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: zendesk
+  name: Zendesk Support
+  description: 'Drive Zendesk Support (the help-desk product) from any AI agent: tickets, users, organizations, groups, macros, views, search. 18 tools covering the most common agent workflows. Basic-auth with email+API token.'
+  region: intl
+  category: support
+  icon: zendesk
+  docsUrl: https://developer.zendesk.com/api-reference/ticketing/
+  lint:
+    allow:
+      - description-min-60
+      - healthcheck-present
+credentials:
+  ZENDESK_SUBDOMAIN:
+    required: true
+  ZENDESK_EMAIL:
+    required: true
+  ZENDESK_API_TOKEN:
+    required: true
+    secret: true
+transport:
+  type: http
+  baseUrl: https://{{env.ZENDESK_SUBDOMAIN}}.zendesk.com/api/v2
+auth:
+  type: basic
+  username: '{{env.ZENDESK_EMAIL}}/token'
+  password: '{{env.ZENDESK_API_TOKEN}}'
+instructions: |-
+  This connector uses the Zendesk Support REST API v2.
+
+  **Setup**:
+  1. Sign in to Zendesk as an admin → **Admin Center → Apps and integrations → APIs → Zendesk API → Settings → Token access ON**.
+  2. **Add API token**, label it (e.g. 'supermcp'), copy the generated token. It's shown ONCE.
+  3. Set:
+     - `ZENDESK_SUBDOMAIN` = your account subdomain (e.g. `acme` if your URL is `acme.zendesk.com`)
+     - `ZENDESK_EMAIL` = the agent email of an admin user (the requests will be attributed to this user)
+     - `ZENDESK_API_TOKEN` = the token from step 2
+
+  **Authentication**: HTTP Basic Auth with username `{email}/token` and password `{API_TOKEN}`. The adapter constructs this from the 3 env vars via the BASIC_AUTH profile. To use OAuth2 access tokens instead (for multi-user installs), the engine can also send `Authorization: Bearer ${oauth_token}` — but for single-tenant agent setups the API token model is simpler.
+
+  **Base URL**: `https://{{ZENDESK_SUBDOMAIN}}.zendesk.com/api/v2`. The subdomain is part of the base URL — if you set the wrong one, every request 404s.
+
+  **Tickets** are the central object. A ticket has subject, description, requester_id (the end user who reported), assignee_id (the agent), status (new/open/pending/hold/solved/closed), priority (low/normal/high/urgent), type (question/incident/problem/task), tags[], custom_fields.
+
+  **Status transitions**: `closed` is terminal — once closed, a ticket can't be reopened (Zendesk forces a follow-up ticket). Use `solved` for 'done, awaiting closing-grace-period'. `pending` = awaiting requester response.
+
+  **Update vs Comment**: to reply to a ticket from the agent side, you UPDATE the ticket with a `comment` object: `{public: true, body: '...'}`. public=false makes it an internal note (not visible to the requester). Use `zendesk_update_ticket` with `comment` for both.
+
+  **Search**: Zendesk's Search API uses a Lucene-like query language. `type:ticket status:open assignee:none` returns unassigned open tickets. `type:user email:*@acme.com` returns all users at acme. Full syntax: https://support.zendesk.com/hc/en-us/articles/4408886879258. The adapter's `zendesk_search` returns up to 1000 results across all types.
+
+  **Pagination**: cursor-based — list endpoints return `meta.has_more` + `meta.after_cursor`. Pass the cursor as `page[after]` on the next call. Page size 100 by default, max 1000 (or 100 for some endpoints).
+
+  **Side-loading**: many list endpoints support `?include=users,organizations` to bundle related objects in one response — avoids N+1 lookups when displaying a ticket list with requester names.
+
+  **Rate limits**: 700 req/min per agent on Suite Team, scales up with plan. On 429, honor the `Retry-After` header.
+
+  **Out of scope here**: triggers, automations, dynamic content, Talk (voice), Chat, Sell (CRM), Sunshine (custom objects beyond standard).
+tools:
+  - name: zendesk_get_current_user
+    description: Return the agent user that the API credentials belong to (whoami). Tells you which agent the requests are attributed to.
+    input:
+      type: object
+      properties: {}
+    operation:
+      method: GET
+      path: /users/me
+  - name: zendesk_search
+    description: 'Universal search using Zendesk''s Lucene-like query syntax. Example queries: ''type:ticket status:open assignee:none'', ''type:user email:*@acme.com'', ''type:organization tags:vip''. Returns tickets, users, orgs, groups, topics in one paged response.'
+    input:
+      type: object
+      properties:
+        query:
+          type: string
+          description: Search query in Zendesk Search syntax.
+        sort_by:
+          type: string
+          description: 'Sort field: updated_at, created_at, priority, status, ticket_type, etc.'
+        sort_order:
+          type: string
+          description: asc or desc.
+        page:
+          type: integer
+          description: Page number (offset pagination on search).
+        per_page:
+          type: integer
+          description: Results per page, default 100, max 100.
+      required:
+        - query
+    operation:
+      method: GET
+      path: /search.json
+      query:
+        query: '{{params.query}}'
+        sort_by: '{{params.sort_by}}'
+        sort_order: '{{params.sort_order}}'
+        page: '{{params.page}}'
+        per_page: '{{params.per_page}}'
+  - name: zendesk_list_tickets
+    description: List tickets (cursor-paginated, newest first). For filtered lists prefer zendesk_search with a query like 'type:ticket ...'. Returns full ticket objects.
+    input:
+      type: object
+      properties:
+        page_size:
+          type: integer
+          description: Max per page (default 100, max 100).
+        page_after:
+          type: string
+          description: Cursor from prior meta.after_cursor.
+        sort:
+          type: string
+          description: 'Sort field, prefix with - for descending: -updated_at, created_at.'
+        include:
+          type: string
+          description: 'Side-load related: users, organizations, groups, comma-separated.'
+    operation:
+      method: GET
+      path: /tickets.json
+      query:
+        page[size]: '{{params.page_size}}'
+        page[after]: '{{params.page_after}}'
+        sort: '{{params.sort}}'
+        include: '{{params.include}}'
+  - name: zendesk_get_ticket
+    description: Fetch a single ticket by ID with all fields including custom_fields, tags, requester_id, assignee_id, group_id, status, priority, satisfaction_rating.
+    input:
+      type: object
+      properties:
+        ticketId:
+          type: integer
+          description: Numeric ticket ID.
+        include:
+          type: string
+          description: 'Side-load: users, organizations, groups, last_audits.'
+      required:
+        - ticketId
+    operation:
+      method: GET
+      path: /tickets/{{params.ticketId}}.json
+      query:
+        include: '{{params.include}}'
+  - name: zendesk_create_ticket
+    description: 'Create a new ticket. At minimum: subject + comment.body. `requester` lets you create the end user inline if they don''t exist yet (provide their email + name).'
+    input:
+      type: object
+      properties:
+        ticket:
+          type: object
+          description: 'Ticket envelope: {subject, comment: {body, html_body?, public?}, requester_id? OR requester: {name,email}, assignee_id?, group_id?, priority?, type?, status?, tags?, custom_fields? [{id,value}], external_id?}. Wrap fields inside this object — Zendesk''s API requires the {ticket: {...}} envelope.'
+      required:
+        - ticket
+    operation:
+      method: POST
+      path: /tickets.json
+      body:
+        value:
+          ticket: '{{params.ticket}}'
+  - name: zendesk_update_ticket
+    description: 'Update a ticket. To add a public reply, set ticket.comment={public:true, body:''...''}. For internal note, public:false. To close, set status:''solved'' (then closed automatically after grace period). Required envelope: {ticket: {...}}.'
+    input:
+      type: object
+      properties:
+        ticketId:
+          type: integer
+          description: Numeric ticket ID.
+        ticket:
+          type: object
+          description: '{comment?: {body,public,html_body?}, assignee_id?, status?, priority?, tags?, additional_tags?, remove_tags?, custom_fields?[{id,value}], collaborator_ids?, follower_ids?}.'
+      required:
+        - ticketId
+        - ticket
+    operation:
+      method: PUT
+      path: /tickets/{{params.ticketId}}.json
+      body:
+        value:
+          ticket: '{{params.ticket}}'
+  - name: zendesk_delete_ticket
+    description: Hard-delete a ticket (subject to GDPR retention policy). Cannot be undone. Use the UI's bulk archive for soft-delete behavior.
+    input:
+      type: object
+      properties:
+        ticketId:
+          type: integer
+          description: Ticket ID.
+      required:
+        - ticketId
+    operation:
+      method: DELETE
+      path: /tickets/{{params.ticketId}}.json
+  - name: zendesk_list_ticket_comments
+    description: List all comments (public replies and internal notes) on a ticket, ordered by creation time. Each comment has body, html_body, public flag, author_id, attachments[], created_at.
+    input:
+      type: object
+      properties:
+        ticketId:
+          type: integer
+          description: Ticket ID.
+        sort_order:
+          type: string
+          description: asc or desc.
+        include_inline_images:
+          type: boolean
+          description: Inline base64 images.
+      required:
+        - ticketId
+    operation:
+      method: GET
+      path: /tickets/{{params.ticketId}}/comments.json
+      query:
+        sort_order: '{{params.sort_order}}'
+        include_inline_images: '{{params.include_inline_images}}'
+  - name: zendesk_list_users
+    description: List users (end-users, agents, admins). Cursor-paginated. For role filtering use ?role[]=end-user or ?role[]=agent.
+    input:
+      type: object
+      properties:
+        role:
+          type: string
+          description: 'Filter by role: end-user, agent, admin.'
+        permission_set:
+          type: string
+          description: Filter by custom permission set ID.
+        page_size:
+          type: integer
+          description: Max per page (default 100, max 100).
+        page_after:
+          type: string
+          description: Pagination cursor.
+    operation:
+      method: GET
+      path: /users.json
+      query:
+        role: '{{params.role}}'
+        permission_set: '{{params.permission_set}}'
+        page[size]: '{{params.page_size}}'
+        page[after]: '{{params.page_after}}'
+  - name: zendesk_get_user
+    description: Fetch a single user by ID. Returns email, phone, role, organization_id, tags, user_fields, time_zone, locale, last_login_at.
+    input:
+      type: object
+      properties:
+        userId:
+          type: integer
+          description: Numeric user ID.
+      required:
+        - userId
+    operation:
+      method: GET
+      path: /users/{{params.userId}}.json
+  - name: zendesk_create_or_update_user
+    description: Upsert a user by email (matches existing if email already in system). Use to onboard requesters before they file their first ticket.
+    input:
+      type: object
+      properties:
+        user:
+          type: object
+          description: '{name, email, role?: end-user|agent|admin, phone?, organization_id?, tags?, user_fields?, time_zone?, locale_id?, verified?: true}. Wrap inside {user:{...}}.'
+      required:
+        - user
+    operation:
+      method: POST
+      path: /users/create_or_update.json
+      body:
+        value:
+          user: '{{params.user}}'
+  - name: zendesk_list_organizations
+    description: List organizations. Each org has name, domain_names[], group_id, shared_tickets/comments flags, organization_fields.
+    input:
+      type: object
+      properties:
+        page_size:
+          type: integer
+          description: Max per page.
+        page_after:
+          type: string
+          description: Pagination cursor.
+    operation:
+      method: GET
+      path: /organizations.json
+      query:
+        page[size]: '{{params.page_size}}'
+        page[after]: '{{params.page_after}}'
+  - name: zendesk_create_organization
+    description: Create a new organization. `domain_names` array lets Zendesk auto-link end-users by email domain.
+    input:
+      type: object
+      properties:
+        organization:
+          type: object
+          description: '{name, domain_names?, tags?, organization_fields?, notes?, details?, group_id?}. Wrap inside {organization:{...}}.'
+      required:
+        - organization
+    operation:
+      method: POST
+      path: /organizations.json
+      body:
+        value:
+          organization: '{{params.organization}}'
+  - name: zendesk_list_groups
+    description: List agent groups (used for ticket assignment routing).
+    input:
+      type: object
+      properties: {}
+    operation:
+      method: GET
+      path: /groups.json
+  - name: zendesk_list_views
+    description: List views — Zendesk's saved filter+sort definitions for tickets. Each view has id, title, conditions, execution.
+    input:
+      type: object
+      properties:
+        access:
+          type: string
+          description: personal or shared.
+        active:
+          type: boolean
+          description: Only active views.
+    operation:
+      method: GET
+      path: /views.json
+      query:
+        access: '{{params.access}}'
+        active: '{{params.active}}'
+  - name: zendesk_execute_view
+    description: Run a view and return the tickets it currently matches. Faster than re-filtering manually for known canonical lists like 'My unsolved tickets' or 'High-priority queue'.
+    input:
+      type: object
+      properties:
+        viewId:
+          type: integer
+          description: View ID.
+        page:
+          type: integer
+          description: Page number.
+        per_page:
+          type: integer
+          description: Results per page.
+      required:
+        - viewId
+    operation:
+      method: GET
+      path: /views/{{params.viewId}}/execute.json
+      query:
+        page: '{{params.page}}'
+        per_page: '{{params.per_page}}'
+  - name: zendesk_list_ticket_fields
+    description: List all ticket fields including custom ones with their IDs, types and allowed values. Required to compose custom_fields arrays in zendesk_create_ticket / zendesk_update_ticket.
+    input:
+      type: object
+      properties: {}
+    operation:
+      method: GET
+      path: /ticket_fields.json
+  - name: zendesk_list_macros
+    description: List macros (saved sets of ticket updates an agent can apply with one click — e.g. 'Refund template', 'Escalate to L2'). Returns id, title, actions[], restriction.
+    input:
+      type: object
+      properties:
+        access:
+          type: string
+          description: personal or shared.
+        active:
+          type: boolean
+          description: Only active.
+    operation:
+      method: GET
+      path: /macros.json
+      query:
+        access: '{{params.access}}'
+        active: '{{params.active}}'

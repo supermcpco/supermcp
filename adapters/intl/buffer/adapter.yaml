@@ -1,0 +1,220 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: buffer
+  name: Buffer
+  description: 'Manage Buffer (social media scheduling: channels, posts, idea queue, analytics) from any AI agent via GraphQL. 8 tools, Bearer token.'
+  region: intl
+  category: social
+  icon: buffer
+  docsUrl: https://buffer.com/developers/api
+  lint:
+    allow:
+      - description-min-60
+      - healthcheck-present
+credentials:
+  BUFFER_ACCESS_TOKEN:
+    required: true
+    secret: true
+transport:
+  type: graphql
+  baseUrl: https://api.buffer.com/graphql
+auth:
+  type: bearer
+  token: '{{env.BUFFER_ACCESS_TOKEN}}'
+instructions: |-
+  This connector wraps the Buffer Publish GraphQL API (graphql.buffer.com).
+
+  **Setup**:
+  1. Sign in at https://publish.buffer.com → top-right avatar → **Settings → API access → Generate personal access token**.
+  2. Set `BUFFER_ACCESS_TOKEN`.
+
+  **Authentication**: `Authorization: Bearer ${BUFFER_ACCESS_TOKEN}`.
+
+  **GraphQL-only**: Buffer's modern API is GraphQL. The auto-injected `buffer_graphql_query` / `buffer_graphql_mutation` / `buffer_graphql_schema` builtins cover anything not in the typed wrappers below.
+
+  **Channel = connected social account** (Twitter, LinkedIn, Facebook, Instagram, Mastodon, TikTok, Pinterest, YouTube, Bluesky, Threads). Each has an ID; posts must specify channelId(s).
+
+  **Post status**: `PENDING_APPROVAL`, `SCHEDULED`, `SENT`, `FAILED`, `DRAFT`.
+
+  **Rate limits**: 60 req/min per token. 429 with `Retry-After`.
+
+  **Out of scope here**: organization/team membership, billing, Pablo image editor, the Analyze (analytics) deep reports.
+tools:
+  - name: buffer_current_user
+    description: Return the authenticated user with their orgs.
+    input:
+      type: object
+      properties: {}
+    operation:
+      kind: query
+      document: '{ currentUser { id email name organizations { id name } } }'
+  - name: buffer_list_channels
+    description: List connected social channels for an organization.
+    input:
+      type: object
+      properties:
+        organization_id:
+          type: string
+          description: Org ID.
+      required:
+        - organization_id
+    operation:
+      kind: query
+      document: 'query ListChannels($orgId: ID!) { organization(id: $orgId) { channels { id name service serviceType timezone avatar } } }'
+      variables:
+        variables:
+          orgId: '{{params.organization_id}}'
+  - name: buffer_list_posts
+    description: List posts on a channel with status filter.
+    input:
+      type: object
+      properties:
+        channel_id:
+          type: string
+          description: Channel ID.
+        status:
+          type: string
+          description: PENDING_APPROVAL, SCHEDULED, SENT, FAILED, DRAFT.
+        first:
+          type: integer
+          description: Page size.
+        after:
+          type: string
+          description: Cursor.
+      required:
+        - channel_id
+    operation:
+      kind: query
+      document: 'query ListPosts($channelId: ID!, $status: PostStatus, $first: Int, $after: String) { channel(id: $channelId) { posts(status: $status, first: $first, after: $after) { edges { node { id status text dueAt sentAt sentLink media { url type } } } pageInfo { endCursor hasNextPage } } } }'
+      variables:
+        variables:
+          channelId: '{{params.channel_id}}'
+          status: '{{params.status}}'
+          first: '{{params.first}}'
+          after: '{{params.after}}'
+  - name: buffer_create_post
+    description: Schedule or save a draft post on one or more channels.
+    input:
+      type: object
+      properties:
+        organization_id:
+          type: string
+          description: Org ID.
+        channel_ids:
+          type: array
+          description: Array of channel IDs.
+        text:
+          type: string
+          description: Post text.
+        due_at:
+          type: string
+          description: ISO 8601 schedule time. Omit for queue / draft.
+        save_as_draft:
+          type: boolean
+          description: If true, save as draft instead of scheduling.
+        media_urls:
+          type: array
+          description: Array of image / video URLs.
+        link:
+          type: string
+          description: Link URL (for link-preview channels).
+      required:
+        - organization_id
+        - channel_ids
+        - text
+    operation:
+      kind: mutation
+      document: 'mutation Create($input: CreatePostInput!) { createPost(input: $input) { post { id status } } }'
+      variables:
+        variables:
+          input:
+            organizationId: '{{params.organization_id}}'
+            channelIds: '{{params.channel_ids}}'
+            text: '{{params.text}}'
+            dueAt: '{{params.due_at}}'
+            saveAsDraft: '{{params.save_as_draft}}'
+            mediaUrls: '{{params.media_urls}}'
+            link: '{{params.link}}'
+  - name: buffer_update_post
+    description: Update a scheduled post's text, schedule, or media.
+    input:
+      type: object
+      properties:
+        post_id:
+          type: string
+          description: Post ID.
+        text:
+          type: string
+          description: New text.
+        due_at:
+          type: string
+          description: New ISO 8601 time.
+        media_urls:
+          type: array
+          description: Replace media URLs.
+      required:
+        - post_id
+    operation:
+      kind: mutation
+      document: 'mutation Update($input: UpdatePostInput!) { updatePost(input: $input) { post { id status dueAt } } }'
+      variables:
+        variables:
+          input:
+            id: '{{params.post_id}}'
+            text: '{{params.text}}'
+            dueAt: '{{params.due_at}}'
+            mediaUrls: '{{params.media_urls}}'
+  - name: buffer_delete_post
+    description: Delete a post.
+    input:
+      type: object
+      properties:
+        post_id:
+          type: string
+          description: Post ID.
+      required:
+        - post_id
+    operation:
+      kind: mutation
+      document: 'mutation Delete($id: ID!) { deletePost(id: $id) { success } }'
+      variables:
+        variables:
+          id: '{{params.post_id}}'
+  - name: buffer_send_now
+    description: Send a scheduled post immediately, regardless of due_at.
+    input:
+      type: object
+      properties:
+        post_id:
+          type: string
+          description: Post ID.
+      required:
+        - post_id
+    operation:
+      kind: mutation
+      document: 'mutation SendNow($id: ID!) { sendPostNow(id: $id) { post { id status sentAt } } }'
+      variables:
+        variables:
+          id: '{{params.post_id}}'
+  - name: buffer_list_ideas
+    description: List ideas from the org-wide idea queue.
+    input:
+      type: object
+      properties:
+        organization_id:
+          type: string
+          description: Org ID.
+        first:
+          type: integer
+          description: Page size.
+      required:
+        - organization_id
+    operation:
+      kind: query
+      document: 'query Ideas($orgId: ID!, $first: Int) { organization(id: $orgId) { ideas(first: $first) { edges { node { id text createdAt } } } } }'
+      variables:
+        variables:
+          orgId: '{{params.organization_id}}'
+          first: '{{params.first}}'

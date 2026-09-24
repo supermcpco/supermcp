@@ -1,0 +1,207 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: streak
+  name: Streak
+  description: Manage Streak (CRM inside Gmail) pipelines, boxes, contacts, fields from any AI agent. 9 tools, basic-auth with API key.
+  region: intl
+  category: crm
+  icon: streak
+  docsUrl: https://streak.readme.io/reference/
+  lint:
+    allow:
+      - description-min-60
+      - healthcheck-present
+credentials:
+  STREAK_API_KEY:
+    required: true
+    secret: true
+transport:
+  type: http
+  baseUrl: https://api.streak.com/api
+auth:
+  type: basic
+  username: '{{env.STREAK_API_KEY}}'
+instructions: |-
+  This connector wraps the Streak REST API v1/v2 (api.streak.com/api).
+
+  **Setup**:
+  1. Sign in to https://www.streak.com → top-right gear → **Settings → API keys → Generate API key**.
+  2. Copy the key. Set `STREAK_API_KEY`.
+
+  **Authentication**: HTTP Basic — API key is the username, password is empty:
+    `Authorization: Basic base64(API_KEY:)`
+
+  **Streak vocabulary**:
+  - **Pipeline** = a CRM workflow (e.g. 'Sales', 'Hiring').
+  - **Box** = a record/deal/case inside a pipeline.
+  - **Stage** = pipeline column (e.g. 'Lead', 'Qualified', 'Closed Won').
+  - **Field** = custom field on a pipeline (definition) or box (value).
+
+  **Two API versions**: v1 covers everything; v2 has a few newer write endpoints with cleaner shapes (see `pipelines/v2`).
+
+  **IDs are URL-safe strings** (e.g. `agxzfm1haWxmb29nYWVyEAsSBE5vdGUYgIDA88-IpAoMogEFc3RyZWFr`).
+
+  **Pagination**: `limit` + `sortDirection`; some endpoints use `lastId` cursor.
+
+  **Rate limits**: 600 req/hour per API key; 10 burst. 429 → back off 6s.
+
+  **Out of scope here**: snippets (email templates), team management, billing.
+tools:
+  - name: streak_current_user
+    description: 'Returns the authenticated user: userKey, displayName, email, isOauth, lastSeenTimestamp.'
+    input:
+      type: object
+      properties: {}
+    operation:
+      method: GET
+      path: /v1/users/me
+  - name: streak_list_pipelines
+    description: List all pipelines the user has access to. Each has pipelineKey, name, description, stages[], fields[], creatorKey, teamKey.
+    input:
+      type: object
+      properties: {}
+    operation:
+      method: GET
+      path: /v1/pipelines
+  - name: streak_get_pipeline
+    description: Get one pipeline with stages and field definitions.
+    input:
+      type: object
+      properties:
+        pipeline_key:
+          type: string
+          description: Pipeline key.
+      required:
+        - pipeline_key
+    operation:
+      method: GET
+      path: /v1/pipelines/{{params.pipeline_key}}
+  - name: streak_list_boxes
+    description: List boxes (records) in a pipeline. Each has boxKey, name, stageKey, fields (custom field values), notes count, files count.
+    input:
+      type: object
+      properties:
+        pipeline_key:
+          type: string
+          description: Pipeline key.
+        limit:
+          type: integer
+          description: Max per page.
+        sortBy:
+          type: string
+          description: creationTimestamp, lastUpdatedTimestamp.
+        sortDirection:
+          type: string
+          description: ASC or DESC.
+      required:
+        - pipeline_key
+    operation:
+      method: GET
+      path: /v1/pipelines/{{params.pipeline_key}}/boxes
+      query:
+        limit: '{{params.limit}}'
+        sortBy: '{{params.sortBy}}'
+        sortDirection: '{{params.sortDirection}}'
+  - name: streak_get_box
+    description: Get one box with full custom-field values, assigned users, linked contacts, and Gmail thread refs.
+    input:
+      type: object
+      properties:
+        box_key:
+          type: string
+          description: Box key.
+      required:
+        - box_key
+    operation:
+      method: GET
+      path: /v1/boxes/{{params.box_key}}
+  - name: streak_create_box
+    description: Create a new box in a pipeline.
+    input:
+      type: object
+      properties:
+        pipeline_key:
+          type: string
+          description: Pipeline key.
+        name:
+          type: string
+          description: Box name (deal title).
+        stageKey:
+          type: string
+          description: Initial stage key.
+        assignedToSharingEntries:
+          type: array
+          description: Array of {sharedEntity} user keys to assign.
+      required:
+        - pipeline_key
+        - name
+    operation:
+      method: PUT
+      path: /v1/pipelines/{{params.pipeline_key}}/boxes
+      body:
+        value:
+          name: '{{params.name}}'
+          stageKey: '{{params.stageKey}}'
+          assignedToSharingEntries: '{{params.assignedToSharingEntries}}'
+  - name: streak_update_box
+    description: 'Update a box: rename, move stage, set custom field values.'
+    input:
+      type: object
+      properties:
+        box_key:
+          type: string
+          description: Box key.
+        name:
+          type: string
+          description: New name.
+        stageKey:
+          type: string
+          description: New stage.
+        fields:
+          type: object
+          description: Custom-field-key → value map.
+      required:
+        - box_key
+    operation:
+      method: POST
+      path: /v1/boxes/{{params.box_key}}
+      body:
+        value:
+          name: '{{params.name}}'
+          stageKey: '{{params.stageKey}}'
+          fields: '{{params.fields}}'
+  - name: streak_list_box_notes
+    description: List notes attached to a box.
+    input:
+      type: object
+      properties:
+        box_key:
+          type: string
+          description: Box key.
+      required:
+        - box_key
+    operation:
+      method: GET
+      path: /v1/boxes/{{params.box_key}}/notes
+  - name: streak_add_box_note
+    description: Add a text note to a box.
+    input:
+      type: object
+      properties:
+        box_key:
+          type: string
+          description: Box key.
+        message:
+          type: string
+          description: Note body.
+      required:
+        - box_key
+        - message
+    operation:
+      method: PUT
+      path: /v1/boxes/{{params.box_key}}/notes
+      body:
+        value:
+          message: '{{params.message}}'

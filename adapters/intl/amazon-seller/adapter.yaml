@@ -1,0 +1,410 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: amazon-seller
+  name: Amazon Seller Central (SP-API)
+  description: 'Query your Amazon Seller Central account through the official Selling Partner API: orders, order items, product catalog, FBA inventory, buy-box offers, fee estimates, financial events and reports. Read-focused v1 across all Amazon marketplaces (US, EU, FE).'
+  region: intl
+  category: e-commerce
+  icon: amazon-seller
+  docsUrl: https://developer-docs.amazon.com/sp-api/docs/welcome
+  lint:
+    allow:
+      - healthcheck-present
+      - tool-name-prefix
+credentials:
+  SPAPI_CLIENT_ID:
+    required: true
+  SPAPI_CLIENT_SECRET:
+    required: true
+    secret: true
+  SPAPI_REFRESH_TOKEN:
+    required: true
+    secret: true
+  SPAPI_ENDPOINT:
+    required: true
+  SPAPI_MARKETPLACE_ID:
+    required: true
+  SPAPI_SELLER_ID:
+    required: true
+transport:
+  type: http
+  baseUrl: '{{env.SPAPI_ENDPOINT}}'
+auth:
+  type: oauth2
+  grant: refresh_token
+  clientId: '{{env.SPAPI_CLIENT_ID}}'
+  clientSecret: '{{env.SPAPI_CLIENT_SECRET}}'
+  tokenUrl: https://api.amazon.com/auth/o2/token
+  refreshToken: '{{env.SPAPI_REFRESH_TOKEN}}'
+  inject:
+    header: x-amz-access-token
+instructions: |-
+  This connector wraps Amazon's **Selling Partner API (SP-API)** — the official successor of MWS — using Login-with-Amazon (LWA) OAuth2. No AWS keys or SigV4 signing are needed (Amazon removed that requirement).
+
+  ## Setup (one-time, ~15 min + Amazon approval)
+
+  1. **Register as a developer**: Seller Central → Apps & Services → *Develop Apps* (you may first need to complete the developer profile in the Solution Provider Portal; Amazon reviews it manually, allow a few days).
+  2. **Create a private app**: *Develop Apps* → **Add new app client** → type *Sellers* → select the roles you need (e.g. "Inventory and Order Tracking", "Pricing", "Amazon Fulfillment", "Finance and Accounting", "Selling Partner Insights"). PII roles (buyer names/addresses) are restricted and NOT required for this connector.
+  3. **Get LWA credentials**: on the app row choose *View* → copy **Client ID** (`amzn1.application-oa2-client.…`) and **Client Secret** (`amzn1.oa2-cs.v1.…`).
+  4. **Self-authorize**: on the app row choose **Authorize** → Amazon shows the **Refresh Token** (`Atzr|…`). This token is long-lived; the connector exchanges it automatically for 1-hour access tokens (sent in the `x-amz-access-token` header — handled for you).
+  5. Fill the env vars:
+     - `SPAPI_CLIENT_ID`, `SPAPI_CLIENT_SECRET`, `SPAPI_REFRESH_TOKEN` — from steps 3-4.
+     - `SPAPI_ENDPOINT` — your region's API host:
+       - Europe (DE/UK/IT/FR/ES/NL/SE/PL/TR/AE/IN/…): `https://sellingpartnerapi-eu.amazon.com`
+       - North America (US/CA/MX/BR): `https://sellingpartnerapi-na.amazon.com`
+       - Far East (JP/AU/SG): `https://sellingpartnerapi-fe.amazon.com`
+     - `SPAPI_MARKETPLACE_ID` — the marketplace you sell in (call `amazon_marketplace_ids` for the full table; e.g. DE `A1PA6795UKMFR9`, US `ATVPDKIKX0DER`, IT `APJ6JRA9NG5V4`).
+     - `SPAPI_SELLER_ID` — your merchant token (Seller Central → Account Info → *Merchant Token*). Only needed for `amazon_get_listings_item`; set any placeholder otherwise.
+
+  **First call**: run `amazon_marketplace_participations` — it needs no parameters and confirms auth + region are correct.
+
+  ## Sandbox
+
+  Set `SPAPI_ENDPOINT` to `https://sandbox.sellingpartnerapi-eu.amazon.com` (or `-na`/`-fe`) to hit the **static sandbox**: it returns canned responses when requests match predefined parameter patterns (e.g. Orders requires `CreatedAfter=TEST_CASE_200`). Same LWA credentials work; a draft app's refresh token may be sandbox-only (production returns 403 until the authorization is production-grade).
+
+  ## Marketplace scoping
+
+  All tools are pinned to `SPAPI_MARKETPLACE_ID`. To work across multiple marketplaces of the same region, create one connector per marketplace (cheap) — the underlying seller account and credentials can be identical.
+
+  ## What v1 deliberately does NOT do
+
+  - **Buyer PII** (names, shipping addresses, phone numbers): requires a Restricted Data Token and an Amazon-approved restricted role. Order data returned here is the non-PII view (IDs, status, totals, SKUs, quantities).
+  - **Writes** (price updates, listings edits, feeds): planned for a later version once the read workflows are proven.
+
+  ## Pagination & rate limits
+
+  List endpoints return a `NextToken`/`pageToken` — pass it back to fetch the next page. SP-API rate limits are per-endpoint (typically 0.0055–2 req/s with small bursts); on `429` the connector retries automatically with backoff, but space out heavy report loops.
+
+  ## Reports flow (3 steps)
+
+  1. `amazon_create_report` (e.g. `reportType: "GET_FLAT_FILE_OPEN_LISTINGS_DATA"`) → returns `reportId`.
+  2. Poll `amazon_get_report` until `processingStatus` = `DONE` → gives `reportDocumentId`.
+  3. `amazon_get_report_document` → returns a **pre-signed download `url`** (valid ~5 min; document may be gzip). Fetch that URL yourself to read the content.
+tools:
+  - name: amazon_marketplace_ids
+    description: Reference table of Amazon marketplace IDs and the regional SP-API endpoint that serves each. Use it to pick SPAPI_MARKETPLACE_ID / SPAPI_ENDPOINT or to interpret marketplace IDs found in responses. No API call is made.
+    input:
+      type: object
+      properties: {}
+    operation:
+      kind: static
+      value: |-
+        SP-API marketplace IDs by region.
+
+        EUROPE — endpoint https://sellingpartnerapi-eu.amazon.com
+          DE A1PA6795UKMFR9 | UK A1F83G8C2ARO7P | IT APJ6JRA9NG5V4 | FR A13V1IB3VIYZZH | ES A1RKKUPIHCS9HS | NL A1805IZSGTT6HS | SE A2NODRKZP88ZB9 | PL A1C3SOZRARQ6R3 | BE AMEN7PMS3EDWL | TR A33AVAJ2PDY3EV | AE A2VIGQ35RCS4UG | SA A17E79C6D8DWNP | EG ARBP9OOSHTCHU | IN A21TJRUUN4KGV | ZA AE08WJ6YKNBMC
+
+        NORTH AMERICA — endpoint https://sellingpartnerapi-na.amazon.com
+          US ATVPDKIKX0DER | CA A2EUQ1WTGCTBG2 | MX A1AM78C64UM0Y8 | BR A2Q3Y263D00KWC
+
+        FAR EAST — endpoint https://sellingpartnerapi-fe.amazon.com
+          JP A1VC38T7YXB528 | AU A39IBJ37TRP1C6 | SG A19VAU5U5O7RUS
+
+        Sandbox endpoints: prepend `sandbox.` to the regional host (e.g. https://sandbox.sellingpartnerapi-eu.amazon.com).
+  - name: amazon_marketplace_participations
+    description: List the marketplaces this seller account participates in (id, country, currency, store name). Takes no parameters — use it as the FIRST call to verify credentials, region endpoint and marketplace setup.
+    input:
+      type: object
+      properties: {}
+    operation:
+      method: GET
+      path: /sellers/v1/marketplaceParticipations
+  - name: amazon_list_orders
+    description: 'List orders in the configured marketplace. Provide at least ONE of createdAfter / lastUpdatedAfter (ISO 8601, e.g. 2026-07-01T00:00:00Z). Returns non-PII order data: AmazonOrderId, status, purchase date, order totals, fulfillment channel. Paginate with nextToken.'
+    input:
+      type: object
+      properties:
+        createdAfter:
+          type: string
+          description: ISO 8601 date-time; orders created at or after this time. In the static sandbox pass `TEST_CASE_200`.
+        lastUpdatedAfter:
+          type: string
+          description: ISO 8601 date-time; orders last updated at or after this time. Alternative to createdAfter.
+        orderStatuses:
+          type: string
+          description: 'Optional comma-separated statuses: Pending, Unshipped, PartiallyShipped, Shipped, Canceled, Unfulfillable, InvoiceUnconfirmed, PendingAvailability.'
+        fulfillmentChannels:
+          type: string
+          description: 'Optional comma-separated: AFN (fulfilled by Amazon), MFN (fulfilled by seller).'
+        maxResultsPerPage:
+          type: integer
+          description: Page size 1-100 (default 100).
+        nextToken:
+          type: string
+          description: Pagination token from the previous response.
+    operation:
+      method: GET
+      path: /orders/v0/orders
+      query:
+        MarketplaceIds: '{{env.SPAPI_MARKETPLACE_ID}}'
+        CreatedAfter: '{{params.createdAfter}}'
+        LastUpdatedAfter: '{{params.lastUpdatedAfter}}'
+        OrderStatuses: '{{params.orderStatuses}}'
+        FulfillmentChannels: '{{params.fulfillmentChannels}}'
+        MaxResultsPerPage: '{{params.maxResultsPerPage}}'
+        NextToken: '{{params.nextToken}}'
+  - name: amazon_get_order
+    description: 'Fetch a single order by its AmazonOrderId (format 3-7-7, e.g. 902-3159896-1390916). Returns the non-PII order header: status, totals, dates, channel, number of items.'
+    input:
+      type: object
+      properties:
+        orderId:
+          type: string
+          description: The AmazonOrderId. In the static sandbox use `TEST_CASE_200`.
+      required:
+        - orderId
+    operation:
+      method: GET
+      path: /orders/v0/orders/{{params.orderId}}
+  - name: amazon_get_order_items
+    description: 'List the line items of an order: SellerSKU, ASIN, title, quantity ordered/shipped, item price, taxes, promotion discounts. Paginate with nextToken for very large orders.'
+    input:
+      type: object
+      properties:
+        orderId:
+          type: string
+          description: The AmazonOrderId.
+        nextToken:
+          type: string
+          description: Pagination token from the previous response.
+      required:
+        - orderId
+    operation:
+      method: GET
+      path: /orders/v0/orders/{{params.orderId}}/orderItems
+      query:
+        NextToken: '{{params.nextToken}}'
+  - name: amazon_search_catalog
+    description: Search the Amazon product catalog of the configured marketplace by keywords or identifiers (ASIN/EAN/GTIN/UPC/ISBN). Returns matching items with ASIN and summary data (title, brand, classification). Max 20 results per page; paginate with pageToken.
+    input:
+      type: object
+      properties:
+        keywords:
+          type: string
+          description: Comma-separated keywords to search for (e.g. 'espresso,machine'). Use either this OR identifiers.
+        identifiers:
+          type: string
+          description: Comma-separated product identifiers (max 20). Use with identifiersType. Use either this OR keywords.
+        identifiersType:
+          type: string
+          description: 'Type of the identifiers: ASIN, EAN, GTIN, ISBN, JAN, MINSAN, SKU, UPC.'
+        includedData:
+          type: string
+          description: 'Comma-separated data sets: summaries (default), attributes, classifications, dimensions, identifiers, images, productTypes, relationships, salesRanks.'
+        pageSize:
+          type: integer
+          description: Results per page, max 20 (default 10).
+        pageToken:
+          type: string
+          description: Pagination token from the previous response.
+    operation:
+      method: GET
+      path: /catalog/2022-04-01/items
+      query:
+        marketplaceIds: '{{env.SPAPI_MARKETPLACE_ID}}'
+        keywords: '{{params.keywords}}'
+        identifiers: '{{params.identifiers}}'
+        identifiersType: '{{params.identifiersType}}'
+        includedData: '{{params.includedData}}'
+        pageSize: '{{params.pageSize}}'
+        pageToken: '{{params.pageToken}}'
+  - name: amazon_get_catalog_item
+    description: Fetch a single catalog item by ASIN with the requested data sets (summaries, attributes, images, salesRanks, dimensions…).
+    input:
+      type: object
+      properties:
+        asin:
+          type: string
+          description: The Amazon Standard Identification Number, e.g. B08N5WRWNW.
+        includedData:
+          type: string
+          description: 'Comma-separated data sets: summaries (default), attributes, classifications, dimensions, identifiers, images, productTypes, relationships, salesRanks.'
+      required:
+        - asin
+    operation:
+      method: GET
+      path: /catalog/2022-04-01/items/{{params.asin}}
+      query:
+        marketplaceIds: '{{env.SPAPI_MARKETPLACE_ID}}'
+        includedData: '{{params.includedData}}'
+  - name: amazon_fba_inventory
+    description: 'FBA inventory summaries for the configured marketplace: fulfillable, inbound, reserved, unfulfillable and researching quantities per SKU/ASIN. Filter with sellerSkus or startDateTime; set details=true for the full quantity breakdown.'
+    input:
+      type: object
+      properties:
+        details:
+          type: boolean
+          description: true returns the detailed quantity breakdown (inbound/reserved/unfulfillable buckets). Default false.
+        sellerSkus:
+          type: string
+          description: Optional comma-separated list of seller SKUs (max 50) to fetch.
+        startDateTime:
+          type: string
+          description: Optional ISO 8601; only items updated after this time.
+        nextToken:
+          type: string
+          description: Pagination token from the previous response.
+    operation:
+      method: GET
+      path: /fba/inventory/v1/summaries
+      query:
+        granularityType: Marketplace
+        granularityId: '{{env.SPAPI_MARKETPLACE_ID}}'
+        marketplaceIds: '{{env.SPAPI_MARKETPLACE_ID}}'
+        details: '{{params.details}}'
+        sellerSkus: '{{params.sellerSkus}}'
+        startDateTime: '{{params.startDateTime}}'
+        nextToken: '{{params.nextToken}}'
+  - name: amazon_get_item_offers
+    description: 'Current offers for an ASIN in the configured marketplace: buy-box winner, lowest prices by fulfillment channel, offer counts, shipping. Use it to check your buy-box position and price competitiveness.'
+    input:
+      type: object
+      properties:
+        asin:
+          type: string
+          description: The ASIN to get offers for.
+        itemCondition:
+          type: string
+          description: 'Condition filter: New, Used, Collectible, Refurbished, Club. Default New.'
+      required:
+        - asin
+    operation:
+      method: GET
+      path: /products/pricing/v0/items/{{params.asin}}/offers
+      query:
+        MarketplaceId: '{{env.SPAPI_MARKETPLACE_ID}}'
+        ItemCondition: '{{params.itemCondition}}'
+  - name: amazon_get_fees_estimate
+    description: Estimate the Amazon fees (referral fee, FBA fulfillment fee…) you would pay for an ASIN at a given selling price. Essential for margin calculations before (re)pricing.
+    input:
+      type: object
+      properties:
+        asin:
+          type: string
+          description: The ASIN to estimate fees for.
+        price:
+          type: number
+          description: The intended listing price (item price only, e.g. 29.99).
+        currencyCode:
+          type: string
+          description: ISO 4217 currency of the price, e.g. EUR, USD, GBP.
+        isAmazonFulfilled:
+          type: boolean
+          description: true to include FBA fulfillment fees, false for merchant-fulfilled. Default true.
+      required:
+        - asin
+        - price
+        - currencyCode
+    operation:
+      method: POST
+      path: /products/fees/v0/items/{{params.asin}}/feesEstimate
+      body:
+        value:
+          FeesEstimateRequest:
+            MarketplaceId: '{{env.SPAPI_MARKETPLACE_ID}}'
+            IsAmazonFulfilled: '{{params.isAmazonFulfilled}}'
+            Identifier: supermcp-fees-estimate
+            PriceToEstimateFees:
+              ListingPrice:
+                CurrencyCode: '{{params.currencyCode}}'
+                Amount: '{{params.price}}'
+  - name: amazon_list_financial_events
+    description: Financial events (shipments settlements, refunds, fees, service charges, adjustments) posted in a date window. The money-side view of your account — use it for revenue/fee reconciliation. Paginate with nextToken.
+    input:
+      type: object
+      properties:
+        postedAfter:
+          type: string
+          description: ISO 8601 date-time; events posted at or after this time. In the static sandbox pass `TEST_CASE_200`.
+        postedBefore:
+          type: string
+          description: Optional ISO 8601 upper bound.
+        maxResultsPerPage:
+          type: integer
+          description: Page size 1-100 (default 100).
+        nextToken:
+          type: string
+          description: Pagination token from the previous response.
+      required:
+        - postedAfter
+    operation:
+      method: GET
+      path: /finances/v0/financialEvents
+      query:
+        PostedAfter: '{{params.postedAfter}}'
+        PostedBefore: '{{params.postedBefore}}'
+        MaxResultsPerPage: '{{params.maxResultsPerPage}}'
+        NextToken: '{{params.nextToken}}'
+  - name: amazon_get_listings_item
+    description: 'Fetch one of YOUR listings by seller SKU: summaries, attributes, issues (quality/compliance problems), offers and fulfillment availability. The seller id is taken from SPAPI_SELLER_ID configured on this connector.'
+    input:
+      type: object
+      properties:
+        sku:
+          type: string
+          description: Your seller SKU (as shown in Manage Inventory).
+        includedData:
+          type: string
+          description: 'Comma-separated data sets: summaries (default), attributes, issues, offers, fulfillmentAvailability, procurement.'
+      required:
+        - sku
+    operation:
+      method: GET
+      path: /listings/2021-08-01/items/{{env.SPAPI_SELLER_ID}}/{{params.sku}}
+      query:
+        marketplaceIds: '{{env.SPAPI_MARKETPLACE_ID}}'
+        includedData: '{{params.includedData}}'
+  - name: amazon_create_report
+    description: 'Request generation of a report (step 1 of 3). Common reportType values: GET_FLAT_FILE_OPEN_LISTINGS_DATA (active listings), GET_MERCHANT_LISTINGS_ALL_DATA, GET_FBA_MYI_UNSUPPRESSED_INVENTORY_DATA, GET_SALES_AND_TRAFFIC_REPORT, GET_V2_SETTLEMENT_REPORT_DATA_FLAT_FILE. Returns a reportId — poll it with amazon_get_report.'
+    input:
+      type: object
+      properties:
+        reportType:
+          type: string
+          description: 'The report type identifier, e.g. GET_FLAT_FILE_OPEN_LISTINGS_DATA. Full list: https://developer-docs.amazon.com/sp-api/docs/report-type-values'
+        dataStartTime:
+          type: string
+          description: Optional ISO 8601 start of the data window (for date-ranged reports).
+        dataEndTime:
+          type: string
+          description: Optional ISO 8601 end of the data window.
+      required:
+        - reportType
+    operation:
+      method: POST
+      path: /reports/2021-06-30/reports
+      body:
+        value:
+          reportType: '{{params.reportType}}'
+          marketplaceIds:
+            - '{{env.SPAPI_MARKETPLACE_ID}}'
+          dataStartTime: '{{params.dataStartTime}}'
+          dataEndTime: '{{params.dataEndTime}}'
+  - name: amazon_get_report
+    description: 'Check a report''s processing status (step 2 of 3). Poll until processingStatus is DONE, then read reportDocumentId and pass it to amazon_get_report_document. Other statuses: IN_QUEUE, IN_PROGRESS, CANCELLED, FATAL.'
+    input:
+      type: object
+      properties:
+        reportId:
+          type: string
+          description: The reportId returned by amazon_create_report.
+      required:
+        - reportId
+    operation:
+      method: GET
+      path: /reports/2021-06-30/reports/{{params.reportId}}
+  - name: amazon_get_report_document
+    description: Get the download descriptor of a finished report (step 3 of 3). Returns a pre-signed `url` (valid ~5 minutes; the file may be gzip-compressed — see compressionAlgorithm). Download that URL to read the report content.
+    input:
+      type: object
+      properties:
+        reportDocumentId:
+          type: string
+          description: The reportDocumentId from a DONE report.
+      required:
+        - reportDocumentId
+    operation:
+      method: GET
+      path: /reports/2021-06-30/documents/{{params.reportDocumentId}}

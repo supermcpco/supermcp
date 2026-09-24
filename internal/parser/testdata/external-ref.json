@@ -1,0 +1,29 @@
+{
+  "openapi": "3.0.3",
+  "info": { "title": "Shipping", "version": "1.0.0" },
+  "servers": [{ "url": "https://shipping.example.com" }],
+  "paths": {
+    "/shipments": {
+      "post": {
+        "operationId": "createShipment",
+        "summary": "Book a shipment against an address held in the shared address schema",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["reference"],
+                "properties": {
+                  "reference": { "type": "string" },
+                  "destination": { "$ref": "https://schemas.example.com/address.json#/Address" }
+                }
+              }
+            }
+          }
+        },
+        "responses": { "201": { "description": "booked" } }
+      }
+    }
+  }
+}

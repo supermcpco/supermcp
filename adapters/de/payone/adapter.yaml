@@ -1,0 +1,110 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: payone
+  name: PAYONE Payments
+  description: Process and manage e-commerce payments via the PAYONE API. Create transactions, check payment status, capture and refund payments.
+  region: de
+  category: finance
+  icon: payone
+  docsUrl: https://docs.payone.com/
+  lint:
+    allow:
+      - description-min-60
+      - healthcheck-present
+      - instructions-min-800
+credentials:
+  PAYONE_MERCHANT_ID:
+    required: true
+  PAYONE_API_KEY:
+    required: true
+    secret: true
+  PAYONE_PORTAL_ID:
+    required: true
+    usage: manual
+  PAYONE_ACCOUNT_ID:
+    required: true
+    usage: manual
+transport:
+  type: http
+  baseUrl: https://payment.payone.com/v1
+auth:
+  type: apiKey
+  in: header
+  name: Authorization
+  value: '{{env.PAYONE_API_KEY}}'
+tools:
+  - name: payone_list_transactions
+    description: List recent payment transactions. Returns transaction IDs, amounts, status, and payment methods.
+    input:
+      type: object
+      properties:
+        limit:
+          type: number
+          description: 'Number of transactions to return (default: 25, max: 100)'
+        offset:
+          type: number
+          description: 'Offset for pagination (default: 0)'
+    operation:
+      method: GET
+      path: /transactions
+      query:
+        limit: '{{params.limit}}'
+        offset: '{{params.offset}}'
+        merchant_id: '{{env.PAYONE_MERCHANT_ID}}'
+  - name: payone_get_transaction
+    description: Get detailed information about a specific payment transaction by its ID.
+    input:
+      type: object
+      properties:
+        transactionId:
+          type: string
+          description: The PAYONE transaction ID
+      required:
+        - transactionId
+    operation:
+      method: GET
+      path: /transactions/{{params.transactionId}}
+  - name: payone_capture_payment
+    description: Capture (settle) a previously authorized payment transaction.
+    input:
+      type: object
+      properties:
+        transactionId:
+          type: string
+          description: The PAYONE transaction ID to capture
+        amount:
+          type: number
+          description: Amount to capture in smallest currency unit (cents). Leave empty for full capture.
+      required:
+        - transactionId
+    operation:
+      method: POST
+      path: /transactions/{{params.transactionId}}/capture
+      body:
+        value:
+          amount: '{{params.amount}}'
+  - name: payone_refund_payment
+    description: Refund a captured payment transaction fully or partially.
+    input:
+      type: object
+      properties:
+        transactionId:
+          type: string
+          description: The PAYONE transaction ID to refund
+        amount:
+          type: number
+          description: Amount to refund in smallest currency unit (cents). Leave empty for full refund.
+        reason:
+          type: string
+          description: Reason for the refund
+      required:
+        - transactionId
+    operation:
+      method: POST
+      path: /transactions/{{params.transactionId}}/refund
+      body:
+        value:
+          amount: '{{params.amount}}'
+          reason: '{{params.reason}}'

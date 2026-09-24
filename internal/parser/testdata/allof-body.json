@@ -1,0 +1,50 @@
+{
+  "openapi": "3.0.3",
+  "info": { "title": "Invoicing", "version": "1.0.0" },
+  "servers": [{ "url": "https://invoices.example.com" }],
+  "security": [{ "basicAuth": [] }],
+  "paths": {
+    "/invoices": {
+      "post": {
+        "operationId": "createInvoice",
+        "summary": "Raise an invoice against a customer, with its lines and due date",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  { "$ref": "#/components/schemas/Document" },
+                  {
+                    "type": "object",
+                    "required": ["customerId"],
+                    "properties": {
+                      "customerId": { "type": "string", "description": "Who the invoice is for" },
+                      "dueDate": { "type": "string", "format": "date" }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": { "201": { "description": "created" } }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Document": {
+        "type": "object",
+        "required": ["reference"],
+        "properties": {
+          "reference": { "type": "string", "description": "Your own reference for this document" },
+          "currency": { "type": "string", "enum": ["EUR", "GBP", "USD"] }
+        }
+      }
+    },
+    "securitySchemes": {
+      "basicAuth": { "type": "http", "scheme": "basic" }
+    }
+  }
+}

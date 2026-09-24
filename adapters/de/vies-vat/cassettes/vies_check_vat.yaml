@@ -1,0 +1,26 @@
+# Recorded by `supermcp adapter record`; replayed by `supermcp adapter test`.
+# Credential values are replaced with SUPERMCP_CREDENTIAL_<NAME>.
+adapter: vies-vat
+tool: vies_check_vat
+recordedAt: 2026-09-22T22:18:00Z
+interactions:
+  - params:
+      countryCode: DE
+      vatNumber: "811907980"
+    request:
+      method: POST
+      url: https://ec.europa.eu/taxation_customs/vies/rest-api/check-vat-number
+      headers:
+        content-type: application/json
+      body: '{"countryCode":"DE","vatNumber":"811907980"}'
+    response:
+      status: 200
+      headers:
+        content-type: application/json
+      body: |-
+        {
+          "actionSucceed" : false,
+          "errorWrappers" : [ {
+            "error" : "MS_UNAVAILABLE"
+          } ]
+        }

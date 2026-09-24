@@ -1,0 +1,230 @@
+[
+  {
+    "slug": "d-velop",
+    "level": "info",
+    "path": "metadata.category",
+    "message": "category \"dms\" merged into \"documents\""
+  },
+  {
+    "slug": "docuware",
+    "level": "info",
+    "path": "metadata.category",
+    "message": "category \"dms\" merged into \"documents\""
+  },
+  {
+    "slug": "elo",
+    "level": "info",
+    "path": "metadata.category",
+    "message": "category \"dms\" merged into \"documents\""
+  },
+  {
+    "slug": "gls-tracking",
+    "level": "review",
+    "path": "metadata.region",
+    "message": "region field \"eu\" disagrees with directory \"de\"; directory wins"
+  },
+  {
+    "slug": "here-geocoding",
+    "level": "review",
+    "path": "metadata.region",
+    "message": "region field \"global\" disagrees with directory \"de\"; directory wins"
+  },
+  {
+    "slug": "mfr-fieldservice",
+    "level": "info",
+    "path": "metadata.category",
+    "message": "category \"field-service\" merged into \"operations\""
+  },
+  {
+    "slug": "mfr-fieldservice",
+    "level": "review",
+    "path": "tools.mfr_link_service_request_service_object.operation.body",
+    "message": "bodyTemplate converted to encoding: raw with Content-Type: application/json"
+  },
+  {
+    "slug": "mfr-fieldservice",
+    "level": "review",
+    "path": "tools.mfr_link_service_request_document.operation.body",
+    "message": "bodyTemplate converted to encoding: raw with Content-Type: application/json"
+  },
+  {
+    "slug": "mfr-fieldservice",
+    "level": "review",
+    "path": "tools.mfr_add_tags_to_service_request.operation.body",
+    "message": "bodyTemplate converted to encoding: raw with Content-Type: application/json"
+  },
+  {
+    "slug": "mfr-fieldservice",
+    "level": "review",
+    "path": "tools.mfr_remove_tag_from_service_request.operation.body",
+    "message": "bodyTemplate converted to encoding: raw with Content-Type: application/json"
+  },
+  {
+    "slug": "mfr-fieldservice",
+    "level": "review",
+    "path": "tools.mfr_add_qualification_to_service_request.operation.body",
+    "message": "bodyTemplate converted to encoding: raw with Content-Type: application/json"
+  },
+  {
+    "slug": "mfr-fieldservice",
+    "level": "review",
+    "path": "tools.mfr_remove_qualification_from_service_request.operation.body",
+    "message": "bodyTemplate converted to encoding: raw with Content-Type: application/json"
+  },
+  {
+    "slug": "oxomi",
+    "level": "info",
+    "path": "metadata.category",
+    "message": "category \"wholesale\" merged into \"e-commerce\""
+  },
+  {
+    "slug": "paperless-ngx",
+    "level": "info",
+    "path": "metadata.category",
+    "message": "category \"dms\" merged into \"documents\""
+  },
+  {
+    "slug": "payone",
+    "level": "review",
+    "path": "credentials.PAYONE_PORTAL_ID",
+    "message": "declared env var is never referenced as {{env.PAYONE_PORTAL_ID}}; marked usage: manual (agent passes it as a tool parameter)"
+  },
+  {
+    "slug": "payone",
+    "level": "review",
+    "path": "credentials.PAYONE_ACCOUNT_ID",
+    "message": "declared env var is never referenced as {{env.PAYONE_ACCOUNT_ID}}; marked usage: manual (agent passes it as a tool parameter)"
+  },
+  {
+    "slug": "planradar",
+    "level": "info",
+    "path": "metadata.category",
+    "message": "category \"construction\" merged into \"operations\""
+  },
+  {
+    "slug": "sendcloud",
+    "level": "review",
+    "path": "metadata.region",
+    "message": "region field \"eu\" disagrees with directory \"de\"; directory wins"
+  },
+  {
+    "slug": "teamviewer",
+    "level": "info",
+    "path": "metadata.category",
+    "message": "category \"remote\" merged into \"productivity\""
+  },
+  {
+    "slug": "vies-vat",
+    "level": "review",
+    "path": "metadata.region",
+    "message": "region field \"eu\" disagrees with directory \"de\"; directory wins"
+  },
+  {
+    "slug": "znuny",
+    "level": "review",
+    "path": "credentials.ZNUNY_SCRIPT_PATH",
+    "message": "declared env var is never referenced as {{env.ZNUNY_SCRIPT_PATH}}; marked usage: manual (agent passes it as a tool parameter)"
+  },
+  {
+    "slug": "adyen",
+    "level": "review",
+    "path": "credentials.ADYEN_MERCHANT_ACCOUNT",
+    "message": "declared env var is never referenced as {{env.ADYEN_MERCHANT_ACCOUNT}}; marked usage: manual (agent passes it as a tool parameter)"
+  },
+  {
+    "slug": "amazon-seller",
+    "level": "info",
+    "path": "tools.amazon_marketplace_ids.operation",
+    "message": "static tool had path \"SP-API marketplace IDs by region.\\n\\nEUROPE — endpoint https://sellingpartnerapi-eu.amazon.com\\n  DE A1PA6795UKMFR9 | UK A1F83G8C2ARO7P | IT APJ6JRA9NG5V4 | FR A13V1IB3VIYZZH | ES A1RKKUPIHCS9HS | NL A1805IZSGTT6HS | SE A2NODRKZP88ZB9 | PL A1C3SOZRARQ6R3 | BE AMEN7PMS3EDWL | TR A33AVAJ2PDY3EV | AE A2VIGQ35RCS4UG | SA A17E79C6D8DWNP | EG ARBP9OOSHTCHU | IN A21TJRUUN4KGV | ZA AE08WJ6YKNBMC\\n\\nNORTH AMERICA — endpoint https://sellingpartnerapi-na.amazon.com\\n  US ATVPDKIKX0DER | CA A2EUQ1WTGCTBG2 | MX A1AM78C64UM0Y8 | BR A2Q3Y263D00KWC\\n\\nFAR EAST — endpoint https://sellingpartnerapi-fe.amazon.com\\n  JP A1VC38T7YXB528 | AU A39IBJ37TRP1C6 | SG A19VAU5U5O7RUS\\n\\nSandbox endpoints: prepend `sandbox.` to the regional host (e.g. https://sandbox.sellingpartnerapi-eu.amazon.com).\"; dropped"
+  },
+  {
+    "slug": "api-football",
+    "level": "info",
+    "path": "version",
+    "message": "dropped dead top-level field \"version\" (adapter version is content-addressed)"
+  },
+  {
+    "slug": "api-football",
+    "level": "info",
+    "path": "healthcheck",
+    "message": "healthPath (typo in v1) treated as healthcheckPath"
+  },
+  {
+    "slug": "bigcommerce",
+    "level": "review",
+    "path": "tools.bigcommerce_create_customer.operation.body",
+    "message": "bodyTemplate converted to encoding: raw with Content-Type: application/json"
+  },
+  {
+    "slug": "bluesky",
+    "level": "review",
+    "path": "credentials.BLUESKY_HANDLE",
+    "message": "declared env var is never referenced as {{env.BLUESKY_HANDLE}}; marked usage: manual (agent passes it as a tool parameter)"
+  },
+  {
+    "slug": "bluesky",
+    "level": "review",
+    "path": "credentials.BLUESKY_APP_PASSWORD",
+    "message": "declared env var is never referenced as {{env.BLUESKY_APP_PASSWORD}}; marked usage: manual (agent passes it as a tool parameter)"
+  },
+  {
+    "slug": "coingecko",
+    "level": "review",
+    "path": "auth.optional",
+    "message": "API_KEY auth with no required env vars; marked optional (works unauthenticated, key upgrades limits)"
+  },
+  {
+    "slug": "coingecko",
+    "level": "review",
+    "path": "credentials.COINGECKO_API_KEY",
+    "message": "{{env.COINGECKO_API_KEY}} is referenced but was not declared; added as optional credential"
+  },
+  {
+    "slug": "copper",
+    "level": "review",
+    "path": "credentials.COPPER_APP_NAME",
+    "message": "declared env var is never referenced as {{env.COPPER_APP_NAME}}; marked usage: manual (agent passes it as a tool parameter)"
+  },
+  {
+    "slug": "dchub",
+    "level": "review",
+    "path": "auth.optional",
+    "message": "API_KEY auth with no required env vars; marked optional (works unauthenticated, key upgrades limits)"
+  },
+  {
+    "slug": "heap",
+    "level": "review",
+    "path": "credentials.HEAP_APP_ID",
+    "message": "declared env var is never referenced as {{env.HEAP_APP_ID}}; marked usage: manual (agent passes it as a tool parameter)"
+  },
+  {
+    "slug": "microsoft-bookings",
+    "level": "review",
+    "path": "tools.microsoft_bookings_create_appointment.operation.body",
+    "message": "bodyTemplate converted to encoding: raw with Content-Type: application/json"
+  },
+  {
+    "slug": "sorare",
+    "level": "info",
+    "path": "metadata.category",
+    "message": "category \"gaming\" merged into \"entertainment\""
+  },
+  {
+    "slug": "statsig",
+    "level": "review",
+    "path": "credentials.STATSIG_CONSOLE_API_KEY",
+    "message": "{{env.STATSIG_CONSOLE_API_KEY}} is referenced but was not declared; added as optional credential"
+  },
+  {
+    "slug": "wave-accounting",
+    "level": "review",
+    "path": "credentials.WAVE_BUSINESS_ID",
+    "message": "declared env var is never referenced as {{env.WAVE_BUSINESS_ID}}; marked usage: manual (agent passes it as a tool parameter)"
+  },
+  {
+    "slug": "zucchetti",
+    "level": "review",
+    "path": "credentials.ZUCCHETTI_COMPANY",
+    "message": "declared env var is never referenced as {{env.ZUCCHETTI_COMPANY}}; marked usage: manual (agent passes it as a tool parameter)"
+  }
+]

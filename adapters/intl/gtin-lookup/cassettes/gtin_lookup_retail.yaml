@@ -1,0 +1,20 @@
+# Recorded by `supermcp adapter record`; replayed by `supermcp adapter test`.
+# Credential values are replaced with SUPERMCP_CREDENTIAL_<NAME>.
+adapter: gtin-lookup
+tool: gtin_lookup_retail
+recordedAt: 2026-09-22T22:18:45Z
+interactions:
+  - params:
+      barcode: "0885909950805"
+    request:
+      method: GET
+      url: https://api.upcitemdb.com/prod/trial/lookup
+      query: upc=0885909950805
+      headers:
+        accept: application/json
+        user-agent: supermcp-GTIN-Lookup/1.0 (https://supermcp.dev)
+    response:
+      status: 200
+      headers:
+        content-type: application/json; charset=utf-8
+      body: '{"code":"OK","total":1,"offset":0,"items":[{"ean":"0885909950805","title":"Apple iPhone 6, Space Gray, 64 GB (T-Mobile)","description":"Display   Retina HD display 1334-by-750-pixel resolution at 326 ppi 1400:1 contrast ratio (typical) 500 cd/m2 max brightness (typical) Full sRGB standard Dual-domain pixels for wider viewing angles Fingerprint-resistant oleophobic coating on front Support for display of multiple languages and characters simultaneously Display Zoom iSight Camera Autofocus with Focus Pixels f/2.2 aperture True Tone flashHybrid IR filter Backside illumination sensor Sapphire crystal lens cover Auto image stabilization Auto HD...","upc":"885909950805","brand":"Apple","model":"MG5A2LL/A","color":"Space Gray","size":"64GB","dimension":"","weight":"","category":"Electronics > Communications > Telephony > Mobile Phones > Unlocked Mobile Phones","currency":"","lowest_recorded_price":3.79,"highest_recorded_price":8500,"images":["http://img.bbystatic.com/BestBuy_US/images/products/7218/7218034_sc.jpg","https://i5.walmartimages.com/asr/816d5a79-828f-4bc9-9033-1f8f08213857_1.a409ced9502bcea4cf84e7ab7b60c58f.jpeg?odnHeight=450&odnWidth=450&odnBg=ffffff","https://c1.neweggimages.com/ProductImageCompressAll640/A9K8_131002154351685402J2X9S9guNK.jpg","http://img1.r10.io/PIC/112231913/0/1/250/112231913.jpg"],"offers":[{"merchant":"Newegg.com","domain":"newegg.com","title":"Apple iPhone 6 64GB T-Mobile Space Gray MG5A2LL/A","currency":"","list_price":"","price":64.99,"shipping":"0.01","condition":"New","availability":"","link":"https://www.upcitemdb.com/norob/alink/?id=v2p2z213v2x28474u2&tid=1&seq=1790115526&plt=d926608be7b07fcb00173dc027efa4ab","updated_t":1648599067},{"merchant":"Rakuten(Buy.com)","domain":"rakuten.com","title":"Apple iPhone 6 Smartphone - 64 GB Built-in Memory - Wireless LAN - 4G - Bar - Space Gray - T-Mobile - 1 SIM Card Supported - Nano SIM - iOS 8 - Apple Dual-core (2 Core) 1.40 GHz - 1 GB - 4.7 LCD 1334 750 - 326 ppi - LED Backlight - Touchscreen - Multi-","currency":"","list_price":"","price":299.99,"shipping":"Free Shipping","condition":"New","availability":"","link":"https://www.upcitemdb.com/norob/alink/?id=u2w2332343y2e4a4w2&tid=1&seq=1790115526&plt=39619cb41791c82c90a16e5266f119d8","updated_t":1498082079},{"merchant":"Best Buy","domain":"bestbuy.com","title":"Apple - Iphone 6 64gb - Space Gray","currency":"","list_price":"","price":749.99,"shipping":"","condition":"New","availability":"","link":"https://www.upcitemdb.com/norob/alink/?id=u2q233t2z2y2e4c4y2&tid=1&seq=1790115526&plt=436b19e7e7a1b72360ada3831c2a400a","updated_t":1434406778},{"merchant":"Wal-Mart.com","domain":"walmart.com","title":"Apple iPhone 6, Space Gray, 64 GB (T-Mobile)","currency":"","list_price":"","price":749,"shipping":"","condition":"New","availability":"","link":"https://www.upcitemdb.com/norob/alink/?id=w2q213t20333d484x2&tid=1&seq=1790115526&plt=a76f43bdca1654e0fcb864593c84107c","updated_t":1574425570},{"merchant":"Walmart Marketplace","domain":"walmart.com","title":"Apple iPhone 6, Space Gray, 64 GB (T-Mobile)","currency":"","list_price":749,"price":689.99,"shipping":"0","condition":"New","availability":"","link":"https://www.upcitemdb.com/norob/alink/?id=v2x25313z26394d4w2&tid=1&seq=1790115526&plt=71173dcd68103ea78070afff40818434","updated_t":1538168497}],"asin":"B00NQGOZV0","elid":"195389220744"}]}'

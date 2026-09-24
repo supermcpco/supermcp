@@ -1,0 +1,103 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: youcom
+  name: You.com
+  description: Web and news search from any AI agent via the You.com Search API. 2 tools, API-key auth.
+  region: intl
+  category: data
+  icon: youcom
+  docsUrl: https://you.com/docs/guides/search
+credentials:
+  YDC_API_KEY:
+    required: true
+    secret: true
+transport:
+  type: http
+  baseUrl: https://ydc-index.io
+auth:
+  type: apiKey
+  in: header
+  name: X-API-Key
+  value: '{{env.YDC_API_KEY}}'
+healthcheck:
+  tool: youcom_search
+  params:
+    query: you.com
+instructions: |-
+  This connector wraps the You.com Web Search API (ydc-index.io).
+
+  **Setup**:
+  1. Create an API key at https://you.com/platform/api-keys (a key scoped to Web Search).
+  2. Set `YDC_API_KEY`.
+
+  **Authentication**: the key is sent as the `X-API-Key` header on every call, exactly as the API reference documents for POST https://ydc-index.io/v1/search.
+
+  **One endpoint, two tools**: the API exposes a single search endpoint, `POST /v1/search`, which returns web and news results together, organised under `results.web` and `results.news`.
+  - `youcom_search` — returns the full response. The body takes a `query` plus optional controls: `count` (max results per section, up to 100), `freshness` (recency filter: `day`, `week`, `month`, `year`, or a `YYYY-MM-DDtoYYYY-MM-DD` range), `country` (ISO 3166-1 alpha-2, e.g. `US`, `DE`), and `language` (BCP 47, e.g. `EN`, `DE`). The query supports search operators: `site:` to pin a domain, `filetype:`, `+term` / `-term` for required/excluded words, and `AND` / `OR` / `NOT` grouping.
+  - `youcom_news` — calls the same endpoint and selects only the `results.news` section. Takes the same `query`, plus `freshness` and `count`. Use it when the user explicitly wants news coverage rather than general web results; two tools with different scopes are easier for a model to pick between than one tool plus a prose instruction.
+
+  **Result shape**: each hit carries a URL, title and snippet. Snippets are previews — for exact values on a page, the result `url` must be fetched separately; this connector does not extract page content.
+
+  **Out of scope here**: You.com also offers a hosted MCP server (https://api.you.com/mcp) and full-page extraction parameters on the POST body. This adapter sticks to the plain REST surface so it works like every other catalog adapter; users who want the richer toolset can bridge the MCP server with the built-in MCP connector type.
+tools:
+  - name: youcom_search
+    description: 'Web search across the open web via You.com. Use when the agent needs current information, documentation, or facts not in its training data. Supports operators: site:, filetype:, +term, -term, AND/OR/NOT.'
+    input:
+      type: object
+      properties:
+        query:
+          type: string
+          description: Search query. Supports site:, filetype:, +term/-term, AND/OR/NOT operators.
+        count:
+          type: integer
+          description: Max results per section (web/news). Default varies; max 100.
+        freshness:
+          type: string
+          description: 'Recency filter: ''day'', ''week'', ''month'', ''year'', or ''YYYY-MM-DDtoYYYY-MM-DD'' custom range.'
+        country:
+          type: string
+          description: ISO 3166-1 alpha-2 country code (e.g. 'US', 'DE') to focus results geographically.
+        language:
+          type: string
+          description: BCP 47 language code (e.g. 'EN', 'DE') to filter result language.
+      required:
+        - query
+    operation:
+      method: POST
+      path: /v1/search
+      body:
+        value:
+          query: '{{params.query}}'
+          count: '{{params.count}}'
+          freshness: '{{params.freshness}}'
+          country: '{{params.country}}'
+          language: '{{params.language}}'
+  - name: youcom_news
+    description: News-only search via You.com. Calls the same POST /v1/search endpoint as youcom_search and returns only the results.news section. Use when the user wants news coverage of a topic, company or event rather than general web results. Same query operators as youcom_search.
+    input:
+      type: object
+      properties:
+        query:
+          type: string
+          description: News search query. Supports the same operators as youcom_search.
+        freshness:
+          type: string
+          description: 'Recency filter: ''day'', ''week'', ''month'', ''year'', or ''YYYY-MM-DDtoYYYY-MM-DD'' custom range.'
+        count:
+          type: integer
+          description: Max results to return. Default varies; max 100.
+      required:
+        - query
+    operation:
+      method: POST
+      path: /v1/search
+      body:
+        value:
+          query: '{{params.query}}'
+          freshness: '{{params.freshness}}'
+          count: '{{params.count}}'
+    response:
+      transform:
+        jmespath: '{ news: results.news }'

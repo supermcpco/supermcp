@@ -1,0 +1,188 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: idealista
+  name: Idealista
+  description: Search Idealista real estate listings (Spain, Italy, Portugal) from any AI assistant. Find apartments and houses for sale or rent, read full listing detail, look up neighborhood data. 4 tools, no auth — reverse-engineered from the Idealista mobile app.
+  region: intl
+  category: real-estate
+  icon: idealista
+  docsUrl: https://www.idealista.com
+  priority: 75
+  selfHostOnly: true
+  lint:
+    allow:
+      - healthcheck-present
+transport:
+  type: http
+  baseUrl: https://app.idealista.it
+auth:
+  type: none
+instructions: |-
+  This connector wraps the Idealista mobile app's internal API (app.idealista.it).
+
+  **Setup**: nothing. The mobile API endpoints used here do not require OAuth for read access.
+
+  **Markets**: Idealista operates in Italy, Spain, and Portugal. The locale path segment in URLs (`/api/3.5/it/...`, `/api/3.5/es/...`, `/api/3.5/pt/...`) selects the market. Pass `locale` as a tool parameter.
+
+  **What it does NOT do**: contact sellers, save searches, post listings. Use this connector to *find* and *read* listings; act on them in the Idealista app/site.
+
+  **Filter shape**: the search endpoint accepts a complex POST body with filters for operation (sale/rent), property type, price range, rooms, square meters, geo bounding box, neighborhood IDs.
+
+  **Suggested starter prompts**:
+  - "Find 2-bedroom apartments for rent in Milano Navigli, under €1500/month, posted in the last 7 days."
+  - "Show me apartment listing 34932661 in detail."
+  - "Search for Madrid neighborhoods matching 'Salamanca'."
+tools:
+  - name: idealista_search
+    description: Search Idealista listings with filters. Returns paginated results with listing id, price, m², rooms, address, photos, energy class.
+    input:
+      type: object
+      properties:
+        locale:
+          type: string
+          enum:
+            - it
+            - es
+            - pt
+          default: it
+          description: Market locale.
+        operation:
+          type: string
+          enum:
+            - sale
+            - rent
+          default: sale
+        propertyType:
+          type: string
+          description: homes, garages, premises, offices, lands, storages.
+        locationId:
+          type: string
+          description: Idealista location code (use `idealista_search_locations` to discover).
+        minPrice:
+          type: number
+        maxPrice:
+          type: number
+        minSize:
+          type: number
+          description: Minimum square meters.
+        maxSize:
+          type: number
+        rooms:
+          type: integer
+          description: Minimum number of rooms.
+        page:
+          type: integer
+          default: 1
+      required:
+        - locale
+    proxy: true
+    operation:
+      method: POST
+      path: /api/3.5/{{params.locale}}/search
+      body:
+        value:
+          operation: '{{params.operation}}'
+          propertyType: '{{params.propertyType}}'
+          locationId: '{{params.locationId}}'
+          minPrice: '{{params.minPrice}}'
+          maxPrice: '{{params.maxPrice}}'
+          minSize: '{{params.minSize}}'
+          maxSize: '{{params.maxSize}}'
+          rooms: '{{params.rooms}}'
+          page: '{{params.page}}'
+  - name: idealista_get_listing
+    description: Full detail of one Idealista listing by ID — full description, all photos, agency, contact, geocoordinate, energy class, characteristics.
+    input:
+      type: object
+      properties:
+        locale:
+          type: string
+          enum:
+            - it
+            - es
+            - pt
+          default: it
+        listing_id:
+          type: integer
+          description: Idealista listing ID.
+      required:
+        - locale
+        - listing_id
+    proxy: true
+    operation:
+      method: GET
+      path: /api/3/{{params.locale}}/detail/{{params.listing_id}}
+  - name: idealista_search_locations
+    description: Search for Idealista location IDs (cities, neighborhoods, districts). Required to filter by area in `idealista_search`.
+    input:
+      type: object
+      properties:
+        locale:
+          type: string
+          enum:
+            - it
+            - es
+            - pt
+          default: it
+        query:
+          type: string
+          description: Location text (e.g. 'Navigli', 'Salamanca', 'Lisboa Centro').
+      required:
+        - locale
+        - query
+    proxy: true
+    operation:
+      method: GET
+      path: /api/3/{{params.locale}}/locations
+      query:
+        q: '{{params.query}}'
+  - name: idealista_map_search
+    description: Search Idealista listings within a geo bounding box (map-driven search). Returns clusters and individual listings.
+    input:
+      type: object
+      properties:
+        locale:
+          type: string
+          enum:
+            - it
+            - es
+            - pt
+          default: it
+        north:
+          type: number
+          description: Northern latitude of bounding box.
+        south:
+          type: number
+        east:
+          type: number
+        west:
+          type: number
+        operation:
+          type: string
+          enum:
+            - sale
+            - rent
+          default: sale
+        propertyType:
+          type: string
+          default: homes
+      required:
+        - locale
+        - north
+        - south
+        - east
+        - west
+    proxy: true
+    operation:
+      method: POST
+      path: /api/3.5/{{params.locale}}/map/search
+      body:
+        value:
+          north: '{{params.north}}'
+          south: '{{params.south}}'
+          east: '{{params.east}}'
+          west: '{{params.west}}'
+          operation: '{{params.operation}}'
+          propertyType: '{{params.propertyType}}'

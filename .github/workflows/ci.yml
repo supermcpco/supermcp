@@ -1,0 +1,266 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+  security-events: write
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GOFLAGS: -mod=readonly
+  GOPROXY: https://proxy.golang.org,direct
+  GOTOOLCHAIN: local
+
+jobs:
+  go-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version-file: go.mod, cache: true }
+      - name: gofmt
+        run: test -z "$(gofmt -l . | tee /dev/stderr)"
+      - name: go vet
+        run: go vet ./...
+      # Built here rather than downloaded: the action's binary is compiled
+      # with whatever Go its release used, and a binary built with an
+      # older one refuses to load a module that targets a newer one.
+      - run: go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.2 run
+
+  go-test:
+    runs-on: ubuntu-latest
+    # Most of this system is rows: row-level security, the audit chain,
+    # sessions, rotation. Without a database those tests skip, and the
+    # coverage number measures the half that does not touch one.
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env: { POSTGRES_USER: supermcp, POSTGRES_PASSWORD: supermcp, POSTGRES_DB: supermcp }
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U supermcp" --health-interval 5s --health-timeout 5s --health-retries 10
+      # The blob store and the rate limiter have a Redis path that every
+      # multi-replica deployment takes, and a test that skips without a
+      # server was covering the single-replica path only.
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgres://supermcp:supermcp@localhost:5432/supermcp
+      REDIS_URL: redis://localhost:6379/1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version-file: go.mod, cache: true }
+      - run: go test -race -shuffle=on -coverprofile=coverage.out -coverpkg=./internal/...,./pkg/... ./...
+      - name: coverage floor
+        run: ./hack/coverage.sh
+      - uses: actions/upload-artifact@v4
+        with: { name: coverage, path: coverage.out }
+
+  go-integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env: { POSTGRES_USER: supermcp, POSTGRES_PASSWORD: supermcp, POSTGRES_DB: supermcp }
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U supermcp" --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgres://supermcp:supermcp@localhost:5432/supermcp
+      REDIS_URL: redis://localhost:6379/1
+      SUPERMCP_DEV: "1"
+      SUPERMCP_LISTEN: ":18080"
+      # Every instance needs one; a throwaway is right for a smoke test
+      # and wrong for anything else.
+      ENCRYPTION_KEK: "YmFzZTY0LWVuY29kZWQtdGhyb3dhd2F5LWtleS0zMmI="
+    steps:
+      - uses: actions/checkout@v4
+        # The upgrade test reads the previous release's migrations out of
+        # git, which a shallow clone does not have.
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-go@v5
+        with: { go-version-file: go.mod, cache: true }
+      - run: go build -o bin/supermcp ./cmd/supermcp
+      - name: RLS matrix, identity and end-to-end tests
+        run: go test -race -count=1 ./internal/store/... ./internal/e2e/...
+      - name: migrations apply on top of the previous release
+        run: go test -count=1 -run TestMigrationsFromPreviousRelease ./internal/store/
+      - name: migrate twice (idempotent, lock path)
+        run: |
+          bin/supermcp migrate
+          bin/supermcp migrate --wait-lock=false
+          bin/supermcp migrate --status
+      - name: serve smoke
+        run: |
+          # The log is what explains a refused connection, so it is
+          # printed whatever happens rather than after the first curl.
+          trap 'cat serve.log' EXIT
+          bin/supermcp serve > serve.log 2>&1 &
+          for i in $(seq 1 30); do curl -fs localhost:18080/readyz && break; sleep 1; done
+          curl -fs localhost:18080/readyz
+          curl -fs 'localhost:18080/api/v1/catalog?keyless=true' | jq -e '.count > 0'
+          curl -fs localhost:18080/api/v1/catalog/kaufland | jq -e '.auth.type == "hmac"'
+          curl -fs localhost:18080/api/openapi.json | jq -e '.openapi'
+          kill %1; wait %1 || true
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-go@v5
+        with: { go-version-file: go.mod, cache: true }
+      - name: govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+      # gosec runs through golangci-lint, which is where this project's
+      # gosec settings live. Running the tool twice with two different
+      # configurations means one of them is enforcing rules nobody chose,
+      # and its findings cannot be answered where the code is.
+      - name: gosec, reported to code scanning
+        run: >
+          go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.2 run
+          --output.sarif.path gosec.sarif --output.text.path stdout
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with: { sarif_file: gosec.sarif }
+      # The tool, not the action: the action asks an organisation for a
+      # paid licence, and what this step is for is the scan.
+      - name: gitleaks
+        run: |
+          docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:latest \
+            detect --source=/repo --redact --no-banner --exit-code 1 -c /repo/.gitleaks.toml
+
+  adapters:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version-file: go.mod, cache: true }
+      - run: go build -o bin/supermcp ./cmd/supermcp
+      - name: validate (strict)
+        run: bin/supermcp adapter validate --strict adapters
+      - name: recorded exchanges still replay
+        run: bin/supermcp adapter test
+
+      - name: converted catalog is in sync with the vendored v1 corpus
+        run: |
+          make adapters
+          git diff --exit-code -- adapters || { echo "::error::adapters/ is out of date; run make adapters"; exit 1; }
+
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version-file: go.mod, cache: true }
+      - uses: pnpm/action-setup@v4
+        with: { version: 10 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 24, cache: pnpm, cache-dependency-path: web/pnpm-lock.yaml }
+      - run: go build -o bin/supermcp ./cmd/supermcp
+      - name: generated client is fresh
+        run: |
+          bin/supermcp openapi > web/openapi.json
+          cd web && pnpm install --frozen-lockfile && pnpm generate
+          git diff --exit-code -- web/openapi.json web/src/api || { echo "::error::web client is stale; run make web-client"; exit 1; }
+      - run: cd web && pnpm lint
+      - run: cd web && pnpm test
+      - run: cd web && pnpm build
+      - name: binary embeds the UI
+        run: |
+          go build -o bin/supermcp ./cmd/supermcp
+          test -f internal/web/dist/index.html
+
+  browser:
+    # The browser suite drives the real binary against a real database. It
+    # is the only job that sees what a person sees, and it has already
+    # caught three defects the Go tests could not.
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env: { POSTGRES_USER: supermcp, POSTGRES_PASSWORD: supermcp, POSTGRES_DB: supermcp }
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U supermcp" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      PLAYWRIGHT_ADMIN_DATABASE_URL: postgres://supermcp:supermcp@127.0.0.1:5432/postgres?sslmode=disable
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version-file: go.mod, cache: true }
+      - uses: pnpm/action-setup@v4
+        with: { version: 10 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 24, cache: pnpm, cache-dependency-path: web/pnpm-lock.yaml }
+      - run: cd web && pnpm install --frozen-lockfile
+      - run: cd web && pnpm build
+      - run: cd web && npx playwright install --with-deps chromium
+      - run: cd web && pnpm test:browser
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: web/test-results
+          retention-days: 7
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: supermcp:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: trivy image scan
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: supermcp:ci
+          format: sarif
+          output: trivy.sarif
+          severity: HIGH,CRITICAL
+          # In SARIF mode the action scans every severity so code scanning
+          # sees the full picture, and without this the exit code follows
+          # that full picture rather than the two severities above: a
+          # tzdata advisory with no severity at all failed the build once.
+          limit-severities-for-sarif: true
+          exit-code: "1"
+          ignore-unfixed: true
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with: { sarif_file: trivy.sarif }
+
+  helm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - run: helm lint charts/supermcp
+      - name: kubeconform
+        run: |
+          curl -sSL https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz | tar xz
+          for v in 1.29.0 1.31.0; do
+            helm template supermcp charts/supermcp --set publicUrl=https://mcp.example.com --set database.existingSecret=db --set encryption.local.existingSecret=kek \
+              | ./kubeconform -strict -kubernetes-version $v -summary -ignore-missing-schemas
+          done

@@ -1,0 +1,180 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: aruba-fatturazione
+  name: Aruba Fatturazione Elettronica
+  description: 'Aruba Fatturazione Elettronica: send and track Italian e-invoices through the Sistema di Interscambio, read received invoices and their SDI notifications. Token auth against Aruba''s B2B gateway.'
+  region: it
+  category: accounting
+  icon: aruba-fatturazione
+  docsUrl: https://fatturazioneelettronica.aruba.it/apidoc/docs.html
+credentials:
+  ARUBA_USERNAME:
+    required: true
+  ARUBA_PASSWORD:
+    required: true
+    secret: true
+transport:
+  type: http
+  baseUrl: https://ws.fatturazioneelettronica.aruba.it/services
+  headers:
+    Accept: application/json
+auth:
+  type: login
+  request:
+    method: POST
+    url: https://ws.fatturazioneelettronica.aruba.it/services/auth/signin
+    headers:
+      Content-Type: application/json
+    body:
+      username: '{{auth.username}}'
+      password: '{{auth.password}}'
+  credentials:
+    username: '{{env.ARUBA_USERNAME}}'
+    password: '{{env.ARUBA_PASSWORD}}'
+  tokenSource:
+    from: body
+    jsonPath: access_token
+  expiry:
+    ttl: 1h
+    refreshBefore: 5m
+    refreshOn401: true
+  inject:
+    header: Authorization
+    template: Bearer {{auth.token}}
+healthcheck:
+  tool: aruba_fatturazione_list_sent_invoices
+  http:
+    method: GET
+    path: /invoice/out/findByFilters
+instructions: |-
+  **Getting credentials**
+  1. You need an active **Aruba Fatturazione Elettronica** subscription with the API option enabled.
+  2. In the web console create the API user. Aruba issues a username of the form `XXXXXXXX` and a password; these are *not* your Aruba portal login.
+  3. Set `ARUBA_USERNAME` and `ARUBA_PASSWORD`. The adapter signs in at `/services/auth/signin` and reuses the returned bearer token, refreshing it when Aruba expires it. supermcp keeps the token encrypted in `connector_auth_cache`.
+
+  **The Sistema di Interscambio is asynchronous, and that is the whole shape of this API.** You hand an invoice to Aruba, Aruba hands it to the SDI, and the SDI answers minutes or hours later with a notification. `aruba_fatturazione_get_invoice_status` reads where a document currently stands; the states that matter are `PRESA_IN_CARICO` (accepted by Aruba), `INVIATA` (forwarded to the SDI), `CONSEGNATA` (delivered to the recipient), `SCARTATA` (rejected — a real problem), `MANCATA_CONSEGNA` (the recipient's channel failed, but the invoice is still legally issued) and `NON_RECAPITABILE`.
+
+  **A `SCARTATA` invoice has not been issued.** It has to be corrected and resent with the same number within five days. An agent reporting revenue should exclude rejected documents, not count them.
+
+  **Invoices are XML (FatturaPA), base64-encoded over this API.** The tools here read status and metadata; fetching a document returns the encoded XML, which is the legally binding artefact.
+
+  **Unverified.** The paths and field names below follow the vendor's published documentation and have not been exercised against a live tenant. Treat a 404 as a docs-versus-reality gap and check the developer portal before concluding that the credential is wrong. A correction from anyone running this against a real system is genuinely welcome.
+
+  **Cloud reachability**: ws.fatturazioneelettronica.aruba.it is public with a valid certificate.
+tools:
+  - name: aruba_fatturazione_list_sent_invoices
+    description: List invoices sent through the Sistema di Interscambio in a date range, with their number, recipient, total and current SDI state.
+    input:
+      type: object
+      properties:
+        startDate:
+          type: string
+          description: Earliest invoice date, dd/MM/yyyy.
+        endDate:
+          type: string
+          description: Latest invoice date, dd/MM/yyyy.
+        page:
+          type: number
+          description: Page number, starting at 1.
+        size:
+          type: number
+          description: Rows per page.
+        status:
+          type: string
+          description: Restrict by SDI state, e.g. CONSEGNATA, SCARTATA, MANCATA_CONSEGNA.
+    operation:
+      method: GET
+      path: /invoice/out/findByFilters
+      query:
+        startDate: '{{params.startDate}}'
+        endDate: '{{params.endDate}}'
+        page: '{{params.page}}'
+        size: '{{params.size}}'
+        status: '{{params.status}}'
+  - name: aruba_fatturazione_get_invoice_status
+    description: Read where one sent invoice currently stands with the SDI, including the notification history. SCARTATA means it was rejected and has not legally been issued.
+    input:
+      type: object
+      properties:
+        idSdi:
+          type: string
+          description: SDI identifier of the document, returned when it was sent.
+      required:
+        - idSdi
+    operation:
+      method: GET
+      path: /invoice/out/getBySdiId
+      query:
+        idSdi: '{{params.idSdi}}'
+  - name: aruba_fatturazione_get_sent_invoice
+    description: Fetch one sent invoice as base64-encoded FatturaPA XML — the legally binding artefact, not a rendering of it.
+    input:
+      type: object
+      properties:
+        idSdi:
+          type: string
+          description: SDI identifier of the document.
+      required:
+        - idSdi
+    operation:
+      method: GET
+      path: /invoice/out/getFile
+      query:
+        idSdi: '{{params.idSdi}}'
+  - name: aruba_fatturazione_list_received_invoices
+    description: List invoices received from suppliers through the SDI in a date range, with their sender, number, date and total.
+    input:
+      type: object
+      properties:
+        startDate:
+          type: string
+          description: Earliest invoice date, dd/MM/yyyy.
+        endDate:
+          type: string
+          description: Latest invoice date, dd/MM/yyyy.
+        page:
+          type: number
+          description: Page number, starting at 1.
+        size:
+          type: number
+          description: Rows per page.
+    operation:
+      method: GET
+      path: /invoice/in/findByFilters
+      query:
+        startDate: '{{params.startDate}}'
+        endDate: '{{params.endDate}}'
+        page: '{{params.page}}'
+        size: '{{params.size}}'
+  - name: aruba_fatturazione_get_received_invoice
+    description: Fetch one received supplier invoice as base64-encoded FatturaPA XML, for archiving or for feeding into bookkeeping.
+    input:
+      type: object
+      properties:
+        idSdi:
+          type: string
+          description: SDI identifier of the received document.
+      required:
+        - idSdi
+    operation:
+      method: GET
+      path: /invoice/in/getFile
+      query:
+        idSdi: '{{params.idSdi}}'
+  - name: aruba_fatturazione_list_notifications
+    description: 'List the SDI notifications attached to one document: receipt, delivery, non-delivery or rejection, each with its timestamp and reason code.'
+    input:
+      type: object
+      properties:
+        idSdi:
+          type: string
+          description: SDI identifier of the document.
+      required:
+        - idSdi
+    operation:
+      method: GET
+      path: /invoice/out/getNotifications
+      query:
+        idSdi: '{{params.idSdi}}'

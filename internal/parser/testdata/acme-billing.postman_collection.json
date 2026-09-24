@@ -1,0 +1,178 @@
+{
+  "info": {
+    "_postman_id": "c1f0a7de-5b4e-4a2f-9c31-7d6e8b0a2f45",
+    "name": "Acme Billing",
+    "description": "The Acme Billing API. Customers, the invoices raised against them, and the receipts attached to those invoices. Every request needs a bearer token issued from the dashboard.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "1904337"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      { "key": "token", "value": "{{apiToken}}", "type": "string" }
+    ]
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "https://api.acme-billing.example.com/v1", "type": "string" },
+    { "key": "apiToken", "value": "sk_live_EXAMPLE_NOT_A_REAL_KEY", "type": "secret" },
+    { "key": "customerId", "value": "", "type": "string", "description": "The customer a request is about" }
+  ],
+  "item": [
+    {
+      "name": "Customers",
+      "description": "Everything about the people who owe Acme money.",
+      "item": [
+        {
+          "name": "List customers",
+          "request": {
+            "method": "GET",
+            "description": "Returns a page of customers, newest first. Use the cursor from the previous page to walk the whole list.",
+            "header": [
+              { "key": "Accept", "value": "application/json" },
+              { "key": "X-Acme-Trace", "value": "on", "disabled": true }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/customers?limit=20&email={{searchEmail}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["customers"],
+              "query": [
+                { "key": "limit", "value": "20", "description": "How many customers to return" },
+                { "key": "email", "value": "{{searchEmail}}" },
+                { "key": "cursor", "value": "", "disabled": true }
+              ]
+            }
+          },
+          "response": [
+            {
+              "name": "Two customers",
+              "code": 200,
+              "status": "OK",
+              "body": "{\"data\":[{\"id\":\"cus_00001\",\"email\":\"ada@example.com\",\"balance\":0,\"delinquent\":false}],\"has_more\":false}"
+            }
+          ]
+        },
+        {
+          "name": "Get customer",
+          "request": {
+            "method": "GET",
+            "description": "Returns one customer by its identifier.",
+            "url": {
+              "raw": "{{baseUrl}}/customers/:customerId",
+              "host": ["{{baseUrl}}"],
+              "path": ["customers", ":customerId"],
+              "variable": [
+                { "key": "customerId", "value": "cus_00001", "description": "The customer to fetch" }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create customer",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.environment.set('signupSource', 'postman');"]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "description": "Creates a customer. The email address has to be unique within the account.",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"email\": \"{{customerEmail}}\",\n  \"name\": \"Ada Lovelace\",\n  \"balance\": 0,\n  \"metadata\": {\n    \"plan\": \"pro\",\n    \"source\": \"{{signupSource}}\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/customers",
+              "host": ["{{baseUrl}}"],
+              "path": ["customers"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete customer",
+          "request": {
+            "method": "DELETE",
+            "description": "Deletes a customer and every invoice raised against it. There is no undo.",
+            "url": {
+              "raw": "{{baseUrl}}/customers/:customerId",
+              "host": ["{{baseUrl}}"],
+              "path": ["customers", ":customerId"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Invoices",
+      "item": [
+        {
+          "name": "Create invoice",
+          "request": {
+            "method": "POST",
+            "description": "Raises an invoice against a customer in the currency given.",
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                { "key": "customer", "value": "{{customerId}}" },
+                { "key": "currency", "value": "gbp", "description": "Three-letter ISO currency code" },
+                { "key": "description", "value": "", "disabled": true }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/invoices",
+              "host": ["{{baseUrl}}"],
+              "path": ["invoices"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Attach receipt",
+          "request": {
+            "method": "POST",
+            "description": "Attaches a scanned receipt to an invoice.",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "invoice", "value": "{{invoiceId}}", "type": "text" },
+                { "key": "file", "type": "file", "src": "/Users/ada/receipt.pdf" }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/invoices/receipts",
+              "host": ["{{baseUrl}}"],
+              "path": ["invoices", "receipts"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Ping",
+      "request": {
+        "method": "GET",
+        "description": "Answers 200 when the API is reachable and the credentials are good.",
+        "header": [
+          { "key": "X-Api-Key", "value": "live_9f2b7c4a1e8d6f3b0a5c9e2d7f4b1a8c" }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/ping",
+          "host": ["{{baseUrl}}"],
+          "path": ["ping"]
+        }
+      },
+      "response": []
+    }
+  ]
+}

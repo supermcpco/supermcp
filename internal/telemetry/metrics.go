@@ -1,0 +1,379 @@
+package telemetry
+
+import (
+	"net/http"
+	"strconv"
+	"sync"
+	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+)
+
+// Namespace prefixes every series this process publishes.
+const Namespace = "supermcp"
+
+// OtherTool is the label value that per-tool series collapse into once the
+// cap is reached.
+const OtherTool = "_other"
+
+// CallStatus is the outcome of a tool call, mirroring what the invocation
+// row records.
+type CallStatus string
+
+const (
+	StatusSuccess CallStatus = "success"
+	StatusError   CallStatus = "error"
+	StatusTimeout CallStatus = "timeout"
+)
+
+// ErrorClass groups failures into a fixed set. It is a closed set on
+// purpose: an error class taken from an upstream message would put an
+// unbounded number of series behind one metric name.
+type ErrorClass string
+
+const (
+	ClassNone        ErrorClass = "none"
+	ClassUpstream4xx ErrorClass = "upstream_4xx"
+	ClassUpstream5xx ErrorClass = "upstream_5xx"
+	ClassTimeout     ErrorClass = "timeout"
+	ClassAuth        ErrorClass = "auth"
+	ClassTransform   ErrorClass = "transform"
+	ClassUnsupported ErrorClass = "unsupported"
+	ClassConfig      ErrorClass = "config"
+	// ClassPolicy is the instance's own refusal: a data-loss rule, or any
+	// other governance decision that stopped a call the upstream would
+	// have answered.
+	ClassPolicy   ErrorClass = "policy"
+	ClassInternal ErrorClass = "internal"
+	// ClassOther catches anything a caller passes that is not in this set.
+	ClassOther ErrorClass = "other"
+)
+
+// BreakerState is a circuit breaker's state as a number, because a gauge
+// holds numbers and a state label would need one series per state.
+type BreakerState float64
+
+const (
+	BreakerClosed   BreakerState = 0
+	BreakerHalfOpen BreakerState = 1
+	BreakerOpen     BreakerState = 2
+)
+
+// MetricsOptions configure a Metrics.
+type MetricsOptions struct {
+	// Registry receives the instruments. Nil builds a private one, which
+	// keeps the process free of a global default registry.
+	Registry *prometheus.Registry
+	// PerTool turns on the per-tool series. It is off by default: a tool
+	// name is operator data, one organisation can install hundreds and the
+	// label would grow the series count without a ceiling.
+	PerTool bool
+	// PerToolCap is how many distinct tool names get their own series
+	// before the rest collapse into OtherTool. Defaults to 5000.
+	PerToolCap int
+	// GoCollectors adds the runtime and process collectors.
+	GoCollectors bool
+}
+
+// Metrics is the process's instruments and the registry behind them. The
+// rest of the code calls the typed methods here rather than touching
+// prometheus directly, so the day this becomes OpenTelemetry is the day
+// one file changes.
+//
+// A nil *Metrics is usable and records nothing, which is what a test or a
+// cut-down build gets.
+type Metrics struct {
+	registry *prometheus.Registry
+
+	toolCalls        *prometheus.CounterVec
+	toolCallDuration *prometheus.HistogramVec
+	toolCallsByTool  *prometheus.CounterVec
+	upstreamDuration *prometheus.HistogramVec
+	mcpRequests      *prometheus.CounterVec
+	httpRequests     *prometheus.CounterVec
+	surfaceBuild     prometheus.Histogram
+	breakerState     *prometheus.GaugeVec
+	auditQueueDepth  prometheus.Gauge
+	auditSpoolDepth  prometheus.Gauge
+	rateLimitDegrade prometheus.Gauge
+
+	perTool    bool
+	perToolCap int
+	// mu guards toolNames, the set of tool labels already admitted. It is
+	// taken only when per-tool series are on.
+	mu        sync.Mutex
+	toolNames map[string]struct{}
+}
+
+// NewMetrics builds the instruments and registers them. It panics on a
+// duplicate registration, which can only be a programming error: build one
+// Metrics per registry.
+func NewMetrics(opts MetricsOptions) *Metrics {
+	if opts.Registry == nil {
+		opts.Registry = prometheus.NewRegistry()
+	}
+	if opts.PerToolCap <= 0 {
+		opts.PerToolCap = 5000
+	}
+	m := &Metrics{
+		registry:   opts.Registry,
+		perTool:    opts.PerTool,
+		perToolCap: opts.PerToolCap,
+		toolNames:  make(map[string]struct{}),
+
+		toolCalls: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: Namespace,
+			Name:      "tool_calls_total",
+			Help:      "Tool calls by connector transport, outcome and error class.",
+		}, []string{"connector_type", "status", "error_class"}),
+
+		toolCallDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: Namespace,
+			Name:      "tool_call_duration_seconds",
+			Help:      "End-to-end tool call latency, including auth, transform and recording.",
+			Buckets:   prometheus.ExponentialBuckets(0.005, 2, 13),
+		}, []string{"connector_type"}),
+
+		toolCallsByTool: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: Namespace,
+			Name:      "tool_calls_by_tool_total",
+			Help:      "Tool calls by tool name, capped and collapsed into " + OtherTool + " past the cap.",
+		}, []string{"tool", "connector_type", "status"}),
+
+		upstreamDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: Namespace,
+			Name:      "upstream_duration_seconds",
+			Help:      "Time spent waiting on the upstream system alone.",
+			Buckets:   prometheus.ExponentialBuckets(0.005, 2, 13),
+		}, []string{"connector_type"}),
+
+		mcpRequests: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: Namespace,
+			Name:      "mcp_requests_total",
+			Help:      "MCP JSON-RPC requests by method and HTTP status.",
+		}, []string{"endpoint", "method", "code"}),
+
+		httpRequests: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: Namespace,
+			Name:      "http_requests_total",
+			Help:      "HTTP requests by routing pattern, method and status.",
+		}, []string{"route", "method", "code"}),
+
+		surfaceBuild: prometheus.NewHistogram(prometheus.HistogramOpts{
+			Namespace: Namespace,
+			Name:      "surface_build_seconds",
+			Help:      "Time to compute one caller's visible tool surface.",
+			Buckets:   prometheus.ExponentialBuckets(0.001, 2, 12),
+		}),
+
+		breakerState: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Namespace: Namespace,
+			Name:      "breaker_state",
+			Help:      "Circuit breaker state per connector: 0 closed, 1 half-open, 2 open.",
+		}, []string{"connector"}),
+
+		auditQueueDepth: prometheus.NewGauge(prometheus.GaugeOpts{
+			Namespace: Namespace,
+			Name:      "audit_queue_depth",
+			Help:      "Audit events waiting to be written.",
+		}),
+
+		auditSpoolDepth: prometheus.NewGauge(prometheus.GaugeOpts{
+			Namespace: Namespace,
+			Name:      "audit_spool_depth",
+			Help:      "Audit events waiting on disk for a database that would not take them.",
+		}),
+
+		rateLimitDegrade: prometheus.NewGauge(prometheus.GaugeOpts{
+			Namespace: Namespace,
+			Name:      "ratelimit_degraded",
+			Help:      "1 when rate limit budgets are per replica rather than shared through Redis.",
+		}),
+	}
+
+	opts.Registry.MustRegister(
+		m.toolCalls,
+		m.toolCallDuration,
+		m.toolCallsByTool,
+		m.upstreamDuration,
+		m.mcpRequests,
+		m.httpRequests,
+		m.surfaceBuild,
+		m.breakerState,
+		m.auditQueueDepth,
+		m.auditSpoolDepth,
+		m.rateLimitDegrade,
+	)
+	if opts.GoCollectors {
+		opts.Registry.MustRegister(collectors.NewGoCollector(), collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
+	}
+	return m
+}
+
+// Handler serves the exposition format. Mount it on the admin listener:
+// /metrics on the public listener would publish the shape of the estate to
+// anyone who asks.
+func (m *Metrics) Handler() http.Handler {
+	if m == nil {
+		return http.NotFoundHandler()
+	}
+	return promhttp.HandlerFor(m.registry, promhttp.HandlerOpts{
+		ErrorHandling:     promhttp.HTTPErrorOnError,
+		EnableOpenMetrics: true,
+	})
+}
+
+// Registry exposes the registry so a subsystem with its own collector can
+// register it. Prefer a typed method here.
+func (m *Metrics) Registry() *prometheus.Registry {
+	if m == nil {
+		return nil
+	}
+	return m.registry
+}
+
+// ObserveToolCall records one finished tool call. Pass an empty tool name
+// when the call never resolved to one.
+func (m *Metrics) ObserveToolCall(connectorType, tool string, status CallStatus, class ErrorClass, d time.Duration) {
+	if m == nil {
+		return
+	}
+	ct := labelOrUnknown(connectorType)
+	st := normaliseStatus(status)
+	m.toolCalls.WithLabelValues(ct, st, string(normaliseClass(class))).Inc()
+	m.toolCallDuration.WithLabelValues(ct).Observe(d.Seconds())
+	if m.perTool {
+		m.toolCallsByTool.WithLabelValues(m.toolLabel(tool), ct, st).Inc()
+	}
+}
+
+// ObserveUpstream records the time a call spent on the upstream system,
+// which is the part supermcp does not control and the part an operator
+// blames it for.
+func (m *Metrics) ObserveUpstream(connectorType string, d time.Duration) {
+	if m == nil || d <= 0 {
+		return
+	}
+	m.upstreamDuration.WithLabelValues(labelOrUnknown(connectorType)).Observe(d.Seconds())
+}
+
+// ObserveMCPRequest records one JSON-RPC request on the MCP endpoint.
+func (m *Metrics) ObserveMCPRequest(endpoint, method string, code int) {
+	if m == nil {
+		return
+	}
+	m.mcpRequests.WithLabelValues(labelOrUnknown(endpoint), labelOrUnknown(method), strconv.Itoa(code)).Inc()
+}
+
+// ObserveHTTPRequest records one HTTP request. route must be the chi
+// routing pattern, never the raw path: a path carries ids and would give
+// every resource its own series.
+func (m *Metrics) ObserveHTTPRequest(route, method string, code int) {
+	if m == nil {
+		return
+	}
+	m.httpRequests.WithLabelValues(labelOrUnknown(route), labelOrUnknown(method), strconv.Itoa(code)).Inc()
+}
+
+// ObserveSurfaceBuild records how long one caller's tool surface took to
+// compute. It runs on every MCP request, so it is the first thing to look
+// at when tools/list is slow.
+func (m *Metrics) ObserveSurfaceBuild(d time.Duration) {
+	if m == nil {
+		return
+	}
+	m.surfaceBuild.Observe(d.Seconds())
+}
+
+// SetBreakerState records a connector's circuit breaker state.
+func (m *Metrics) SetBreakerState(connector string, state BreakerState) {
+	if m == nil {
+		return
+	}
+	m.breakerState.WithLabelValues(labelOrUnknown(connector)).Set(float64(state))
+}
+
+// SetAuditQueueDepth records how many audit events are waiting. A depth
+// that stays near the buffer size means events are about to be dropped.
+func (m *Metrics) SetAuditQueueDepth(n int) {
+	if m == nil {
+		return
+	}
+	m.auditQueueDepth.Set(float64(n))
+}
+
+// SetAuditSpoolDepth records how many events are on disk waiting for a
+// database that would not take them. Anything above zero means the trail
+// is being kept somewhere a backup does not reach, so it matters until it
+// is back to zero.
+func (m *Metrics) SetAuditSpoolDepth(n int) {
+	if m == nil {
+		return
+	}
+	m.auditSpoolDepth.Set(float64(n))
+}
+
+// SetRateLimitDegraded records whether rate limit budgets are shared.
+func (m *Metrics) SetRateLimitDegraded(degraded bool) {
+	if m == nil {
+		return
+	}
+	var v float64
+	if degraded {
+		v = 1
+	}
+	m.rateLimitDegrade.Set(v)
+}
+
+// toolLabel admits a tool name until the cap, then returns OtherTool.
+//
+// Tool names come from adapters an operator installs, so their number has
+// no ceiling this process controls. Without the cap one busy tenant would
+// multiply every per-tool series and take the scrape, and then Prometheus,
+// down with it. Past the cap the counts are still correct in total; only
+// the attribution is lost, which is the right thing to lose.
+func (m *Metrics) toolLabel(name string) string {
+	if name == "" {
+		return OtherTool
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.toolNames[name]; ok {
+		return name
+	}
+	if len(m.toolNames) >= m.perToolCap {
+		return OtherTool
+	}
+	m.toolNames[name] = struct{}{}
+	return name
+}
+
+func normaliseStatus(s CallStatus) string {
+	switch s {
+	case StatusSuccess, StatusError, StatusTimeout:
+		return string(s)
+	default:
+		return string(StatusError)
+	}
+}
+
+func normaliseClass(c ErrorClass) ErrorClass {
+	switch c {
+	case ClassNone, ClassUpstream4xx, ClassUpstream5xx, ClassTimeout, ClassAuth,
+		ClassTransform, ClassUnsupported, ClassConfig, ClassInternal, ClassOther:
+		return c
+	default:
+		return ClassOther
+	}
+}
+
+// labelOrUnknown keeps an empty label from producing a series that reads
+// as a bug in the dashboard rather than in the caller.
+func labelOrUnknown(v string) string {
+	if v == "" {
+		return "unknown"
+	}
+	return v
+}

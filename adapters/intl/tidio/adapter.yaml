@@ -1,0 +1,177 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: tidio
+  name: Tidio
+  description: Manage Tidio (live chat + AI chatbot) contacts, conversations, messages, tags via GraphQL from any AI agent. 7 tools, X-Tidio-Openapi-Token auth.
+  region: intl
+  category: support
+  icon: tidio
+  docsUrl: https://docs.tidio.com/public-api/
+  lint:
+    allow:
+      - description-min-60
+      - healthcheck-present
+credentials:
+  TIDIO_API_TOKEN:
+    required: true
+    secret: true
+transport:
+  type: graphql
+  baseUrl: https://api.tidio.co/v1/graphql
+auth:
+  type: apiKey
+  in: header
+  name: X-Tidio-Openapi-Token
+  value: '{{env.TIDIO_API_TOKEN}}'
+instructions: |-
+  This connector wraps the Tidio Public API (api.tidio.co/v1/graphql).
+
+  **Setup**:
+  1. Log into https://www.tidio.com → **Settings → Public API** (Tidio+ plan only).
+  2. Generate an API token. Set `TIDIO_API_TOKEN`.
+
+  **Authentication**: custom header `X-Tidio-Openapi-Token: ${TIDIO_API_TOKEN}` on every request.
+
+  **GraphQL-only**: Tidio's Public API is GraphQL — the adapter exposes a few common queries/mutations as wrappers; for ad-hoc queries use the auto-injected `tidio_graphql_query` / `tidio_graphql_mutation` / `tidio_graphql_schema` builtins.
+
+  **Visitor vs Contact**: Tidio tracks anonymous visitors (no email) and contacts (have email/identifier). Bind a visitor to a contact via `identify`.
+
+  **Pagination**: cursor-based via Relay edges: `edges[].node`, `pageInfo {endCursor, hasNextPage}`.
+
+  **Rate limits**: 10 req/sec per token + complexity budget. 429 with `Retry-After`.
+
+  **Out of scope here**: chatbot flow editor, broadcast scheduling, A/B testing — these are UI-only.
+tools:
+  - name: tidio_get_project
+    description: Get info about the connected Tidio project (id, name, plan).
+    input:
+      type: object
+      properties: {}
+    operation:
+      kind: query
+      document: '{ project { id name plan } }'
+  - name: tidio_list_contacts
+    description: List contacts.
+    input:
+      type: object
+      properties:
+        first:
+          type: integer
+          description: Page size.
+        after:
+          type: string
+          description: Cursor.
+    operation:
+      kind: query
+      document: 'query ListContacts($first: Int, $after: String) { contacts(first: $first, after: $after) { edges { node { id name email phone tags { name } } } pageInfo { endCursor hasNextPage } } }'
+      variables:
+        variables:
+          first: '{{params.first}}'
+          after: '{{params.after}}'
+  - name: tidio_get_contact_by_email
+    description: Look up a contact by email.
+    input:
+      type: object
+      properties:
+        email:
+          type: string
+          description: Email.
+      required:
+        - email
+    operation:
+      kind: query
+      document: 'query GetContact($email: String!) { contact(email: $email) { id name email phone tags { name } customAttributes { key value } } }'
+      variables:
+        variables:
+          email: '{{params.email}}'
+  - name: tidio_update_contact
+    description: Update / upsert a contact by email.
+    input:
+      type: object
+      properties:
+        email:
+          type: string
+          description: Email (identifier).
+        name:
+          type: string
+          description: New name.
+        phone:
+          type: string
+          description: Phone.
+        tags:
+          type: array
+          description: Tag name strings.
+      required:
+        - email
+    operation:
+      kind: mutation
+      document: 'mutation UpdateContact($input: UpdateContactInput!) { contactUpdate(input: $input) { contact { id email } } }'
+      variables:
+        variables:
+          input:
+            email: '{{params.email}}'
+            name: '{{params.name}}'
+            phone: '{{params.phone}}'
+            tags: '{{params.tags}}'
+  - name: tidio_list_conversations
+    description: List recent conversations.
+    input:
+      type: object
+      properties:
+        first:
+          type: integer
+          description: Page size.
+        after:
+          type: string
+          description: Cursor.
+        status:
+          type: string
+          description: OPEN, SOLVED, PENDING.
+    operation:
+      kind: query
+      document: 'query ListConvs($first: Int, $after: String, $status: ConversationStatus) { conversations(first: $first, after: $after, status: $status) { edges { node { id status contact { id email } assignee { id name } lastMessageAt } } pageInfo { endCursor hasNextPage } } }'
+      variables:
+        variables:
+          first: '{{params.first}}'
+          after: '{{params.after}}'
+          status: '{{params.status}}'
+  - name: tidio_get_conversation
+    description: Get a single conversation with messages.
+    input:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Conversation ID.
+      required:
+        - id
+    operation:
+      kind: query
+      document: 'query GetConv($id: ID!) { conversation(id: $id) { id status contact { id email } messages(first: 50) { edges { node { id content author { id name role } createdAt } } } } }'
+      variables:
+        variables:
+          id: '{{params.id}}'
+  - name: tidio_send_message
+    description: Send a message to a conversation as an operator.
+    input:
+      type: object
+      properties:
+        conversation_id:
+          type: string
+          description: Conversation ID.
+        content:
+          type: string
+          description: Message text.
+      required:
+        - conversation_id
+        - content
+    operation:
+      kind: mutation
+      document: 'mutation Send($input: SendMessageInput!) { messageSend(input: $input) { message { id } } }'
+      variables:
+        variables:
+          input:
+            conversationId: '{{params.conversation_id}}'
+            content: '{{params.content}}'

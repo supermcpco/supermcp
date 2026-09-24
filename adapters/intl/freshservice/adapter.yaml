@@ -1,0 +1,372 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: freshservice
+  name: Freshservice
+  description: 'Manage Freshservice (ITSM: tickets, problems, changes, assets, agents, requesters, departments) from any AI agent. 10 tools, basic-auth with API key.'
+  region: intl
+  category: support
+  icon: freshservice
+  docsUrl: https://api.freshservice.com/v2/
+  lint:
+    allow:
+      - description-min-60
+      - healthcheck-present
+credentials:
+  FRESHSERVICE_SUBDOMAIN:
+    required: true
+  FRESHSERVICE_API_KEY:
+    required: true
+    secret: true
+transport:
+  type: http
+  baseUrl: https://{{env.FRESHSERVICE_SUBDOMAIN}}.freshservice.com/api/v2
+auth:
+  type: basic
+  username: '{{env.FRESHSERVICE_API_KEY}}'
+  password: X
+instructions: |-
+  This connector wraps the Freshservice API v2 (per-tenant — yourdomain.freshservice.com/api/v2).
+
+  **Setup**:
+  1. Log into your Freshservice instance → top-right avatar → **Profile Settings → View API Key** (you may need to log in again to reveal).
+  2. Note your tenant subdomain (the part before `.freshservice.com`).
+  3. Set `FRESHSERVICE_SUBDOMAIN` (just the subdomain) and `FRESHSERVICE_API_KEY`.
+
+  **Authentication**: HTTP Basic, with the API key as username and the literal string `X` as the password:
+    `Authorization: Basic base64(API_KEY:X)`
+  The adapter sets this via BASIC_AUTH (username = api key, password = 'X'). Using your account password instead of the API key is allowed but discouraged.
+
+  **Per-tenant baseUrl**: `https://${FRESHSERVICE_SUBDOMAIN}.freshservice.com/api/v2`. Substituted at import time.
+
+  **Ticket statuses** (integer codes):
+  - 2: Open
+  - 3: Pending
+  - 4: Resolved
+  - 5: Closed
+  Priorities: 1=Low, 2=Medium, 3=High, 4=Urgent. Sources: 1=Email, 2=Portal, 3=Phone, 4=Chat, 5=Feedback widget, 6=Yammer, 7=AWS Cloudwatch, 8=Pagerduty, 9=Walkup, 10=Slack.
+
+  **ITIL records**: Freshservice exposes Tickets, Problems, Changes, Releases. They share much of the same shape but live at different endpoints.
+
+  **Pagination**: `page` (1-based) + `per_page` (max 100). Header `Link` carries the next-page URL. Many list endpoints cap at 9 pages total — for full export use the dedicated archive APIs.
+
+  **Rate limits**: 100 req/min per API key on Starter, up to 1k/min on Enterprise. 429 returns `Retry-After` in seconds.
+
+  **Out of scope here**: workflow automation, project portfolio management, contract CRUD beyond list, asset relationships graph.
+tools:
+  - name: freshservice_list_tickets
+    description: List tickets. Filter by predefined views (`new_and_my_open`, `watching`, `spam`, `deleted`, `unresolved`, ...) or by requester_id/email. Returns each ticket's id, subject, status, priority, source, group_id, responder_id, requester_id, created_at.
+    input:
+      type: object
+      properties:
+        filter:
+          type: string
+          description: Predefined view name.
+        requester_id:
+          type: integer
+          description: Filter to one requester.
+        email:
+          type: string
+          description: Filter to one requester email.
+        updated_since:
+          type: string
+          description: ISO 8601 — only tickets updated after this.
+        include:
+          type: string
+          description: 'Comma-separated: ''stats'', ''requester'', ''requested_for'', ''department''.'
+        page:
+          type: integer
+          description: 1-based.
+        per_page:
+          type: integer
+          description: Max 100.
+    operation:
+      method: GET
+      path: /tickets
+      query:
+        filter: '{{params.filter}}'
+        requester_id: '{{params.requester_id}}'
+        email: '{{params.email}}'
+        updated_since: '{{params.updated_since}}'
+        include: '{{params.include}}'
+        page: '{{params.page}}'
+        per_page: '{{params.per_page}}'
+  - name: freshservice_get_ticket
+    description: Get one ticket by ID with full description + custom fields. Pass `include` to expand stats/requester/conversations.
+    input:
+      type: object
+      properties:
+        ticket_id:
+          type: integer
+          description: Ticket ID.
+        include:
+          type: string
+          description: 'Comma-separated: ''conversations'', ''requester'', ''requested_for'', ''stats'', ''problem'', ''assets'', ''change'', ''related_tickets''.'
+      required:
+        - ticket_id
+    operation:
+      method: GET
+      path: /tickets/{{params.ticket_id}}
+      query:
+        include: '{{params.include}}'
+  - name: freshservice_create_ticket
+    description: 'Create a new ticket. Required: `subject` + `description` + `email` (requester) + `priority` + `status` + `source`.'
+    input:
+      type: object
+      properties:
+        subject:
+          type: string
+          description: Ticket subject.
+        description:
+          type: string
+          description: HTML description.
+        email:
+          type: string
+          description: Requester email.
+        priority:
+          type: integer
+          description: 1=Low, 2=Medium, 3=High, 4=Urgent.
+        status:
+          type: integer
+          description: 2=Open, 3=Pending, 4=Resolved, 5=Closed.
+        source:
+          type: integer
+          description: 1=Email, 2=Portal, 3=Phone, 4=Chat, ...
+        category:
+          type: string
+          description: Top-level category name.
+        sub_category:
+          type: string
+          description: Second-level category.
+        item_category:
+          type: string
+          description: Third-level category.
+        group_id:
+          type: integer
+          description: Assign to a group.
+        responder_id:
+          type: integer
+          description: Assign to an agent.
+        department_id:
+          type: integer
+          description: Department.
+        tags:
+          type: array
+          description: Array of tag strings.
+        custom_fields:
+          type: object
+          description: Custom field map (key = field name).
+      required:
+        - subject
+        - description
+        - email
+        - priority
+        - status
+        - source
+    operation:
+      method: POST
+      path: /tickets
+      body:
+        value:
+          subject: '{{params.subject}}'
+          description: '{{params.description}}'
+          email: '{{params.email}}'
+          priority: '{{params.priority}}'
+          status: '{{params.status}}'
+          source: '{{params.source}}'
+          category: '{{params.category}}'
+          sub_category: '{{params.sub_category}}'
+          item_category: '{{params.item_category}}'
+          group_id: '{{params.group_id}}'
+          responder_id: '{{params.responder_id}}'
+          department_id: '{{params.department_id}}'
+          tags: '{{params.tags}}'
+          custom_fields: '{{params.custom_fields}}'
+  - name: freshservice_update_ticket
+    description: Update a ticket's status, priority, assignee, tags, custom fields, subject, or description.
+    input:
+      type: object
+      properties:
+        ticket_id:
+          type: integer
+          description: Ticket ID.
+        subject:
+          type: string
+          description: New subject.
+        description:
+          type: string
+          description: New HTML description.
+        priority:
+          type: integer
+          description: 1-4.
+        status:
+          type: integer
+          description: 2-5.
+        group_id:
+          type: integer
+          description: Move to group.
+        responder_id:
+          type: integer
+          description: Move to agent.
+        tags:
+          type: array
+          description: Replace tags.
+        custom_fields:
+          type: object
+          description: Merge custom fields.
+      required:
+        - ticket_id
+    operation:
+      method: PUT
+      path: /tickets/{{params.ticket_id}}
+      body:
+        value:
+          subject: '{{params.subject}}'
+          description: '{{params.description}}'
+          priority: '{{params.priority}}'
+          status: '{{params.status}}'
+          group_id: '{{params.group_id}}'
+          responder_id: '{{params.responder_id}}'
+          tags: '{{params.tags}}'
+          custom_fields: '{{params.custom_fields}}'
+  - name: freshservice_reply_to_ticket
+    description: Add a public reply to a ticket — visible to the requester.
+    input:
+      type: object
+      properties:
+        ticket_id:
+          type: integer
+          description: Ticket ID.
+        body:
+          type: string
+          description: HTML body of the reply.
+        from_email:
+          type: string
+          description: Override sending email.
+        user_id:
+          type: integer
+          description: Agent user_id.
+      required:
+        - ticket_id
+        - body
+    operation:
+      method: POST
+      path: /tickets/{{params.ticket_id}}/reply
+      body:
+        value:
+          body: '{{params.body}}'
+          from_email: '{{params.from_email}}'
+          user_id: '{{params.user_id}}'
+  - name: freshservice_add_note
+    description: Add an internal (private) note to a ticket — NOT visible to the requester. Pass `private=true` (default) for internal, `false` for public.
+    input:
+      type: object
+      properties:
+        ticket_id:
+          type: integer
+          description: Ticket ID.
+        body:
+          type: string
+          description: HTML body.
+        private:
+          type: boolean
+          description: Default true.
+        user_id:
+          type: integer
+          description: Author agent user_id.
+      required:
+        - ticket_id
+        - body
+    operation:
+      method: POST
+      path: /tickets/{{params.ticket_id}}/notes
+      body:
+        value:
+          body: '{{params.body}}'
+          private: '{{params.private}}'
+          user_id: '{{params.user_id}}'
+  - name: freshservice_list_problems
+    description: List problem records.
+    input:
+      type: object
+      properties:
+        page:
+          type: integer
+          description: 1-based.
+        per_page:
+          type: integer
+          description: Max 100.
+    operation:
+      method: GET
+      path: /problems
+      query:
+        page: '{{params.page}}'
+        per_page: '{{params.per_page}}'
+  - name: freshservice_list_changes
+    description: List change requests.
+    input:
+      type: object
+      properties:
+        page:
+          type: integer
+          description: 1-based.
+        per_page:
+          type: integer
+          description: Max 100.
+    operation:
+      method: GET
+      path: /changes
+      query:
+        page: '{{params.page}}'
+        per_page: '{{params.per_page}}'
+  - name: freshservice_list_assets
+    description: List CI assets in the Freshservice CMDB. Filter by include or asset_type_id.
+    input:
+      type: object
+      properties:
+        include:
+          type: string
+          description: '''type_fields'' to include CI-type custom fields.'
+        filter:
+          type: string
+          description: Query like "asset_type_id:7 AND impact:'high'".
+        page:
+          type: integer
+          description: 1-based.
+        per_page:
+          type: integer
+          description: Max 100.
+    operation:
+      method: GET
+      path: /assets
+      query:
+        include: '{{params.include}}'
+        filter: '{{params.filter}}'
+        page: '{{params.page}}'
+        per_page: '{{params.per_page}}'
+  - name: freshservice_list_agents
+    description: List agents (your IT team members).
+    input:
+      type: object
+      properties:
+        email:
+          type: string
+          description: Filter by email.
+        state:
+          type: string
+          description: '''fulltime'' or ''occasional''.'
+        page:
+          type: integer
+          description: 1-based.
+        per_page:
+          type: integer
+          description: Max 100.
+    operation:
+      method: GET
+      path: /agents
+      query:
+        email: '{{params.email}}'
+        state: '{{params.state}}'
+        page: '{{params.page}}'
+        per_page: '{{params.per_page}}'

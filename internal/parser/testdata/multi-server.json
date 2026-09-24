@@ -1,0 +1,24 @@
+{
+  "openapi": "3.0.3",
+  "info": { "title": "Ledger", "version": "1.0.0" },
+  "servers": [
+    { "url": "https://api.ledger.example.com", "description": "Production" },
+    { "url": "https://sandbox.ledger.example.com", "description": "Sandbox" },
+    { "url": "https://{tenant}.ledger.example.com", "variables": { "tenant": { "default": "demo" } } }
+  ],
+  "security": [{ "apiKey": [] }],
+  "paths": {
+    "/accounts": {
+      "get": {
+        "operationId": "listAccounts",
+        "summary": "List every account in the ledger, with its balance and currency",
+        "responses": { "200": { "description": "ok" } }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "apiKey": { "type": "apiKey", "in": "header", "name": "X-Api-Key" }
+    }
+  }
+}

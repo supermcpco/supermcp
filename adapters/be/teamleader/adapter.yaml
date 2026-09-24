@@ -1,0 +1,274 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: teamleader
+  name: Teamleader Focus
+  description: 'Teamleader Focus — the Belgian CRM, project and invoicing suite: companies, contacts, deals, projects, time tracking, invoices and quotations. REST API, OAuth 2.0, everything over POST.'
+  region: be
+  category: crm
+  icon: teamleader
+  docsUrl: https://developer.teamleader.eu/
+credentials:
+  TEAMLEADER_CLIENT_ID:
+    required: true
+  TEAMLEADER_CLIENT_SECRET:
+    required: true
+    secret: true
+  TEAMLEADER_REFRESH_TOKEN:
+    required: true
+    secret: true
+transport:
+  type: http
+  baseUrl: https://api.focus.teamleader.eu
+  headers:
+    Content-Type: application/json
+auth:
+  type: oauth2
+  grant: refresh_token
+  clientId: '{{env.TEAMLEADER_CLIENT_ID}}'
+  clientSecret: '{{env.TEAMLEADER_CLIENT_SECRET}}'
+  tokenUrl: https://focus.teamleader.eu/oauth2/access_token
+  refreshToken: '{{env.TEAMLEADER_REFRESH_TOKEN}}'
+healthcheck:
+  tool: teamleader_get_me
+  http:
+    method: GET
+    path: /users.me
+instructions: |-
+  **Getting a token**
+  1. Register an integration in the **Teamleader Marketplace developer area** (developer.teamleader.eu). You receive a client id and client secret.
+  2. Run the authorization-code flow once for the account and keep the **refresh token** — Teamleader's access tokens last one hour.
+  3. Set `TEAMLEADER_CLIENT_ID`, `TEAMLEADER_CLIENT_SECRET` and `TEAMLEADER_REFRESH_TOKEN`. supermcp refreshes the access token on its own.
+
+  **Every endpoint is a POST, including the reads.** Teamleader's API is action-shaped — `companies.list`, `deals.info`, `invoices.list` — and all of them are POSTs whose JSON body carries the filter. That is why these tools look like writes in an HTTP trace even when they only read; the tool names here say what each one actually does.
+
+  **Filters are a nested object.** `{"filter": {"term": "Acme"}, "page": {"size": 20, "number": 1}, "sort": [{"field": "name", "order": "asc"}]}`. The available filter keys differ per action and are listed in Teamleader's reference.
+
+  **Refresh tokens rotate.** Teamleader issues a new refresh token on every refresh and invalidates the old one. supermcp persists the rotated token back into the connector, so the stored value stays current — but if you also use the same refresh token from another script, one of the two will start failing.
+
+  **Ids are UUIDs**, and `deals.info` needs the deal's id, not its reference number.
+
+  **Cloud reachability**: api.focus.teamleader.eu is public with a valid certificate.
+tools:
+  - name: teamleader_get_me
+    description: Read the user the token belongs to, with their name, e-mail, language and account. The fastest proof that the OAuth client and refresh token work.
+    input:
+      type: object
+      properties: {}
+    operation:
+      method: POST
+      path: /users.me
+      body:
+        value: {}
+  - name: teamleader_list_companies
+    description: List client companies with their name, VAT number, address and tags. A POST that only reads — that is how Teamleader's API is shaped.
+    input:
+      type: object
+      properties:
+        term:
+          type: string
+          description: Search fragment matched against name, VAT number and e-mail.
+        page_size:
+          type: number
+          description: Rows per page (default 20, max 100).
+        page_number:
+          type: number
+          description: Page number, starting at 1.
+    operation:
+      method: POST
+      path: /companies.list
+      body:
+        value:
+          filter:
+            term: '{{params.term}}'
+          page:
+            size: '{{params.page_size}}'
+            number: '{{params.page_number}}'
+  - name: teamleader_get_company
+    description: 'Read one company in full: addresses, VAT number, payment terms, custom fields, tags and the account manager.'
+    input:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Company UUID.
+      required:
+        - id
+    operation:
+      method: POST
+      path: /companies.info
+      body:
+        value:
+          id: '{{params.id}}'
+  - name: teamleader_list_contacts
+    description: List individual contacts with their name, e-mail, phone and the companies they are linked to.
+    input:
+      type: object
+      properties:
+        term:
+          type: string
+          description: Search fragment matched against name, e-mail and phone.
+        page_size:
+          type: number
+          description: Rows per page (default 20, max 100).
+        page_number:
+          type: number
+          description: Page number, starting at 1.
+    operation:
+      method: POST
+      path: /contacts.list
+      body:
+        value:
+          filter:
+            term: '{{params.term}}'
+          page:
+            size: '{{params.page_size}}'
+            number: '{{params.page_number}}'
+  - name: teamleader_list_deals
+    description: List deals with their title, customer, value, phase and expected closing date — the sales-pipeline view.
+    input:
+      type: object
+      properties:
+        term:
+          type: string
+          description: Search fragment matched against the deal title and reference.
+        phase_id:
+          type: string
+          description: Restrict to one pipeline phase UUID.
+        status:
+          type: array
+          description: 'Statuses to include: open, won, lost.'
+          items:
+            type: string
+        page_size:
+          type: number
+          description: Rows per page (default 20, max 100).
+        page_number:
+          type: number
+          description: Page number, starting at 1.
+    operation:
+      method: POST
+      path: /deals.list
+      body:
+        value:
+          filter:
+            term: '{{params.term}}'
+            phase_id: '{{params.phase_id}}'
+            status: '{{params.status}}'
+          page:
+            size: '{{params.page_size}}'
+            number: '{{params.page_number}}'
+  - name: teamleader_get_deal
+    description: 'Read one deal in full: its value, phase, source, responsible user, linked quotations and the full phase history.'
+    input:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Deal UUID — not the reference number.
+      required:
+        - id
+    operation:
+      method: POST
+      path: /deals.info
+      body:
+        value:
+          id: '{{params.id}}'
+  - name: teamleader_list_invoices
+    description: List invoices with their number, date, due date, customer, totals and payment status — the receivables view.
+    input:
+      type: object
+      properties:
+        status:
+          type: array
+          description: 'Statuses to include: draft, outstanding, matched.'
+          items:
+            type: string
+        page_size:
+          type: number
+          description: Rows per page (default 20, max 100).
+        page_number:
+          type: number
+          description: Page number, starting at 1.
+    operation:
+      method: POST
+      path: /invoices.list
+      body:
+        value:
+          filter:
+            status: '{{params.status}}'
+          page:
+            size: '{{params.page_size}}'
+            number: '{{params.page_number}}'
+  - name: teamleader_list_projects
+    description: List projects with their title, customer, status, budget and the milestones they are broken into.
+    input:
+      type: object
+      properties:
+        page_size:
+          type: number
+          description: Rows per page (default 20, max 100).
+        page_number:
+          type: number
+          description: Page number, starting at 1.
+    operation:
+      method: POST
+      path: /projects-v2/projects.list
+      body:
+        value:
+          page:
+            size: '{{params.page_size}}'
+            number: '{{params.page_number}}'
+  - name: teamleader_list_time_tracking
+    description: List tracked time entries with their user, date, duration, project and invoiceability — the raw data behind 'how much did we spend on this client'.
+    input:
+      type: object
+      properties:
+        started_after:
+          type: string
+          description: Earliest start, ISO 8601 with a zone.
+        started_before:
+          type: string
+          description: Latest start, ISO 8601 with a zone.
+        page_size:
+          type: number
+          description: Rows per page (default 20, max 100).
+        page_number:
+          type: number
+          description: Page number, starting at 1.
+    operation:
+      method: POST
+      path: /timeTracking.list
+      body:
+        value:
+          filter:
+            started_after: '{{params.started_after}}'
+            started_before: '{{params.started_before}}'
+          page:
+            size: '{{params.page_size}}'
+            number: '{{params.page_number}}'
+  - name: teamleader_list_quotations
+    description: List quotations with their deal, total, status and validity date, to see what is out with prospects and not yet accepted.
+    input:
+      type: object
+      properties:
+        deal_id:
+          type: string
+          description: Restrict to one deal's quotations.
+        page_size:
+          type: number
+          description: Rows per page.
+        page_number:
+          type: number
+          description: Page number, starting at 1.
+    operation:
+      method: POST
+      path: /quotations.list
+      body:
+        value:
+          filter:
+            deal_id: '{{params.deal_id}}'
+          page:
+            size: '{{params.page_size}}'
+            number: '{{params.page_number}}'

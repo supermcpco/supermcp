@@ -1,0 +1,182 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: zalando-zds
+  name: Zalando Partner (ZDS)
+  description: 'Zalando''s partner APIs for Zalando Direct Ship merchants: orders, order items, shipments, returns, stock and price feeds. OAuth 2.0 client credentials. Partner onboarding required.'
+  region: de
+  category: e-commerce
+  icon: zalando-zds
+  docsUrl: https://opendevportal.zalando.com/
+credentials:
+  ZALANDO_CLIENT_ID:
+    required: true
+  ZALANDO_CLIENT_SECRET:
+    required: true
+    secret: true
+  ZALANDO_MERCHANT_ID:
+    required: true
+transport:
+  type: http
+  baseUrl: https://api.zalando.com/merchants/{{env.ZALANDO_MERCHANT_ID}}
+  headers:
+    Accept: application/json
+auth:
+  type: oauth2
+  grant: client_credentials
+  clientId: '{{env.ZALANDO_CLIENT_ID}}'
+  clientSecret: '{{env.ZALANDO_CLIENT_SECRET}}'
+  tokenUrl: https://api.zalando.com/oauth2/token
+healthcheck:
+  tool: zalando_zds_list_orders
+  http:
+    method: GET
+    path: /orders?limit=1
+instructions: |
+  **Partner onboarding required.** Zalando's merchant APIs are not open: you need an active Zalando Partner Programme contract and credentials issued through **Zalando zDirect**. There is no self-service signup and no public sandbox, so this adapter ships unverified by design.
+
+  **Setup**
+  1. In zDirect open the API section and create an OAuth 2.0 client for your merchant account. You receive a **client id** and **client secret**.
+  2. Note your **merchant id** — a UUID that scopes every path. Zalando merchants often have several (one per sales channel or country), and the wrong one returns an empty, entirely convincing result.
+  3. Set `ZALANDO_CLIENT_ID`, `ZALANDO_CLIENT_SECRET` and `ZALANDO_MERCHANT_ID`.
+
+  **Client credentials, scoped per API.** The token endpoint is `https://api.zalando.com/oauth2/token` and the scopes you were granted determine which of the paths below actually answer. A 403 here usually means a missing scope rather than a bad secret.
+
+  **ZDS vs Partner Fulfilment.** These tools target **Zalando Direct Ship**, where the merchant ships to the customer. Merchants on Zalando Fulfilment Solutions (ZFS) use a different set of endpoints for stock and shipping, because Zalando holds the inventory.
+
+  **Dates** are ISO 8601 with a zone. Order lists are cursor-paged: pass back the `next` token from the response rather than computing an offset.
+
+  **Unverified.** The paths and field names below follow the vendor's published documentation and have not been exercised against a live tenant. Treat a 404 as a docs-versus-reality gap and check the developer portal before concluding that the credential is wrong. A correction from anyone running this against a real system is genuinely welcome.
+tools:
+  - name: zalando_zds_list_orders
+    description: 'List orders for the merchant with their order number, date, status and totals. Cursor-paged: pass back the `next` token from the previous response.'
+    input:
+      type: object
+      properties:
+        from:
+          type: string
+          description: Earliest order date, ISO 8601 with a zone.
+        to:
+          type: string
+          description: Latest order date, ISO 8601 with a zone.
+        status:
+          type: string
+          description: Restrict by order status, e.g. OPEN, FULFILLED, CANCELLED.
+        limit:
+          type: number
+          description: Rows per page.
+        next:
+          type: string
+          description: Cursor token from the previous page.
+    operation:
+      method: GET
+      path: /orders
+      query:
+        from: '{{params.from}}'
+        to: '{{params.to}}'
+        status: '{{params.status}}'
+        limit: '{{params.limit}}'
+        next: '{{params.next}}'
+  - name: zalando_zds_get_order
+    description: 'Read one order in full: its items with EAN and price, the delivery address, and the current fulfilment state of each item.'
+    input:
+      type: object
+      properties:
+        orderId:
+          type: string
+          description: Zalando order id.
+      required:
+        - orderId
+    operation:
+      method: GET
+      path: /orders/{{params.orderId}}
+  - name: zalando_zds_list_order_items
+    description: List the individual items of one order with their EAN, article number, price and per-item status — the level Zalando actually fulfils and cancels at.
+    input:
+      type: object
+      properties:
+        orderId:
+          type: string
+          description: Zalando order id.
+      required:
+        - orderId
+    operation:
+      method: GET
+      path: /orders/{{params.orderId}}/items
+  - name: zalando_zds_list_shipments
+    description: List shipments the merchant has reported, with their carrier, tracking number, date and the order items they cover.
+    input:
+      type: object
+      properties:
+        from:
+          type: string
+          description: Earliest shipment date, ISO 8601 with a zone.
+        limit:
+          type: number
+          description: Rows per page.
+        next:
+          type: string
+          description: Cursor token from the previous page.
+    operation:
+      method: GET
+      path: /shipments
+      query:
+        from: '{{params.from}}'
+        limit: '{{params.limit}}'
+        next: '{{params.next}}'
+  - name: zalando_zds_list_returns
+    description: List returns with their EAN, reason code, date and the order they belong to — the input to any returns-rate analysis.
+    input:
+      type: object
+      properties:
+        from:
+          type: string
+          description: Earliest return date, ISO 8601 with a zone.
+        limit:
+          type: number
+          description: Rows per page.
+        next:
+          type: string
+          description: Cursor token from the previous page.
+    operation:
+      method: GET
+      path: /returns
+      query:
+        from: '{{params.from}}'
+        limit: '{{params.limit}}'
+        next: '{{params.next}}'
+  - name: zalando_zds_list_stock
+    description: Read the stock Zalando currently holds for the merchant's EANs, so a discrepancy with the ERP can be found before it becomes an oversell.
+    input:
+      type: object
+      properties:
+        limit:
+          type: number
+          description: Rows per page.
+        next:
+          type: string
+          description: Cursor token from the previous page.
+    operation:
+      method: GET
+      path: /stock
+      query:
+        limit: '{{params.limit}}'
+        next: '{{params.next}}'
+  - name: zalando_zds_list_prices
+    description: Read the prices currently live on Zalando for the merchant's EANs, including any active promotional price and its validity window.
+    input:
+      type: object
+      properties:
+        limit:
+          type: number
+          description: Rows per page.
+        next:
+          type: string
+          description: Cursor token from the previous page.
+    operation:
+      method: GET
+      path: /prices
+      query:
+        limit: '{{params.limit}}'
+        next: '{{params.next}}'

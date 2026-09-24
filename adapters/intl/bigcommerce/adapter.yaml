@@ -1,0 +1,494 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: bigcommerce
+  name: BigCommerce
+  description: 'Drive BigCommerce (SaaS e-commerce platform) from any AI agent: products, variants, orders, customers, categories. 14 tools, API-key (X-Auth-Token) auth, per-store base URL.'
+  region: intl
+  category: e-commerce
+  icon: bigcommerce
+  docsUrl: https://developer.bigcommerce.com/docs/rest-catalog
+  lint:
+    allow:
+      - description-min-60
+      - healthcheck-present
+credentials:
+  BIGCOMMERCE_STORE_HASH:
+    required: true
+  BIGCOMMERCE_ACCESS_TOKEN:
+    required: true
+    secret: true
+transport:
+  type: http
+  baseUrl: https://api.bigcommerce.com/stores/{{env.BIGCOMMERCE_STORE_HASH}}
+auth:
+  type: apiKey
+  in: header
+  name: X-Auth-Token
+  value: '{{env.BIGCOMMERCE_ACCESS_TOKEN}}'
+instructions: |-
+  This connector uses the BigCommerce REST API v3 (developer.bigcommerce.com/docs/rest-catalog).
+
+  **Setup**:
+  1. Sign in to BigCommerce → **Settings → API → API Accounts → Create API Account → V2/V3 API token**.
+  2. Pick scopes — at minimum: Products (Read+Write), Orders (Read+Write), Customers (Read+Write), Information & Settings (Read).
+  3. Copy the **Access Token** and note the **API path** — looks like `https://api.bigcommerce.com/stores/{STORE_HASH}/v3/`.
+  4. Set:
+     - `BIGCOMMERCE_STORE_HASH` = the alphanumeric store hash from the URL (e.g. `abcd1234`)
+     - `BIGCOMMERCE_ACCESS_TOKEN` = the access token
+
+  **Authentication**: header `X-Auth-Token: ${BIGCOMMERCE_ACCESS_TOKEN}`. The base URL embeds the store hash.
+
+  **v2 vs v3**: this connector uses v3 (the modern REST). Some legacy endpoints only exist in v2 (`/stores/{hash}/v2/...`) — not exposed here.
+
+  **Catalog/Products**: complex hierarchy. Product has variants (SKUs), modifiers (configurable options), images, custom_fields, bulk_pricing_rules, metafields. Use `include` query param to side-load (e.g. `?include=variants,images,custom_fields`).
+
+  **Order statuses**: 0=Incomplete, 1=Pending, 2=Shipped, 3=Partially Shipped, 4=Refunded, 5=Cancelled, 6=Declined, 7=Awaiting Payment, 8=Awaiting Pickup, 9=Awaiting Shipment, 10=Completed, 11=Awaiting Fulfillment, 12=Manual Verification Required, 13=Disputed, 14=Partially Refunded.
+
+  **Pagination**: `?page=N&limit=M` (max 250). Response envelope: `{data:[], meta:{pagination:{total,count,per_page,current_page,total_pages,links}}}`.
+
+  **Rate limits**: depends on plan — Essentials ~30k req/hour, Pro 60k, Enterprise unlimited. Returns 429 with `X-Rate-Limit-Time-Reset-Ms`.
+
+  **Out of scope here**: subscriptions, B2B Edition features, Stencil themes, scripts/checkout SDK, webhooks.
+tools:
+  - name: bigcommerce_list_products
+    description: List products with filters. Each product has id, name, sku, type, price, cost_price, retail_price, weight, inventory_level, inventory_tracking, brand_id, categories[], date_created, date_modified.
+    input:
+      type: object
+      properties:
+        id_in:
+          type: string
+          description: Comma-separated product IDs.
+        name:
+          type: string
+          description: Substring filter on name.
+        sku:
+          type: string
+          description: Exact SKU match.
+        categories_in:
+          type: string
+          description: Comma-separated category IDs.
+        is_visible:
+          type: boolean
+          description: Filter to visible products.
+        is_featured:
+          type: boolean
+          description: Filter to featured.
+        include:
+          type: string
+          description: 'Side-load: variants,images,custom_fields,bulk_pricing_rules,modifiers,options,videos,primary_image,reviews.'
+        include_fields:
+          type: string
+          description: Comma-separated fields to return (sparse).
+        page:
+          type: integer
+          description: 1-based page.
+        limit:
+          type: integer
+          description: Per page (default 50, max 250).
+        sort:
+          type: string
+          description: id, name, sku, price, date_modified, date_created, inventory_level, is_visible, total_sold.
+        direction:
+          type: string
+          description: asc or desc.
+    operation:
+      method: GET
+      path: /v3/catalog/products
+      query:
+        id:in: '{{params.id_in}}'
+        name: '{{params.name}}'
+        sku: '{{params.sku}}'
+        categories:in: '{{params.categories_in}}'
+        is_visible: '{{params.is_visible}}'
+        is_featured: '{{params.is_featured}}'
+        include: '{{params.include}}'
+        include_fields: '{{params.include_fields}}'
+        page: '{{params.page}}'
+        limit: '{{params.limit}}'
+        sort: '{{params.sort}}'
+        direction: '{{params.direction}}'
+  - name: bigcommerce_get_product
+    description: Fetch a single product. Use include for variants/images/custom_fields.
+    input:
+      type: object
+      properties:
+        productId:
+          type: integer
+          description: Product ID.
+        include:
+          type: string
+          description: Side-load.
+      required:
+        - productId
+    operation:
+      method: GET
+      path: /v3/catalog/products/{{params.productId}}
+      query:
+        include: '{{params.include}}'
+  - name: bigcommerce_create_product
+    description: 'Create a product. Required: name + price + categories + weight + type (physical or digital).'
+    input:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Product name.
+        type:
+          type: string
+          description: physical or digital.
+        sku:
+          type: string
+          description: SKU.
+        description:
+          type: string
+          description: HTML description.
+        weight:
+          type: number
+          description: Weight (in store's unit).
+        price:
+          type: number
+          description: Price.
+        cost_price:
+          type: number
+          description: Cost basis.
+        retail_price:
+          type: number
+          description: Compare-at retail.
+        sale_price:
+          type: number
+          description: Sale price.
+        categories:
+          type: array
+          description: Array of category IDs.
+        brand_id:
+          type: integer
+          description: Brand ID.
+        inventory_level:
+          type: integer
+          description: Stock on hand.
+        inventory_tracking:
+          type: string
+          description: none, product, variant.
+        is_visible:
+          type: boolean
+          description: Visible on storefront.
+        is_featured:
+          type: boolean
+          description: Featured.
+        tax_class_id:
+          type: integer
+          description: Tax class.
+      required:
+        - name
+        - type
+        - weight
+        - price
+        - categories
+    operation:
+      method: POST
+      path: /v3/catalog/products
+      body:
+        value:
+          name: '{{params.name}}'
+          type: '{{params.type}}'
+          sku: '{{params.sku}}'
+          description: '{{params.description}}'
+          weight: '{{params.weight}}'
+          price: '{{params.price}}'
+          cost_price: '{{params.cost_price}}'
+          retail_price: '{{params.retail_price}}'
+          sale_price: '{{params.sale_price}}'
+          categories: '{{params.categories}}'
+          brand_id: '{{params.brand_id}}'
+          inventory_level: '{{params.inventory_level}}'
+          inventory_tracking: '{{params.inventory_tracking}}'
+          is_visible: '{{params.is_visible}}'
+          is_featured: '{{params.is_featured}}'
+          tax_class_id: '{{params.tax_class_id}}'
+  - name: bigcommerce_update_product
+    description: 'Update a product. Common: price, inventory_level, is_visible.'
+    input:
+      type: object
+      properties:
+        productId:
+          type: integer
+          description: Product ID.
+        name:
+          type: string
+          description: New name.
+        price:
+          type: number
+          description: New price.
+        sale_price:
+          type: number
+          description: Sale price.
+        inventory_level:
+          type: integer
+          description: New stock.
+        is_visible:
+          type: boolean
+          description: Visibility.
+        description:
+          type: string
+          description: New description.
+        categories:
+          type: array
+          description: Replace categories.
+      required:
+        - productId
+    operation:
+      method: PUT
+      path: /v3/catalog/products/{{params.productId}}
+      body:
+        value:
+          name: '{{params.name}}'
+          price: '{{params.price}}'
+          sale_price: '{{params.sale_price}}'
+          inventory_level: '{{params.inventory_level}}'
+          is_visible: '{{params.is_visible}}'
+          description: '{{params.description}}'
+          categories: '{{params.categories}}'
+  - name: bigcommerce_delete_product
+    description: Permanently delete a product.
+    input:
+      type: object
+      properties:
+        productId:
+          type: integer
+          description: Product ID.
+      required:
+        - productId
+    operation:
+      method: DELETE
+      path: /v3/catalog/products/{{params.productId}}
+  - name: bigcommerce_list_product_variants
+    description: List variants (SKUs) for a product.
+    input:
+      type: object
+      properties:
+        productId:
+          type: integer
+          description: Product ID.
+        page:
+          type: integer
+          description: Page.
+        limit:
+          type: integer
+          description: Per page.
+      required:
+        - productId
+    operation:
+      method: GET
+      path: /v3/catalog/products/{{params.productId}}/variants
+      query:
+        page: '{{params.page}}'
+        limit: '{{params.limit}}'
+  - name: bigcommerce_update_variant_inventory
+    description: Update a variant's inventory_level (stock quantity).
+    input:
+      type: object
+      properties:
+        productId:
+          type: integer
+          description: Parent product ID.
+        variantId:
+          type: integer
+          description: Variant ID.
+        inventory_level:
+          type: integer
+          description: New stock.
+      required:
+        - productId
+        - variantId
+        - inventory_level
+    operation:
+      method: PUT
+      path: /v3/catalog/products/{{params.productId}}/variants/{{params.variantId}}
+      body:
+        value:
+          inventory_level: '{{params.inventory_level}}'
+  - name: bigcommerce_list_categories
+    description: List categories with parent/tree structure.
+    input:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Substring filter.
+        parent_id:
+          type: integer
+          description: Filter by parent.
+        page:
+          type: integer
+          description: Page.
+        limit:
+          type: integer
+          description: Per page.
+    operation:
+      method: GET
+      path: /v3/catalog/categories
+      query:
+        name: '{{params.name}}'
+        parent_id: '{{params.parent_id}}'
+        page: '{{params.page}}'
+        limit: '{{params.limit}}'
+  - name: bigcommerce_list_orders
+    description: List orders (uses v2 endpoint — V3 doesn't fully cover orders yet).
+    input:
+      type: object
+      properties:
+        min_id:
+          type: integer
+          description: Min order ID.
+        max_id:
+          type: integer
+          description: Max order ID.
+        min_total:
+          type: number
+          description: Min total.
+        max_total:
+          type: number
+          description: Max total.
+        customer_id:
+          type: integer
+          description: Filter by customer.
+        email:
+          type: string
+          description: Filter by billing email.
+        status_id:
+          type: integer
+          description: Filter by status code (see instructions).
+        min_date_created:
+          type: string
+          description: RFC 2822 date string.
+        max_date_created:
+          type: string
+          description: RFC 2822 date string.
+        page:
+          type: integer
+          description: Page.
+        limit:
+          type: integer
+          description: Per page (max 250).
+        sort:
+          type: string
+          description: id:asc, id:desc, total:asc, etc.
+    operation:
+      method: GET
+      path: /v2/orders
+      query:
+        min_id: '{{params.min_id}}'
+        max_id: '{{params.max_id}}'
+        min_total: '{{params.min_total}}'
+        max_total: '{{params.max_total}}'
+        customer_id: '{{params.customer_id}}'
+        email: '{{params.email}}'
+        status_id: '{{params.status_id}}'
+        min_date_created: '{{params.min_date_created}}'
+        max_date_created: '{{params.max_date_created}}'
+        page: '{{params.page}}'
+        limit: '{{params.limit}}'
+        sort: '{{params.sort}}'
+  - name: bigcommerce_get_order
+    description: Fetch one order (v2). Returns customer, billing/shipping addresses, products via separate /products endpoint.
+    input:
+      type: object
+      properties:
+        orderId:
+          type: integer
+          description: Order ID.
+      required:
+        - orderId
+    operation:
+      method: GET
+      path: /v2/orders/{{params.orderId}}
+  - name: bigcommerce_get_order_products
+    description: List line items on an order.
+    input:
+      type: object
+      properties:
+        orderId:
+          type: integer
+          description: Order ID.
+      required:
+        - orderId
+    operation:
+      method: GET
+      path: /v2/orders/{{params.orderId}}/products
+  - name: bigcommerce_update_order_status
+    description: Update an order's status (use status code from instructions).
+    input:
+      type: object
+      properties:
+        orderId:
+          type: integer
+          description: Order ID.
+        status_id:
+          type: integer
+          description: New status code.
+      required:
+        - orderId
+        - status_id
+    operation:
+      method: PUT
+      path: /v2/orders/{{params.orderId}}
+      body:
+        value:
+          status_id: '{{params.status_id}}'
+  - name: bigcommerce_list_customers
+    description: List customers (V3).
+    input:
+      type: object
+      properties:
+        email_in:
+          type: string
+          description: Comma-separated emails.
+        name:
+          type: string
+          description: Substring on name.
+        company:
+          type: string
+          description: Company filter.
+        customer_group_id:
+          type: integer
+          description: Filter by group.
+        page:
+          type: integer
+          description: Page.
+        limit:
+          type: integer
+          description: Per page.
+        include:
+          type: string
+          description: addresses, attributes, formfields, storecredit, _consents.
+    operation:
+      method: GET
+      path: /v3/customers
+      query:
+        email:in: '{{params.email_in}}'
+        name: '{{params.name}}'
+        company: '{{params.company}}'
+        customer_group_id: '{{params.customer_group_id}}'
+        page: '{{params.page}}'
+        limit: '{{params.limit}}'
+        include: '{{params.include}}'
+  - name: bigcommerce_create_customer
+    description: Create a customer.
+    input:
+      type: object
+      properties:
+        customers:
+          type: array
+          description: '[{first_name, last_name, email, company?, phone?, notes?, tax_exempt_category?, customer_group_id?, addresses?:[{...}], authentication?:{new_password?,force_password_reset?}}]. Wrap inside array.'
+      required:
+        - customers
+    operation:
+      method: POST
+      path: /v3/customers
+      headers:
+        Content-Type: application/json
+      body:
+        encoding: raw
+        value: '{{params.customers}}'

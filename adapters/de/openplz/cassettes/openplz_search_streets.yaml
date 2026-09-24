@@ -1,0 +1,17 @@
+# Recorded by `supermcp adapter record`; replayed by `supermcp adapter test`.
+# Credential values are replaced with SUPERMCP_CREDENTIAL_<NAME>.
+adapter: openplz
+tool: openplz_search_streets
+recordedAt: 2026-09-22T22:18:21Z
+interactions:
+  - params:
+      name: Unter den Linden
+    request:
+      method: GET
+      url: https://openplzapi.org/de/Streets
+      query: name=Unter+den+Linden
+    response:
+      status: 200
+      headers:
+        content-type: application/json; charset=utf-8
+      body: '[{"name":"Kiespromenade unter den Linden","postalCode":"61231","locality":"Bad Nauheim","borough":"Bad Nauheim","municipality":{"key":"06440002","name":"Bad Nauheim, Stadt","type":"Stadt"},"district":{"key":"06440","name":"Wetteraukreis","type":"Landkreis"},"federalState":{"key":"06","name":"Hessen"}},{"name":"Unter den Linden","postalCode":"01561","locality":"Großenhain","municipality":{"key":"14627060","name":"Großenhain, Stadt","type":"Stadt"},"district":{"key":"14627","name":"Meißen","type":"Landkreis"},"federalState":{"key":"14","name":"Sachsen"}},{"name":"Unter den Linden","postalCode":"01561","locality":"Thiendorf","borough":"Tauscha","municipality":{"key":"14627290","name":"Thiendorf","type":"Kreisangehörige Gemeinde"},"district":{"key":"14627","name":"Meißen","type":"Landkreis"},"federalState":{"key":"14","name":"Sachsen"}},{"name":"Unter den Linden","postalCode":"02627","locality":"Radibor","municipality":{"key":"14625490","name":"Radibor / Radwor","type":"Kreisangehörige Gemeinde"},"district":{"key":"14625","name":"Bautzen","type":"Landkreis"},"federalState":{"key":"14","name":"Sachsen"}},{"name":"Unter den Linden","postalCode":"03130","locality":"Spremberg","borough":"Groß Luja","municipality":{"key":"12071372","name":"Spremberg/Grodk, Stadt","type":"Stadt"},"district":{"key":"12071","name":"Spree-Neiße","type":"Landkreis"},"federalState":{"key":"12","name":"Brandenburg"}},{"name":"Unter den Linden","postalCode":"04741","locality":"Roßwein","municipality":{"key":"14522510","name":"Roßwein, Stadt","type":"Stadt"},"district":{"key":"14522","name":"Mittelsachsen","type":"Landkreis"},"federalState":{"key":"14","name":"Sachsen"}},{"name":"Unter den Linden","postalCode":"04880","locality":"Trossin","municipality":{"key":"14730320","name":"Trossin","type":"Kreisangehörige Gemeinde"},"district":{"key":"14730","name":"Nordsachsen","type":"Landkreis"},"federalState":{"key":"14","name":"Sachsen"}},{"name":"Unter den Linden","postalCode":"04889","locality":"Belgern","borough":"Schildau","municipality":{"key":"14730045","name":"Belgern-Schildau, Stadt","type":"Stadt"},"district":{"key":"14730","name":"Nordsachsen","type":"Landkreis"},"federalState":{"key":"14","name":"Sachsen"}},{"name":"Unter den Linden","postalCode":"06249","locality":"Mücheln (Geiseltal)","municipality":{"key":"15088235","name":"Mücheln (Geiseltal), Stadt","type":"Stadt"},"district":{"key":"15088","name":"Saalekreis","type":"Landkreis"},"federalState":{"key":"15","name":"Sachsen-Anhalt"}},{"name":"Unter den Linden","postalCode":"06386","locality":"Osternienburger Land","municipality":{"key":"15082256","name":"Osternienburger Land","type":"Kreisangehörige Gemeinde"},"district":{"key":"15082","name":"Anhalt-Bitterfeld","type":"Landkreis"},"federalState":{"key":"15","name":"Sachsen-Anhalt"}}]'

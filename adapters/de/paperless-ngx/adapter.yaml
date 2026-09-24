@@ -1,0 +1,213 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: paperless-ngx
+  name: Paperless-ngx
+  description: 'Paperless-ngx document management: full-text search over scanned documents, correspondents, document types, tags, storage paths and the OCR''d content of any document. REST API on your own instance, token auth.'
+  region: de
+  category: documents
+  icon: paperless-ngx
+  docsUrl: https://docs.paperless-ngx.com/api/
+credentials:
+  PAPERLESS_URL:
+    required: true
+  PAPERLESS_API_TOKEN:
+    required: true
+    secret: true
+transport:
+  type: http
+  baseUrl: '{{env.PAPERLESS_URL}}/api'
+  headers:
+    Accept: application/json; version=5
+auth:
+  type: apiKey
+  in: header
+  name: Authorization
+  value: Token {{env.PAPERLESS_API_TOKEN}}
+healthcheck:
+  tool: paperless_ngx_list_tags
+  http:
+    method: GET
+    path: /documents/?page_size=1
+instructions: |-
+  **Getting a token**
+  1. Sign in to Paperless-ngx, open the user menu → **My Profile**, and copy the **API Auth Token** (create one if the field is empty).
+  2. Put it in `PAPERLESS_API_TOKEN` and your instance's base URL in `PAPERLESS_URL` — no trailing slash and no `/api`, e.g. `https://paperless.example.com`.
+
+  **The Authorization header is `Token …`**, Django REST Framework's scheme — not `Bearer`. The adapter sends it correctly.
+
+  **Search is the point of this connector.** `paperless_ngx_search_documents` passes a query to Paperless's full-text index, which searches the OCR'd content, not just the title. The index supports field terms (`correspondent:acme`, `type:invoice`, `created:[2026-01-01 TO 2026-06-30]`), quoted phrases and wildcards. `paperless_ngx_list_documents` is the structured alternative when you already know the correspondent or tag ids.
+
+  **Documents reference everything by id.** A document row carries `correspondent`, `document_type` and `tags` as numeric ids; resolve them with the three list tools, or ask for `full_perms`-style expansion in the UI. Reading content for a document is a separate call because the OCR text can be very large.
+
+  **Permissions**: Paperless-ngx 2.x supports per-document owners and per-object permissions. A token for a restricted user sees a smaller library and reports it as an empty page, not as an error.
+
+  **Self-hosted, which is the thing to plan for.**
+  - On a **hosted supermcp instance** the instance must be reachable from the public internet on a real hostname with a valid TLS certificate. A self-signed certificate will fail: the connector offers no trust-anything switch.
+  - On an internal host (`paperless.intern`, `10.0.0.x`), self-host supermcp on the same network and add that host to `SSRF_ALLOWED_HOSTS`, or the outbound guard refuses the call before it is made.
+
+  **Read-only by design**: this adapter exposes no upload or delete. Documents are the audit trail; a wrong write there is not a thing an agent should be able to do by accident.
+tools:
+  - name: paperless_ngx_search_documents
+    description: Full-text search across the OCR'd content of every document. Supports field terms (correspondent:acme, type:invoice), quoted phrases, wildcards and date ranges.
+    input:
+      type: object
+      properties:
+        query:
+          type: string
+          description: Full-text query, e.g. `Mahnung correspondent:Telekom` or `"Rechnung 2026"`.
+        page:
+          type: number
+          description: Page number, starting at 1.
+        page_size:
+          type: number
+          description: Rows per page (default 25).
+      required:
+        - query
+    operation:
+      method: GET
+      path: /documents/
+      query:
+        query: '{{params.query}}'
+        page: '{{params.page}}'
+        page_size: '{{params.page_size}}'
+  - name: paperless_ngx_list_documents
+    description: List documents filtered by correspondent, document type, tag or creation date — the structured alternative to full-text search when you already have the ids.
+    input:
+      type: object
+      properties:
+        correspondent__id:
+          type: number
+          description: Restrict to one correspondent id.
+        document_type__id:
+          type: number
+          description: Restrict to one document type id.
+        tags__id__all:
+          type: string
+          description: Comma-separated tag ids that must ALL be present.
+        created__date__gte:
+          type: string
+          description: Earliest creation date, YYYY-MM-DD.
+        created__date__lte:
+          type: string
+          description: Latest creation date, YYYY-MM-DD.
+        ordering:
+          type: string
+          description: Sort field, e.g. `-created` for newest first.
+        page:
+          type: number
+          description: Page number, starting at 1.
+        page_size:
+          type: number
+          description: Rows per page (default 25).
+    operation:
+      method: GET
+      path: /documents/
+      query:
+        correspondent__id: '{{params.correspondent__id}}'
+        document_type__id: '{{params.document_type__id}}'
+        tags__id__all: '{{params.tags__id__all}}'
+        created__date__gte: '{{params.created__date__gte}}'
+        created__date__lte: '{{params.created__date__lte}}'
+        ordering: '{{params.ordering}}'
+        page: '{{params.page}}'
+        page_size: '{{params.page_size}}'
+  - name: paperless_ngx_get_document
+    description: 'Read one document''s metadata: title, correspondent, type, tags, created and added dates, archive serial number and the full OCR''d content.'
+    input:
+      type: object
+      properties:
+        id:
+          type: number
+          description: Numeric document id.
+      required:
+        - id
+    operation:
+      method: GET
+      path: /documents/{{params.id}}/
+  - name: paperless_ngx_get_document_metadata
+    description: 'Read the technical metadata of one document: original filename, media type, checksum, page count and any embedded PDF metadata.'
+    input:
+      type: object
+      properties:
+        id:
+          type: number
+          description: Numeric document id.
+      required:
+        - id
+    operation:
+      method: GET
+      path: /documents/{{params.id}}/metadata/
+  - name: paperless_ngx_list_correspondents
+    description: List correspondents — the senders documents are filed under — with their document count and matching rules.
+    input:
+      type: object
+      properties:
+        name__icontains:
+          type: string
+          description: Case-insensitive name fragment to filter by.
+        page:
+          type: number
+          description: Page number, starting at 1.
+        page_size:
+          type: number
+          description: Rows per page.
+    operation:
+      method: GET
+      path: /correspondents/
+      query:
+        name__icontains: '{{params.name__icontains}}'
+        page: '{{params.page}}'
+        page_size: '{{params.page_size}}'
+  - name: paperless_ngx_list_document_types
+    description: List the document types configured in the instance (invoice, contract, payslip …) with their document counts.
+    input:
+      type: object
+      properties:
+        name__icontains:
+          type: string
+          description: Case-insensitive name fragment to filter by.
+        page:
+          type: number
+          description: Page number, starting at 1.
+    operation:
+      method: GET
+      path: /document_types/
+      query:
+        name__icontains: '{{params.name__icontains}}'
+        page: '{{params.page}}'
+  - name: paperless_ngx_list_tags
+    description: List tags with their colour, inbox flag and document count. No parameters needed — the quickest check that URL and token are right.
+    input:
+      type: object
+      properties:
+        page:
+          type: number
+          description: Page number, starting at 1.
+    operation:
+      method: GET
+      path: /tags/
+      query:
+        page: '{{params.page}}'
+  - name: paperless_ngx_list_storage_paths
+    description: List the storage paths documents are filed into, with their path template and document count.
+    input:
+      type: object
+      properties:
+        page:
+          type: number
+          description: Page number, starting at 1.
+    operation:
+      method: GET
+      path: /storage_paths/
+      query:
+        page: '{{params.page}}'
+  - name: paperless_ngx_get_statistics
+    description: 'Read instance-wide statistics: total documents, documents in the inbox, character count and the breakdown by file type.'
+    input:
+      type: object
+      properties: {}
+    operation:
+      method: GET
+      path: /statistics/

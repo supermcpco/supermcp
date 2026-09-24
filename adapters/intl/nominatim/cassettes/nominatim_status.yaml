@@ -1,0 +1,17 @@
+# Recorded by `supermcp adapter record`; replayed by `supermcp adapter test`.
+# Credential values are replaced with SUPERMCP_CREDENTIAL_<NAME>.
+adapter: nominatim
+tool: nominatim_status
+recordedAt: 2026-09-22T22:18:06Z
+interactions:
+  - request:
+      method: GET
+      url: https://nominatim.openstreetmap.org/status
+      query: format=json
+      headers:
+        user-agent: supermcp (https://supermcp.dev)
+    response:
+      status: 200
+      headers:
+        content-type: application/json; charset=utf-8
+      body: '{"status":0,"message":"OK","data_updated":"2026-09-22T21:46:32+00:00","software_version":"5.3.0","database_version":"5.3.99-3"}'

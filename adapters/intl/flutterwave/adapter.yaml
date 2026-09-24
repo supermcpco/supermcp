@@ -1,0 +1,299 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: flutterwave
+  name: Flutterwave
+  description: 'Manage Flutterwave (Africa payments: payments, customers, subscriptions, transfers, refunds, payouts) from any AI agent. 10 tools, Bearer secret.'
+  region: intl
+  category: payments
+  icon: flutterwave
+  docsUrl: https://developer.flutterwave.com/reference/
+  lint:
+    allow:
+      - description-min-60
+      - healthcheck-present
+credentials:
+  FLUTTERWAVE_SECRET_KEY:
+    required: true
+    secret: true
+transport:
+  type: http
+  baseUrl: https://api.flutterwave.com/v3
+auth:
+  type: bearer
+  token: '{{env.FLUTTERWAVE_SECRET_KEY}}'
+instructions: |-
+  This connector wraps the Flutterwave API v3 (api.flutterwave.com/v3).
+
+  **Setup**:
+  1. Sign in at https://app.flutterwave.com → **Settings → API**.
+  2. Note your **Secret Key** (`FLWSECK_TEST-...` for test, `FLWSECK-...` for live) AND public key (used client-side).
+  3. Set `FLUTTERWAVE_SECRET_KEY`.
+
+  **Authentication**: `Authorization: Bearer ${FLUTTERWAVE_SECRET_KEY}`.
+
+  **Test vs Live**: secret key prefix determines mode. Test transactions never touch real cards.
+
+  **Amounts**: Flutterwave uses major-unit decimal floats (₦1.50 = `1.50`), unlike Paystack — pay attention.
+
+  **Charge flow**: server creates a payment → returns a hosted checkout `link`. Customer pays → Flutterwave redirects back with `transaction_id`. Verify via `flutterwave_verify_transaction`.
+
+  **Pagination**: `page` (1-based) + `per_page` (max 200).
+
+  **Rate limits**: 100 req/sec per key. 429 → exponential.
+
+  **Out of scope here**: virtual cards, BVN verification, settlements, dispute management.
+tools:
+  - name: flutterwave_create_payment
+    description: Create a payment — returns a hosted checkout URL (`data.link`) to redirect the customer to.
+    input:
+      type: object
+      properties:
+        tx_ref:
+          type: string
+          description: Your unique transaction reference.
+        amount:
+          type: number
+          description: Amount in major units (e.g. 1.50).
+        currency:
+          type: string
+          description: NGN, USD, GHS, ZAR, KES, UGX, RWF, TZS, ...
+        redirect_url:
+          type: string
+          description: Where to send the customer after payment.
+        customer:
+          type: object
+          description: '{email, name, phonenumber}.'
+        customizations:
+          type: object
+          description: '{title, description, logo} for the hosted page.'
+        payment_options:
+          type: string
+          description: 'Comma-separated methods: card, banktransfer, mobilemoneyghana, mpesa, ussd, ...'
+        meta:
+          type: object
+          description: Custom metadata.
+      required:
+        - tx_ref
+        - amount
+        - currency
+        - redirect_url
+        - customer
+    operation:
+      method: POST
+      path: /payments
+      body:
+        value:
+          tx_ref: '{{params.tx_ref}}'
+          amount: '{{params.amount}}'
+          currency: '{{params.currency}}'
+          redirect_url: '{{params.redirect_url}}'
+          customer: '{{params.customer}}'
+          customizations: '{{params.customizations}}'
+          payment_options: '{{params.payment_options}}'
+          meta: '{{params.meta}}'
+  - name: flutterwave_verify_transaction
+    description: Verify a transaction by Flutterwave's `transaction_id` (NOT your tx_ref). Always run this after the customer returns from the hosted page.
+    input:
+      type: object
+      properties:
+        transaction_id:
+          type: integer
+          description: Numeric transaction_id returned by Flutterwave.
+      required:
+        - transaction_id
+    operation:
+      method: GET
+      path: /transactions/{{params.transaction_id}}/verify
+  - name: flutterwave_verify_by_reference
+    description: Verify a transaction by your `tx_ref`. Use this when you don't have the Flutterwave transaction_id.
+    input:
+      type: object
+      properties:
+        tx_ref:
+          type: string
+          description: Your transaction reference.
+      required:
+        - tx_ref
+    operation:
+      method: GET
+      path: /transactions/verify_by_reference
+      query:
+        tx_ref: '{{params.tx_ref}}'
+  - name: flutterwave_list_transactions
+    description: List transactions.
+    input:
+      type: object
+      properties:
+        from:
+          type: string
+          description: YYYY-MM-DD.
+        to:
+          type: string
+          description: YYYY-MM-DD.
+        status:
+          type: string
+          description: successful, failed, pending.
+        customer_email:
+          type: string
+          description: Filter by email.
+        page:
+          type: integer
+          description: 1-based.
+    operation:
+      method: GET
+      path: /transactions
+      query:
+        from: '{{params.from}}'
+        to: '{{params.to}}'
+        status: '{{params.status}}'
+        customer_email: '{{params.customer_email}}'
+        page: '{{params.page}}'
+  - name: flutterwave_create_subscription_plan
+    description: Create a recurring payment plan.
+    input:
+      type: object
+      properties:
+        amount:
+          type: number
+          description: Amount in major units.
+        name:
+          type: string
+          description: Plan name.
+        interval:
+          type: string
+          description: hourly, daily, weekly, monthly, quarterly, bi-annually, annually.
+        duration:
+          type: integer
+          description: Number of times to charge. Omit for indefinite.
+        currency:
+          type: string
+          description: ISO 4217.
+      required:
+        - amount
+        - name
+        - interval
+    operation:
+      method: POST
+      path: /payment-plans
+      body:
+        value:
+          amount: '{{params.amount}}'
+          name: '{{params.name}}'
+          interval: '{{params.interval}}'
+          duration: '{{params.duration}}'
+          currency: '{{params.currency}}'
+  - name: flutterwave_list_subscriptions
+    description: List subscriptions.
+    input:
+      type: object
+      properties:
+        email:
+          type: string
+          description: Filter by subscriber email.
+        from:
+          type: string
+          description: YYYY-MM-DD.
+        to:
+          type: string
+          description: YYYY-MM-DD.
+        page:
+          type: integer
+          description: 1-based.
+    operation:
+      method: GET
+      path: /subscriptions
+      query:
+        email: '{{params.email}}'
+        from: '{{params.from}}'
+        to: '{{params.to}}'
+        page: '{{params.page}}'
+  - name: flutterwave_cancel_subscription
+    description: Cancel a subscription.
+    input:
+      type: object
+      properties:
+        subscription_id:
+          type: integer
+          description: Subscription ID.
+      required:
+        - subscription_id
+    operation:
+      method: PUT
+      path: /subscriptions/{{params.subscription_id}}/cancel
+  - name: flutterwave_initiate_transfer
+    description: Initiate a transfer (payout to a bank account).
+    input:
+      type: object
+      properties:
+        account_bank:
+          type: string
+          description: Bank code (from /banks endpoint).
+        account_number:
+          type: string
+          description: Account number.
+        amount:
+          type: number
+          description: Amount in major units.
+        currency:
+          type: string
+          description: ISO 4217.
+        narration:
+          type: string
+          description: Description shown on statement.
+        reference:
+          type: string
+          description: Your unique reference.
+        beneficiary_name:
+          type: string
+          description: Beneficiary's full name.
+      required:
+        - account_bank
+        - account_number
+        - amount
+        - currency
+    operation:
+      method: POST
+      path: /transfers
+      body:
+        value:
+          account_bank: '{{params.account_bank}}'
+          account_number: '{{params.account_number}}'
+          amount: '{{params.amount}}'
+          currency: '{{params.currency}}'
+          narration: '{{params.narration}}'
+          reference: '{{params.reference}}'
+          beneficiary_name: '{{params.beneficiary_name}}'
+  - name: flutterwave_refund_transaction
+    description: Refund a transaction.
+    input:
+      type: object
+      properties:
+        transaction_id:
+          type: integer
+          description: Transaction ID to refund.
+        amount:
+          type: number
+          description: Amount in major units (omit for full refund).
+      required:
+        - transaction_id
+    operation:
+      method: POST
+      path: /transactions/{{params.transaction_id}}/refund
+      body:
+        value:
+          amount: '{{params.amount}}'
+  - name: flutterwave_list_banks
+    description: List supported banks for a country. Use to find bank codes for transfers.
+    input:
+      type: object
+      properties:
+        country:
+          type: string
+          description: 'ISO 3166-1 alpha-2: NG, GH, KE, UG, ZA, ...'
+      required:
+        - country
+    operation:
+      method: GET
+      path: /banks/{{params.country}}

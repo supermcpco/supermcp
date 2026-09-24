@@ -1,0 +1,320 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: pandadoc
+  name: PandaDoc
+  description: 'Drive PandaDoc (proposals + e-signature) from any AI agent: documents, templates, contacts, recipients, sending for signature, status tracking. 10 tools, API-key auth.'
+  region: intl
+  category: e-signature
+  icon: pandadoc
+  docsUrl: https://developers.pandadoc.com/reference/about
+  lint:
+    allow:
+      - description-min-60
+      - healthcheck-present
+credentials:
+  PANDADOC_API_KEY:
+    required: true
+    secret: true
+transport:
+  type: http
+  baseUrl: https://api.pandadoc.com/public/v1
+auth:
+  type: apiKey
+  in: header
+  name: Authorization
+  value: API-Key {{env.PANDADOC_API_KEY}}
+instructions: |-
+  This connector uses the PandaDoc API v1 (developers.pandadoc.com).
+
+  **Setup**:
+  1. Sign in to https://app.pandadoc.com → top-right avatar → **API → API Key**.
+  2. Use the **Production API Key** (or **Sandbox** for testing). The key format is `<long-string>`.
+  3. Set `PANDADOC_API_KEY`.
+
+  **Authentication**: `Authorization: API-Key ${PANDADOC_API_KEY}` — literal `API-Key ` prefix, NOT `Bearer`. Adapter handles via API_KEY profile.
+
+  **Document workflow**:
+    1. Create document from template (`pandadoc_create_document`) — fills template variables with `tokens` and pricing tables, sets recipients.
+    2. Wait for document.status = 'document.draft' (initial state).
+    3. Send for signature (`pandadoc_send_document`).
+    4. Recipients receive emails; poll `pandadoc_get_document_status` to track signing.
+    5. When all signed, status = 'document.completed' and you can download via `pandadoc_download_document`.
+
+  **Templates**: build the visual template in PandaDoc UI; access via `pandadoc_list_templates` to get template_id. Templates have `tokens` (placeholders), `fields` (form inputs filled by recipients), `pricing_tables`, and roles (named recipient slots like 'Client', 'Vendor').
+
+  **Status values**: document.draft, document.sent, document.viewed, document.waiting_approval, document.approved, document.rejected, document.completed, document.expired, document.declined, document.voided.
+
+  **Pagination**: `?page=N&count=M` (max 100). Headers include X-Total-Count.
+
+  **Rate limits**: 100 req/min per API key. On 429 back off.
+
+  **Out of scope here**: webhooks management, OAuth (for multi-tenant apps), in-app branding, payment forms config.
+tools:
+  - name: pandadoc_list_documents
+    description: List documents in the workspace, with filters.
+    input:
+      type: object
+      properties:
+        page:
+          type: integer
+          description: Page (1-based).
+        count:
+          type: integer
+          description: Per page (max 100).
+        q:
+          type: string
+          description: Substring search on document name.
+        status:
+          type: integer
+          description: 'Filter by numeric status: 0=draft, 1=sent, 2=completed, 3=viewed, 4=waiting_approval, 5=approved, 6=rejected, 7=expired, 8=declined, 9=voided, 11=waiting_pay, 12=paid, 13=external_review.'
+        tag:
+          type: string
+          description: Filter by tag.
+        folder_uuid:
+          type: string
+          description: Filter by folder.
+        template_id:
+          type: string
+          description: Only docs created from this template.
+        completed_from:
+          type: string
+          description: ISO 8601 date.
+        completed_to:
+          type: string
+          description: ISO 8601.
+        created_from:
+          type: string
+          description: ISO 8601.
+        created_to:
+          type: string
+          description: ISO 8601.
+        modified_from:
+          type: string
+          description: ISO 8601.
+        modified_to:
+          type: string
+          description: ISO 8601.
+        order_by:
+          type: string
+          description: name, date_created, date_modified. Prefix with - for desc.
+    operation:
+      method: GET
+      path: /documents
+      query:
+        page: '{{params.page}}'
+        count: '{{params.count}}'
+        q: '{{params.q}}'
+        status: '{{params.status}}'
+        tag: '{{params.tag}}'
+        folder_uuid: '{{params.folder_uuid}}'
+        template_id: '{{params.template_id}}'
+        completed_from: '{{params.completed_from}}'
+        completed_to: '{{params.completed_to}}'
+        created_from: '{{params.created_from}}'
+        created_to: '{{params.created_to}}'
+        modified_from: '{{params.modified_from}}'
+        modified_to: '{{params.modified_to}}'
+        order_by: '{{params.order_by}}'
+  - name: pandadoc_create_document
+    description: 'Create a document from a template. Required: name + template_uuid + recipients (with email + first_name + last_name + role). Tokens fill template placeholders. Pricing tables for line-item docs.'
+    input:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Document name.
+        template_uuid:
+          type: string
+          description: Template UUID to instantiate.
+        recipients:
+          type: array
+          description: '[{email, first_name, last_name, role:''Client''|''Vendor''|..., signing_order?:N}]. role matches a template role.'
+        tokens:
+          type: array
+          description: '[{name:''Client.Company'', value:''ACME''}] — replaces {{Client.Company}} in template content.'
+        fields:
+          type: object
+          description: '{field_name:{value, role?}} — fills form fields in template.'
+        pricing_tables:
+          type: array
+          description: Pricing tables data (template-defined).
+        metadata:
+          type: object
+          description: Free-form metadata (string K/V).
+        tags:
+          type: array
+          description: Tag strings.
+        folder_uuid:
+          type: string
+          description: Put in folder.
+      required:
+        - name
+        - template_uuid
+        - recipients
+    operation:
+      method: POST
+      path: /documents
+      body:
+        value:
+          name: '{{params.name}}'
+          template_uuid: '{{params.template_uuid}}'
+          recipients: '{{params.recipients}}'
+          tokens: '{{params.tokens}}'
+          fields: '{{params.fields}}'
+          pricing_tables: '{{params.pricing_tables}}'
+          metadata: '{{params.metadata}}'
+          tags: '{{params.tags}}'
+          folder_uuid: '{{params.folder_uuid}}'
+  - name: pandadoc_get_document_status
+    description: Quick status check for a document. Returns id, status, expiration_date.
+    input:
+      type: object
+      properties:
+        documentId:
+          type: string
+          description: Document UUID.
+      required:
+        - documentId
+    operation:
+      method: GET
+      path: /documents/{{params.documentId}}
+  - name: pandadoc_get_document_details
+    description: Fetch document full details — recipients with signing status, tokens, fields, pricing data, attachments.
+    input:
+      type: object
+      properties:
+        documentId:
+          type: string
+          description: Document UUID.
+      required:
+        - documentId
+    operation:
+      method: GET
+      path: /documents/{{params.documentId}}/details
+  - name: pandadoc_send_document
+    description: 'Send the document for signing/review. Required: documentId. Optional: subject + message (the email content recipients receive).'
+    input:
+      type: object
+      properties:
+        documentId:
+          type: string
+          description: Document UUID.
+        subject:
+          type: string
+          description: Email subject.
+        message:
+          type: string
+          description: Email body.
+        silent:
+          type: boolean
+          description: If true, skip recipient notification emails (you handle communication yourself).
+      required:
+        - documentId
+    operation:
+      method: POST
+      path: /documents/{{params.documentId}}/send
+      body:
+        value:
+          subject: '{{params.subject}}'
+          message: '{{params.message}}'
+          silent: '{{params.silent}}'
+  - name: pandadoc_download_document
+    description: Download the finalized PDF of a document. Returns binary PDF (the engine returns it as the response body — handle it as a file).
+    input:
+      type: object
+      properties:
+        documentId:
+          type: string
+          description: Document UUID.
+        watermark_text:
+          type: string
+          description: Optional watermark.
+        watermark_color:
+          type: string
+          description: Hex color for watermark.
+        watermark_font_size:
+          type: integer
+          description: Watermark font size.
+        watermark_opacity:
+          type: number
+          description: 0.0-1.0.
+      required:
+        - documentId
+    operation:
+      method: GET
+      path: /documents/{{params.documentId}}/download
+      query:
+        watermark_text: '{{params.watermark_text}}'
+        watermark_color: '{{params.watermark_color}}'
+        watermark_font_size: '{{params.watermark_font_size}}'
+        watermark_opacity: '{{params.watermark_opacity}}'
+  - name: pandadoc_delete_document
+    description: Delete (move to trash) a document.
+    input:
+      type: object
+      properties:
+        documentId:
+          type: string
+          description: Document UUID.
+      required:
+        - documentId
+    operation:
+      method: DELETE
+      path: /documents/{{params.documentId}}
+  - name: pandadoc_list_templates
+    description: List templates available in the workspace. Required to know which template_uuid to pass to create_document.
+    input:
+      type: object
+      properties:
+        page:
+          type: integer
+          description: Page.
+        count:
+          type: integer
+          description: Per page.
+        q:
+          type: string
+          description: Name substring.
+        tag:
+          type: string
+          description: Tag filter.
+        folder_uuid:
+          type: string
+          description: Folder filter.
+    operation:
+      method: GET
+      path: /templates
+      query:
+        page: '{{params.page}}'
+        count: '{{params.count}}'
+        q: '{{params.q}}'
+        tag: '{{params.tag}}'
+        folder_uuid: '{{params.folder_uuid}}'
+  - name: pandadoc_get_template_details
+    description: 'Fetch a template''s full structure: roles[], tokens[], fields[], pricing_tables, content. Required to know what tokens/fields to fill when creating a document.'
+    input:
+      type: object
+      properties:
+        templateId:
+          type: string
+          description: Template UUID.
+      required:
+        - templateId
+    operation:
+      method: GET
+      path: /templates/{{params.templateId}}/details
+  - name: pandadoc_list_contacts
+    description: List contacts in the workspace (saved recipients).
+    input:
+      type: object
+      properties:
+        email:
+          type: string
+          description: Filter by exact email.
+    operation:
+      method: GET
+      path: /contacts
+      query:
+        email: '{{params.email}}'

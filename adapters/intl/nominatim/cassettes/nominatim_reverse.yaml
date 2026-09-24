@@ -1,0 +1,20 @@
+# Recorded by `supermcp adapter record`; replayed by `supermcp adapter test`.
+# Credential values are replaced with SUPERMCP_CREDENTIAL_<NAME>.
+adapter: nominatim
+tool: nominatim_reverse
+recordedAt: 2026-09-22T22:18:48Z
+interactions:
+  - params:
+      lat: 52.5163
+      lon: 13.3777
+    request:
+      method: GET
+      url: https://nominatim.openstreetmap.org/reverse
+      query: lat=52.5163&lon=13.3777&format=jsonv2
+      headers:
+        user-agent: supermcp (https://supermcp.dev)
+    response:
+      status: 200
+      headers:
+        content-type: application/json; charset=utf-8
+      body: '{"place_id":145060956,"licence":"Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright","osm_type":"node","osm_id":3786417057,"lat":"52.5162700","lon":"13.3777021","category":"tourism","type":"artwork","place_rank":30,"importance":8.875486381318407e-05,"addresstype":"tourism","name":"Quadriga mit Victoria","display_name":"Quadriga mit Victoria, 1, Pariser Platz, Friedrich-Wilhelm-Stadt, Mitte, Berlin, 10117, Deutschland","address":{"tourism":"Quadriga mit Victoria","house_number":"1","road":"Pariser Platz","quarter":"Friedrich-Wilhelm-Stadt","suburb":"Mitte","borough":"Mitte","city":"Berlin","ISO3166-2-lvl4":"DE-BE","postcode":"10117","country":"Deutschland","country_code":"de"},"boundingbox":["52.5162200","52.5163200","13.3776521","13.3777521"]}'

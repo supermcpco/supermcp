@@ -1,0 +1,242 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: fatture-in-cloud
+  name: Fatture in Cloud
+  description: 'Fatture in Cloud — the invoicing app of 580,000 Italian partite IVA: issued and received documents, clients, suppliers, products, receipts and the VAT-relevant e-invoice status. REST API v2, OAuth 2.0.'
+  region: it
+  category: accounting
+  icon: fatture-in-cloud
+  docsUrl: https://developers.fattureincloud.it/api-reference/
+credentials:
+  FIC_CLIENT_ID:
+    required: true
+  FIC_CLIENT_SECRET:
+    required: true
+    secret: true
+  FIC_REFRESH_TOKEN:
+    required: true
+    secret: true
+  FIC_COMPANY_ID:
+    required: true
+transport:
+  type: http
+  baseUrl: https://api-v2.fattureincloud.it
+  headers:
+    Accept: application/json
+auth:
+  type: oauth2
+  grant: refresh_token
+  clientId: '{{env.FIC_CLIENT_ID}}'
+  clientSecret: '{{env.FIC_CLIENT_SECRET}}'
+  tokenUrl: https://api-v2.fattureincloud.it/oauth/token
+  refreshToken: '{{env.FIC_REFRESH_TOKEN}}'
+healthcheck:
+  tool: fatture_in_cloud_list_companies
+  http:
+    method: GET
+    path: /user/companies
+instructions: |-
+  **Getting a token**
+  1. Register an application in the **Fatture in Cloud developer console** (developers.fattureincloud.it). You receive a client id and client secret.
+  2. Run the authorization-code flow once for the account, requesting the scopes you need — `entity.clients:r`, `entity.suppliers:r`, `issued_documents:r`, `received_documents:r`, `products:r`, and the `:a` variants for write. Keep the **refresh token**.
+  3. Set `FIC_CLIENT_ID`, `FIC_CLIENT_SECRET`, `FIC_REFRESH_TOKEN` and `FIC_COMPANY_ID`. supermcp refreshes the access token on its own.
+
+  **Every path carries a company id.** A Fatture in Cloud account can hold several companies (aziende) and each has its own numeric id; `FIC_COMPANY_ID` fixes this connector to one. `fatture_in_cloud_list_companies` is the exception — it is the one call that works without it, and it tells you which ids exist.
+
+  **Issued vs received.** `issued_documents` are the documents you send (invoices, quotes, credit notes, delivery notes); `received_documents` are supplier invoices you have recorded. The `type` parameter narrows within each: `invoice`, `quote`, `proforma`, `credit_note`, `order`, `receipt`, `delivery_note`.
+
+  **Fatturazione elettronica.** Italian e-invoices carry an `e_invoice` flag and an `ei_status` that tracks the document through the Sistema di Interscambio: `not_sent`, `sent`, `pending`, `accepted`, `rejected`. A rejected invoice is a real accounting problem and worth asking about by name.
+
+  **`fieldset=detailed`** returns the line items and payment schedule; the default returns headers only. Ask for detail when you need it and not before, because documents are large.
+
+  **Cloud reachability**: api-v2.fattureincloud.it is public with a valid certificate.
+tools:
+  - name: fatture_in_cloud_list_companies
+    description: List the companies (aziende) this account can reach, with their id, name and VAT number. The one call that works without a company id — use it to find the right FIC_COMPANY_ID.
+    input:
+      type: object
+      properties: {}
+    operation:
+      method: GET
+      path: /user/companies
+  - name: fatture_in_cloud_list_issued_documents
+    description: List documents you issued — invoices, quotes, credit notes, proformas — with their number, date, client, total and payment status.
+    input:
+      type: object
+      properties:
+        type:
+          type: string
+          description: 'Document type: invoice, quote, proforma, receipt, delivery_note, credit_note, order, work_report, supplier_order, self_own_invoice, self_supplier_invoice.'
+        fieldset:
+          type: string
+          description: '`basic` (default) or `detailed` to include line items and the payment schedule.'
+        filter:
+          type: string
+          description: Filter expression, e.g. date >= '2026-01-01' or entity.name = 'Rossi'.
+        sort:
+          type: string
+          description: Sort field, prefix with `-` for descending, e.g. -date.
+        page:
+          type: number
+          description: Page number, starting at 1.
+        per_page:
+          type: number
+          description: Rows per page (default 50).
+      required:
+        - type
+    operation:
+      method: GET
+      path: /c/{{env.FIC_COMPANY_ID}}/issued_documents
+      query:
+        type: '{{params.type}}'
+        fieldset: '{{params.fieldset}}'
+        filter: '{{params.filter}}'
+        sort: '{{params.sort}}'
+        page: '{{params.page}}'
+        per_page: '{{params.per_page}}'
+  - name: fatture_in_cloud_get_issued_document
+    description: 'Read one issued document in full: every line item with VAT rate, the payment schedule, the client''s details and the e-invoice status in the Sistema di Interscambio.'
+    input:
+      type: object
+      properties:
+        documentId:
+          type: number
+          description: Numeric document id.
+      required:
+        - documentId
+    operation:
+      method: GET
+      path: /c/{{env.FIC_COMPANY_ID}}/issued_documents/{{params.documentId}}
+      query:
+        fieldset: detailed
+  - name: fatture_in_cloud_list_received_documents
+    description: List supplier documents you have recorded — purchase invoices, credit notes and expenses — with their supplier, date, total and deductibility.
+    input:
+      type: object
+      properties:
+        type:
+          type: string
+          description: 'Document type: expense, passive_credit_note, passive_delivery_note.'
+        fieldset:
+          type: string
+          description: '`basic` (default) or `detailed`.'
+        filter:
+          type: string
+          description: Filter expression, e.g. date >= '2026-01-01'.
+        sort:
+          type: string
+          description: Sort field, prefix with `-` for descending.
+        page:
+          type: number
+          description: Page number, starting at 1.
+        per_page:
+          type: number
+          description: Rows per page.
+    operation:
+      method: GET
+      path: /c/{{env.FIC_COMPANY_ID}}/received_documents
+      query:
+        type: '{{params.type}}'
+        fieldset: '{{params.fieldset}}'
+        filter: '{{params.filter}}'
+        sort: '{{params.sort}}'
+        page: '{{params.page}}'
+        per_page: '{{params.per_page}}'
+  - name: fatture_in_cloud_list_clients
+    description: List clients with their name, VAT number, codice fiscale, address and the e-invoice routing code (codice destinatario or PEC).
+    input:
+      type: object
+      properties:
+        filter:
+          type: string
+          description: Filter expression, e.g. name = 'Rossi' or vat_number = 'IT01234567890'.
+        sort:
+          type: string
+          description: Sort field, prefix with `-` for descending.
+        page:
+          type: number
+          description: Page number, starting at 1.
+        per_page:
+          type: number
+          description: Rows per page.
+    operation:
+      method: GET
+      path: /c/{{env.FIC_COMPANY_ID}}/entities/clients
+      query:
+        filter: '{{params.filter}}'
+        sort: '{{params.sort}}'
+        page: '{{params.page}}'
+        per_page: '{{params.per_page}}'
+  - name: fatture_in_cloud_list_suppliers
+    description: List suppliers with their name, VAT number, codice fiscale and address, for the purchasing side of the ledger.
+    input:
+      type: object
+      properties:
+        filter:
+          type: string
+          description: Filter expression, e.g. name = 'Bianchi'.
+        page:
+          type: number
+          description: Page number, starting at 1.
+        per_page:
+          type: number
+          description: Rows per page.
+    operation:
+      method: GET
+      path: /c/{{env.FIC_COMPANY_ID}}/entities/suppliers
+      query:
+        filter: '{{params.filter}}'
+        page: '{{params.page}}'
+        per_page: '{{params.per_page}}'
+  - name: fatture_in_cloud_list_products
+    description: List products and services from the catalogue with their code, description, net price, VAT rate and stock level.
+    input:
+      type: object
+      properties:
+        filter:
+          type: string
+          description: Filter expression, e.g. code = 'ART001'.
+        page:
+          type: number
+          description: Page number, starting at 1.
+        per_page:
+          type: number
+          description: Rows per page.
+    operation:
+      method: GET
+      path: /c/{{env.FIC_COMPANY_ID}}/products
+      query:
+        filter: '{{params.filter}}'
+        page: '{{params.page}}'
+        per_page: '{{params.per_page}}'
+  - name: fatture_in_cloud_list_receipts
+    description: List receipts (corrispettivi) with their date, amount and payment method — the till-side record, separate from invoices.
+    input:
+      type: object
+      properties:
+        filter:
+          type: string
+          description: Filter expression, e.g. date >= '2026-09-01'.
+        page:
+          type: number
+          description: Page number, starting at 1.
+        per_page:
+          type: number
+          description: Rows per page.
+    operation:
+      method: GET
+      path: /c/{{env.FIC_COMPANY_ID}}/receipts
+      query:
+        filter: '{{params.filter}}'
+        page: '{{params.page}}'
+        per_page: '{{params.per_page}}'
+  - name: fatture_in_cloud_get_company_info
+    description: 'Read the configured company''s own details: name, VAT number, tax regime, address and plan. Confirms FIC_COMPANY_ID points where you think it does.'
+    input:
+      type: object
+      properties: {}
+    operation:
+      method: GET
+      path: /c/{{env.FIC_COMPANY_ID}}/company/info

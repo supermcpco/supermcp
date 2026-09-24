@@ -1,0 +1,14 @@
+# Recorded by `supermcp adapter record`; replayed by `supermcp adapter test`.
+# Credential values are replaced with SUPERMCP_CREDENTIAL_<NAME>.
+adapter: hackernews
+tool: hackernews_job_stories
+recordedAt: 2026-09-22T22:17:59Z
+interactions:
+  - request:
+      method: GET
+      url: https://hacker-news.firebaseio.com/v0/jobstories.json
+    response:
+      status: 200
+      headers:
+        content-type: application/json; charset=utf-8
+      body: '[49768220,49753131,49743567,49725541,49715446,49708774,49700218,49661645,49625110,49588466,49563415,49556922,49553173,49548864,49542486,49533557,49524704,49518877,49514781,49512895,49500471,49481423,49474060,49467837,49463361,49447480,49437566,49423495,49393733,49390910,49377248]'

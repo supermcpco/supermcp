@@ -1,0 +1,20 @@
+# Recorded by `supermcp adapter record`; replayed by `supermcp adapter test`.
+# Credential values are replaced with SUPERMCP_CREDENTIAL_<NAME>.
+adapter: gtin-lookup
+tool: gtin_lookup_food
+recordedAt: 2026-09-22T22:18:06Z
+interactions:
+  - params:
+      barcode: "3017620422003"
+    request:
+      method: GET
+      url: https://world.openfoodfacts.org/api/v2/product/3017620422003.json
+      query: fields=code,product_name,brands,quantity,categories,labels,nutriscore_grade,countries,image_url,ingredients_text
+      headers:
+        accept: application/json
+        user-agent: supermcp-GTIN-Lookup/1.0 (https://supermcp.dev)
+    response:
+      status: 200
+      headers:
+        content-type: application/json; charset=utf-8
+      body: '{"code":"3017620422003","product":{"brands":"Nutella, Ferrero","categories":"Confectionary based spreads, Petit-déjeuners, Produits à tartiner, Produits à tartiner sucrés, Pâtes à tartiner, fr:Nutella, fr:Nuttela","code":"3017620422003","countries":"France","image_url":"https://images.openfoodfacts.org/images/products/301/762/042/2003/front_en.879.400.jpg","ingredients_text":"Sucre, huile de palme, NOISETTES 13%, cacao maigre 7,4%, LAIT écrémé en poudre 6,6%, LACTOSERUM en poudre, émulsifiants: lécithines [SOJA), vanilline. Sans gluten.","labels":"Vegetarian, No gluten, Triman","nutriscore_grade":"e","product_name":"Nutella","quantity":"400 g e"},"status":1,"status_verbose":"product found"}'

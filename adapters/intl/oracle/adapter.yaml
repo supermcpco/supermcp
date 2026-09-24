@@ -1,0 +1,165 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: oracle
+  name: Oracle Database
+  description: 'Query an Oracle database directly: list tables, describe columns and run read-only SQL. Installs read-only; credentials are held encrypted rather than in the connection string.'
+  region: intl
+  category: database
+  icon: oracle
+  docsUrl: https://docs.oracle.com/en/database/oracle/oracle-database/
+credentials:
+  ORACLE_HOST:
+    required: true
+  ORACLE_PORT:
+    required: true
+  ORACLE_DATABASE:
+    required: true
+  ORACLE_USER:
+    required: true
+  ORACLE_PASSWORD:
+    required: true
+    secret: true
+transport:
+  type: database
+  dsn: oracle://{{env.ORACLE_HOST}}:{{env.ORACLE_PORT}}/{{env.ORACLE_DATABASE}}
+  driver: oracle
+auth:
+  type: database
+  username: '{{env.ORACLE_USER}}'
+  password: '{{env.ORACLE_PASSWORD}}'
+healthcheck:
+  tool: oracle_list_tables
+instructions: |
+  **Setup**
+  1. Create a user with only CREATE SESSION and the SELECTs it needs:
+     ```sql
+     CREATE USER amcp_reader IDENTIFIED BY "change-me";
+     GRANT CREATE SESSION TO amcp_reader;
+     GRANT SELECT ON sales.orders TO amcp_reader;
+     -- or, for a whole schema, a read-only role you maintain
+     ```
+  2. Set `ORACLE_HOST`, `ORACLE_PORT` (1521), `ORACLE_DATABASE` — the **service name** (e.g. `ORCLPDB1`), not the SID — plus `ORACLE_USER` and `ORACLE_PASSWORD`.
+
+  **The node-oracledb driver needs to be in thin mode or have Instant Client available.** Thin mode covers Oracle 12.1 and newer with no client install; an older server needs Instant Client on the supermcp host.
+
+  **Oracle folds unquoted identifiers to UPPER CASE.** A table created as `Orders` without quotes is `ORDERS`, and `WHERE table_name = 'Orders'` matches nothing. The describe tool compares against the value you pass verbatim, so pass it upper-cased unless the table was created with quotes.
+
+  **Oracle has no LIMIT.** Use `FETCH FIRST 100 ROWS ONLY` (12c and newer) or `WHERE ROWNUM <= 100`.
+
+  **How a database connector behaves**
+
+  - **It installs read-only.** The engine rejects anything that is not a read
+    until you flip the switch in the connector's settings. That is a guard rail,
+    not a security boundary: give the connection a database role that is itself
+    read-only, and the guard rail never has to matter.
+  - **Credentials live in the encrypted `authConfig`**, not in the connection
+    string. `ORACLE_USER` and `ORACLE_PASSWORD` are stored encrypted and spliced into the
+    DSN at call time; the host and database name are stored in the plaintext
+    `baseUrl` column.
+  - **Results are capped at 1000 rows.** A query that would return more comes
+    back truncated with a flag. Aggregate in SQL rather than in the agent.
+  - **A statement runs exactly as written.** There is no query rewriting and no
+    automatic LIMIT — an unbounded scan on a large table is a real unbounded
+    scan on your production database. Say LIMIT.
+
+  **Reachable from where?**
+
+  - On a **hosted supermcp instance** the server must accept connections from the public
+    internet, which for a production database usually means it should not. Point
+    the connector at a read replica, or self-host supermcp inside the network.
+  - **Self-hosted**, add the host to `SSRF_ALLOWED_HOSTS`: the outbound guard
+    blocks private address space by default, and `10.0.0.5` is exactly the shape
+    it is there to block.
+tools:
+  - name: oracle_list_tables
+    description: List the tables and views in the database with their schema and, where the server tracks it, an approximate row count. Start here — it is the map of what can be queried.
+    input:
+      type: object
+      properties: {}
+    operation:
+      kind: sql
+      statement: SELECT owner AS table_schema, table_name, 'TABLE' AS table_type, num_rows AS approx_rows FROM all_tables WHERE owner NOT IN ('SYS','SYSTEM','XDB','MDSYS','CTXSYS','OUTLN','DBSNMP','APPQOSSYS','AUDSYS','GSMADMIN_INTERNAL','LBACSYS','OJVMSYS','ORDSYS','WMSYS','DVSYS') ORDER BY owner, table_name
+  - name: oracle_describe_table
+    description: 'Describe one table: every column with its data type, nullability and default. Read this before writing a query against a table you have not seen.'
+    input:
+      type: object
+      properties:
+        table_name:
+          type: string
+          description: Table name, without the schema prefix.
+      required:
+        - table_name
+    operation:
+      kind: sql
+      statement: SELECT column_name, data_type, nullable, data_default, data_length FROM all_tab_columns WHERE table_name = {{params.table_name}} ORDER BY column_id
+  - name: oracle_find_columns
+    description: Find columns across every table whose name matches a pattern — the fast way to locate where customer e-mail addresses, IBANs or order numbers actually live.
+    input:
+      type: object
+      properties:
+        pattern:
+          type: string
+          description: SQL LIKE pattern matched against the column name, e.g. %email% or %_id.
+      required:
+        - pattern
+    operation:
+      kind: sql
+      statement: SELECT owner, table_name, column_name, data_type FROM all_tab_columns WHERE column_name LIKE {{params.pattern}} AND owner NOT IN ('SYS','SYSTEM','XDB','MDSYS','CTXSYS','OUTLN','DBSNMP','APPQOSSYS','AUDSYS','WMSYS') ORDER BY owner, table_name, column_name
+  - name: oracle_query
+    description: Run a read-only SQL statement against Oracle Database and return up to 1000 rows. The statement runs exactly as written — there is no automatic LIMIT, so say LIMIT.
+    input:
+      type: object
+      properties:
+        query:
+          type: string
+          description: A single SQL SELECT statement. Include your own LIMIT; nothing is added for you.
+      required:
+        - query
+    operation:
+      kind: sql
+      statement: '{{params.query | raw}}'
+  - name: oracle_query_examples
+    description: 'Show worked example queries for Oracle Database: how to list schemas, find large tables, inspect indexes and check what is running right now. Costs nothing and touches no data.'
+    input:
+      type: object
+      properties: {}
+    operation:
+      kind: static
+      value: |
+        Oracle example queries
+
+        -- The ten largest segments
+        SELECT * FROM (
+          SELECT owner, segment_name, segment_type, ROUND(bytes/1024/1024, 1) AS mb
+          FROM dba_segments WHERE owner NOT IN ('SYS','SYSTEM')
+          ORDER BY bytes DESC)
+        WHERE ROWNUM <= 10;
+
+        -- Indexes on a table (remember: identifiers are UPPER CASE)
+        SELECT index_name, uniqueness, column_name, column_position
+        FROM all_ind_columns WHERE table_name = 'ORDERS'
+        ORDER BY index_name, column_position;
+
+        -- Foreign keys out of a table
+        SELECT c.constraint_name, c.r_constraint_name, cc.column_name
+        FROM all_constraints c JOIN all_cons_columns cc
+          ON cc.constraint_name = c.constraint_name
+        WHERE c.table_name = 'ORDERS' AND c.constraint_type = 'R';
+
+        -- What is running right now, longest first
+        SELECT s.sid, s.username, s.status, s.last_call_et AS seconds,
+               SUBSTR(q.sql_text, 1, 120) AS sql_text
+        FROM v$session s LEFT JOIN v$sql q ON q.sql_id = s.sql_id
+        WHERE s.type = 'USER' AND s.status = 'ACTIVE'
+        ORDER BY s.last_call_et DESC;
+
+        -- Columns whose name suggests personal data
+        SELECT owner, table_name, column_name FROM all_tab_columns
+        WHERE REGEXP_LIKE(column_name, '(EMAIL|PHONE|IBAN|BIRTH|PASSWOR|TAX)')
+          AND owner NOT IN ('SYS','SYSTEM') ORDER BY 1, 2;
+
+        -- Paging, the Oracle way
+        SELECT * FROM orders ORDER BY created_at DESC
+        OFFSET 0 ROWS FETCH NEXT 50 ROWS ONLY;

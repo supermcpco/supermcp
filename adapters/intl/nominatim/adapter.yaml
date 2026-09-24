@@ -1,0 +1,168 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: nominatim
+  name: Nominatim (OpenStreetMap)
+  description: Free, no-auth geocoding using OpenStreetMap's Nominatim service. Forward + reverse geocoding + place lookup + search. 4 tools.
+  region: intl
+  category: maps
+  icon: openstreetmap
+  docsUrl: https://nominatim.org/release-docs/develop/api/Overview/
+  lint:
+    allow:
+      - healthcheck-present
+transport:
+  type: http
+  baseUrl: https://nominatim.openstreetmap.org
+auth:
+  type: none
+instructions: |-
+  This connector uses Nominatim — OpenStreetMap's free geocoding service (nominatim.org).
+
+  **Setup**: NO API KEY REQUIRED. Just install the connector. The base URL is `https://nominatim.openstreetmap.org`.
+
+  **HOWEVER — usage policy you MUST respect** (otherwise you'll get banned):
+    1. **Max 1 request per second** per IP. The connector does NOT throttle for you — your agent must self-limit. For bulk usage, run a self-hosted Nominatim or use a paid Nominatim host.
+    2. **User-Agent header REQUIRED** — every request must identify you. The connector pins `User-Agent: supermcp (https://supermcp.dev)` automatically.
+    3. **No heavy bulk geocoding** — if you need >100 requests/hour, switch to MapTiler / OpenCage / Mapbox / Google.
+    4. **Cache results** for at least 24h — avoid re-geocoding the same address.
+
+  **Coordinate convention**: latitude FIRST then longitude (unlike Mapbox). Format is `lat,lon` in some endpoints, `lat=X&lon=Y` query params in others.
+
+  **Languages**: pass `accept-language` query param (e.g. `de`, `en`, `fr`) to localize place names.
+
+  **Result format**: `format=json` (compact), `format=jsonv2` (richer), `format=geojson` (GeoJSON Feature). Default `xml` — always pass `format=json` for our tools.
+
+  **Address importance ranking**: results include `importance` (0-1, Wikipedia-derived). High importance = well-known place; low = obscure.
+
+  **Out of scope here**: address_lookup batch (use repeated single calls), search by category beyond default, photon (separate but related service).
+tools:
+  - name: nominatim_search
+    description: 'Forward geocode (free-text address → coordinates + structured address). Be polite: max 1 req/sec, cache results, set realistic User-Agent.'
+    input:
+      type: object
+      properties:
+        q:
+          type: string
+          description: Free-text query, e.g. 'Brandenburg Gate, Berlin'.
+        addressdetails:
+          type: integer
+          description: 1 = include parsed address components.
+        extratags:
+          type: integer
+          description: 1 = include extra OSM tags.
+        namedetails:
+          type: integer
+          description: 1 = include localized name variants.
+        limit:
+          type: integer
+          description: Max results (default 10, max 50).
+        countrycodes:
+          type: string
+          description: Comma-separated ISO 3166-1 alpha-2 codes (e.g. 'de,fr').
+        viewbox:
+          type: string
+          description: Bounding box 'left,top,right,bottom' (lng,lat) to bias.
+        bounded:
+          type: integer
+          description: If 1 with viewbox, restrict to box.
+        accept_language:
+          type: string
+          description: Localized output language (e.g. 'de', 'en-US').
+        dedupe:
+          type: integer
+          description: 1 = deduplicate (default).
+      required:
+        - q
+    operation:
+      method: GET
+      path: /search
+      query:
+        q: '{{params.q}}'
+        format: jsonv2
+        addressdetails: '{{params.addressdetails}}'
+        extratags: '{{params.extratags}}'
+        namedetails: '{{params.namedetails}}'
+        limit: '{{params.limit}}'
+        countrycodes: '{{params.countrycodes}}'
+        viewbox: '{{params.viewbox}}'
+        bounded: '{{params.bounded}}'
+        accept-language: '{{params.accept_language}}'
+        dedupe: '{{params.dedupe}}'
+      headers:
+        User-Agent: supermcp (https://supermcp.dev)
+  - name: nominatim_reverse
+    description: Reverse geocode (coordinates → address). Returns display_name + address components.
+    input:
+      type: object
+      properties:
+        lat:
+          type: number
+          description: Latitude in decimal degrees.
+        lon:
+          type: number
+          description: Longitude in decimal degrees.
+        zoom:
+          type: integer
+          description: 'Address detail level: 3 (country) → 18 (building). Default 18.'
+        addressdetails:
+          type: integer
+          description: 1 = parsed address parts.
+        accept_language:
+          type: string
+          description: Output language.
+      required:
+        - lat
+        - lon
+    operation:
+      method: GET
+      path: /reverse
+      query:
+        lat: '{{params.lat}}'
+        lon: '{{params.lon}}'
+        format: jsonv2
+        zoom: '{{params.zoom}}'
+        addressdetails: '{{params.addressdetails}}'
+        accept-language: '{{params.accept_language}}'
+      headers:
+        User-Agent: supermcp (https://supermcp.dev)
+  - name: nominatim_lookup
+    description: Look up known OSM IDs (N1234, W5678, R9012 for nodes/ways/relations). Comma-separated up to 50.
+    input:
+      type: object
+      properties:
+        osm_ids:
+          type: string
+          description: Comma-separated OSM IDs prefixed with N/W/R, e.g. 'R146656,W104393803,N240109189'.
+        addressdetails:
+          type: integer
+          description: 1 = address parts.
+        accept_language:
+          type: string
+          description: Output language.
+      required:
+        - osm_ids
+    operation:
+      method: GET
+      path: /lookup
+      query:
+        osm_ids: '{{params.osm_ids}}'
+        format: jsonv2
+        addressdetails: '{{params.addressdetails}}'
+        accept-language: '{{params.accept_language}}'
+      headers:
+        User-Agent: supermcp (https://supermcp.dev)
+  - name: nominatim_status
+    description: Service status check. Returns 'OK' if Nominatim is up. Useful health check.
+    input:
+      type: object
+      properties: {}
+      required: []
+    operation:
+      method: GET
+      path: /status
+      query:
+        format: json
+      headers:
+        User-Agent: supermcp (https://supermcp.dev)

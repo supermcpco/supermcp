@@ -1,0 +1,170 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: teamsystem
+  name: TeamSystem
+  description: 'TeamSystem — Italy''s largest business-software group — over the TeamSystem Digital / Enterprise APIs: customers, invoices, items and documents. OAuth 2.0. Partner credentials required.'
+  region: it
+  category: erp
+  icon: teamsystem
+  docsUrl: https://developer.teamsystem.com/
+credentials:
+  TEAMSYSTEM_CLIENT_ID:
+    required: true
+  TEAMSYSTEM_CLIENT_SECRET:
+    required: true
+    secret: true
+  TEAMSYSTEM_TENANT_ID:
+    required: true
+transport:
+  type: http
+  baseUrl: https://api.teamsystem.com
+  headers:
+    X-Tenant-Id: '{{env.TEAMSYSTEM_TENANT_ID}}'
+    Accept: application/json
+auth:
+  type: oauth2
+  grant: client_credentials
+  clientId: '{{env.TEAMSYSTEM_CLIENT_ID}}'
+  clientSecret: '{{env.TEAMSYSTEM_CLIENT_SECRET}}'
+  tokenUrl: https://auth.teamsystem.com/oauth2/token
+healthcheck:
+  tool: teamsystem_list_customers
+  http:
+    method: GET
+    path: /v1/customers?size=1
+instructions: |
+  **Partner credentials required.** TeamSystem's APIs are published through its developer portal but issued per integration partner and per product line (TeamSystem Enterprise, TS Digital, Alyante, …). You will not find a self-service key in the product UI, and there is no public sandbox — which is why this adapter ships unverified.
+
+  **Setup**
+  1. Register at developer.teamsystem.com and have your TeamSystem partner enable the APIs for your customer's tenant.
+  2. Create an application and note the **client id** and **client secret**.
+  3. Note the **tenant id** that scopes your customer's data. Set `TEAMSYSTEM_CLIENT_ID`, `TEAMSYSTEM_CLIENT_SECRET` and `TEAMSYSTEM_TENANT_ID`.
+
+  **Client credentials, scoped per product.** The token endpoint is `https://auth.teamsystem.com/oauth2/token` and the scopes on your application decide which of the paths below answer. A 403 here is almost always a missing scope rather than a bad secret.
+
+  **`X-Tenant-Id` on every call.** TeamSystem multiplexes many customers behind one API host; the tenant header is what picks one. A wrong tenant returns an empty result, not an error.
+
+  **Italian tax vocabulary applies.** Documents carry `partitaIva` and `codiceFiscale`, and invoices going through the Sistema di Interscambio carry an e-invoice status. A rejected (`scartata`) invoice has not legally been issued.
+
+  **Unverified.** The paths and field names below follow the vendor's published documentation and have not been exercised against a live tenant. Treat a 404 as a docs-versus-reality gap and check the developer portal before concluding that the credential is wrong. A correction from anyone running this against a real system is genuinely welcome.
+tools:
+  - name: teamsystem_list_customers
+    description: List customers with their name, partita IVA, codice fiscale and address. The quickest call for checking the client credentials and the tenant header.
+    input:
+      type: object
+      properties:
+        search:
+          type: string
+          description: Search fragment matched against name and VAT number.
+        page:
+          type: number
+          description: Page number, starting at 0.
+        size:
+          type: number
+          description: Rows per page.
+    operation:
+      method: GET
+      path: /v1/customers
+      query:
+        search: '{{params.search}}'
+        page: '{{params.page}}'
+        size: '{{params.size}}'
+  - name: teamsystem_get_customer
+    description: 'Read one customer in full: registered and billing addresses, tax data, payment terms and the e-invoice routing code.'
+    input:
+      type: object
+      properties:
+        customerId:
+          type: string
+          description: TeamSystem customer id.
+      required:
+        - customerId
+    operation:
+      method: GET
+      path: /v1/customers/{{params.customerId}}
+  - name: teamsystem_list_suppliers
+    description: List suppliers with their name, partita IVA and address, for the purchasing side of the ledger.
+    input:
+      type: object
+      properties:
+        search:
+          type: string
+          description: Search fragment matched against name and VAT number.
+        page:
+          type: number
+          description: Page number, starting at 0.
+        size:
+          type: number
+          description: Rows per page.
+    operation:
+      method: GET
+      path: /v1/suppliers
+      query:
+        search: '{{params.search}}'
+        page: '{{params.page}}'
+        size: '{{params.size}}'
+  - name: teamsystem_list_invoices
+    description: List invoices in a date range with their number, date, customer, total and e-invoice status in the Sistema di Interscambio.
+    input:
+      type: object
+      properties:
+        dateFrom:
+          type: string
+          description: Earliest invoice date, YYYY-MM-DD.
+        dateTo:
+          type: string
+          description: Latest invoice date, YYYY-MM-DD.
+        status:
+          type: string
+          description: Restrict by document status.
+        page:
+          type: number
+          description: Page number, starting at 0.
+        size:
+          type: number
+          description: Rows per page.
+    operation:
+      method: GET
+      path: /v1/invoices
+      query:
+        dateFrom: '{{params.dateFrom}}'
+        dateTo: '{{params.dateTo}}'
+        status: '{{params.status}}'
+        page: '{{params.page}}'
+        size: '{{params.size}}'
+  - name: teamsystem_get_invoice
+    description: 'Read one invoice in full: every line with its VAT rate, the totals, the payment schedule and the e-invoice transmission record.'
+    input:
+      type: object
+      properties:
+        invoiceId:
+          type: string
+          description: TeamSystem invoice id.
+      required:
+        - invoiceId
+    operation:
+      method: GET
+      path: /v1/invoices/{{params.invoiceId}}
+  - name: teamsystem_list_items
+    description: List items and services from the catalogue with their code, description, unit, price and VAT rate.
+    input:
+      type: object
+      properties:
+        search:
+          type: string
+          description: Search fragment matched against code and description.
+        page:
+          type: number
+          description: Page number, starting at 0.
+        size:
+          type: number
+          description: Rows per page.
+    operation:
+      method: GET
+      path: /v1/items
+      query:
+        search: '{{params.search}}'
+        page: '{{params.page}}'
+        size: '{{params.size}}'

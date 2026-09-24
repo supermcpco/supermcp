@@ -1,0 +1,46 @@
+{{- if .Values.database.migrate.enabled }}
+# Runs before install and before every upgrade. The binary takes a Postgres
+# advisory lock, so a hook that races a still-terminating job cannot corrupt
+# the schema. Pods on the new binary stay unready until /readyz sees the new
+# schema version.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "supermcp.fullname" . }}-migrate
+  labels:
+    {{- include "supermcp.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migrate
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-5"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: {{ .Values.database.migrate.backoffLimit }}
+  ttlSecondsAfterFinished: {{ .Values.database.migrate.ttlSecondsAfterFinished }}
+  template:
+    metadata:
+      labels:
+        {{- include "supermcp.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: migrate
+    spec:
+      restartPolicy: Never
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "supermcp.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: migrate
+          image: {{ include "supermcp.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["migrate", "--wait-lock"]
+          env:
+            {{- include "supermcp.env" . | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { memory: 256Mi }
+{{- end }}

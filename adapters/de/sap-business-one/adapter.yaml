@@ -1,0 +1,260 @@
+# yaml-language-server: $schema=https://supermcp.dev/schema/adapter/v2.json
+apiVersion: supermcp.dev/v2
+kind: Adapter
+metadata:
+  slug: sap-business-one
+  name: SAP Business One
+  description: 'Drive SAP Business One ERP (popular Mittelstand SMB target in DACH) from any AI agent: business partners, items, sales orders, A/R invoices, quotations, deliveries. Service Layer OData v4. Session-cookie auth via /Login.'
+  region: de
+  category: erp
+  icon: sap-business-one
+  docsUrl: https://help.sap.com/doc/056f69366b5345a386bb8149f1700c19/10.0/en-US/Service%20Layer%20API%20Reference.html
+  lint:
+    allow:
+      - description-min-60
+      - healthcheck-present
+      - tool-name-prefix
+credentials:
+  SAP_B1_HOST:
+    required: true
+  SAP_B1_PORT:
+    required: true
+  SAP_B1_COMPANY_DB:
+    required: true
+  SAP_B1_USERNAME:
+    required: true
+  SAP_B1_PASSWORD:
+    required: true
+    secret: true
+transport:
+  type: http
+  baseUrl: https://{{env.SAP_B1_HOST}}:{{env.SAP_B1_PORT}}/b1s/v2
+auth:
+  type: login
+  request:
+    method: POST
+    url: https://{{env.SAP_B1_HOST}}:{{env.SAP_B1_PORT}}/b1s/v2/Login
+    body:
+      UserName: '{{auth.username}}'
+      Password: '{{auth.password}}'
+      CompanyDB: '{{env.SAP_B1_COMPANY_DB}}'
+  credentials:
+    username: '{{env.SAP_B1_USERNAME}}'
+    password: '{{env.SAP_B1_PASSWORD}}'
+  tokenSource:
+    from: setCookie
+    jsonPath: SessionId
+    cookieName: B1SESSION
+  expiry:
+    ttl: 25m
+    refreshBefore: 2m
+    refreshOn401: true
+  inject:
+    cookie: B1SESSION
+instructions: |-
+  **Setup**:
+  1. Identify your Service Layer host (typically the same machine that runs HANA + SAP B1). Default HTTPS port is `50000`.
+  2. Create or pick a B1 user that has API access for the company database you want to expose.
+  3. Find the `CompanyDB` name in **Choose Company** dialog of the B1 client (looks like `SBODEMOGB`).
+  4. Set the five env vars below. The adapter logs in once per session (~25 min TTL) and re-uses the `B1SESSION` cookie.
+
+  **OData**: this adapter targets the **v2 / OData v4** Service Layer endpoint at `/b1s/v2/`. Older `/b1s/v1/` (OData v3) deployments are not covered — upgrade to FP 2405+ first.
+
+  **Filtering**: use standard OData `$filter` syntax, e.g. `CardCode eq 'C20000'` or `DocDate ge '2026-01-01'`.
+
+  **Self-host caveat**: Business One is on-premise. The Service Layer is reachable from inside the customer network. To use the a hosted supermcp instance, expose Service Layer via a reverse proxy + TLS cert; otherwise self-host the adapter on the same network.
+tools:
+  - name: b1_list_business_partners
+    description: List business partners (customers, suppliers, leads). Use $filter, $top, $select.
+    input:
+      type: object
+      properties:
+        top:
+          type: number
+          description: Max rows (default 50, max 1000)
+        filter:
+          type: string
+          description: OData $filter expression, e.g. CardType eq 'cCustomer'
+        select:
+          type: string
+          description: OData $select list, e.g. CardCode,CardName,Phone1
+    operation:
+      method: GET
+      path: /BusinessPartners
+      query:
+        $top: '{{params.top}}'
+        $filter: '{{params.filter}}'
+        $select: '{{params.select}}'
+  - name: b1_get_business_partner
+    description: Get one business partner by CardCode.
+    input:
+      type: object
+      properties:
+        cardCode:
+          type: string
+          description: BP CardCode, e.g. C20000
+      required:
+        - cardCode
+    operation:
+      method: GET
+      path: /BusinessPartners('{{params.cardCode}}')
+  - name: b1_list_items
+    description: List inventory items (articles). Use $filter, $top.
+    input:
+      type: object
+      properties:
+        top:
+          type: number
+          description: Max rows
+        filter:
+          type: string
+          description: OData $filter expression
+    operation:
+      method: GET
+      path: /Items
+      query:
+        $top: '{{params.top}}'
+        $filter: '{{params.filter}}'
+  - name: b1_get_item
+    description: Get one item by ItemCode.
+    input:
+      type: object
+      properties:
+        itemCode:
+          type: string
+          description: Item code
+      required:
+        - itemCode
+    operation:
+      method: GET
+      path: /Items('{{params.itemCode}}')
+  - name: b1_list_orders
+    description: List sales orders. Sorted by DocDate desc by default.
+    input:
+      type: object
+      properties:
+        top:
+          type: number
+          description: Max rows
+        filter:
+          type: string
+          description: OData $filter expression
+    operation:
+      method: GET
+      path: /Orders
+      query:
+        $top: '{{params.top}}'
+        $filter: '{{params.filter}}'
+        $orderby: DocDate desc
+  - name: b1_get_order
+    description: Get one sales order by DocEntry (integer primary key).
+    input:
+      type: object
+      properties:
+        docEntry:
+          type: number
+          description: Order DocEntry
+      required:
+        - docEntry
+    operation:
+      method: GET
+      path: /Orders({{params.docEntry}})
+  - name: b1_create_order
+    description: Create a new sales order. Provide CardCode (the customer BP) and DocumentLines (array of {ItemCode, Quantity}).
+    input:
+      type: object
+      properties:
+        cardCode:
+          type: string
+          description: Customer CardCode
+        documentLines:
+          type: array
+          description: Array of {ItemCode, Quantity, Price?} line objects
+          items:
+            type: object
+        comments:
+          type: string
+          description: Free-text comments printed on the order
+      required:
+        - cardCode
+        - documentLines
+    operation:
+      method: POST
+      path: /Orders
+      body:
+        value:
+          CardCode: '{{params.cardCode}}'
+          DocumentLines: '{{params.documentLines}}'
+          Comments: '{{params.comments}}'
+  - name: b1_list_invoices
+    description: List A/R invoices. Use $filter, $top.
+    input:
+      type: object
+      properties:
+        top:
+          type: number
+          description: Max rows
+        filter:
+          type: string
+          description: OData $filter expression
+    operation:
+      method: GET
+      path: /Invoices
+      query:
+        $top: '{{params.top}}'
+        $filter: '{{params.filter}}'
+  - name: b1_get_invoice
+    description: Get one A/R invoice by DocEntry.
+    input:
+      type: object
+      properties:
+        docEntry:
+          type: number
+          description: Invoice DocEntry
+      required:
+        - docEntry
+    operation:
+      method: GET
+      path: /Invoices({{params.docEntry}})
+  - name: b1_list_quotations
+    description: List sales quotations.
+    input:
+      type: object
+      properties:
+        top:
+          type: number
+          description: Max rows
+        filter:
+          type: string
+          description: OData $filter expression
+    operation:
+      method: GET
+      path: /Quotations
+      query:
+        $top: '{{params.top}}'
+        $filter: '{{params.filter}}'
+  - name: b1_list_delivery_notes
+    description: List delivery notes (outgoing goods movements).
+    input:
+      type: object
+      properties:
+        top:
+          type: number
+          description: Max rows
+        filter:
+          type: string
+          description: OData $filter expression
+    operation:
+      method: GET
+      path: /DeliveryNotes
+      query:
+        $top: '{{params.top}}'
+        $filter: '{{params.filter}}'
+  - name: b1_get_company_info
+    description: 'Sanity check: returns company metadata (admin info). Fast call; use it to verify credentials.'
+    input:
+      type: object
+      properties: {}
+    operation:
+      method: GET
+      path: /CompanyService_GetAdminInfo
