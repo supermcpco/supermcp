@@ -242,7 +242,11 @@ to the model as safe when it is not.
 **mcp**: `tool` names the upstream tool, `argsMap` maps arguments.
 
 **any**: `kind: static` returns `value` without calling anything. It is
-how an adapter ships a reference table or a constant.
+how an adapter ships a reference table or a constant. The validator
+accepts it on every transport, but only the database engine runs it:
+the HTTP engine ignores `kind` and sends a request, so a static tool on
+an HTTP adapter does not work today. The tool editor refuses to save
+one (`operation-static-transport`).
 
 ## Placeholder syntax
 
@@ -565,6 +569,28 @@ arguments: the existing cassette supplies the ones it was recorded with.
 
 49 cassettes ship, covering the adapters that need no credential.
 Adapters that do need one are not covered offline in this release.
+
+## After install: editing a tool in place
+
+A connector's tools can be edited once it is installed, from the
+connector screen or through the API (`docs/api.md`, "Managing tools").
+An edit changes that one connector in that one workspace; the adapter
+file and every other install of it are untouched. A tool can also be
+added to a connector by hand, and only such a tool can be deleted.
+Tools that came from the adapter can be disabled instead.
+
+An edited tool is marked (`tools.edited_at`, with who edited it), so a
+catalogue re-sync, when one exists, can leave it alone rather than
+overwrite someone's change with the adapter's version.
+
+The editor checks a definition with the same per-tool rules as the
+validator above, plus a few that need the connector. One matters for
+authors: on an HTTP connector, an `operation.path` that is an absolute
+URL, or that starts with a placeholder filtered `raw`, must point at the
+base URL's host or a host the connector's tools already use
+(`operation-host`). A tool that sends requests to a second host is
+fine in an adapter; an edit may not add a new one, because the request
+carries the connector's credential.
 
 ## Converting from the v1 format
 

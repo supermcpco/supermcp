@@ -31,6 +31,8 @@ import (
 	"github.com/supermcpco/supermcp/internal/config"
 	"github.com/supermcpco/supermcp/internal/connector"
 	"github.com/supermcpco/supermcp/internal/dbpool"
+	"github.com/supermcpco/supermcp/internal/dlp"
+	"github.com/supermcpco/supermcp/internal/governance"
 	"github.com/supermcpco/supermcp/internal/httpapi"
 	"github.com/supermcpco/supermcp/internal/httpclient"
 	"github.com/supermcpco/supermcp/internal/identity"
@@ -109,10 +111,18 @@ func start(t *testing.T) *harness {
 	az := authz.New(db)
 	ids := identity.New(db, identity.Config{OpenRegistration: true}, az, newID)
 	keys := mcpauth.New(db, newID)
+	// Wired as in cmd/supermcp/build.go: the revision history on the
+	// services that write it, and governance between the authorisation
+	// decision and the engine.
+	revisions := governance.New(db, newID)
 	conns := connector.New(db, sealer, newID)
+	conns.Revisions = revisions
 	servers := mcpserver.New(db, conns, newID)
+	servers.Revisions = revisions
+	approvals := governance.NewApprovals(db, sealer, newID)
+	approvals.Audit = auditor
 	exec := invoke.New(invoke.Deps{DB: db, Connectors: conns, Clients: clients, Pools: pools, Log: log, NewID: newID,
-		Audit: auditor, Policies: policies})
+		Audit: auditor, Policies: policies, DLP: dlp.NewPolicies(db, newID), Approvals: approvals})
 	keyring := mcpauth.NewKeyring(db, sealer, newID)
 	oauth := mcpauth.NewOAuth(db, keyring, "http://127.0.0.1", mcpauth.DCROpen, newID)
 	oauth.Accounts = ids
@@ -138,6 +148,7 @@ func start(t *testing.T) *harness {
 	provisioning.Audit = auditor
 	deps := httpapi.Deps{Config: cfg, Log: log, Store: st, Catalog: cat, DB: db, Identity: ids,
 		Authz: az, Keys: keys, Connectors: conns, Servers: servers, MCP: endpoint, OAuth: oauth, OpenRegistration: true,
+		Executor: exec, Revisions: revisions,
 		SSO:   sso.New(db, sealer, idpClient, newID, cfg.PublicURL),
 		SCIM:  provisioning,
 		Audit: auditor, AuditReader: &audit.Reader{DB: db}, AuditPolicies: policies}

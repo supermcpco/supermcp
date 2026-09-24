@@ -1369,6 +1369,10 @@ export type ToolDetailDto = {
     edited: boolean;
     editedAt?: string;
     editedBy?: string;
+    /**
+     * The editor's name, or address when they have no name
+     */
+    editedByName?: string;
     enabled: boolean;
     id: string;
     /**
@@ -2392,6 +2396,10 @@ export type ToolDetailDtoWritable = {
     edited: boolean;
     editedAt?: string;
     editedBy?: string;
+    /**
+     * The editor's name, or address when they have no name
+     */
+    editedByName?: string;
     enabled: boolean;
     id: string;
     /**
@@ -5400,7 +5408,12 @@ export type ToolsRevisionsRestoreData = {
         id: string;
         revision: number;
     };
-    query?: never;
+    query?: {
+        /**
+         * Restore an earlier name even though approval policies match the tool by its current name
+         */
+        acknowledgeReferences?: boolean;
+    };
     url: '/api/v1/tools/{id}/revisions/{revision}/restore';
 };
 

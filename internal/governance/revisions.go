@@ -117,12 +117,8 @@ func (s *Service) RecordRevision(ctx context.Context, tx pgx.Tx, r Revision) err
 			return fmt.Errorf("encode revision diff: %w", err)
 		}
 	}
-	// The number is read and written under a lock on the entity, so two
-	// writers queue instead of both deciding they are the fourth revision.
-	// The unique index is the backstop if they ever manage it anyway.
-	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1, hashtext(current_org() || '/' || $2 || '/' || $3))`,
-		revisionLockClass, string(r.Kind), r.EntityID); err != nil {
-		return fmt.Errorf("lock revision sequence: %w", err)
+	if err := lockSequence(ctx, tx, r.Kind, r.EntityID); err != nil {
+		return err
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO revisions
 		(id, organization_id, entity_kind, entity_id, revision, snapshot, diff, action, actor_id, actor_display)
@@ -133,6 +129,42 @@ func (s *Service) RecordRevision(ctx context.Context, tx pgx.Tx, r Revision) err
 		return fmt.Errorf("record revision: %w", err)
 	}
 	return nil
+}
+
+// RecordBaseline writes, inside the caller's transaction, the entity as it
+// stood before its first recorded change, and does nothing when the entity
+// already has a history. It is for entities that came into being without a
+// revision (catalog installs and imports create tools in bulk), so that the
+// original can still be restored after the first edit.
+//
+// Call it just before the Record of that first change, with the entity as
+// it was before the change. The baseline is stored as a create by nobody:
+// the action vocabulary is fixed by the table's check constraint, and no
+// person made it. The sequence lock it takes is transaction-scoped and
+// re-entrant, so the Record that follows queues behind nothing.
+func (s *Service) RecordBaseline(ctx context.Context, tx pgx.Tx, kind, entityID string, entity any) error {
+	if entityID == "" {
+		return errors.New("a revision needs the id of the entity it describes")
+	}
+	if !validKind(Kind(kind)) {
+		return fmt.Errorf("unknown entity kind %q", kind)
+	}
+	// The existence check runs under the sequence lock, so two first
+	// changes cannot both decide they owe a baseline.
+	if err := lockSequence(ctx, tx, Kind(kind), entityID); err != nil {
+		return err
+	}
+	var exists bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM revisions
+		WHERE organization_id = current_org() AND entity_kind = $1 AND entity_id = $2)`,
+		kind, entityID).Scan(&exists); err != nil {
+		return fmt.Errorf("check revision history: %w", err)
+	}
+	if exists {
+		return nil
+	}
+	return s.RecordRevision(ctx, tx, Revision{Kind: Kind(kind), EntityID: entityID, Action: ActionCreate,
+		Entity: entity, Diff: audit.Created(entity)})
 }
 
 // List returns an entity's revisions, newest first. before continues below
@@ -259,6 +291,18 @@ func snapshotOf(entity any) ([]byte, error) {
 		return nil, fmt.Errorf("encode snapshot: %w", err)
 	}
 	return b, nil
+}
+
+// lockSequence takes the lock that serialises writers to one entity's
+// history. The number is read and written under it, so two writers queue
+// instead of both deciding they are the fourth revision. The unique index
+// is the backstop if they ever manage it anyway.
+func lockSequence(ctx context.Context, tx pgx.Tx, kind Kind, entityID string) error {
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1, hashtext(current_org() || '/' || $2 || '/' || $3))`,
+		revisionLockClass, string(kind), entityID); err != nil {
+		return fmt.Errorf("lock revision sequence: %w", err)
+	}
+	return nil
 }
 
 func validKind(k Kind) bool {

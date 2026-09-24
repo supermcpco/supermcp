@@ -59,3 +59,19 @@ describe("readsSideBySide", () => {
     expect(readsSideBySide("same", "same")).toBe(false);
   });
 });
+
+describe("JSON held in a string", () => {
+  it("is laid out a member per line, keys in the order written, so the change is one line", () => {
+    const before = '{"name":"x","input":{"b":1,"200":2},"description":"old"}';
+    const after = '{"name":"x","input":{"b":1,"200":2},"description":"new"}';
+    expect(asComparableText(before).split("\n")).toContain('    "200": 2');
+    expect(asComparableText(before).indexOf('"b"')).toBeLessThan(asComparableText(before).indexOf('"200"'));
+    expect(changedLines(diffLines(asComparableText(before), asComparableText(after)))).toBe(1);
+  });
+
+  it("leaves text that only looks like JSON, or is already laid out, as it is", () => {
+    expect(asComparableText("{not json")).toBe("{not json");
+    expect(asComparableText('{\n  "a": 1\n}')).toBe('{\n  "a": 1\n}');
+    expect(asComparableText("plain words")).toBe("plain words");
+  });
+});

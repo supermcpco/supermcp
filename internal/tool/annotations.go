@@ -2,6 +2,8 @@
 package tool
 
 import (
+	"bytes"
+	"encoding/json"
 	"strings"
 
 	"github.com/supermcpco/supermcp/pkg/adapter"
@@ -22,6 +24,72 @@ var additiveVerbs = []string{"create", "add", "insert", "post", "send", "registe
 // explicit overrides from the tool definition. Read-only is never guessed
 // from the name; explicit readOnly implies not destructive and idempotent.
 func Derive(t *adapter.Tool, transport adapter.TransportType, connectorReadOnly bool) Annotations {
+	a := deriveOperation(t, transport, connectorReadOnly)
+	if t.Annotations != nil {
+		o := t.Annotations
+		a.Title = o.Title
+		if o.ReadOnlyHint != nil {
+			a.ReadOnlyHint = *o.ReadOnlyHint
+		}
+		if o.DestructiveHint != nil {
+			a.DestructiveHint = *o.DestructiveHint
+		}
+		if o.IdempotentHint != nil {
+			a.IdempotentHint = *o.IdempotentHint
+		}
+		if o.OpenWorldHint != nil {
+			a.OpenWorldHint = *o.OpenWorldHint
+		}
+	}
+	return normalise(a)
+}
+
+// DeriveOperation computes annotations from the operation alone, ignoring
+// the explicit hints in the definition. It is what the tool would be
+// served as if nobody had annotated it.
+func DeriveOperation(t *adapter.Tool, transport adapter.TransportType, connectorReadOnly bool) Annotations {
+	return normalise(deriveOperation(t, transport, connectorReadOnly))
+}
+
+// Declassifies reports whether after is served as not destructive although
+// its operation is, and that is new: before was not declassified the same
+// way, or ran a different operation. before is nil for a new tool. Saving
+// such a definition takes the right to invoke destructive tools, because it
+// lets a destructive call past every rule keyed on the hint.
+func Declassifies(before, after *adapter.Tool, transport adapter.TransportType, connectorReadOnly bool) bool {
+	if after == nil || !declassified(after, transport, connectorReadOnly) {
+		return false
+	}
+	if before == nil || !declassified(before, transport, connectorReadOnly) {
+		return true
+	}
+	return !sameOperation(before, after)
+}
+
+func declassified(t *adapter.Tool, transport adapter.TransportType, connectorReadOnly bool) bool {
+	return DeriveOperation(t, transport, connectorReadOnly).DestructiveHint && !Derive(t, transport, connectorReadOnly).DestructiveHint
+}
+
+// sameOperation compares what two definitions run, including the name,
+// which the derivation reads for additive verbs.
+func sameOperation(a, b *adapter.Tool) bool {
+	if a.Name != b.Name {
+		return false
+	}
+	ja, errA := json.Marshal(a.Operation)
+	jb, errB := json.Marshal(b.Operation)
+	return errA == nil && errB == nil && bytes.Equal(ja, jb)
+}
+
+func normalise(a Annotations) Annotations {
+	if a.ReadOnlyHint {
+		a.DestructiveHint = false
+		a.IdempotentHint = true
+	}
+	return a
+}
+
+func deriveOperation(t *adapter.Tool, transport adapter.TransportType, connectorReadOnly bool) Annotations {
 	a := Annotations{OpenWorldHint: true}
 	op := t.Operation
 	switch {
@@ -52,26 +120,6 @@ func Derive(t *adapter.Tool, transport adapter.TransportType, connectorReadOnly 
 		case "POST":
 			a.DestructiveHint = !hasAdditiveVerb(t.Name)
 		}
-	}
-	if t.Annotations != nil {
-		o := t.Annotations
-		a.Title = o.Title
-		if o.ReadOnlyHint != nil {
-			a.ReadOnlyHint = *o.ReadOnlyHint
-		}
-		if o.DestructiveHint != nil {
-			a.DestructiveHint = *o.DestructiveHint
-		}
-		if o.IdempotentHint != nil {
-			a.IdempotentHint = *o.IdempotentHint
-		}
-		if o.OpenWorldHint != nil {
-			a.OpenWorldHint = *o.OpenWorldHint
-		}
-	}
-	if a.ReadOnlyHint {
-		a.DestructiveHint = false
-		a.IdempotentHint = true
 	}
 	return a
 }

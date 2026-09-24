@@ -183,6 +183,7 @@ function fieldLabel(field: string): string {
     name: "Name",
     permissions: "What it allows",
     readOnly: "Locked to the catalogue",
+    source: "Where it came from",
     transport: "How it is reached",
   };
   if (named[field]) return named[field];

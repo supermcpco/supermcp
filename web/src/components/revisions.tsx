@@ -8,6 +8,7 @@ export interface Revision {
   action: string;
   createdAt: string;
   actorDisplay?: string;
+  actorId?: string;
   diff?: { before?: Record<string, unknown>; after?: Record<string, unknown> } | null;
 }
 
@@ -52,6 +53,9 @@ export function RevisionList({
               <Text as="span" variant="secondary">
                 {new Date(r.createdAt).toLocaleString()}
                 {r.actorDisplay ? ` · ${r.actorDisplay}` : ""}
+                {/* A change with nobody behind it was recorded by the system
+                    itself, such as the state a tool was installed in. */}
+                {!r.actorDisplay && !r.actorId ? " · recorded by the system" : ""}
               </Text>
             </div>
             {index !== 0 && canRestore && (

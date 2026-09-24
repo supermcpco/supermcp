@@ -5,3 +5,14 @@ export function message(e: unknown): string {
   const msg = (e as { message?: string } | undefined)?.message;
   return msg || "Something went wrong.";
 }
+
+/** The HTTP status a failed request carried, when the server said. */
+export function status(e: unknown): number | undefined {
+  const s = (e as { status?: unknown } | undefined)?.status;
+  return typeof s === "number" ? s : undefined;
+}
+
+/** The per-field details of a problem (a 422 lists one per thing wrong). */
+export function details(e: unknown): { location?: string; message?: string; value?: unknown }[] {
+  return (e as { errors?: { location?: string; message?: string; value?: unknown }[] | null } | undefined)?.errors ?? [];
+}
