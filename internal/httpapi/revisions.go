@@ -234,41 +234,87 @@ func (d Deps) serverRestoreRoute(api huma.API) {
 		})
 }
 
-// A tool's definition belongs to the connector that owns it and is only
-// ever replaced wholesale, so what a tool revision can put back is whether
-// the tool is offered to clients at all.
+// A tool restores its name and definition through the same path as an
+// edit, with the same escalations: a restore that changes what a call
+// does needs connectors:update, and one that takes the destructive hint
+// off needs tools:invoke:destructive. A restore that renames the tool
+// past name-matched approval policies is refused like an edit is, unless
+// the caller acknowledges them.
+//
+// Revisions written before definitions were recorded carry only whether
+// the tool was enabled, so that is all they put back. A deleted tool
+// cannot be restored from its history.
 func (d Deps) toolRestoreRoute(api huma.API) {
 	huma.Register(api, huma.Operation{OperationID: "tools-revisions-restore", Method: http.MethodPost,
 		Path:    "/api/v1/tools/{id}/revisions/{revision}/restore",
 		Summary: "Put a tool back the way an earlier revision found it", Tags: []string{"connectors"},
 		Security: sessionSecurity},
-		func(ctx context.Context, in *revisionGetInput) (*struct{ Body toolDTO }, error) {
-			p, snapshot, err := d.snapshotToRestore(ctx, toolRevisions, in)
+		func(ctx context.Context, restore *toolRestoreInput) (*struct{ Body toolDTO }, error) {
+			in := &revisionGetInput{ID: restore.ID, Revision: restore.Revision}
+			if d.Revisions == nil {
+				return nil, huma.Error503ServiceUnavailable("the revision history is not configured")
+			}
+			p, current, err := d.requireTool(ctx, authz.RevisionsRollback, in.ID)
+			var status huma.StatusError
+			if errors.As(err, &status) && status.GetStatus() == http.StatusNotFound {
+				// The caller passed the permission check on the tool id, so
+				// saying whether it has a history leaks nothing.
+				caller, _ := authz.From(ctx)
+				if _, serr := d.Revisions.Snapshot(ctx, caller.OrgID, toolRevisions.kind, in.ID, in.Revision); serr != nil {
+					return nil, revisionErr(serr)
+				}
+				return nil, huma.Error404NotFound("this tool has been deleted; a deleted tool cannot be restored from its history")
+			}
 			if err != nil {
 				return nil, err
 			}
-			connectorID, _ := snapshot["connectorId"].(string)
-			if connectorID == "" {
-				return nil, huma.Error422UnprocessableEntity("this revision does not record which connector the tool belongs to")
+			snapshot, err := d.Revisions.Snapshot(ctx, p.OrgID, toolRevisions.kind, in.ID, in.Revision)
+			if err != nil {
+				return nil, revisionErr(err)
+			}
+			if connectorID, _ := snapshot["connectorId"].(string); connectorID != "" && connectorID != current.ConnectorID {
+				return nil, huma.Error422UnprocessableEntity("this revision belongs to a different connector")
 			}
 			enabled, _ := snapshot["enabled"].(bool)
-			if err := d.Connectors.SetToolEnabled(ctx, p.OrgID, in.ID, enabled); err != nil {
-				d.restoreFailed(ctx, toolRevisions, in, err)
-				return nil, humaErr(err)
+
+			t := current
+			if raw, ok := snapshot["definition"].(string); ok {
+				def, err := connector.ParseToolJSON([]byte(raw))
+				if err != nil {
+					return nil, huma.Error422UnprocessableEntity("this revision's definition cannot be read back")
+				}
+				u, err := d.updateTool(ctx, p, current, connector.ToolInput{
+					Definition: def, Enabled: &enabled, ExpectedVersion: current.Version,
+					AcknowledgeReferences: restore.AcknowledgeReferences, ActorID: p.ID,
+				})
+				if err != nil {
+					d.restoreFailed(ctx, toolRevisions, in, err)
+					return nil, err
+				}
+				t = u.tool
+				d.toolChanged(ctx, "tool.update", t, audit.Changes(toolAudit(current), toolAudit(t)), u.declassified)
+			} else {
+				if err := d.Connectors.SetToolEnabled(ctx, p.OrgID, in.ID, enabled, p.ID); err != nil {
+					d.restoreFailed(ctx, toolRevisions, in, err)
+					return nil, humaErr(err)
+				}
+				if t, err = d.Connectors.GetTool(ctx, p.OrgID, in.ID); err != nil {
+					return nil, humaErr(err)
+				}
 			}
-			tools, err := d.Connectors.Tools(ctx, p.OrgID, connectorID)
+			c, err := d.Connectors.Get(ctx, p.OrgID, t.ConnectorID)
 			if err != nil {
 				return nil, humaErr(err)
 			}
-			for _, t := range tools {
-				if t.ID != in.ID {
-					continue
-				}
-				d.restored(ctx, toolRevisions, in, t.Name)
-				return &struct{ Body toolDTO }{Body: toolToDTO(t)}, nil
-			}
-			return nil, huma.Error404NotFound("no such tool")
+			d.restored(ctx, toolRevisions, in, t.Name)
+			return &struct{ Body toolDTO }{Body: toolToDTO(t, c)}, nil
 		})
+}
+
+type toolRestoreInput struct {
+	ID                    string `path:"id"`
+	Revision              int    `path:"revision" minimum:"1"`
+	AcknowledgeReferences bool   `query:"acknowledgeReferences" doc:"Restore an earlier name even though approval policies match the tool by its current name"`
 }
 
 // A role's whole definition is its name, the sentence about it and what

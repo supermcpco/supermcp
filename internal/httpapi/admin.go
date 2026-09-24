@@ -398,13 +398,19 @@ func (d Deps) connectorRoutes(api huma.API) {
 			if err != nil {
 				return nil, err
 			}
+			// The derived hints depend on the connector's transport and
+			// read-only flag; it is read once for the whole list.
+			c, err := d.Connectors.Get(ctx, p.OrgID, in.ID)
+			if err != nil {
+				return nil, humaErr(err)
+			}
 			tools, err := d.Connectors.Tools(ctx, p.OrgID, in.ID)
 			if err != nil {
 				return nil, humaErr(err)
 			}
 			out := make([]toolDTO, 0, len(tools))
 			for _, t := range tools {
-				out = append(out, toolToDTO(t))
+				out = append(out, toolToDTO(t, c))
 			}
 			return &struct {
 				Body []toolDTO `json:"body"`
@@ -419,18 +425,20 @@ func (d Deps) connectorRoutes(api huma.API) {
 				Enabled bool `json:"enabled"`
 			}
 		}) (*struct{ Body struct{ OK bool } }, error) {
-			p, err := d.require(ctx, authz.ToolsUpdate, authz.Resource{ToolID: in.ID})
+			// The tool's connector is part of the resource, so a binding
+			// scoped to the connector covers its tools.
+			p, t, err := d.requireTool(ctx, authz.ToolsUpdate, in.ID)
 			if err != nil {
 				return nil, err
 			}
-			if err := d.Connectors.SetToolEnabled(ctx, p.OrgID, in.ID, in.Body.Enabled); err != nil {
+			if err := d.Connectors.SetToolEnabled(ctx, p.OrgID, in.ID, in.Body.Enabled, p.ID); err != nil {
 				d.adminFailed(ctx, "tool.visibility.update", "tool", in.ID, err)
 				return nil, humaErr(err)
 			}
 			// Which tools an AI client can reach is a security decision, so
 			// the change is recorded even though it edits one boolean.
-			d.admin(ctx, "tool.visibility.update", "tool", in.ID, "",
-				&audit.Diff{After: map[string]any{"enabled": in.Body.Enabled}})
+			d.admin(ctx, "tool.visibility.update", "tool", in.ID, t.Name,
+				audit.Changes(map[string]any{"enabled": t.Enabled}, map[string]any{"enabled": in.Body.Enabled}))
 			return &struct{ Body struct{ OK bool } }{Body: struct{ OK bool }{true}}, nil
 		})
 }
@@ -757,21 +765,17 @@ func humaErr(err error) error {
 		errors.Is(err, connector.ErrToolNotFound) {
 		return huma.Error404NotFound(err.Error())
 	}
+	if herr := toolConflict(err); herr != nil {
+		return herr
+	}
 	var invalid *connector.InvalidToolError
 	if errors.As(err, &invalid) {
 		return huma.Error422UnprocessableEntity(invalid.Error(), toolIssueDetails(invalid.Issues)...)
-	}
-	if errors.Is(err, connector.ErrToolNameTaken) || errors.Is(err, connector.ErrVersionConflict) ||
-		errors.Is(err, connector.ErrToolNotDeletable) || errors.Is(err, connector.ErrReferencesNotAcknowledged) {
-		return huma.Error409Conflict(err.Error())
 	}
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && pgErr.Code == pgUniqueViolation {
 		// The constraint and the colliding value stay out of the reply;
 		// they name tables and can echo another tenant-visible record.
-		if pgErr.ConstraintName == toolNameConstraint {
-			return huma.Error409Conflict(connector.ErrToolNameTaken.Error())
-		}
 		return huma.Error409Conflict("this conflicts with a record that already exists")
 	}
 	if errors.Is(err, connector.ErrMissingCredential) {
@@ -795,9 +799,6 @@ func humaErr(err error) error {
 
 // pgUniqueViolation is the SQLSTATE for a unique constraint violation.
 const pgUniqueViolation = "23505"
-
-// toolNameConstraint is the unique (connector_id, name) key on tools.
-const toolNameConstraint = "tools_connector_id_name_key"
 
 // toolIssueDetails turns the error-severity issues of a definition into
 // huma error details located at body.definition.<field>, so a client can

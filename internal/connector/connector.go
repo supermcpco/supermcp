@@ -70,6 +70,9 @@ type Service struct {
 // an interface so the dependency points this way and not the other.
 type Recorder interface {
 	Record(ctx context.Context, tx pgx.Tx, kind, entityID, action string, entity any, diff *audit.Diff, actorID string) error
+	// RecordBaseline records entity as the first revision when entityID
+	// has none yet, and does nothing otherwise.
+	RecordBaseline(ctx context.Context, tx pgx.Tx, kind, entityID string, entity any) error
 }
 
 // record writes a revision when one is configured.
@@ -78,6 +81,16 @@ func (s *Service) record(ctx context.Context, tx pgx.Tx, kind, entityID, action 
 		return nil
 	}
 	return s.Revisions.Record(ctx, tx, kind, entityID, action, entity, diff, actorID)
+}
+
+// recordBaseline records the state before a change as the first revision
+// when the entity has none, as a catalog-installed or imported tool does
+// until it is first changed.
+func (s *Service) recordBaseline(ctx context.Context, tx pgx.Tx, kind, entityID string, entity any) error {
+	if s.Revisions == nil {
+		return nil
+	}
+	return s.Revisions.RecordBaseline(ctx, tx, kind, entityID, entity)
 }
 
 // New builds the service.
@@ -101,7 +114,7 @@ func (s *Service) Install(ctx context.Context, orgID string, a *adapter.Adapter,
 		}
 		for i := range a.Tools {
 			t := a.Tools[i]
-			if err := s.insertTool(ctx, tx, c, &t); err != nil {
+			if err := s.insertTool(ctx, tx, c, &t, ToolSourceCatalog); err != nil {
 				return err
 			}
 		}
@@ -142,7 +155,7 @@ func (s *Service) Create(ctx context.Context, orgID string, in CreateInput) (*Co
 			return err
 		}
 		for i := range in.Tools {
-			if err := s.insertTool(ctx, tx, c, &in.Tools[i]); err != nil {
+			if err := s.insertTool(ctx, tx, c, &in.Tools[i], ToolSourceImport); err != nil {
 				return err
 			}
 		}
@@ -170,19 +183,21 @@ func (s *Service) insert(ctx context.Context, tx pgx.Tx, c *Connector, createdBy
 	return err
 }
 
-func (s *Service) insertTool(ctx context.Context, tx pgx.Tx, c *Connector, t *adapter.Tool) error {
+// insertTool stores one enabled tool of a connector being created. source
+// is one of the ToolSource constants.
+func (s *Service) insertTool(ctx context.Context, tx pgx.Tx, c *Connector, t *adapter.Tool, source string) error {
 	def, err := DefinitionJSON(t)
 	if err != nil {
 		return err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO tools (id, connector_id, organization_id, name, definition, enabled) VALUES ($1,$2,$3,$4,$5,true)`,
-		s.NewID(), c.ID, c.OrgID, t.Name, def)
-	return err
+	return insertToolRow(ctx, tx, s.NewID(), c, t.Name, def, source, true)
 }
 
-// DefinitionJSON encodes one tool definition as JSON in its own key order,
-// which is the order the author wrote it in. It is the wire and storage
-// form of a definition.
+// DefinitionJSON encodes one tool definition as JSON. It is the wire and
+// storage form of a definition. Struct fields come out in declaration
+// order and ordered maps (headers) in their own order; free-form nodes
+// (input, output, query, body, variables) come out with sorted keys. The
+// encoding is stable: encoding a decoded definition gives the same bytes.
 func DefinitionJSON(t *adapter.Tool) ([]byte, error) {
 	// Reuse the adapter package's ordered JSON encoding via a single-tool doc.
 	a := &adapter.Adapter{Tools: []adapter.Tool{*t}}
@@ -423,44 +438,6 @@ func (s *Service) Delete(ctx context.Context, orgID, id, actorID string) error {
 	})
 }
 
-// Tools lists a connector's tools.
-func (s *Service) Tools(ctx context.Context, orgID, connectorID string) ([]*Tool, error) {
-	var out []*Tool
-	err := s.DB.Tx(tenant.WithOrg(ctx, orgID), func(tx pgx.Tx) error {
-		rows, err := tx.Query(ctx, `SELECT id, connector_id, name, definition, COALESCE(operation_id,''), enabled, deprecated_at, version FROM tools WHERE connector_id = $1 ORDER BY name`, connectorID)
-		if err != nil {
-			return err
-		}
-		defer rows.Close()
-		for rows.Next() {
-			t, err := scanTool(rows)
-			if err != nil {
-				return err
-			}
-			out = append(out, t)
-		}
-		return rows.Err()
-	})
-	if out == nil {
-		out = []*Tool{}
-	}
-	return out, err
-}
-
-func scanTool(row pgx.Row) (*Tool, error) {
-	var t Tool
-	var def []byte
-	if err := row.Scan(&t.ID, &t.ConnectorID, &t.Name, &def, &t.OperationID, &t.Enabled, &t.DeprecatedAt, &t.Version); err != nil {
-		return nil, err
-	}
-	td, err := ParseToolJSON(def)
-	if err != nil {
-		return nil, err
-	}
-	t.Definition = td
-	return &t, nil
-}
-
 // ParseToolJSON decodes a stored tool definition, keeping key order.
 func ParseToolJSON(def []byte) (*adapter.Tool, error) {
 	var t adapter.Tool
@@ -503,21 +480,6 @@ func ParseToolJSON(def []byte) (*adapter.Tool, error) {
 		}
 	}
 	return &t, nil
-}
-
-// SetToolEnabled toggles a tool.
-func (s *Service) SetToolEnabled(ctx context.Context, orgID, toolID string, enabled bool) error {
-	return s.DB.Tx(tenant.WithOrg(ctx, orgID), func(tx pgx.Tx) error {
-		tag, err := tx.Exec(ctx, `UPDATE tools SET enabled = $2, version = version + 1, updated_at = now() WHERE id = $1`, toolID, enabled)
-		if err != nil {
-			return err
-		}
-		if tag.RowsAffected() == 0 {
-			return ErrNotFound
-		}
-		_, err = tx.Exec(ctx, `UPDATE connectors SET version = version + 1 WHERE id = (SELECT connector_id FROM tools WHERE id = $1)`, toolID)
-		return err
-	})
 }
 
 // Resolved is a connector ready for execution.

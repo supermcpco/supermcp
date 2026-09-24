@@ -8,7 +8,9 @@ migrations, which the Helm chart does in a hook before the new pods start.
 
 Migration 00018 adds `tool_blobs` and needs nothing from you. Two fixes
 change what people see, and two change what is on the audit trail and at
-rest.
+rest. Tools can now be created, edited and deleted, which brings
+migration 00019 and a handful of changes to existing behaviour, listed
+under "Tools can be edited" below.
 
 ### A password maximum age now applies
 
@@ -61,6 +63,77 @@ replica that checked it. What that changes: a password crossing its
 maximum age, or a policy tightened in another replica, is enforced
 within a minute rather than on the next request. An expired password is
 still re-read on every request, so a change is seen at once.
+
+### Tools can be edited
+
+A connector's tools can be created, edited and deleted through the API
+and the connector screen. The routes and the permissions they need are
+in `docs/api.md`. What changes for an existing instance:
+
+**Migration 00019** adds three columns to `tools`: `source`, `edited_at`
+and `edited_by`. It only adds, and it backfills `source`: `catalog` for
+every tool of a connector installed from the catalogue, `import` for
+every other. `source` defaults to `import`, so a replica still on the
+previous version, which does not know the column, writes a valid row.
+The cost is that a catalogue install made on an old replica during the
+roll is labelled `import`. Nothing depends on the difference yet beyond
+what the screen shows, but if you want the labels right, run the
+backfill again once every replica is on the new version, as the
+maintenance role:
+
+```sql
+UPDATE tools t SET source = 'catalog'
+  FROM connectors c
+ WHERE c.id = t.connector_id AND c.catalog_slug IS NOT NULL
+   AND t.source = 'import';
+```
+
+**Only custom tools can be deleted.** A tool from the catalogue or an
+import can be disabled, as before, and not deleted, because a re-sync or
+a re-import would bring it back.
+
+**Enabling or disabling a tool now reaches clients at once.** It
+records a revision, and it moves the version of every MCP server the
+connector is on, which is what a served tool list is cached under.
+Before, a change could take up to 30 seconds to show in `tools/list`.
+The permission is now checked against the tool and its connector, so a
+binding scoped to the connector covers it; before, only a binding on
+the tool or the workspace did.
+
+**Approval requests are withdrawn when their tool changes.** A request
+that is pending, or approved and not yet run, is cancelled when its tool
+is deleted or edited in a way that changes what a call does. An
+approval replays by tool, so otherwise a yes given to the old
+definition would run the new one. Whoever raised it asks again.
+
+**Dry-run previews redact more.** A preview used to hide only headers
+whose names looked like credentials. It now replaces every credential
+value and every value upstream authentication prepared, wherever it
+appears in the rendered request — the URL, any header, the body, the SQL
+and its arguments — with `<redacted:env.NAME>` or
+`<redacted:auth.NAME>`. Values shorter than four characters are left
+alone. Anything that compared previews byte for byte will see the
+difference.
+
+**An absolute operation path must stay on a known host.** A tool that
+is created or edited on an HTTP or SOAP connector may not send its request, and
+the connector's credential with it, to a host that is not the base
+URL's, one the connector's other tools already use, or the one the tool
+had before. Existing tools are not checked until someone edits them.
+
+**Unique violations are 409, not 500.** Any write that collided with a
+record already held unique used to fail as an internal error. It is now
+a `409`, whose message does not name the constraint or the value.
+
+**Definitions keep the order they were always stored in.** A saved
+definition goes into the same `jsonb` column a catalogue install always
+used, so the free-form parts — the input and output schemas, the query,
+the body, the variables — come back with their keys in `jsonb` order,
+shortest first, rather than as they were typed. That is how installed
+tools have always been served; editing does not change it.
+
+**Generated API clients need regenerating.** The tool routes are new,
+and the tool list and the revision restore return more fields.
 
 ## 1.2.0
 

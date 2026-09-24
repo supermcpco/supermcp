@@ -103,6 +103,9 @@ type Call struct {
 	Tool      *connector.Tool
 	Connector *connector.Connector
 	Args      map[string]any
+	// Draft marks a dry run of an unsaved definition; the audit event
+	// says so, since Tool is not (or not yet) what is stored.
+	Draft bool
 }
 
 // Result is the MCP-shaped outcome.

@@ -61,6 +61,13 @@ function Connectors() {
               <div className="flex items-center gap-2">
                 {c.credentials?.some((cr) => !cr.set) && <Badge>credentials missing</Badge>}
                 <Link
+                  to="/connectors/$id/tools"
+                  params={{ id: c.id }}
+                  className="rounded-md px-3 py-1.5 ring ring-kumo-line hover:bg-kumo-tint"
+                >
+                  <Text as="span">Tools</Text>
+                </Link>
+                <Link
                   to="/connectors/$id/history"
                   params={{ id: c.id }}
                   className="rounded-md px-3 py-1.5 ring ring-kumo-line hover:bg-kumo-tint"

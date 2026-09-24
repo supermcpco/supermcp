@@ -27,6 +27,10 @@ import { Route as SettingsSecurityRouteImport } from './routes/settings.security
 import { Route as SettingsServiceAccountsRouteImport } from './routes/settings.service-accounts'
 import { Route as SettingsSsoRouteImport } from './routes/settings.sso'
 import { Route as ConnectorsIdHistoryRouteImport } from './routes/connectors.$id.history'
+import { Route as ConnectorsIdToolsIndexRouteImport } from './routes/connectors.$id.tools.index'
+import { Route as ConnectorsIdToolsNewRouteImport } from './routes/connectors.$id.tools.new'
+import { Route as ConnectorsIdToolsToolIdIndexRouteImport } from './routes/connectors.$id.tools.$toolId.index'
+import { Route as ConnectorsIdToolsToolIdHistoryRouteImport } from './routes/connectors.$id.tools.$toolId.history'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -118,6 +122,28 @@ const ConnectorsIdHistoryRoute = ConnectorsIdHistoryRouteImport.update({
   path: '/connectors/$id/history',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ConnectorsIdToolsIndexRoute = ConnectorsIdToolsIndexRouteImport.update({
+  id: '/connectors/$id/tools/',
+  path: '/connectors/$id/tools/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ConnectorsIdToolsNewRoute = ConnectorsIdToolsNewRouteImport.update({
+  id: '/connectors/$id/tools/new',
+  path: '/connectors/$id/tools/new',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ConnectorsIdToolsToolIdIndexRoute =
+  ConnectorsIdToolsToolIdIndexRouteImport.update({
+    id: '/connectors/$id/tools/$toolId/',
+    path: '/connectors/$id/tools/$toolId/',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ConnectorsIdToolsToolIdHistoryRoute =
+  ConnectorsIdToolsToolIdHistoryRouteImport.update({
+    id: '/connectors/$id/tools/$toolId/history',
+    path: '/connectors/$id/tools/$toolId/history',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -138,6 +164,10 @@ export interface FileRoutesByFullPath {
   '/catalog/': typeof CatalogIndexRoute
   '/connectors/': typeof ConnectorsIndexRoute
   '/connectors/$id/history': typeof ConnectorsIdHistoryRoute
+  '/connectors/$id/tools/new': typeof ConnectorsIdToolsNewRoute
+  '/connectors/$id/tools/': typeof ConnectorsIdToolsIndexRoute
+  '/connectors/$id/tools/$toolId/history': typeof ConnectorsIdToolsToolIdHistoryRoute
+  '/connectors/$id/tools/$toolId/': typeof ConnectorsIdToolsToolIdIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -158,6 +188,10 @@ export interface FileRoutesByTo {
   '/catalog': typeof CatalogIndexRoute
   '/connectors': typeof ConnectorsIndexRoute
   '/connectors/$id/history': typeof ConnectorsIdHistoryRoute
+  '/connectors/$id/tools/new': typeof ConnectorsIdToolsNewRoute
+  '/connectors/$id/tools': typeof ConnectorsIdToolsIndexRoute
+  '/connectors/$id/tools/$toolId/history': typeof ConnectorsIdToolsToolIdHistoryRoute
+  '/connectors/$id/tools/$toolId': typeof ConnectorsIdToolsToolIdIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -179,6 +213,10 @@ export interface FileRoutesById {
   '/catalog/': typeof CatalogIndexRoute
   '/connectors/': typeof ConnectorsIndexRoute
   '/connectors/$id/history': typeof ConnectorsIdHistoryRoute
+  '/connectors/$id/tools/new': typeof ConnectorsIdToolsNewRoute
+  '/connectors/$id/tools/': typeof ConnectorsIdToolsIndexRoute
+  '/connectors/$id/tools/$toolId/history': typeof ConnectorsIdToolsToolIdHistoryRoute
+  '/connectors/$id/tools/$toolId/': typeof ConnectorsIdToolsToolIdIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -201,6 +239,10 @@ export interface FileRouteTypes {
     | '/catalog/'
     | '/connectors/'
     | '/connectors/$id/history'
+    | '/connectors/$id/tools/new'
+    | '/connectors/$id/tools/'
+    | '/connectors/$id/tools/$toolId/history'
+    | '/connectors/$id/tools/$toolId/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -221,6 +263,10 @@ export interface FileRouteTypes {
     | '/catalog'
     | '/connectors'
     | '/connectors/$id/history'
+    | '/connectors/$id/tools/new'
+    | '/connectors/$id/tools'
+    | '/connectors/$id/tools/$toolId/history'
+    | '/connectors/$id/tools/$toolId'
   id:
     | '__root__'
     | '/'
@@ -241,6 +287,10 @@ export interface FileRouteTypes {
     | '/catalog/'
     | '/connectors/'
     | '/connectors/$id/history'
+    | '/connectors/$id/tools/new'
+    | '/connectors/$id/tools/'
+    | '/connectors/$id/tools/$toolId/history'
+    | '/connectors/$id/tools/$toolId/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -262,6 +312,10 @@ export interface RootRouteChildren {
   CatalogIndexRoute: typeof CatalogIndexRoute
   ConnectorsIndexRoute: typeof ConnectorsIndexRoute
   ConnectorsIdHistoryRoute: typeof ConnectorsIdHistoryRoute
+  ConnectorsIdToolsNewRoute: typeof ConnectorsIdToolsNewRoute
+  ConnectorsIdToolsIndexRoute: typeof ConnectorsIdToolsIndexRoute
+  ConnectorsIdToolsToolIdHistoryRoute: typeof ConnectorsIdToolsToolIdHistoryRoute
+  ConnectorsIdToolsToolIdIndexRoute: typeof ConnectorsIdToolsToolIdIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -392,6 +446,34 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ConnectorsIdHistoryRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/connectors/$id/tools/': {
+      id: '/connectors/$id/tools/'
+      path: '/connectors/$id/tools'
+      fullPath: '/connectors/$id/tools/'
+      preLoaderRoute: typeof ConnectorsIdToolsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/connectors/$id/tools/new': {
+      id: '/connectors/$id/tools/new'
+      path: '/connectors/$id/tools/new'
+      fullPath: '/connectors/$id/tools/new'
+      preLoaderRoute: typeof ConnectorsIdToolsNewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/connectors/$id/tools/$toolId/': {
+      id: '/connectors/$id/tools/$toolId/'
+      path: '/connectors/$id/tools/$toolId'
+      fullPath: '/connectors/$id/tools/$toolId/'
+      preLoaderRoute: typeof ConnectorsIdToolsToolIdIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/connectors/$id/tools/$toolId/history': {
+      id: '/connectors/$id/tools/$toolId/history'
+      path: '/connectors/$id/tools/$toolId/history'
+      fullPath: '/connectors/$id/tools/$toolId/history'
+      preLoaderRoute: typeof ConnectorsIdToolsToolIdHistoryRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -414,6 +496,10 @@ const rootRouteChildren: RootRouteChildren = {
   CatalogIndexRoute: CatalogIndexRoute,
   ConnectorsIndexRoute: ConnectorsIndexRoute,
   ConnectorsIdHistoryRoute: ConnectorsIdHistoryRoute,
+  ConnectorsIdToolsNewRoute: ConnectorsIdToolsNewRoute,
+  ConnectorsIdToolsIndexRoute: ConnectorsIdToolsIndexRoute,
+  ConnectorsIdToolsToolIdHistoryRoute: ConnectorsIdToolsToolIdHistoryRoute,
+  ConnectorsIdToolsToolIdIndexRoute: ConnectorsIdToolsToolIdIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

@@ -2,9 +2,13 @@ package invoke
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
+	"sort"
+	"strings"
 
 	"github.com/supermcpco/supermcp/internal/audit"
 	"github.com/supermcpco/supermcp/internal/connector"
@@ -82,6 +86,11 @@ func (e *Executor) DryRun(ctx context.Context, c Call) (*engine.Preview, error) 
 		return nil, err
 	}
 	preview.Note = note
+	// The engine redacts headers whose names look like credentials, but a
+	// credential placeholder can sit anywhere: a query parameter, a body
+	// field, another header. Every rendered value that equals a decrypted
+	// credential is replaced, whatever it is called.
+	scrubEnv(preview, resolved.Env, vars.Auth)
 	e.auditDryRun(ctx, c)
 	return preview, nil
 }
@@ -121,10 +130,118 @@ func (e *Executor) auditDryRun(ctx context.Context, c Call) {
 	if c.Principal != nil {
 		kind, id = string(c.Principal.Kind), c.Principal.ID
 	}
+	meta := map[string]any{"connector": c.Connector.ID, "server": c.ServerID}
+	if c.Draft {
+		meta["draft"] = true
+	}
 	e.Audit.Emit(ctx, audit.Event{
 		OrgID: c.Connector.OrgID, Category: audit.CategoryTool, Action: "tool.dry_run", Outcome: audit.Success,
 		ActorKind: kind, ActorID: id,
 		TargetKind: "tool", TargetID: c.Tool.ID, TargetDisplay: c.Tool.Name,
-		Meta: map[string]any{"connector": c.Connector.ID, "server": c.ServerID},
+		Meta: meta,
 	})
+}
+
+// minSecretLen is the shortest credential value that is scrubbed. Shorter
+// values ("1", "true", "eu") would redact ordinary text and say nothing
+// useful about the credential anyway.
+const minSecretLen = 4
+
+// secret is one credential value and the placeholder that names it.
+type secret struct {
+	label string // e.g. env.API_KEY
+	value string
+}
+
+// secretsOf lists the values of one placeholder namespace that are long
+// enough to scrub. Names are sorted so that two credentials sharing a
+// value always redact to the same label.
+func secretsOf(namespace string, values map[string]string) []secret {
+	names := make([]string, 0, len(values))
+	for k, v := range values {
+		if len(v) >= minSecretLen {
+			names = append(names, k)
+		}
+	}
+	sort.Strings(names)
+	out := make([]secret, 0, len(names))
+	for _, k := range names {
+		out = append(out, secret{label: namespace + "." + k, value: values[k]})
+	}
+	return out
+}
+
+// scrubEnv replaces every credential value in a preview with a label
+// naming it: <redacted:env.NAME> for connector credentials, and
+// <redacted:auth.NAME> for what upstream auth prepared (a stored token, a
+// basic-auth pair). It covers the URL, header values, body, SQL and string
+// arguments, and each value as written, query-escaped, path-escaped and
+// JSON-escaped, which are the forms a template renders it in.
+func scrubEnv(p *engine.Preview, env, auth map[string]string) {
+	if p == nil {
+		return
+	}
+	r := newSecretReplacer(secretsOf("env", env), secretsOf("auth", auth))
+	if r == nil {
+		return
+	}
+	p.URL = r.Replace(p.URL)
+	p.Body = r.Replace(p.Body)
+	p.SQL = r.Replace(p.SQL)
+	for k, v := range p.Headers {
+		p.Headers[k] = r.Replace(v)
+	}
+	for i, a := range p.Args {
+		if s, ok := a.(string); ok {
+			p.Args[i] = r.Replace(s)
+		}
+	}
+}
+
+// newSecretReplacer builds one replacer over every form of every secret,
+// longest needle first. strings.Replacer tries its pairs in argument order
+// at each position and never rescans its own output, so a secret that
+// contains another is redacted whole and a replacement is never redacted
+// again. It is nil when there is nothing to scrub.
+func newSecretReplacer(sets ...[]secret) *strings.Replacer {
+	type pair struct{ needle, label string }
+	seen := map[string]bool{}
+	var pairs []pair
+	for _, set := range sets {
+		for _, s := range set {
+			for _, form := range encodedForms(s.value) {
+				if len(form) < minSecretLen || seen[form] {
+					continue
+				}
+				seen[form] = true
+				pairs = append(pairs, pair{needle: form, label: "<redacted:" + s.label + ">"})
+			}
+		}
+	}
+	if len(pairs) == 0 {
+		return nil
+	}
+	sort.SliceStable(pairs, func(i, j int) bool { return len(pairs[i].needle) > len(pairs[j].needle) })
+	args := make([]string, 0, 2*len(pairs))
+	for _, p := range pairs {
+		args = append(args, p.needle, p.label)
+	}
+	return strings.NewReplacer(args...)
+}
+
+// encodedForms is a value as written and as each renderer escapes it.
+func encodedForms(v string) []string {
+	forms := []string{v, url.QueryEscape(v), url.PathEscape(v)}
+	// JSON, both with and without HTML escaping (<, >, & as \u003c...).
+	for _, html := range []bool{true, false} {
+		var b strings.Builder
+		enc := json.NewEncoder(&b)
+		enc.SetEscapeHTML(html)
+		if err := enc.Encode(v); err != nil {
+			continue
+		}
+		s := strings.TrimSuffix(b.String(), "\n")
+		forms = append(forms, strings.TrimSuffix(strings.TrimPrefix(s, `"`), `"`))
+	}
+	return forms
 }

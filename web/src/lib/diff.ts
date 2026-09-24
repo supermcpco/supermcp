@@ -1,3 +1,5 @@
+import { parseJson, stringifyJson } from "./tool-definition";
+
 /**
  * A line-by-line comparison of two versions of the same text.
  *
@@ -143,9 +145,24 @@ export function diffLines(before: string, after: string): DiffRow[] {
  * text; anything else is printed as indented JSON, which puts each key on
  * its own line and so gives the comparison something to line up.
  */
+/**
+ * A string that holds a JSON document, such as a tool definition, laid out
+ * one member per line so a diff can find the line that moved. Keys stay in
+ * the order they were written. Anything else is left alone.
+ */
+function readableJson(text: string): string | null {
+  const trimmed = text.trim();
+  if (!(trimmed.startsWith("{") || trimmed.startsWith("[")) || text.includes("\n")) return null;
+  try {
+    return stringifyJson(parseJson(trimmed));
+  } catch {
+    return null;
+  }
+}
+
 export function asComparableText(value: unknown): string {
   if (value === undefined || value === null) return "";
-  if (typeof value === "string") return value;
+  if (typeof value === "string") return readableJson(value) ?? value;
   if (typeof value === "boolean" || typeof value === "number") return String(value);
   return JSON.stringify(value, null, 2);
 }

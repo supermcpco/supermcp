@@ -69,14 +69,54 @@ type validator struct {
 }
 
 func (v *validator) errorf(rule, format string, args ...any) {
-	v.issues = append(v.issues, Issue{File: v.file, Rule: rule, Severity: SeverityError, Message: fmt.Sprintf(format, args...)})
+	v.errorAt("", rule, format, args...)
 }
 
 func (v *validator) warnf(rule, format string, args ...any) {
+	v.warnAt("", rule, format, args...)
+}
+
+// errorAt records an error about one field of a tool definition.
+func (v *validator) errorAt(field, rule, format string, args ...any) {
+	v.issues = append(v.issues, Issue{File: v.file, Rule: rule, Severity: SeverityError, Message: fmt.Sprintf(format, args...), Field: field})
+}
+
+// warnAt records a warning about one field of a tool definition.
+func (v *validator) warnAt(field, rule, format string, args ...any) {
 	if v.allow[rule] {
 		return
 	}
-	v.issues = append(v.issues, Issue{File: v.file, Rule: rule, Severity: SeverityWarning, Message: fmt.Sprintf(format, args...)})
+	v.issues = append(v.issues, Issue{File: v.file, Rule: rule, Severity: SeverityWarning, Message: fmt.Sprintf(format, args...), Field: field})
+}
+
+// ValidateTool checks one tool definition on its own, for a connector of
+// the given transport. It runs the per-tool rules of Validate; the rules
+// that need the whole adapter (name prefix, uniqueness, declared
+// credentials) are left to the caller. Issues carry Field and no File.
+func ValidateTool(t *Tool, transport TransportType) []Issue {
+	v := &validator{a: &Adapter{Transport: Transport{Type: transport}}, allow: map[string]bool{}}
+	loc := t.Name
+	if loc == "" {
+		loc = "tool"
+	}
+	v.validateTool(loc, t, map[string]bool{})
+	return v.issues
+}
+
+// ToolPlaceholderEnv lists the {{env.X}} names a tool's operation uses, in
+// the order they first appear.
+func ToolPlaceholderEnv(t *Tool) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, fs := range operationStrings(&t.Operation) {
+		for _, m := range rePlaceholder.FindAllStringSubmatch(fs.s, -1) {
+			if m[1] == "env" && !seen[m[2]] {
+				seen[m[2]] = true
+				out = append(out, m[2])
+			}
+		}
+	}
+	return out
 }
 
 // Validate checks one adapter. dir is the adapter directory path (used for
@@ -180,28 +220,18 @@ func Validate(f *File) []Issue {
 	prefix := strings.ReplaceAll(m.Slug, "-", "_") + "_"
 	seen := map[string]bool{}
 	envUsed := map[string]bool{}
-	for i, t := range a.Tools {
+	for i := range a.Tools {
+		t := &a.Tools[i]
 		loc := fmt.Sprintf("tools[%d] %s", i, t.Name)
-		if !reToolName.MatchString(t.Name) {
-			v.errorf("tool-name-format", "%s: tool name must be lowercase snake_case", loc)
-		}
+		v.validateToolName(loc, t)
 		if seen[t.Name] {
-			v.errorf("tool-name-unique", "%s: duplicate tool name", loc)
+			v.errorAt("name", "tool-name-unique", "%s: duplicate tool name", loc)
 		}
 		seen[t.Name] = true
 		if !strings.HasPrefix(t.Name, prefix) {
-			v.warnf("tool-name-prefix", "%s: name should start with %q", loc, prefix)
+			v.warnAt("name", "tool-name-prefix", "%s: name should start with %q", loc, prefix)
 		}
-		if len(t.Description) < 60 {
-			v.warnf("description-min-60", "%s: description is %d chars; 60+ recommended", loc, len(t.Description))
-		}
-		params := v.validateInputSchema(loc, t.Input)
-		v.validateOperation(loc, &t, params, declared, envUsed)
-		if t.Response != nil && t.Response.Transform != nil {
-			if _, err := jmespath.Compile(t.Response.Transform.JMESPath); err != nil {
-				v.errorf("jmespath-parses", "%s: response.transform.jmespath: %v", loc, err)
-			}
-		}
+		v.validateToolBody(loc, t, envUsed)
 	}
 
 	// Credentials used vs declared.
@@ -354,21 +384,46 @@ func (v *validator) validateAuth(declared map[string]bool) {
 	_ = declared
 }
 
+// validateTool runs every rule that looks at one tool alone.
+func (v *validator) validateTool(loc string, t *Tool, envUsed map[string]bool) {
+	v.validateToolName(loc, t)
+	v.validateToolBody(loc, t, envUsed)
+}
+
+func (v *validator) validateToolName(loc string, t *Tool) {
+	if !reToolName.MatchString(t.Name) {
+		v.errorAt("name", "tool-name-format", "%s: tool name must be lowercase snake_case", loc)
+	}
+}
+
+func (v *validator) validateToolBody(loc string, t *Tool, envUsed map[string]bool) {
+	if len(t.Description) < 60 {
+		v.warnAt("description", "description-min-60", "%s: description is %d chars; 60+ recommended", loc, len(t.Description))
+	}
+	params := v.validateInputSchema(loc, t.Input)
+	v.validateOperation(loc, t, params, envUsed)
+	if t.Response != nil && t.Response.Transform != nil {
+		if _, err := jmespath.Compile(t.Response.Transform.JMESPath); err != nil {
+			v.errorAt("response.transform.jmespath", "jmespath-parses", "%s: response.transform.jmespath: %v", loc, err)
+		}
+	}
+}
+
 // validateInputSchema checks the JSON Schema subset and returns the
 // declared parameter names.
 func (v *validator) validateInputSchema(loc string, in *Node) map[string]bool {
 	params := map[string]bool{}
 	if in == nil || in.N == nil {
-		v.errorf("input-required", "%s: input schema is required", loc)
+		v.errorAt("input", "input-required", "%s: input schema is required", loc)
 		return params
 	}
 	n := in.N
 	if n.Kind != yaml.MappingNode {
-		v.errorf("input-object", "%s: input must be a JSON Schema object", loc)
+		v.errorAt("input", "input-object", "%s: input must be a JSON Schema object", loc)
 		return params
 	}
 	if t := MapGet(n, "type"); t == nil || t.Value != "object" {
-		v.errorf("input-object", "%s: input.type must be \"object\"", loc)
+		v.errorAt("input.type", "input-object", "%s: input.type must be \"object\"", loc)
 	}
 	v.checkSchemaSubset(loc, n)
 	props := MapGet(n, "properties")
@@ -378,7 +433,7 @@ func (v *validator) validateInputSchema(loc string, in *Node) map[string]bool {
 	if req := MapGet(n, "required"); req != nil && req.Kind == yaml.SequenceNode {
 		for _, r := range req.Content {
 			if !params[r.Value] {
-				v.errorf("input-required-unknown", "%s: required lists unknown property %q", loc, r.Value)
+				v.errorAt("input.required", "input-required-unknown", "%s: required lists unknown property %q", loc, r.Value)
 			}
 		}
 	}
@@ -395,7 +450,7 @@ func (v *validator) checkSchemaSubset(loc string, n *yaml.Node) {
 		for i := 0; i+1 < len(n.Content); i += 2 {
 			k := n.Content[i].Value
 			if forbiddenSchemaKeys[k] {
-				v.errorf("schema-subset", "%s: input schema uses %q, which is outside the supported subset", loc, k)
+				v.errorAt("input", "schema-subset", "%s: input schema uses %q, which is outside the supported subset", loc, k)
 			}
 			v.checkSchemaSubset(loc, n.Content[i+1])
 		}
@@ -406,39 +461,55 @@ func (v *validator) checkSchemaSubset(loc string, n *yaml.Node) {
 	}
 }
 
-func (v *validator) validateOperation(loc string, t *Tool, params, declared, envUsed map[string]bool) {
-	op := t.Operation
-	tt := v.a.Transport.Type
+// fieldString is one string of an operation and the field it sits in.
+type fieldString struct {
+	field, s string
+}
 
-	// Collect every string in the operation and check placeholders.
-	var strs []string
-	strs = append(strs, op.Path, op.Document, op.Statement, op.Envelope, op.Action, op.Tool)
-	for _, k := range op.Headers.Keys {
-		strs = append(strs, op.Headers.Values[k])
+// operationStrings collects every string in an operation that may hold
+// placeholders, in a fixed order.
+func operationStrings(op *Operation) []fieldString {
+	strs := []fieldString{
+		{"operation.path", op.Path}, {"operation.document", op.Document}, {"operation.statement", op.Statement},
+		{"operation.envelope", op.Envelope}, {"operation.action", op.Action}, {"operation.tool", op.Tool},
 	}
-	for _, n := range []*Node{op.Query, op.Variables, op.ArgsMap} {
-		if n != nil && n.N != nil {
-			WalkStrings(n.N, func(s string) string { strs = append(strs, s); return s })
+	for _, k := range op.Headers.Keys {
+		strs = append(strs, fieldString{"operation.headers." + k, op.Headers.Values[k]})
+	}
+	for _, n := range []struct {
+		field string
+		n     *Node
+	}{{"operation.query", op.Query}, {"operation.variables", op.Variables}, {"operation.argsMap", op.ArgsMap}} {
+		if n.n != nil && n.n.N != nil {
+			WalkStrings(n.n.N, func(s string) string { strs = append(strs, fieldString{n.field, s}); return s })
 		}
 	}
 	if op.Body != nil && op.Body.Value != nil && op.Body.Value.N != nil {
-		WalkStrings(op.Body.Value.N, func(s string) string { strs = append(strs, s); return s })
+		WalkStrings(op.Body.Value.N, func(s string) string { strs = append(strs, fieldString{"operation.body.value", s}); return s })
 	}
-	for _, s := range strs {
-		v.checkPlaceholders(loc, s, params, envUsed)
+	return strs
+}
+
+func (v *validator) validateOperation(loc string, t *Tool, params, envUsed map[string]bool) {
+	op := t.Operation
+	tt := v.a.Transport.Type
+
+	// Check placeholders in every string of the operation.
+	for _, fs := range operationStrings(&op) {
+		v.checkPlaceholders(fs.field, loc, fs.s, params, envUsed)
 	}
 	// Also transport/auth strings contribute env usage.
 	for _, s := range v.authStrings() {
-		v.checkPlaceholders("auth", s, nil, envUsed)
+		v.checkPlaceholders("", "auth", s, nil, envUsed)
 	}
 	for _, k := range v.a.Transport.Headers.Keys {
-		v.checkPlaceholders("transport.headers", v.a.Transport.Headers.Values[k], nil, envUsed)
+		v.checkPlaceholders("", "transport.headers", v.a.Transport.Headers.Values[k], nil, envUsed)
 	}
-	v.checkPlaceholders("transport", v.a.Transport.BaseURL+v.a.Transport.DSN, nil, envUsed)
+	v.checkPlaceholders("", "transport", v.a.Transport.BaseURL+v.a.Transport.DSN, nil, envUsed)
 
 	if op.Kind == "static" {
 		if op.Value == nil {
-			v.errorf("operation-static", "%s: static operation needs a value", loc)
+			v.errorAt("operation.value", "operation-static", "%s: static operation needs a value", loc)
 		}
 		return
 	}
@@ -447,43 +518,43 @@ func (v *validator) validateOperation(loc string, t *Tool, params, declared, env
 		switch op.Method {
 		case "GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS":
 		default:
-			v.errorf("operation-method", "%s: operation.method %q is not an HTTP method", loc, op.Method)
+			v.errorAt("operation.method", "operation-method", "%s: operation.method %q is not an HTTP method", loc, op.Method)
 		}
 		// An empty path is allowed: the base URL is the resource.
 		if op.Body != nil {
 			switch op.Body.Encoding {
 			case "", "json", "form", "multipart", "raw":
 			default:
-				v.errorf("operation-body-encoding", "%s: body.encoding %q is not supported", loc, op.Body.Encoding)
+				v.errorAt("operation.body.encoding", "operation-body-encoding", "%s: body.encoding %q is not supported", loc, op.Body.Encoding)
 			}
 			if op.Method == "GET" || op.Method == "HEAD" {
-				v.warnf("operation-body-get", "%s: body on a %s request", loc, op.Method)
+				v.warnAt("operation.body", "operation-body-get", "%s: body on a %s request", loc, op.Method)
 			}
 		}
 	case TransportGraphQL:
 		if op.Kind != "query" && op.Kind != "mutation" {
-			v.errorf("operation-kind", "%s: operation.kind must be query or mutation", loc)
+			v.errorAt("operation.kind", "operation-kind", "%s: operation.kind must be query or mutation", loc)
 		}
 		if strings.TrimSpace(op.Document) == "" {
-			v.errorf("operation-document", "%s: operation.document is required", loc)
+			v.errorAt("operation.document", "operation-document", "%s: operation.document is required", loc)
 		}
 	case TransportDatabase:
 		switch op.Kind {
 		case "sql":
 			if strings.TrimSpace(op.Statement) == "" {
-				v.errorf("operation-statement", "%s: operation.statement is required", loc)
+				v.errorAt("operation.statement", "operation-statement", "%s: operation.statement is required", loc)
 			} else if !isRawParam(op.Statement) && !looksReadOnly(op.Statement) {
 				if t.Annotations == nil || t.Annotations.DestructiveHint == nil || !*t.Annotations.DestructiveHint {
-					v.warnf("sql-readonly", "%s: statement is not SELECT/WITH and tool is not marked destructive", loc)
+					v.warnAt("operation.statement", "sql-readonly", "%s: statement is not SELECT/WITH and tool is not marked destructive", loc)
 				}
 			}
 		case "schema":
 		default:
-			v.errorf("operation-kind", "%s: operation.kind must be sql, schema or static", loc)
+			v.errorAt("operation.kind", "operation-kind", "%s: operation.kind must be sql, schema or static", loc)
 		}
 	case TransportMCP:
 		if op.Tool == "" {
-			v.errorf("operation-tool", "%s: operation.tool is required", loc)
+			v.errorAt("operation.tool", "operation-tool", "%s: operation.tool is required", loc)
 		}
 	}
 }
@@ -517,17 +588,18 @@ func (v *validator) authStrings() []string {
 
 // checkPlaceholders verifies every {{...}} in s uses a known namespace and,
 // for params, a declared parameter. params == nil skips the param check.
-func (v *validator) checkPlaceholders(loc, s string, params, envUsed map[string]bool) {
+// field is the tool field s came from, empty for adapter-level strings.
+func (v *validator) checkPlaceholders(field, loc, s string, params, envUsed map[string]bool) {
 	matches := rePlaceholder.FindAllStringSubmatch(s, -1)
 	if len(matches) != len(reAnyBraces.FindAllString(s, -1)) {
-		v.errorf("placeholder-syntax", "%s: malformed placeholder in %q", loc, truncate(s))
+		v.errorAt(field, "placeholder-syntax", "%s: malformed placeholder in %q", loc, truncate(s))
 	}
 	for _, m := range matches {
 		ns, name := m[1], m[2]
 		switch ns {
 		case "params":
 			if params != nil && !params[name] {
-				v.errorf("placeholder-unknown", "%s: {{params.%s}} is not a declared parameter", loc, name)
+				v.errorAt(field, "placeholder-unknown", "%s: {{params.%s}} is not a declared parameter", loc, name)
 			}
 		case "env":
 			envUsed[name] = true
@@ -535,11 +607,11 @@ func (v *validator) checkPlaceholders(loc, s string, params, envUsed map[string]
 			switch name {
 			case "email", "sub", "org", "server", "authMethod":
 			default:
-				v.errorf("placeholder-unknown", "%s: {{caller.%s}} is not a caller field", loc, name)
+				v.errorAt(field, "placeholder-unknown", "%s: {{caller.%s}} is not a caller field", loc, name)
 			}
 		case "auth", "req":
 		default:
-			v.errorf("placeholder-namespace", "%s: unknown placeholder namespace %q", loc, ns)
+			v.errorAt(field, "placeholder-namespace", "%s: unknown placeholder namespace %q", loc, ns)
 		}
 	}
 }

@@ -276,9 +276,9 @@ with no tools that looks like a working one.
 ### tools/list
 
 Returns the surface from step 4. Each tool carries its name,
-description, input schema and annotations, exactly as the adapter
-declared them. Annotations the adapter did not set are derived from the
-transport and from whether the connector is read-only.
+description, input schema and annotations, exactly as its stored
+definition declares them. Annotations the definition does not set are
+derived from the transport and from whether the connector is read-only.
 
 ### tools/call
 
@@ -327,6 +327,158 @@ anywhere, so a tool that sends the caller's identity upstream never
 serves one person's answer to another. Every error path in the cache
 resolves to a miss.
 
+## Managing tools
+
+A connector's tools can be added, edited and deleted through the admin
+API, one at a time.
+
+| Operation | Route | Permission |
+|---|---|---|
+| `connectors-tools` | `GET /api/v1/connectors/{id}/tools` | `tools:read` |
+| `tools-get` | `GET /api/v1/tools/{id}` | `tools:read` |
+| `tools-references` | `GET /api/v1/tools/{id}/references` | `tools:read` |
+| `tools-create` | `POST /api/v1/connectors/{id}/tools` | `tools:update` and `connectors:update` |
+| `tools-update` | `PUT /api/v1/tools/{id}` | `tools:update`, and see below |
+| `tools-enable` | `PATCH /api/v1/tools/{id}` | `tools:update` |
+| `tools-delete` | `DELETE /api/v1/tools/{id}` | `tools:update` and `connectors:update` |
+| `tools-draft-dry-run` | `POST /api/v1/connectors/{id}/tools/dry-run` | `tools:update` and `tools:invoke` |
+| `tools-revisions-restore` | `POST /api/v1/tools/{id}/revisions/{revision}/restore` | `revisions:rollback`, and see below |
+
+Every tool route finds the tool's connector before it checks a
+permission, so a binding scoped to the connector covers its tools. A
+caller without access to a tool gets the same `403` whether or not the
+tool exists.
+
+### The definition
+
+A tool's definition travels as a JSON string in `definition`, not as an
+object. It is the same document as one entry of an adapter's `tools`
+list (see `docs/adapters.md`), and its `name` is the tool's name.
+`tools-get` returns it with the rest of the tool: `source`, `edited`,
+`editedAt`, `editedBy` and `editedByName`, `version`, the connector's
+`transport`, the `annotations` clients are served, and
+`inferredAnnotations`, which are what the operation alone implies before
+the definition's own hints are applied.
+
+`source` is `catalog` for a tool installed from the catalogue, `import`
+for one that came with an imported specification or a hand-made
+connector, and `custom` for one created through `tools-create`. `edited`
+is true once someone has changed the definition by hand.
+
+`connectors-tools` returns the same fields as a list, without the
+definition. `tools-enable` takes `{"enabled": true|false}`, records a
+revision, and moves the version of every MCP server the connector is on,
+as every tool write does, so a client's next `tools/list` sees the
+change.
+
+### Creating, editing and deleting
+
+`tools-create` answers `201` with `{"tool": ..., "warnings": [...]}`. A
+new tool is enabled unless the body says `"enabled": false`.
+
+`tools-update` replaces the whole definition. `expectedVersion` is
+required and must be the `version` that was read; without it the answer
+is `422`, and with a stale one it is `409`. `enabled` may be left out to
+keep the current value. A rename is refused while approval policies
+match the tool by its current name, unless the body carries
+`"acknowledgeReferences": true`: those policies stop matching once it
+goes ahead.
+
+`tools-delete` removes a `custom` tool. A catalogue or imported tool can
+only be disabled, because a re-sync or a re-import would bring it back.
+A delete is refused while any approval policy refers to the tool, by name
+or by scope, unless the query carries `acknowledgeReferences=true`. The
+role allow and deny rules and the data-loss policies that name the tool
+go with it. `tools-references` lists all three before anyone asks.
+
+Deleting a tool, or an edit that changes what a call does, cancels the
+approval requests for it that are still pending or approved and not yet
+run. An approval replays by tool, so otherwise a yes given to the old
+definition would run the new one.
+
+### Who may change what
+
+Every write needs `tools:update`. On top of that:
+
+- Creating or deleting a tool, and any edit that changes what a call
+  does, needs `connectors:update`, because it is the connector's
+  credential that the call carries. What a call does is the
+  `operation`, `response`, `output`, `timeout`, `rateLimit`, `proxy` and
+  the four annotation hints. An edit to the description, the input
+  schema, the title or the name alone does not need it.
+- A definition that serves a tool as not destructive when its operation
+  implies it is — a `DELETE`, say, with `destructiveHint: false` —
+  needs `tools:invoke:destructive`, unless the stored definition already
+  did the same with the same operation and name. Otherwise an editor
+  could turn a destructive tool into one anybody with `tools:invoke` may
+  call. The audit event for such a write carries `meta.declassified`.
+
+A catalogue install or an import records no revision for each tool. The
+first change to such a tool records what it was before as revision 1, a
+`create` with no actor, so the definition the catalogue shipped can
+always be put back. A revision restore goes through the same checks as
+an edit, and a restore that puts back an earlier name takes
+`acknowledgeReferences` as a query parameter. A revision written before definitions were recorded
+holds only whether the tool was enabled, so that is all it restores. A
+deleted tool cannot be restored from its history.
+
+### Checking a draft
+
+`tools-draft-dry-run` takes an unsaved `definition`, the `toolId` being
+edited (left out for a new tool) and the `arguments` a model would send.
+It answers `200` with the problems it found in `issues`, the
+`annotations` and `inferredAnnotations` the draft would resolve to, and,
+when there are no errors, a `preview` of the request it would send. A
+preview renders the connector's credentials, which is why it needs
+`tools:invoke` as well. Every credential value and every value upstream
+authentication prepared is replaced in the preview by
+`<redacted:env.NAME>` or `<redacted:auth.NAME>`, wherever it appears:
+the URL, any header, the body, the SQL and its arguments. Values shorter
+than four characters are left alone. No preview is rendered for SOAP or
+MCP-bridge connectors.
+
+### What a definition is checked against
+
+Each finding has a `rule`, a `severity` and, where it is about one part
+of the definition, a dotted `field` such as `operation.path`. Errors
+stop a save; warnings come back with the saved tool.
+
+| Rule | Severity | Meaning |
+|---|---|---|
+| `json` | error | The draft is not valid JSON. Draft dry run only; a save answers `422`. |
+| `definition-required` | error | No definition was sent. |
+| `tool-name-format` | error | The name is not lower-case snake_case. |
+| `tool-name-unique` | error | Another tool on this connector has the name. |
+| `input-required`, `input-object`, `input-required-unknown`, `schema-subset` | error | As in an adapter. |
+| `placeholder-syntax`, `placeholder-unknown`, `placeholder-namespace` | error | As in an adapter. |
+| `operation-method`, `operation-kind`, `operation-document`, `operation-statement`, `operation-tool`, `operation-static`, `operation-body-encoding` | error | As in an adapter. |
+| `operation-static-transport` | error | `kind: static` on a connector that is not a database connector. Only the database engine runs static operations. |
+| `operation-host` | error | On an HTTP or SOAP connector, an `operation.path` that is an absolute URL, or that starts with a placeholder filtered `raw`, points at a host that is neither the base URL's host, a host the connector's other tools already use, nor the host this tool had before. It would send the connector's credential somewhere new. |
+| `jmespath-parses` | error | The response transform does not compile. |
+| `transform-length` | error | The response transform is longer than 4000 characters. |
+| `description-min-60`, `operation-body-get`, `sql-readonly` | warning | As in an adapter. |
+| `env-unknown` | warning | An `{{env.X}}` that is not a credential of this connector. It renders empty until one is set. |
+| `tool-name-shared-server` | warning | Another connector on the same MCP server has a tool of this name. A server serves the first and drops the rest. |
+| `preview-unsupported` | warning | The connector is SOAP or an MCP bridge, which have no preview. |
+
+A save whose definition has errors is `422`, with one entry in `errors`
+per error: `location` is `body.definition.<field>`, `message` says what
+is wrong, and `value` is the rule. The exception is a definition whose
+only error is `tool-name-unique`: nothing is wrong with it except what
+else exists, so it is a `409`.
+
+### Conflicts
+
+A tool write that conflicts is `409`, and `errors[].value` carries a
+code to match on. The message is written for people and may change.
+
+| Code | Means |
+|---|---|
+| `version_conflict` | The tool changed since `expectedVersion` was read. Read it again. |
+| `name_taken` | Another tool on the connector has the name. |
+| `not_deletable` | The tool is not `custom`. Disable it instead. |
+| `references_unacknowledged` | Approval policies refer to the tool. The response lists them, one further entry each at `references.approvalPolicies`, with the policy's name as `message` and its id as `value`. A rename lists the policies that match by name; a delete lists all of them. Send `acknowledgeReferences` to go ahead. |
+
 ## Errors
 
 ### The admin API
@@ -355,7 +507,8 @@ router logs it with the request id.
 | 401 | No credential, or one that did not verify. |
 | 403 | Authenticated, but the permission is not held — or no workspace is selected, or the account is disabled, or registration is closed. |
 | 404 | No such object *in your workspace*. Objects in other workspaces are not distinguishable from objects that do not exist. |
-| 409 | A role binding that already exists, or removing the last owner of a workspace. |
+| 409 | A record that already exists (a role binding, a tool name, anything else held unique), removing the last owner of a workspace, or a tool write that conflicts (see "Managing tools"). |
+| 422 | The body is well formed but its content is not acceptable: a tool definition with errors, or a required field missing. |
 | 429 | Over a rate-limit budget, locked out after failed sign-ins, or the limiter could not be evaluated. |
 | 503 | The database is unreachable or the schema is behind the binary (`/readyz`), or a subsystem the endpoint needs is not configured. |
 
