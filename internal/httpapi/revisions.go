@@ -265,8 +265,7 @@ func (d Deps) toolRestoreRoute(api huma.API) {
 					continue
 				}
 				d.restored(ctx, toolRevisions, in, t.Name)
-				return &struct{ Body toolDTO }{Body: toolDTO{ID: t.ID, Name: t.Name,
-					Description: t.Definition.Description, Enabled: t.Enabled}}, nil
+				return &struct{ Body toolDTO }{Body: toolToDTO(t)}, nil
 			}
 			return nil, huma.Error404NotFound("no such tool")
 		})

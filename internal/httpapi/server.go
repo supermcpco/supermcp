@@ -128,6 +128,7 @@ func New(d Deps) (http.Handler, huma.API) {
 	registerCatalog(api, d.Catalog)
 	d.registerRoutes(api)
 	d.connectorRoutes(api)
+	d.toolRoutes(api)
 	d.importRoutes(api)
 	d.serverRoutes(api)
 	d.keyRoutes(api)
