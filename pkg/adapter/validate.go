@@ -27,6 +27,9 @@ type Issue struct {
 	Severity Severity `json:"severity"`
 	Message  string   `json:"message"`
 	Related  string   `json:"related,omitempty"` // other file involved in a cross-adapter issue
+	// Field is the dotted path inside one tool definition the issue is
+	// about (e.g. "operation.path"), empty when it is about the whole tool.
+	Field string `json:"field,omitempty"`
 }
 
 // Regions is the closed set of adapter regions (directory names).

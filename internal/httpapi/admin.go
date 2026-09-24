@@ -11,6 +11,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/supermcpco/supermcp/internal/audit"
 	"github.com/supermcpco/supermcp/internal/authz"
@@ -403,7 +404,7 @@ func (d Deps) connectorRoutes(api huma.API) {
 			}
 			out := make([]toolDTO, 0, len(tools))
 			for _, t := range tools {
-				out = append(out, toolDTO{ID: t.ID, Name: t.Name, Description: t.Definition.Description, Enabled: t.Enabled})
+				out = append(out, toolToDTO(t))
 			}
 			return &struct {
 				Body []toolDTO `json:"body"`
@@ -432,13 +433,6 @@ func (d Deps) connectorRoutes(api huma.API) {
 				&audit.Diff{After: map[string]any{"enabled": in.Body.Enabled}})
 			return &struct{ Body struct{ OK bool } }{Body: struct{ OK bool }{true}}, nil
 		})
-}
-
-type toolDTO struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Enabled     bool   `json:"enabled"`
 }
 
 // connectorDTO is the wire shape. Transport and auth are plain objects:
@@ -759,8 +753,26 @@ func (d Deps) require(ctx context.Context, perm authz.Permission, r authz.Resour
 // humaErr maps a service error to an HTTP error. Unmapped errors become
 // 500s, whose detail huma hides; the router logs them instead.
 func humaErr(err error) error {
-	if errors.Is(err, connector.ErrNotFound) || errors.Is(err, mcpserver.ErrNotFound) {
+	if errors.Is(err, connector.ErrNotFound) || errors.Is(err, mcpserver.ErrNotFound) ||
+		errors.Is(err, connector.ErrToolNotFound) {
 		return huma.Error404NotFound(err.Error())
+	}
+	var invalid *connector.InvalidToolError
+	if errors.As(err, &invalid) {
+		return huma.Error422UnprocessableEntity(invalid.Error(), toolIssueDetails(invalid.Issues)...)
+	}
+	if errors.Is(err, connector.ErrToolNameTaken) || errors.Is(err, connector.ErrVersionConflict) ||
+		errors.Is(err, connector.ErrToolNotDeletable) || errors.Is(err, connector.ErrReferencesNotAcknowledged) {
+		return huma.Error409Conflict(err.Error())
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == pgUniqueViolation {
+		// The constraint and the colliding value stay out of the reply;
+		// they name tables and can echo another tenant-visible record.
+		if pgErr.ConstraintName == toolNameConstraint {
+			return huma.Error409Conflict(connector.ErrToolNameTaken.Error())
+		}
+		return huma.Error409Conflict("this conflicts with a record that already exists")
 	}
 	if errors.Is(err, connector.ErrMissingCredential) {
 		return huma.Error400BadRequest(err.Error())
@@ -781,7 +793,31 @@ func humaErr(err error) error {
 	return err
 }
 
-var _ = adapter.APIVersion
+// pgUniqueViolation is the SQLSTATE for a unique constraint violation.
+const pgUniqueViolation = "23505"
+
+// toolNameConstraint is the unique (connector_id, name) key on tools.
+const toolNameConstraint = "tools_connector_id_name_key"
+
+// toolIssueDetails turns the error-severity issues of a definition into
+// huma error details located at body.definition.<field>, so a client can
+// put each one next to the field it is about. Value carries the rule id,
+// not the offending value: the value may hold a credential placeholder
+// the client already has, and the rule is what a fix is looked up by.
+func toolIssueDetails(issues []adapter.Issue) []error {
+	out := make([]error, 0, len(issues))
+	for _, i := range issues {
+		if i.Severity != adapter.SeverityError {
+			continue
+		}
+		loc := "body.definition"
+		if i.Field != "" {
+			loc += "." + i.Field
+		}
+		out = append(out, &huma.ErrorDetail{Message: i.Message, Location: loc, Value: i.Rule})
+	}
+	return out
+}
 
 // listInvocations reads the recent tool calls for an org.
 func (d Deps) listInvocations(ctx context.Context, orgID string, limit int) ([]invocationDTO, error) {

@@ -1312,15 +1312,193 @@ export type SwitchOrgRequest = {
     organizationId: string;
 };
 
+export type ToolAnnotationsDto = {
+    destructiveHint: boolean;
+    idempotentHint: boolean;
+    openWorldHint: boolean;
+    readOnlyHint: boolean;
+    title?: string;
+};
+
 export type ToolDto = {
     /**
      * A URL to the JSON Schema for this object.
      */
     readonly $schema?: string;
+    /**
+     * The hints clients see: derived from the operation, then explicit overrides applied
+     */
+    annotations: ToolAnnotationsDto;
     description: string;
+    /**
+     * Someone changed the definition by hand; a catalog re-sync leaves it alone
+     */
+    edited: boolean;
     enabled: boolean;
     id: string;
     name: string;
+    /**
+     * Where the tool came from; only custom tools can be deleted
+     */
+    source: 'catalog' | 'import' | 'custom';
+    /**
+     * Send back as expectedVersion when updating
+     */
+    version: number;
+};
+
+export type ToolDetailDto = {
+    /**
+     * A URL to the JSON Schema for this object.
+     */
+    readonly $schema?: string;
+    /**
+     * The hints clients see: derived from the operation, then explicit overrides applied
+     */
+    annotations: ToolAnnotationsDto;
+    connectorId: string;
+    createdAt: string;
+    /**
+     * The tool definition as a JSON document, in its stored key order
+     */
+    definition: string;
+    description: string;
+    /**
+     * Someone changed the definition by hand; a catalog re-sync leaves it alone
+     */
+    edited: boolean;
+    editedAt?: string;
+    editedBy?: string;
+    enabled: boolean;
+    id: string;
+    /**
+     * The hints derived from the operation alone, before explicit overrides
+     */
+    inferredAnnotations: ToolAnnotationsDto;
+    name: string;
+    /**
+     * Where the tool came from; only custom tools can be deleted
+     */
+    source: 'catalog' | 'import' | 'custom';
+    /**
+     * The connector's transport; decides which operation fields apply
+     */
+    transport: 'http' | 'graphql' | 'database' | 'soap' | 'mcp';
+    updatedAt: string;
+    /**
+     * Send back as expectedVersion when updating
+     */
+    version: number;
+};
+
+export type ToolDraftBody = {
+    /**
+     * A URL to the JSON Schema for this object.
+     */
+    readonly $schema?: string;
+    /**
+     * What the model would send
+     */
+    arguments?: {
+        [key: string]: unknown;
+    };
+    /**
+     * The draft tool definition as a JSON document
+     */
+    definition: string;
+    /**
+     * The tool being edited, if any; leave out for a new tool
+     */
+    toolId?: string;
+};
+
+export type ToolDraftResult = {
+    /**
+     * A URL to the JSON Schema for this object.
+     */
+    readonly $schema?: string;
+    /**
+     * The hints the draft would resolve to
+     */
+    annotations?: ToolAnnotationsDto;
+    /**
+     * The hints the draft's operation implies before explicit overrides
+     */
+    inferredAnnotations?: ToolAnnotationsDto;
+    issues: Array<ToolIssueDto>;
+    preview?: Preview;
+    /**
+     * Why the request could not be rendered
+     */
+    previewError?: string;
+};
+
+export type ToolIssueDto = {
+    /**
+     * Dotted path inside the definition, e.g. operation.path; empty for the whole tool
+     */
+    field?: string;
+    message: string;
+    rule: string;
+    severity: 'error' | 'warning';
+};
+
+export type ToolPolicyRefDto = {
+    enabled: boolean;
+    id: string;
+    /**
+     * name: matches the tool by name and stops matching on rename or delete; scope: scoped to the tool
+     */
+    match: 'name' | 'scope';
+    name: string;
+};
+
+export type ToolReferencesDto = {
+    /**
+     * A URL to the JSON Schema for this object.
+     */
+    readonly $schema?: string;
+    /**
+     * Role allow/deny rules naming the tool; removed with it
+     */
+    accessRules: number;
+    approvalPolicies: Array<ToolPolicyRefDto>;
+    /**
+     * DLP policies scoped to the tool; removed with it
+     */
+    dlpPolicies: number;
+};
+
+export type ToolWriteBody = {
+    /**
+     * A URL to the JSON Schema for this object.
+     */
+    readonly $schema?: string;
+    /**
+     * Rename even though approval policies match the tool by its current name
+     */
+    acknowledgeReferences?: boolean;
+    /**
+     * The tool definition as a JSON document
+     */
+    definition: string;
+    /**
+     * Leave out to keep the current value; new tools default to enabled
+     */
+    enabled?: boolean;
+    /**
+     * Required on update: the version that was read. A mismatch is a 409
+     */
+    expectedVersion?: number;
+};
+
+export type ToolWriteResult = {
+    /**
+     * A URL to the JSON Schema for this object.
+     */
+    readonly $schema?: string;
+    tool: ToolDetailDto;
+    warnings: Array<ToolIssueDto>;
 };
 
 export type ToolsEnableRequest = {
@@ -2174,10 +2352,136 @@ export type SwitchOrgRequestWritable = {
 };
 
 export type ToolDtoWritable = {
+    /**
+     * The hints clients see: derived from the operation, then explicit overrides applied
+     */
+    annotations: ToolAnnotationsDto;
     description: string;
+    /**
+     * Someone changed the definition by hand; a catalog re-sync leaves it alone
+     */
+    edited: boolean;
     enabled: boolean;
     id: string;
     name: string;
+    /**
+     * Where the tool came from; only custom tools can be deleted
+     */
+    source: 'catalog' | 'import' | 'custom';
+    /**
+     * Send back as expectedVersion when updating
+     */
+    version: number;
+};
+
+export type ToolDetailDtoWritable = {
+    /**
+     * The hints clients see: derived from the operation, then explicit overrides applied
+     */
+    annotations: ToolAnnotationsDto;
+    connectorId: string;
+    createdAt: string;
+    /**
+     * The tool definition as a JSON document, in its stored key order
+     */
+    definition: string;
+    description: string;
+    /**
+     * Someone changed the definition by hand; a catalog re-sync leaves it alone
+     */
+    edited: boolean;
+    editedAt?: string;
+    editedBy?: string;
+    enabled: boolean;
+    id: string;
+    /**
+     * The hints derived from the operation alone, before explicit overrides
+     */
+    inferredAnnotations: ToolAnnotationsDto;
+    name: string;
+    /**
+     * Where the tool came from; only custom tools can be deleted
+     */
+    source: 'catalog' | 'import' | 'custom';
+    /**
+     * The connector's transport; decides which operation fields apply
+     */
+    transport: 'http' | 'graphql' | 'database' | 'soap' | 'mcp';
+    updatedAt: string;
+    /**
+     * Send back as expectedVersion when updating
+     */
+    version: number;
+};
+
+export type ToolDraftBodyWritable = {
+    /**
+     * What the model would send
+     */
+    arguments?: {
+        [key: string]: unknown;
+    };
+    /**
+     * The draft tool definition as a JSON document
+     */
+    definition: string;
+    /**
+     * The tool being edited, if any; leave out for a new tool
+     */
+    toolId?: string;
+};
+
+export type ToolDraftResultWritable = {
+    /**
+     * The hints the draft would resolve to
+     */
+    annotations?: ToolAnnotationsDto;
+    /**
+     * The hints the draft's operation implies before explicit overrides
+     */
+    inferredAnnotations?: ToolAnnotationsDto;
+    issues: Array<ToolIssueDto>;
+    preview?: PreviewWritable;
+    /**
+     * Why the request could not be rendered
+     */
+    previewError?: string;
+};
+
+export type ToolReferencesDtoWritable = {
+    /**
+     * Role allow/deny rules naming the tool; removed with it
+     */
+    accessRules: number;
+    approvalPolicies: Array<ToolPolicyRefDto>;
+    /**
+     * DLP policies scoped to the tool; removed with it
+     */
+    dlpPolicies: number;
+};
+
+export type ToolWriteBodyWritable = {
+    /**
+     * Rename even though approval policies match the tool by its current name
+     */
+    acknowledgeReferences?: boolean;
+    /**
+     * The tool definition as a JSON document
+     */
+    definition: string;
+    /**
+     * Leave out to keep the current value; new tools default to enabled
+     */
+    enabled?: boolean;
+    /**
+     * Required on update: the version that was read. A mismatch is a 409
+     */
+    expectedVersion?: number;
+};
+
+export type ToolWriteResultWritable = {
+    tool: ToolDetailDtoWritable;
+    warnings: Array<ToolIssueDto>;
 };
 
 export type ToolsEnableRequestWritable = {
@@ -3563,6 +3867,66 @@ export type ConnectorsToolsResponses = {
 
 export type ConnectorsToolsResponse = ConnectorsToolsResponses[keyof ConnectorsToolsResponses];
 
+export type ToolsCreateData = {
+    body: ToolWriteBodyWritable;
+    path: {
+        /**
+         * The connector
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/connectors/{id}/tools';
+};
+
+export type ToolsCreateErrors = {
+    /**
+     * Error
+     */
+    default: ErrorModel;
+};
+
+export type ToolsCreateError = ToolsCreateErrors[keyof ToolsCreateErrors];
+
+export type ToolsCreateResponses = {
+    /**
+     * Created
+     */
+    201: ToolWriteResult;
+};
+
+export type ToolsCreateResponse = ToolsCreateResponses[keyof ToolsCreateResponses];
+
+export type ToolsDraftDryRunData = {
+    body: ToolDraftBodyWritable;
+    path: {
+        /**
+         * The connector
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/connectors/{id}/tools/dry-run';
+};
+
+export type ToolsDraftDryRunErrors = {
+    /**
+     * Error
+     */
+    default: ErrorModel;
+};
+
+export type ToolsDraftDryRunError = ToolsDraftDryRunErrors[keyof ToolsDraftDryRunErrors];
+
+export type ToolsDraftDryRunResponses = {
+    /**
+     * OK
+     */
+    200: ToolDraftResult;
+};
+
+export type ToolsDraftDryRunResponse = ToolsDraftDryRunResponses[keyof ToolsDraftDryRunResponses];
+
 export type ToolsDryRunData = {
     body: DryRunInputBodyWritable;
     path: {
@@ -4817,6 +5181,71 @@ export type InvocationsListResponses = {
 
 export type InvocationsListResponse = InvocationsListResponses[keyof InvocationsListResponses];
 
+export type ToolsDeleteData = {
+    body?: never;
+    path: {
+        /**
+         * The tool
+         */
+        id: string;
+    };
+    query?: {
+        /**
+         * Delete even though approval policies match the tool by name
+         */
+        acknowledgeReferences?: boolean;
+    };
+    url: '/api/v1/tools/{id}';
+};
+
+export type ToolsDeleteErrors = {
+    /**
+     * Error
+     */
+    default: ErrorModel;
+};
+
+export type ToolsDeleteError = ToolsDeleteErrors[keyof ToolsDeleteErrors];
+
+export type ToolsDeleteResponses = {
+    /**
+     * No Content
+     */
+    204: void;
+};
+
+export type ToolsDeleteResponse = ToolsDeleteResponses[keyof ToolsDeleteResponses];
+
+export type ToolsGetData = {
+    body?: never;
+    path: {
+        /**
+         * The tool
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/tools/{id}';
+};
+
+export type ToolsGetErrors = {
+    /**
+     * Error
+     */
+    default: ErrorModel;
+};
+
+export type ToolsGetError = ToolsGetErrors[keyof ToolsGetErrors];
+
+export type ToolsGetResponses = {
+    /**
+     * OK
+     */
+    200: ToolDetailDto;
+};
+
+export type ToolsGetResponse = ToolsGetResponses[keyof ToolsGetResponses];
+
 export type ToolsEnableData = {
     body: ToolsEnableRequestWritable;
     path: {
@@ -4843,6 +5272,66 @@ export type ToolsEnableResponses = {
 };
 
 export type ToolsEnableResponse2 = ToolsEnableResponses[keyof ToolsEnableResponses];
+
+export type ToolsUpdateData = {
+    body: ToolWriteBodyWritable;
+    path: {
+        /**
+         * The tool
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/tools/{id}';
+};
+
+export type ToolsUpdateErrors = {
+    /**
+     * Error
+     */
+    default: ErrorModel;
+};
+
+export type ToolsUpdateError = ToolsUpdateErrors[keyof ToolsUpdateErrors];
+
+export type ToolsUpdateResponses = {
+    /**
+     * OK
+     */
+    200: ToolWriteResult;
+};
+
+export type ToolsUpdateResponse = ToolsUpdateResponses[keyof ToolsUpdateResponses];
+
+export type ToolsReferencesData = {
+    body?: never;
+    path: {
+        /**
+         * The tool
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/tools/{id}/references';
+};
+
+export type ToolsReferencesErrors = {
+    /**
+     * Error
+     */
+    default: ErrorModel;
+};
+
+export type ToolsReferencesError = ToolsReferencesErrors[keyof ToolsReferencesErrors];
+
+export type ToolsReferencesResponses = {
+    /**
+     * OK
+     */
+    200: ToolReferencesDto;
+};
+
+export type ToolsReferencesResponse = ToolsReferencesResponses[keyof ToolsReferencesResponses];
 
 export type ToolsRevisionsListData = {
     body?: never;

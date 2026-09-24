@@ -55,18 +55,6 @@ type CredentialInfo struct {
 	Required bool   `json:"required"`
 }
 
-// Tool is a stored tool.
-type Tool struct {
-	ID           string        `json:"id"`
-	ConnectorID  string        `json:"connectorId"`
-	Name         string        `json:"name"`
-	Definition   *adapter.Tool `json:"definition"`
-	OperationID  string        `json:"operationId,omitempty"`
-	Enabled      bool          `json:"enabled"`
-	DeprecatedAt *time.Time    `json:"deprecatedAt,omitempty"`
-	Version      int64         `json:"version"`
-}
-
 // Service is the connector service.
 type Service struct {
 	DB     *tenant.DB
@@ -183,7 +171,7 @@ func (s *Service) insert(ctx context.Context, tx pgx.Tx, c *Connector, createdBy
 }
 
 func (s *Service) insertTool(ctx context.Context, tx pgx.Tx, c *Connector, t *adapter.Tool) error {
-	def, err := adapterToolJSON(t)
+	def, err := DefinitionJSON(t)
 	if err != nil {
 		return err
 	}
@@ -192,7 +180,10 @@ func (s *Service) insertTool(ctx context.Context, tx pgx.Tx, c *Connector, t *ad
 	return err
 }
 
-func adapterToolJSON(t *adapter.Tool) ([]byte, error) {
+// DefinitionJSON encodes one tool definition as JSON in its own key order,
+// which is the order the author wrote it in. It is the wire and storage
+// form of a definition.
+func DefinitionJSON(t *adapter.Tool) ([]byte, error) {
 	// Reuse the adapter package's ordered JSON encoding via a single-tool doc.
 	a := &adapter.Adapter{Tools: []adapter.Tool{*t}}
 	raw, err := adapter.MarshalJSON(a)

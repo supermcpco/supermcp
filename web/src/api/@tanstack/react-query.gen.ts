@@ -3,8 +3,8 @@
 import { type InfiniteData, infiniteQueryOptions, queryOptions, type UseMutationOptions } from '@tanstack/react-query';
 
 import { client } from '../client.gen';
-import { approvalPoliciesCreate, approvalPoliciesDelete, approvalPoliciesList, approvalPoliciesUpdate, approvalsApprove, approvalsCancel, approvalsGet, approvalsList, approvalsReject, auditExport, auditExportersCreate, auditExportersDelete, auditExportersList, auditGetPolicy, auditLegalHold, auditLegalHoldRelease, auditList, auditSetPolicy, auditVerify, blobGet, catalogGet, catalogGetYaml, catalogList, changePassword, connectorsCredentials, connectorsDelete, connectorsGet, connectorsImport, connectorsInstall, connectorsList, connectorsOauthAuthorize, connectorsOauthRedirectUri, connectorsRevisionsGet, connectorsRevisionsList, connectorsRevisionsRestore, connectorsTools, connectorsUpdate, createIdp, createRole, createRoleBinding, createSamlProvider, createServiceAccount, deleteIdp, deleteRole, deleteRoleBinding, deleteSamlProvider, deleteServiceAccount, dlpDetectors, dlpPoliciesList, dlpPolicyCreate, dlpPolicyDelete, dlpPolicyGet, dlpPolicyUpdate, dlpPreview, getPasswordPolicy, invocationsList, keysCreate, keysList, keysRevoke, listIdps, listPermissions, listRoleBindings, listRoles, listSamlProviders, listSamlSignIn, listServiceAccounts, listSessions, listSsoProviders, login, logout, type Options, previewRole, probeIdp, probeSamlMetadata, register, revokeSession, rolesRevisionsGet, rolesRevisionsList, rolesRevisionsRestore, rotateSamlKey, rotateServiceAccountSecret, serversCreate, serversDelete, serversGet, serversList, serversRevisionsGet, serversRevisionsList, serversRevisionsRestore, serversUpdate, session, setPasswordPolicy, setServiceAccountDisabled, switchOrg, toolsDryRun, toolsEnable, toolsRevisionsGet, toolsRevisionsList, toolsRevisionsRestore, updateIdp, updateRole, updateSamlProvider } from '../sdk.gen';
-import type { ApprovalPoliciesCreateData, ApprovalPoliciesCreateError, ApprovalPoliciesCreateResponse, ApprovalPoliciesDeleteData, ApprovalPoliciesDeleteError, ApprovalPoliciesDeleteResponse, ApprovalPoliciesListData, ApprovalPoliciesListError, ApprovalPoliciesListResponse, ApprovalPoliciesUpdateData, ApprovalPoliciesUpdateError, ApprovalPoliciesUpdateResponse, ApprovalsApproveData, ApprovalsApproveError, ApprovalsApproveResponse, ApprovalsCancelData, ApprovalsCancelError, ApprovalsCancelResponse, ApprovalsGetData, ApprovalsGetError, ApprovalsGetResponse, ApprovalsListData, ApprovalsListError, ApprovalsListResponse, ApprovalsRejectData, ApprovalsRejectError, ApprovalsRejectResponse, AuditExportData, AuditExportError, AuditExportersCreateData, AuditExportersCreateError, AuditExportersCreateResponse, AuditExportersDeleteData, AuditExportersDeleteError, AuditExportersDeleteResponse, AuditExportersListData, AuditExportersListError, AuditExportersListResponse, AuditGetPolicyData, AuditGetPolicyError, AuditGetPolicyResponse, AuditLegalHoldData, AuditLegalHoldError, AuditLegalHoldReleaseData, AuditLegalHoldReleaseError, AuditLegalHoldReleaseResponse, AuditLegalHoldResponse, AuditListData, AuditListError, AuditListResponse, AuditSetPolicyData, AuditSetPolicyError, AuditSetPolicyResponse, AuditVerifyData, AuditVerifyError, AuditVerifyResponse, BlobGetData, BlobGetError, BlobGetResponse, CatalogGetData, CatalogGetError, CatalogGetResponse, CatalogGetYamlData, CatalogGetYamlError, CatalogGetYamlResponse, CatalogListData, CatalogListError, CatalogListResponse, ChangePasswordData, ChangePasswordError, ChangePasswordResponse2, ConnectorsCredentialsData, ConnectorsCredentialsError, ConnectorsCredentialsResponse, ConnectorsDeleteData, ConnectorsDeleteError, ConnectorsDeleteResponse, ConnectorsGetData, ConnectorsGetError, ConnectorsGetResponse, ConnectorsImportData, ConnectorsImportError, ConnectorsImportResponse, ConnectorsInstallData, ConnectorsInstallError, ConnectorsInstallResponse, ConnectorsListData, ConnectorsListError, ConnectorsListResponse, ConnectorsOauthAuthorizeData, ConnectorsOauthAuthorizeError, ConnectorsOauthAuthorizeResponse, ConnectorsOauthRedirectUriData, ConnectorsOauthRedirectUriError, ConnectorsOauthRedirectUriResponse2, ConnectorsRevisionsGetData, ConnectorsRevisionsGetError, ConnectorsRevisionsGetResponse, ConnectorsRevisionsListData, ConnectorsRevisionsListError, ConnectorsRevisionsListResponse, ConnectorsRevisionsRestoreData, ConnectorsRevisionsRestoreError, ConnectorsRevisionsRestoreResponse, ConnectorsToolsData, ConnectorsToolsError, ConnectorsToolsResponse, ConnectorsUpdateData, ConnectorsUpdateError, ConnectorsUpdateResponse, CreateIdpData, CreateIdpError, CreateIdpResponse, CreateRoleBindingData, CreateRoleBindingError, CreateRoleBindingResponse, CreateRoleData, CreateRoleError, CreateRoleResponse, CreateSamlProviderData, CreateSamlProviderError, CreateSamlProviderResponse, CreateServiceAccountData, CreateServiceAccountError, CreateServiceAccountResponse, DeleteIdpData, DeleteIdpError, DeleteIdpResponse, DeleteRoleBindingData, DeleteRoleBindingError, DeleteRoleBindingResponse, DeleteRoleData, DeleteRoleError, DeleteRoleResponse, DeleteSamlProviderData, DeleteSamlProviderError, DeleteSamlProviderResponse, DeleteServiceAccountData, DeleteServiceAccountError, DeleteServiceAccountResponse, DlpDetectorsData, DlpDetectorsError, DlpDetectorsResponse, DlpPoliciesListData, DlpPoliciesListError, DlpPoliciesListResponse, DlpPolicyCreateData, DlpPolicyCreateError, DlpPolicyCreateResponse, DlpPolicyDeleteData, DlpPolicyDeleteError, DlpPolicyDeleteResponse, DlpPolicyGetData, DlpPolicyGetError, DlpPolicyGetResponse, DlpPolicyUpdateData, DlpPolicyUpdateError, DlpPolicyUpdateResponse, DlpPreviewData, DlpPreviewError, DlpPreviewResponse, GetPasswordPolicyData, GetPasswordPolicyError, GetPasswordPolicyResponse, InvocationsListData, InvocationsListError, InvocationsListResponse, KeysCreateData, KeysCreateError, KeysCreateResponse2, KeysListData, KeysListError, KeysListResponse, KeysRevokeData, KeysRevokeError, KeysRevokeResponse, ListIdpsData, ListIdpsError, ListIdpsResponse2, ListPermissionsData, ListPermissionsError, ListPermissionsResponse, ListRoleBindingsData, ListRoleBindingsError, ListRoleBindingsResponse, ListRolesData, ListRolesError, ListRolesResponse, ListSamlProvidersData, ListSamlProvidersError, ListSamlProvidersResponse, ListSamlSignInData, ListSamlSignInError, ListSamlSignInResponse, ListServiceAccountsData, ListServiceAccountsError, ListServiceAccountsResponse2, ListSessionsData, ListSessionsError, ListSessionsResponse2, ListSsoProvidersData, ListSsoProvidersError, ListSsoProvidersResponse2, LoginData, LoginError, LoginResponse, LogoutData, LogoutError, LogoutResponse, PreviewRoleData, PreviewRoleError, PreviewRoleResponse, ProbeIdpData, ProbeIdpError, ProbeIdpResponse, ProbeSamlMetadataData, ProbeSamlMetadataError, ProbeSamlMetadataResponse, RegisterData, RegisterError, RegisterResponse, RevokeSessionData, RevokeSessionError, RevokeSessionResponse, RolesRevisionsGetData, RolesRevisionsGetError, RolesRevisionsGetResponse, RolesRevisionsListData, RolesRevisionsListError, RolesRevisionsListResponse, RolesRevisionsRestoreData, RolesRevisionsRestoreError, RolesRevisionsRestoreResponse, RotateSamlKeyData, RotateSamlKeyError, RotateSamlKeyResponse, RotateServiceAccountSecretData, RotateServiceAccountSecretError, RotateServiceAccountSecretResponse2, ServersCreateData, ServersCreateError, ServersCreateResponse, ServersDeleteData, ServersDeleteError, ServersDeleteResponse, ServersGetData, ServersGetError, ServersGetResponse, ServersListData, ServersListError, ServersListResponse, ServersRevisionsGetData, ServersRevisionsGetError, ServersRevisionsGetResponse, ServersRevisionsListData, ServersRevisionsListError, ServersRevisionsListResponse, ServersRevisionsRestoreData, ServersRevisionsRestoreError, ServersRevisionsRestoreResponse, ServersUpdateData, ServersUpdateError, ServersUpdateResponse, SessionData, SessionError, SessionResponse, SetPasswordPolicyData, SetPasswordPolicyError, SetPasswordPolicyResponse, SetServiceAccountDisabledData, SetServiceAccountDisabledError, SetServiceAccountDisabledResponse2, SwitchOrgData, SwitchOrgError, SwitchOrgResponse, ToolsDryRunData, ToolsDryRunError, ToolsDryRunResponse, ToolsEnableData, ToolsEnableError, ToolsEnableResponse2, ToolsRevisionsGetData, ToolsRevisionsGetError, ToolsRevisionsGetResponse, ToolsRevisionsListData, ToolsRevisionsListError, ToolsRevisionsListResponse, ToolsRevisionsRestoreData, ToolsRevisionsRestoreError, ToolsRevisionsRestoreResponse, UpdateIdpData, UpdateIdpError, UpdateIdpResponse, UpdateRoleData, UpdateRoleError, UpdateRoleResponse, UpdateSamlProviderData, UpdateSamlProviderError, UpdateSamlProviderResponse } from '../types.gen';
+import { approvalPoliciesCreate, approvalPoliciesDelete, approvalPoliciesList, approvalPoliciesUpdate, approvalsApprove, approvalsCancel, approvalsGet, approvalsList, approvalsReject, auditExport, auditExportersCreate, auditExportersDelete, auditExportersList, auditGetPolicy, auditLegalHold, auditLegalHoldRelease, auditList, auditSetPolicy, auditVerify, blobGet, catalogGet, catalogGetYaml, catalogList, changePassword, connectorsCredentials, connectorsDelete, connectorsGet, connectorsImport, connectorsInstall, connectorsList, connectorsOauthAuthorize, connectorsOauthRedirectUri, connectorsRevisionsGet, connectorsRevisionsList, connectorsRevisionsRestore, connectorsTools, connectorsUpdate, createIdp, createRole, createRoleBinding, createSamlProvider, createServiceAccount, deleteIdp, deleteRole, deleteRoleBinding, deleteSamlProvider, deleteServiceAccount, dlpDetectors, dlpPoliciesList, dlpPolicyCreate, dlpPolicyDelete, dlpPolicyGet, dlpPolicyUpdate, dlpPreview, getPasswordPolicy, invocationsList, keysCreate, keysList, keysRevoke, listIdps, listPermissions, listRoleBindings, listRoles, listSamlProviders, listSamlSignIn, listServiceAccounts, listSessions, listSsoProviders, login, logout, type Options, previewRole, probeIdp, probeSamlMetadata, register, revokeSession, rolesRevisionsGet, rolesRevisionsList, rolesRevisionsRestore, rotateSamlKey, rotateServiceAccountSecret, serversCreate, serversDelete, serversGet, serversList, serversRevisionsGet, serversRevisionsList, serversRevisionsRestore, serversUpdate, session, setPasswordPolicy, setServiceAccountDisabled, switchOrg, toolsCreate, toolsDelete, toolsDraftDryRun, toolsDryRun, toolsEnable, toolsGet, toolsReferences, toolsRevisionsGet, toolsRevisionsList, toolsRevisionsRestore, toolsUpdate, updateIdp, updateRole, updateSamlProvider } from '../sdk.gen';
+import type { ApprovalPoliciesCreateData, ApprovalPoliciesCreateError, ApprovalPoliciesCreateResponse, ApprovalPoliciesDeleteData, ApprovalPoliciesDeleteError, ApprovalPoliciesDeleteResponse, ApprovalPoliciesListData, ApprovalPoliciesListError, ApprovalPoliciesListResponse, ApprovalPoliciesUpdateData, ApprovalPoliciesUpdateError, ApprovalPoliciesUpdateResponse, ApprovalsApproveData, ApprovalsApproveError, ApprovalsApproveResponse, ApprovalsCancelData, ApprovalsCancelError, ApprovalsCancelResponse, ApprovalsGetData, ApprovalsGetError, ApprovalsGetResponse, ApprovalsListData, ApprovalsListError, ApprovalsListResponse, ApprovalsRejectData, ApprovalsRejectError, ApprovalsRejectResponse, AuditExportData, AuditExportError, AuditExportersCreateData, AuditExportersCreateError, AuditExportersCreateResponse, AuditExportersDeleteData, AuditExportersDeleteError, AuditExportersDeleteResponse, AuditExportersListData, AuditExportersListError, AuditExportersListResponse, AuditGetPolicyData, AuditGetPolicyError, AuditGetPolicyResponse, AuditLegalHoldData, AuditLegalHoldError, AuditLegalHoldReleaseData, AuditLegalHoldReleaseError, AuditLegalHoldReleaseResponse, AuditLegalHoldResponse, AuditListData, AuditListError, AuditListResponse, AuditSetPolicyData, AuditSetPolicyError, AuditSetPolicyResponse, AuditVerifyData, AuditVerifyError, AuditVerifyResponse, BlobGetData, BlobGetError, BlobGetResponse, CatalogGetData, CatalogGetError, CatalogGetResponse, CatalogGetYamlData, CatalogGetYamlError, CatalogGetYamlResponse, CatalogListData, CatalogListError, CatalogListResponse, ChangePasswordData, ChangePasswordError, ChangePasswordResponse2, ConnectorsCredentialsData, ConnectorsCredentialsError, ConnectorsCredentialsResponse, ConnectorsDeleteData, ConnectorsDeleteError, ConnectorsDeleteResponse, ConnectorsGetData, ConnectorsGetError, ConnectorsGetResponse, ConnectorsImportData, ConnectorsImportError, ConnectorsImportResponse, ConnectorsInstallData, ConnectorsInstallError, ConnectorsInstallResponse, ConnectorsListData, ConnectorsListError, ConnectorsListResponse, ConnectorsOauthAuthorizeData, ConnectorsOauthAuthorizeError, ConnectorsOauthAuthorizeResponse, ConnectorsOauthRedirectUriData, ConnectorsOauthRedirectUriError, ConnectorsOauthRedirectUriResponse2, ConnectorsRevisionsGetData, ConnectorsRevisionsGetError, ConnectorsRevisionsGetResponse, ConnectorsRevisionsListData, ConnectorsRevisionsListError, ConnectorsRevisionsListResponse, ConnectorsRevisionsRestoreData, ConnectorsRevisionsRestoreError, ConnectorsRevisionsRestoreResponse, ConnectorsToolsData, ConnectorsToolsError, ConnectorsToolsResponse, ConnectorsUpdateData, ConnectorsUpdateError, ConnectorsUpdateResponse, CreateIdpData, CreateIdpError, CreateIdpResponse, CreateRoleBindingData, CreateRoleBindingError, CreateRoleBindingResponse, CreateRoleData, CreateRoleError, CreateRoleResponse, CreateSamlProviderData, CreateSamlProviderError, CreateSamlProviderResponse, CreateServiceAccountData, CreateServiceAccountError, CreateServiceAccountResponse, DeleteIdpData, DeleteIdpError, DeleteIdpResponse, DeleteRoleBindingData, DeleteRoleBindingError, DeleteRoleBindingResponse, DeleteRoleData, DeleteRoleError, DeleteRoleResponse, DeleteSamlProviderData, DeleteSamlProviderError, DeleteSamlProviderResponse, DeleteServiceAccountData, DeleteServiceAccountError, DeleteServiceAccountResponse, DlpDetectorsData, DlpDetectorsError, DlpDetectorsResponse, DlpPoliciesListData, DlpPoliciesListError, DlpPoliciesListResponse, DlpPolicyCreateData, DlpPolicyCreateError, DlpPolicyCreateResponse, DlpPolicyDeleteData, DlpPolicyDeleteError, DlpPolicyDeleteResponse, DlpPolicyGetData, DlpPolicyGetError, DlpPolicyGetResponse, DlpPolicyUpdateData, DlpPolicyUpdateError, DlpPolicyUpdateResponse, DlpPreviewData, DlpPreviewError, DlpPreviewResponse, GetPasswordPolicyData, GetPasswordPolicyError, GetPasswordPolicyResponse, InvocationsListData, InvocationsListError, InvocationsListResponse, KeysCreateData, KeysCreateError, KeysCreateResponse2, KeysListData, KeysListError, KeysListResponse, KeysRevokeData, KeysRevokeError, KeysRevokeResponse, ListIdpsData, ListIdpsError, ListIdpsResponse2, ListPermissionsData, ListPermissionsError, ListPermissionsResponse, ListRoleBindingsData, ListRoleBindingsError, ListRoleBindingsResponse, ListRolesData, ListRolesError, ListRolesResponse, ListSamlProvidersData, ListSamlProvidersError, ListSamlProvidersResponse, ListSamlSignInData, ListSamlSignInError, ListSamlSignInResponse, ListServiceAccountsData, ListServiceAccountsError, ListServiceAccountsResponse2, ListSessionsData, ListSessionsError, ListSessionsResponse2, ListSsoProvidersData, ListSsoProvidersError, ListSsoProvidersResponse2, LoginData, LoginError, LoginResponse, LogoutData, LogoutError, LogoutResponse, PreviewRoleData, PreviewRoleError, PreviewRoleResponse, ProbeIdpData, ProbeIdpError, ProbeIdpResponse, ProbeSamlMetadataData, ProbeSamlMetadataError, ProbeSamlMetadataResponse, RegisterData, RegisterError, RegisterResponse, RevokeSessionData, RevokeSessionError, RevokeSessionResponse, RolesRevisionsGetData, RolesRevisionsGetError, RolesRevisionsGetResponse, RolesRevisionsListData, RolesRevisionsListError, RolesRevisionsListResponse, RolesRevisionsRestoreData, RolesRevisionsRestoreError, RolesRevisionsRestoreResponse, RotateSamlKeyData, RotateSamlKeyError, RotateSamlKeyResponse, RotateServiceAccountSecretData, RotateServiceAccountSecretError, RotateServiceAccountSecretResponse2, ServersCreateData, ServersCreateError, ServersCreateResponse, ServersDeleteData, ServersDeleteError, ServersDeleteResponse, ServersGetData, ServersGetError, ServersGetResponse, ServersListData, ServersListError, ServersListResponse, ServersRevisionsGetData, ServersRevisionsGetError, ServersRevisionsGetResponse, ServersRevisionsListData, ServersRevisionsListError, ServersRevisionsListResponse, ServersRevisionsRestoreData, ServersRevisionsRestoreError, ServersRevisionsRestoreResponse, ServersUpdateData, ServersUpdateError, ServersUpdateResponse, SessionData, SessionError, SessionResponse, SetPasswordPolicyData, SetPasswordPolicyError, SetPasswordPolicyResponse, SetServiceAccountDisabledData, SetServiceAccountDisabledError, SetServiceAccountDisabledResponse2, SwitchOrgData, SwitchOrgError, SwitchOrgResponse, ToolsCreateData, ToolsCreateError, ToolsCreateResponse, ToolsDeleteData, ToolsDeleteError, ToolsDeleteResponse, ToolsDraftDryRunData, ToolsDraftDryRunError, ToolsDraftDryRunResponse, ToolsDryRunData, ToolsDryRunError, ToolsDryRunResponse, ToolsEnableData, ToolsEnableError, ToolsEnableResponse2, ToolsGetData, ToolsGetError, ToolsGetResponse, ToolsReferencesData, ToolsReferencesError, ToolsReferencesResponse, ToolsRevisionsGetData, ToolsRevisionsGetError, ToolsRevisionsGetResponse, ToolsRevisionsListData, ToolsRevisionsListError, ToolsRevisionsListResponse, ToolsRevisionsRestoreData, ToolsRevisionsRestoreError, ToolsRevisionsRestoreResponse, ToolsUpdateData, ToolsUpdateError, ToolsUpdateResponse, UpdateIdpData, UpdateIdpError, UpdateIdpResponse, UpdateRoleData, UpdateRoleError, UpdateRoleResponse, UpdateSamlProviderData, UpdateSamlProviderError, UpdateSamlProviderResponse } from '../types.gen';
 
 export type QueryKey<TOptions extends Options> = [
     Pick<TOptions, 'baseUrl' | 'body' | 'headers' | 'path' | 'query'> & {
@@ -952,6 +952,40 @@ export const connectorsToolsOptions = (options: Options<ConnectorsToolsData>) =>
 });
 
 /**
+ * Add a custom tool to a connector
+ */
+export const toolsCreateMutation = (options?: Partial<Options<ToolsCreateData>>): UseMutationOptions<ToolsCreateResponse, ToolsCreateError, Options<ToolsCreateData>> => {
+    const mutationOptions: UseMutationOptions<ToolsCreateResponse, ToolsCreateError, Options<ToolsCreateData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await toolsCreate({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+/**
+ * Check an unsaved tool definition and render the request it would send
+ */
+export const toolsDraftDryRunMutation = (options?: Partial<Options<ToolsDraftDryRunData>>): UseMutationOptions<ToolsDraftDryRunResponse, ToolsDraftDryRunError, Options<ToolsDraftDryRunData>> => {
+    const mutationOptions: UseMutationOptions<ToolsDraftDryRunResponse, ToolsDraftDryRunError, Options<ToolsDraftDryRunData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await toolsDraftDryRun({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+/**
  * Render the request a tool call would send, without sending it
  */
 export const toolsDryRunMutation = (options?: Partial<Options<ToolsDryRunData>>): UseMutationOptions<ToolsDryRunResponse, ToolsDryRunError, Options<ToolsDryRunData>> => {
@@ -1822,6 +1856,41 @@ export const invocationsListOptions = (options?: Options<InvocationsListData>) =
 });
 
 /**
+ * Delete a custom tool
+ */
+export const toolsDeleteMutation = (options?: Partial<Options<ToolsDeleteData>>): UseMutationOptions<ToolsDeleteResponse, ToolsDeleteError, Options<ToolsDeleteData>> => {
+    const mutationOptions: UseMutationOptions<ToolsDeleteResponse, ToolsDeleteError, Options<ToolsDeleteData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await toolsDelete({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+export const toolsGetQueryKey = (options: Options<ToolsGetData>) => createQueryKey('toolsGet', options);
+
+/**
+ * Get a tool with its definition
+ */
+export const toolsGetOptions = (options: Options<ToolsGetData>) => queryOptions<ToolsGetResponse, ToolsGetError, ToolsGetResponse, ReturnType<typeof toolsGetQueryKey>>({
+    queryFn: async ({ queryKey, signal }) => {
+        const { data } = await toolsGet({
+            ...options,
+            ...queryKey[0],
+            signal,
+            throwOnError: true
+        });
+        return data;
+    },
+    queryKey: toolsGetQueryKey(options)
+});
+
+/**
  * Enable or disable a tool
  */
 export const toolsEnableMutation = (options?: Partial<Options<ToolsEnableData>>): UseMutationOptions<ToolsEnableResponse2, ToolsEnableError, Options<ToolsEnableData>> => {
@@ -1837,6 +1906,41 @@ export const toolsEnableMutation = (options?: Partial<Options<ToolsEnableData>>)
     };
     return mutationOptions;
 };
+
+/**
+ * Replace a tool's definition
+ */
+export const toolsUpdateMutation = (options?: Partial<Options<ToolsUpdateData>>): UseMutationOptions<ToolsUpdateResponse, ToolsUpdateError, Options<ToolsUpdateData>> => {
+    const mutationOptions: UseMutationOptions<ToolsUpdateResponse, ToolsUpdateError, Options<ToolsUpdateData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await toolsUpdate({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+export const toolsReferencesQueryKey = (options: Options<ToolsReferencesData>) => createQueryKey('toolsReferences', options);
+
+/**
+ * List what refers to a tool
+ */
+export const toolsReferencesOptions = (options: Options<ToolsReferencesData>) => queryOptions<ToolsReferencesResponse, ToolsReferencesError, ToolsReferencesResponse, ReturnType<typeof toolsReferencesQueryKey>>({
+    queryFn: async ({ queryKey, signal }) => {
+        const { data } = await toolsReferences({
+            ...options,
+            ...queryKey[0],
+            signal,
+            throwOnError: true
+        });
+        return data;
+    },
+    queryKey: toolsReferencesQueryKey(options)
+});
 
 export const toolsRevisionsListQueryKey = (options: Options<ToolsRevisionsListData>) => createQueryKey('toolsRevisionsList', options);
 
