@@ -44,7 +44,40 @@ adds an index to `audit_events`; see "The audit export reads by workspace
 and sequence" below. Migration 00024 records when a session last signed
 in; see "Sensitive actions ask for a recent sign-in" below. Migration
 00025 replaces an index on `tool_invocations` for the new usage
-analytics; see "Usage analytics read an index of their own" below.
+analytics; see "Usage analytics read an index of their own" below. Migration
+00026 lets disabling a service account refuse the tokens it already
+holds; see "Disabling a service account cuts it off" below.
+
+### Disabling a service account cuts it off
+
+Disabling a service account used to stop only new tokens from its
+secret. Its API keys, and access tokens it already held, kept working for
+up to an hour. Now disabling it also does these things:
+
+- It revokes every API key the account holds, with no grace period.
+- It refuses access tokens it was already issued, at the MCP endpoint and
+  at introspection, even before they expire.
+
+Turning it back on restores neither. Deleting an account now also
+refuses its outstanding access tokens.
+
+What it needs from you:
+
+- **Nothing for migration 00025.** It adds
+  `service_accounts.token_epoch` (integer, not null, default 0). The
+  default is a constant, so no row is rewritten. The table is locked only
+  for the catalogue change.
+- **Rollout order does not matter.** An older replica ignores the
+  column. It issues tokens without the epoch claim, which counts as epoch
+  0, and it does not check the claim. So until the roll finishes, a
+  disabled account's old token can still pass on an older replica.
+- **Clients holding tokens** from a disabled and re-enabled account get
+  `401` and must request a new token, which a client credentials client
+  does anyway when one is refused.
+
+The audit event `service_account.update` for a disable carries
+`meta.revokedKeys`: how many API keys it revoked. Revoked keys carry the
+reason `service account disabled`.
 
 ### Sensitive actions ask for a recent sign-in
 

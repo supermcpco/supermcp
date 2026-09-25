@@ -83,10 +83,18 @@ type OAuth struct {
 }
 
 // ServiceAccounts verifies client credentials that belong to a service
-// account rather than to a person's client.
+// account rather than to a person's client, and reports whether a token it
+// was issued still counts.
 type ServiceAccounts interface {
 	AuthenticateServiceAccount(ctx context.Context, clientID, secret string) (*authz.Principal, []string, error)
+	// ServiceAccountTokenEpoch returns the epoch a token must carry and
+	// whether the account is enabled. Disabling an account moves its
+	// epoch on, which refuses every token issued before.
+	ServiceAccountTokenEpoch(ctx context.Context, orgID, id string) (epoch int, active bool, err error)
 }
+
+// claimEpoch carries a service account's token epoch in its access token.
+const claimEpoch = "sa_epoch"
 
 // ClientLimiter rate limits dynamic registration.
 type ClientLimiter interface {
@@ -498,7 +506,15 @@ func (o *OAuth) clientCredentials(ctx context.Context, form url.Values, clientID
 			return nil, oauthErr("invalid_scope", "none of the requested scopes are granted to this service account", 400)
 		}
 	}
-	return o.issueFor(ctx, "svc_"+p.ID, clientID, p.OrgID, serverID, strings.Join(granted, " "))
+	epoch, active, err := o.Accounts.ServiceAccountTokenEpoch(ctx, p.OrgID, p.ID)
+	if err != nil {
+		return nil, fmt.Errorf("read service account epoch: %w", err)
+	}
+	if !active {
+		// Disabled between the secret check and here.
+		return nil, oauthErr("invalid_client", "client authentication failed", 401)
+	}
+	return o.issueFor(ctx, "svc_"+p.ID, clientID, p.OrgID, serverID, strings.Join(granted, " "), epoch)
 }
 
 func (o *OAuth) exchangeCode(ctx context.Context, client *Client, form url.Values) (*TokenResponse, error) {
@@ -607,16 +623,16 @@ func (o *OAuth) refresh(ctx context.Context, client *Client, form url.Values) (*
 // issue mints an access token and, when offline access was granted, a
 // rotated refresh token.
 func (o *OAuth) issue(ctx context.Context, clientID, userID, orgID, serverID, scope, familyID string) (*TokenResponse, error) {
-	return o.issueToken(ctx, "user_"+userID, clientID, userID, orgID, serverID, scope, familyID)
+	return o.issueToken(ctx, "user_"+userID, clientID, userID, orgID, serverID, scope, familyID, nil)
 }
 
-// issueFor mints a token for a subject that is not a person; there is no
-// refresh token to rotate.
-func (o *OAuth) issueFor(ctx context.Context, subject, clientID, orgID, serverID, scope string) (*TokenResponse, error) {
-	return o.issueToken(ctx, subject, clientID, "", orgID, serverID, scope, "")
+// issueFor mints a token for a service account, stamped with the epoch it
+// was issued under; there is no refresh token to rotate.
+func (o *OAuth) issueFor(ctx context.Context, subject, clientID, orgID, serverID, scope string, epoch int) (*TokenResponse, error) {
+	return o.issueToken(ctx, subject, clientID, "", orgID, serverID, scope, "", map[string]any{claimEpoch: epoch})
 }
 
-func (o *OAuth) issueToken(ctx context.Context, subject, clientID, userID, orgID, serverID, scope, familyID string) (*TokenResponse, error) {
+func (o *OAuth) issueToken(ctx context.Context, subject, clientID, userID, orgID, serverID, scope, familyID string, extra map[string]any) (*TokenResponse, error) {
 	now := o.now()
 	aud := o.Issuer + "/mcp"
 	if serverID != "" {
@@ -630,6 +646,9 @@ func (o *OAuth) issueToken(ctx context.Context, subject, clientID, userID, orgID
 	}
 	if serverID != "" {
 		claims["mcp_server"] = serverID
+	}
+	for k, v := range extra {
+		claims[k] = v
 	}
 	access, err := o.Keys.Sign(ctx, claims)
 	if err != nil {
@@ -712,6 +731,9 @@ func (o *OAuth) Introspect(ctx context.Context, token string) *Introspection {
 	if int64(exp) < o.now().Unix() {
 		return &Introspection{Active: false}
 	}
+	if err := o.checkServiceAccount(ctx, claims); err != nil {
+		return &Introspection{Active: false}
+	}
 	str := func(k string) string { v, _ := claims[k].(string); return v }
 	return &Introspection{Active: true, Scope: str("scope"), ClientID: str("client_id"), Sub: str("sub"),
 		Aud: str("aud"), Org: str("org"), Exp: int64(exp), TokenTyp: "Bearer"}
@@ -737,10 +759,39 @@ func (o *OAuth) PrincipalFromToken(ctx context.Context, token string) (*authz.Pr
 	if sub == "" || sub == raw || str("org") == "" {
 		return nil, ErrInvalidKey
 	}
+	if err := o.checkServiceAccount(ctx, claims); err != nil {
+		return nil, err
+	}
 	return &authz.Principal{
 		Kind: kind, ID: sub, OrgID: str("org"), ServerID: str("mcp_server"),
 		Scopes: scopeList(str("scope")), AuthMethod: "oauth_at",
 	}, nil
+}
+
+// checkServiceAccount refuses a service account's token once the account
+// is disabled or deleted, or was disabled after the token was issued, even
+// though the token has not expired. A token without the epoch claim was
+// issued before epochs existed and counts as epoch 0. Any other subject
+// passes.
+func (o *OAuth) checkServiceAccount(ctx context.Context, claims map[string]any) error {
+	sub, _ := claims["sub"].(string)
+	id, ok := strings.CutPrefix(sub, "svc_")
+	if !ok {
+		return nil
+	}
+	if o.Accounts == nil {
+		return ErrInvalidKey
+	}
+	org, _ := claims["org"].(string)
+	epoch, active, err := o.Accounts.ServiceAccountTokenEpoch(ctx, org, id)
+	if err != nil || !active {
+		return ErrInvalidKey
+	}
+	got, _ := claims[claimEpoch].(float64)
+	if int(got) != epoch {
+		return ErrInvalidKey
+	}
+	return nil
 }
 
 // Metadata is the RFC 8414 authorization server document.

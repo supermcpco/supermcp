@@ -530,6 +530,131 @@ func TestServiceAccountToken(t *testing.T) {
 	}
 }
 
+// TestServiceAccountDisableCutsOff shows that disabling a service account
+// is enough to cut it off: its API keys stop working, an access token it
+// already holds is refused by validation and introspection before it
+// expires, and turning the account back on resurrects neither.
+func TestServiceAccountDisableCutsOff(t *testing.T) {
+	h := start(t)
+	ctx := context.Background()
+	admin := h.register(t, "E2E service account disable")
+
+	var created struct {
+		ID       string `json:"id"`
+		ClientID string `json:"clientId"`
+		Secret   string `json:"secret"`
+	}
+	if code := h.do(t, http.MethodPost, "/api/v1/service-accounts", map[string]any{
+		"name": "pipeline", "scopes": []string{"mcp:tools:invoke"},
+	}, &created); code != http.StatusCreated {
+		t.Fatalf("create service account: %d", code)
+	}
+	issue := func() string {
+		t.Helper()
+		form := url.Values{"grant_type": {"client_credentials"}}
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, h.url+"/oauth/token", strings.NewReader(form.Encode()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.SetBasicAuth(created.ClientID, created.Secret)
+		resp, err := h.client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		var body struct {
+			AccessToken string `json:"access_token"`
+		}
+		_ = json.NewDecoder(resp.Body).Decode(&body)
+		if resp.StatusCode != http.StatusOK || body.AccessToken == "" {
+			t.Fatalf("token: %d", resp.StatusCode)
+		}
+		return body.AccessToken
+	}
+	access := issue()
+	_, saKey, err := h.deps.Keys.Create(ctx, mcpauth.CreateInput{OrgID: admin.Org.ID, PrincipalKind: "service_account",
+		PrincipalID: created.ID, Name: "pipeline key", CreatedBy: admin.User.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Introspection needs a key of its own, held by someone else.
+	_, introspector, err := h.deps.Keys.Create(ctx, mcpauth.CreateInput{OrgID: admin.Org.ID, PrincipalKind: "user",
+		PrincipalID: admin.User.ID, Name: "resource server", CreatedBy: admin.User.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	introspect := func(token string) bool {
+		t.Helper()
+		form := url.Values{"token": {token}}
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, h.url+"/oauth/introspect", strings.NewReader(form.Encode()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.Header.Set("X-API-Key", introspector)
+		resp, err := h.client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		var body struct {
+			Active bool `json:"active"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&body); err != nil || resp.StatusCode != http.StatusOK {
+			t.Fatalf("introspect: %d %v", resp.StatusCode, err)
+		}
+		return body.Active
+	}
+	works := func(label, token, key string, want bool) {
+		t.Helper()
+		if _, err := h.deps.OAuth.PrincipalFromToken(ctx, token); (err == nil) != want {
+			t.Errorf("%s: the access token validates %v, want %v (err %v)", label, err == nil, want, err)
+		}
+		if got := introspect(token); got != want {
+			t.Errorf("%s: introspection says active %v, want %v", label, got, want)
+		}
+		if _, err := h.deps.Keys.Authenticate(ctx, key, "127.0.0.1"); (err == nil) != want {
+			t.Errorf("%s: the API key authenticates %v, want %v (err %v)", label, err == nil, want, err)
+		}
+	}
+	works("before disabling", access, saKey, true)
+
+	setDisabled := func(disabled bool) {
+		t.Helper()
+		if code := h.do(t, http.MethodPost, "/api/v1/service-accounts/"+created.ID+"/disabled",
+			map[string]any{"disabled": disabled}, nil); code != http.StatusOK {
+			t.Fatalf("set disabled %v: %d", disabled, code)
+		}
+	}
+	setDisabled(true)
+	works("disabled", access, saKey, false)
+
+	setDisabled(false)
+	works("re-enabled", access, saKey, false)
+	fresh := issue()
+	if _, err := h.deps.OAuth.PrincipalFromToken(ctx, fresh); err != nil {
+		t.Fatalf("a token issued after re-enabling is refused: %v", err)
+	}
+	if !introspect(fresh) {
+		t.Fatal("introspection refuses a token issued after re-enabling")
+	}
+
+	// The disable is on the audit trail with what it revoked.
+	var found bool
+	for _, e := range h.auditEvents(t, ctx, admin.Org.ID) {
+		if e.Action == "service_account.update" && e.TargetID == created.ID && e.Meta["revokedKeys"] != nil {
+			if n, _ := e.Meta["revokedKeys"].(float64); n != 1 {
+				t.Errorf("the audit event says %v keys were revoked, want 1", e.Meta["revokedKeys"])
+			}
+			found = true
+		}
+	}
+	if !found {
+		t.Error("disabling the account left no audit event naming the revoked keys")
+	}
+}
+
 // TestPasswordPolicy checks that the organisation's rules apply to a
 // change, and that changing a password ends the other sessions.
 func TestPasswordPolicy(t *testing.T) {

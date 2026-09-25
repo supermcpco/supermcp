@@ -1530,6 +1530,8 @@ export const deleteServiceAccount = <ThrowOnError extends boolean = false>(optio
 
 /**
  * Turn a service account off or on
+ *
+ * Turning an account off cuts it off completely: its secret obtains no new tokens, every API key it holds is revoked at once with no grace period, and access tokens it was already issued are refused by the MCP endpoint and by introspection before they expire. A service account holds no refresh tokens. Turning it back on lets the secret obtain new tokens; it does not bring back the revoked keys or the refused tokens. Issue new keys if it needs them.
  */
 export const setServiceAccountDisabled = <ThrowOnError extends boolean = false>(options: Options<SetServiceAccountDisabledData, ThrowOnError>) => (options.client ?? client).post<SetServiceAccountDisabledResponses, SetServiceAccountDisabledErrors, ThrowOnError>({
     security: [{

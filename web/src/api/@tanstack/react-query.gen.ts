@@ -2073,6 +2073,8 @@ export const deleteServiceAccountMutation = (options?: Partial<Options<DeleteSer
 
 /**
  * Turn a service account off or on
+ *
+ * Turning an account off cuts it off completely: its secret obtains no new tokens, every API key it holds is revoked at once with no grace period, and access tokens it was already issued are refused by the MCP endpoint and by introspection before they expire. A service account holds no refresh tokens. Turning it back on lets the secret obtain new tokens; it does not bring back the revoked keys or the refused tokens. Issue new keys if it needs them.
  */
 export const setServiceAccountDisabledMutation = (options?: Partial<Options<SetServiceAccountDisabledData>>): UseMutationOptions<SetServiceAccountDisabledResponse2, SetServiceAccountDisabledError, Options<SetServiceAccountDisabledData>> => {
     const mutationOptions: UseMutationOptions<SetServiceAccountDisabledResponse2, SetServiceAccountDisabledError, Options<SetServiceAccountDisabledData>> = {

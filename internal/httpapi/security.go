@@ -247,6 +247,11 @@ func (d Deps) serviceAccountRoutes(api huma.API) {
 
 	huma.Register(api, huma.Operation{OperationID: "set-service-account-disabled", Method: http.MethodPost,
 		Path: "/api/v1/service-accounts/{id}/disabled", Summary: "Turn a service account off or on",
+		Description: "Turning an account off cuts it off completely: its secret obtains no new tokens, every API key " +
+			"it holds is revoked at once with no grace period, and access tokens it was already issued are refused " +
+			"by the MCP endpoint and by introspection before they expire. A service account holds no refresh " +
+			"tokens. Turning it back on lets the secret obtain new tokens; it does not bring back the revoked keys " +
+			"or the refused tokens. Issue new keys if it needs them.",
 		Tags: []string{"identity"}, Security: sessionSecurity},
 		func(ctx context.Context, in *struct {
 			ID   string `path:"id"`
@@ -262,12 +267,18 @@ func (d Deps) serviceAccountRoutes(api huma.API) {
 			if err != nil {
 				return nil, err
 			}
-			if err := d.Identity.SetServiceAccountDisabled(ctx, p.OrgID, in.ID, in.Body.Disabled); err != nil {
+			revoked, err := d.Identity.SetServiceAccountDisabled(ctx, p.OrgID, in.ID, in.Body.Disabled)
+			if err != nil {
 				d.adminFailed(ctx, "service_account.update", "service_account", in.ID, err)
 				return nil, humaErr(err)
 			}
-			d.admin(ctx, "service_account.update", "service_account", in.ID, "",
-				&audit.Diff{After: map[string]any{"disabled": in.Body.Disabled}})
+			e := audit.Event{Category: audit.CategoryAdmin, Action: "service_account.update", Outcome: audit.Success,
+				TargetKind: "service_account", TargetID: in.ID,
+				Diff: &audit.Diff{After: map[string]any{"disabled": in.Body.Disabled}}}
+			if in.Body.Disabled {
+				e.Meta = map[string]any{"revokedKeys": revoked}
+			}
+			d.emit(ctx, e)
 			out := &struct {
 				Body struct {
 					Disabled bool `json:"disabled"`
