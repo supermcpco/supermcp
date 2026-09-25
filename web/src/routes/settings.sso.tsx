@@ -11,7 +11,7 @@ import {
   listIdpsOptions,
   listIdpsQueryKey,
   probeIdpMutation,
-  updateIdpMutation,
+  updateIdpMfaMutation,
   samlProvidersRevisionsListOptions,
   samlProvidersRevisionsListQueryKey,
   samlProvidersRevisionsRestoreMutation,
@@ -462,16 +462,16 @@ function SecondFactorFields({
 }
 
 /**
- * Changes one provider's second-factor rule. The update replaces the whole
- * configuration, so everything else is sent back as it is; the client
- * secret is left out, which keeps the stored one.
+ * Changes one provider's second-factor rule, through the route that changes
+ * nothing else: a copy of the whole provider sent back from the list read
+ * earlier would undo whatever an administrator changed since.
  */
 function SecondFactorEditor({ provider: p, onDone }: { provider: IdpDto; onDone: () => void }) {
   const qc = useQueryClient();
   const [amr, setAmr] = useState((p.mfa.amr ?? []).join(", "));
   const [acr, setAcr] = useState((p.mfa.acr ?? []).join(", "));
   const save = useMutation({
-    ...updateIdpMutation(),
+    ...updateIdpMfaMutation(),
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: listIdpsQueryKey() });
       onDone();
@@ -483,26 +483,7 @@ function SecondFactorEditor({ provider: p, onDone }: { provider: IdpDto; onDone:
       aria-label={`Second-factor rule of ${p.name}`}
       onSubmit={(e) => {
         e.preventDefault();
-        save.mutate({
-          path: { id: p.id },
-          body: {
-            name: p.name,
-            preset: p.preset as Preset,
-            issuer: p.issuer,
-            clientId: p.clientId,
-            scopes: p.scopes ?? [],
-            allowedDomains: p.allowedDomains ?? [],
-            jitProvisioning: p.jitProvisioning,
-            defaultRoleId: p.defaultRoleId,
-            groupsClaim: p.groupsClaim,
-            enabled: p.enabled,
-            authorizationEndpoint: p.authorizationEndpoint,
-            tokenEndpoint: p.tokenEndpoint,
-            userinfoEndpoint: p.userinfoEndpoint,
-            jwksUri: p.jwksUri,
-            mfa: { amr: list(amr), acr: list(acr) },
-          },
-        });
+        save.mutate({ path: { id: p.id }, body: { amr: list(amr), acr: list(acr) } });
       }}
     >
       <SecondFactorFields
