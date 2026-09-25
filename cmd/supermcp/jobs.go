@@ -11,6 +11,7 @@ import (
 	"github.com/supermcpco/supermcp/internal/governance"
 	"github.com/supermcpco/supermcp/internal/identity"
 	"github.com/supermcpco/supermcp/internal/identity/saml"
+	"github.com/supermcpco/supermcp/internal/invalidation"
 	"github.com/supermcpco/supermcp/internal/invoke"
 	"github.com/supermcpco/supermcp/internal/mcpauth"
 	"github.com/supermcpco/supermcp/internal/tenant"
@@ -66,12 +67,22 @@ type sweeps struct {
 	// that has not held the lock for an hour then cannot keep publishing
 	// what it saw an hour ago.
 	exportLag func(map[string]time.Duration)
+	// invalidation hears the database say that roles, bindings, tool
+	// access rules or data-loss policies changed, on any replica, and
+	// drops this replica's cached copy. Every replica runs one; it is not
+	// behind the leader lock.
+	invalidation *invalidation.Listener
 }
 
 // start runs the sweeps until ctx is cancelled. Export runs often, because
 // an exporter's job is to be close to live; retention runs rarely, because
 // deleting a day early helps nobody.
 func (s sweeps) start(ctx context.Context) {
+	if s.invalidation != nil {
+		// Run returns only once ctx is cancelled; connection failures are
+		// retried inside it and logged there.
+		go func() { _ = s.invalidation.Run(ctx) }()
+	}
 	go s.every(ctx, time.Minute, "audit-export", func(c context.Context) error {
 		return s.exporters.Run(c)
 	})

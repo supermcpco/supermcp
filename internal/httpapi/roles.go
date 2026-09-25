@@ -865,8 +865,10 @@ func checkScope(ctx context.Context, tx pgx.Tx, orgID, kind, id string) (*string
 }
 
 // invalidate drops the evaluator's cached bindings so a grant or a
-// revocation takes effect on the next request. A group has no cache key of
-// its own, because the evaluator keys on the person doing the asking.
+// revocation takes effect on the next request to this replica. Other
+// replicas hear of it from the database, whose triggers notify them on
+// commit (internal/invalidation). A group has no cache key of its own,
+// because the evaluator keys on the person doing the asking.
 func (d Deps) invalidate(orgID, kind, id string) {
 	if d.Authz == nil {
 		return

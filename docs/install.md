@@ -229,7 +229,10 @@ missing setting matches nothing.
 
 The maintenance pool never switches role. It runs migrations, the audit
 writer, the retention sweep and the audit exporter — the work that
-spans tenants by definition.
+spans tenants by definition. Each replica also opens one extra session
+on the maintenance URL that `LISTEN`s for cache invalidations, which is
+why that URL must reach Postgres directly (see "Cache invalidation" in
+the operations guide).
 
 `SUPERMCP_MAINT_DATABASE_URL` lets you give those two pools different
 database users. If you leave it unset, both pools use `DATABASE_URL` and
@@ -264,7 +267,7 @@ which are also accepted under the prefix.
 |---|---|---|
 | `SUPERMCP_LISTEN` | `:8080` | The public HTTP listener: API, MCP endpoint and the embedded interface. |
 | `SUPERMCP_ADMIN_LISTEN` | empty | Where `/metrics` is served. Empty means the exposition is off. It must never share the public listener: the series describe the shape of the estate. |
-| `SUPERMCP_MAINT_DATABASE_URL` | `DATABASE_URL` | The Postgres connection for cross-tenant work. |
+| `SUPERMCP_MAINT_DATABASE_URL` | `DATABASE_URL` | The Postgres connection for cross-tenant work, and for the one long-lived session per replica that listens for cache invalidations. Point it at Postgres directly, not at a transaction-pooling proxy. |
 | `SUPERMCP_REDIS_URL` / `REDIS_URL` | empty | Shared rate-limit budgets and a shared tool-response cache. |
 | `SUPERMCP_LOG_LEVEL` | `info` | Log verbosity. |
 | `SUPERMCP_LOG_FORMAT` | `json` | `json` or `text`. Anything else fails the boot. |

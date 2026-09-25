@@ -23,6 +23,7 @@ import (
 	"github.com/supermcpco/supermcp/internal/catalog"
 	"github.com/supermcpco/supermcp/internal/config"
 	"github.com/supermcpco/supermcp/internal/connector"
+	"github.com/supermcpco/supermcp/internal/dlp"
 	"github.com/supermcpco/supermcp/internal/governance"
 	"github.com/supermcpco/supermcp/internal/hardening"
 	"github.com/supermcpco/supermcp/internal/httpclient"
@@ -59,7 +60,11 @@ type Deps struct {
 	SCIM       *scim.Service
 	SAML       *saml.Service
 	Revisions  *governance.Service
-	Limiter    *hardening.Limiter
+	// DLP is the data-loss policy reader the tool-call path uses. The
+	// policy routes write through it so a change drops that cache at once
+	// on this replica; nil builds a reader of their own.
+	DLP     *dlp.Policies
+	Limiter *hardening.Limiter
 	// refusals bounds how many refused token requests one client can
 	// put on the audit trail a minute. New fills it in.
 	refusals *refusalBudget

@@ -23,6 +23,7 @@ import (
 	"github.com/supermcpco/supermcp/internal/identity"
 	"github.com/supermcpco/supermcp/internal/identity/saml"
 	"github.com/supermcpco/supermcp/internal/identity/sso"
+	"github.com/supermcpco/supermcp/internal/invalidation"
 	"github.com/supermcpco/supermcp/internal/invoke"
 	mcpendpoint "github.com/supermcpco/supermcp/internal/mcp"
 	"github.com/supermcpco/supermcp/internal/mcpauth"
@@ -130,6 +131,7 @@ func build(ctx context.Context, cfg *config.Config, log *slog.Logger, st *store.
 	}
 
 	az := authz.New(db)
+	az.OnInvalidate = func(source string) { metrics.ObserveCacheInvalidation(telemetry.CacheAuthz, source) }
 	ids := identity.New(db, identity.Config{OpenRegistration: cfg.OpenRegistration}, az, newID)
 	keys := mcpauth.New(db, newID)
 	keyring := mcpauth.NewKeyring(db, sealer, newID)
@@ -189,6 +191,17 @@ func build(ctx context.Context, cfg *config.Config, log *slog.Logger, st *store.
 	// a data-loss rule may mask or refuse what crosses, and an approval
 	// rule may hold a call until a person agrees to it.
 	dlpPolicies := dlp.NewPolicies(db, newID)
+	dlpPolicies.OnInvalidate = func(source string) { metrics.ObserveCacheInvalidation(telemetry.CacheDLP, source) }
+	// Both caches above are per replica. The database notifies every
+	// replica when what they hold changes; this holds the connection that
+	// hears it. It is a session of its own on the maintenance URL, which
+	// is the one documented to reach Postgres directly: LISTEN does not
+	// survive a transaction-pooling proxy.
+	listener := invalidation.NewListener(invalidation.Options{
+		URL: cfg.MaintDatabaseURL, Prober: st.Maint, Log: log, Observer: metrics,
+	})
+	listener.Register(invalidation.KindAuthz, az)
+	listener.Register(invalidation.KindDLP, dlpPolicies)
 	approvals := governance.NewApprovals(db, sealer, newID)
 	approvals.Audit = auditor
 	exec := invoke.New(invoke.Deps{DB: db, Connectors: conns, Clients: clients, Pools: pools,
@@ -209,12 +222,12 @@ func build(ctx context.Context, cfg *config.Config, log *slog.Logger, st *store.
 		Identity: ids, Authz: az, Keys: keys, Connectors: conns, Servers: servers, MCP: endpoint, OAuth: oauth,
 		Executor: exec,
 		SSO:      sso, SCIM: provisioning, SAML: samlSvc,
-		Revisions: revisions,
-		Audit:     auditor, AuditReader: &audit.Reader{DB: db, VerifyAnchor: keyring.VerifyDigest}, AuditPolicies: policies,
+		Revisions: revisions, DLP: dlpPolicies,
+		Audit: auditor, AuditReader: &audit.Reader{DB: db, VerifyAnchor: keyring.VerifyDigest}, AuditPolicies: policies,
 		Limiter: limiter, Budgets: cfg.RateLimit.Budgets, Metrics: metrics, Blobs: blobs, ImportFetch: importClient,
 		OpenRegistration: cfg.OpenRegistration,
 	}
-	jobs := sweeps{db: db, log: log,
+	jobs := sweeps{db: db, log: log, invalidation: listener,
 		identity: ids, oauth: oauth, keys: keyring, saml: samlSvc, reader: &audit.Reader{DB: db},
 		approvals: approvals, blobs: pgBlobs,
 		retention: audit.NewRetention(db, log),
