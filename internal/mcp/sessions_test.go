@@ -520,3 +520,29 @@ func (r *rig) newCaller(ctx context.Context, n int) func() {
 		calls.Wait()
 	}
 }
+
+// A bound handler is told what ended its request: the deadline as
+// DeadlineExceeded, however the request's own timer and the handler's
+// race, and a request that went away as Canceled.
+func TestBoundContextReportsWhatEndedIt(t *testing.T) {
+	t.Parallel()
+	for i := range 500 {
+		request, cancel := context.WithTimeout(context.Background(), time.Millisecond)
+		bound, done := bindTo(context.Background(), request)
+		<-bound.Done()
+		err := bound.Err()
+		done()
+		cancel()
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("round %d: a request that reached its deadline ended the handler with %v", i, err)
+		}
+	}
+	request, cancel := context.WithCancel(context.Background())
+	bound, done := bindTo(context.Background(), request)
+	defer done()
+	cancel()
+	<-bound.Done()
+	if !errors.Is(bound.Err(), context.Canceled) {
+		t.Errorf("a request that went away ended the handler with %v, want Canceled", bound.Err())
+	}
+}

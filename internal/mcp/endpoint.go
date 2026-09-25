@@ -806,23 +806,32 @@ func (e *Endpoint) bindRequest() sdk.Middleware {
 // bindTo derives the context a handler runs in from the session's and the
 // request's: done when either is, with the request's deadline, and the
 // request's values.
+//
+// The deadline sits beneath the cancellation, and a request that ended
+// because its deadline passed is left to that deadline rather than
+// cancelled: a context cancelled by hand reports Canceled whatever the
+// cause, and a handler told its call was cancelled cannot tell the
+// router's timeout from a client that went away.
 func bindTo(session, request context.Context) (context.Context, context.CancelFunc) {
-	ctx, cancel := context.WithCancelCause(session)
-	stop := context.AfterFunc(request, func() { cancel(context.Cause(request)) })
-	done := func() {
+	base, cancelDeadline := session, context.CancelFunc(func() {})
+	deadline, hasDeadline := request.Deadline()
+	if hasDeadline {
+		base, cancelDeadline = context.WithDeadline(session, deadline)
+	}
+	ctx, cancel := context.WithCancelCause(base)
+	stop := context.AfterFunc(request, func() {
+		if hasDeadline && errors.Is(request.Err(), context.DeadlineExceeded) {
+			// The same deadline is about to end base, and that is how
+			// the handler should hear of it.
+			return
+		}
+		cancel(context.Cause(request))
+	})
+	return boundContext{Context: ctx, values: request}, func() {
 		stop()
 		cancel(context.Canceled)
+		cancelDeadline()
 	}
-	if deadline, ok := request.Deadline(); ok {
-		var cancelDeadline context.CancelFunc
-		ctx, cancelDeadline = context.WithDeadline(ctx, deadline)
-		first := done
-		done = func() {
-			cancelDeadline()
-			first()
-		}
-	}
-	return boundContext{Context: ctx, values: request}, done
 }
 
 // boundContext is a handler's context once its request is known: the
