@@ -426,15 +426,47 @@ POST /mcp/{server}
 ```
 
 `{server}` is an MCP server's id or its slug. The transport is
-Streamable HTTP in **stateless** mode: every request carries everything
-needed to serve it and no session is held between requests. There is
-therefore no stream to resume, and a `GET` is answered `405` with
-`Allow: POST, DELETE` immediately, rather than hanging a client that
-probes with one.
+Streamable HTTP, in the mode the server's `sessions` setting names (see
+"Sessions" below). By default it is **stateless**: every request carries
+everything needed to serve it and no session is held between requests.
+In neither mode does the server offer a stream of its own, so a `GET` is
+answered `405` with `Allow: POST, DELETE` immediately, rather than
+hanging a client that probes with one.
 
 Responses are server-sent events by default, or `application/json` when
 `SUPERMCP_MCP_RESPONSE_MODE=json`. Request bodies are capped at 4 MiB.
-A client that disconnects cancels the upstream call it caused.
+On a stateless server, a client that disconnects cancels the upstream
+call it caused.
+
+### Sessions
+
+A server's `sessions` is `stateless` (the default) or `stateful`, set
+with `PATCH /api/v1/servers/{id}` or on the server screen. Any other
+value is `422`. The change is recorded in the server's revision history
+like any other, and a restore of a revision from before the setting
+existed puts back `stateless`.
+
+A **stateful** server keeps a session per client, as the Streamable HTTP
+transport describes:
+
+- The response to `initialize` carries `Mcp-Session-Id`, and every later
+  request has to send it back.
+- A request without one that is not an `initialize` is `400`.
+- A session id this replica does not hold, or holds for another caller
+  or another server, is `404` with
+  `{"code":-32001,"message":"Session not found; initialize a new one"}`.
+  That is the client's signal to initialise again.
+- `DELETE` with the session id ends the session (`204`).
+- When the replica already holds `SUPERMCP_MCP_MAX_SESSIONS` sessions and
+  every one of them has a request in flight, a new `initialize` is `503`
+  with `Retry-After: 1`.
+
+Sessions live on the replica that opened them and are closed when idle
+past `SUPERMCP_MCP_SESSION_IDLE` or when the replica shuts down; with
+more than one replica, a client has to keep reaching the same one
+(docs/operations.md, "Stateful MCP sessions"). A session does not carry
+permissions: each request is authenticated and its surface worked out as
+on a stateless server, and a call runs the tool as it is at that moment.
 
 ### What happens on each request
 
@@ -674,7 +706,7 @@ take `expectedVersion` in the body, the `version` that was read:
 | `connectors-update` | `PATCH /api/v1/connectors/{id}` (name, instructions, `readOnly`, `enabled`) |
 | `connectors-credentials` | `PUT /api/v1/connectors/{id}/credentials` |
 | `connectors-revisions-restore` | `POST /api/v1/connectors/{id}/revisions/{revision}/restore` |
-| `servers-update` | `PATCH /api/v1/servers/{id}` (name, instructions, `enabled`, `connectorIds`) |
+| `servers-update` | `PATCH /api/v1/servers/{id}` (name, instructions, `enabled`, `sessions`, `connectorIds`) |
 | `servers-revisions-restore` | `POST /api/v1/servers/{id}/revisions/{revision}/restore` |
 
 With a stale one the answer is `409`, with the same body a tool edit

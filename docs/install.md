@@ -399,6 +399,19 @@ which are also accepted under the prefix.
 | `SUPERMCP_AUTH_FRESH_WINDOW` | `5m` | How recently a browser session must have signed in, or confirmed its password, to create or revoke credentials, change roles, or change the security settings. Between `1m` and `24h`; anything else fails the boot. Applies to the whole instance by design, like the session lifetimes. API keys, OAuth access tokens and service accounts are not subject to it. |
 | `SUPERMCP_MCP_RESPONSE_MODE` | `sse` | `json` makes the MCP endpoint answer with `application/json` instead of server-sent events. Some clients require it. |
 
+### MCP sessions
+
+These apply only to MCP servers set to `stateful` (docs/api.md, "Sessions").
+A stateless server, the default, keeps nothing between requests. Sessions
+live in the memory of the replica that opened them; with more than one
+replica, route each client to one replica (docs/operations.md, "Stateful
+MCP sessions").
+
+| Setting | Default | What it decides |
+|---|---|---|
+| `SUPERMCP_MCP_MAX_SESSIONS` | `5000` | How many sessions one replica holds. When it is full, the session idle longest is closed to make room, and its client is answered `404` and initialises again; when every session has a request in flight, a new one is refused with `503` and `Retry-After: 1`. A whole number from 1 to 1000000; anything else fails the boot. |
+| `SUPERMCP_MCP_SESSION_IDLE` | `15m` | How long a session may go without a request before it is closed. Between `1m` and `24h`; anything else fails the boot. |
+
 ### Rate limiting
 
 Budgets are written `count/duration`, for example `10/1m`. A malformed

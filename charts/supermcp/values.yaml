@@ -142,10 +142,30 @@ resources:
 service:
   type: ClusterIP
   port: 80
+  # MCP servers set to stateful keep each client's session in the memory
+  # of one replica, so that client's requests have to keep reaching it
+  # (docs/operations.md, "Stateful MCP sessions"). Off by default: a
+  # stateless server, the default, needs nothing. ClientIP affinity only
+  # helps clients that reach this Service directly; behind an ingress the
+  # controller is the client, and the ingress annotations below are what
+  # route a client to its replica.
+  sessionAffinity: ""       # ClientIP
+  # sessionAffinityConfig:
+  #   clientIP:
+  #     timeoutSeconds: 1800   # longer than SUPERMCP_MCP_SESSION_IDLE
 
 ingress:
   enabled: false
   className: ""
+  # For stateful MCP servers behind ingress-nginx, route each client to one
+  # replica. A cookie is the steadiest key, but only for clients that keep
+  # cookies; hashing the client address works for every client whose
+  # address does not change mid-session. Pick one:
+  #   nginx.ingress.kubernetes.io/affinity: cookie
+  #   nginx.ingress.kubernetes.io/session-cookie-name: supermcp-route
+  #   nginx.ingress.kubernetes.io/session-cookie-max-age: "1800"
+  # or
+  #   nginx.ingress.kubernetes.io/upstream-hash-by: "$binary_remote_addr"
   annotations: {}
   host: ""
   tls:

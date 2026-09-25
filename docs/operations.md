@@ -27,6 +27,8 @@ reach for when something is wrong.
 | `SUPERMCP_AUDIT_SPOOL_ORPHAN_AGE` | `10m` | How long a replica's spool heartbeat may go unrefreshed before a live replica takes over its events. At least `30s`; a shorter value is raised to that. |
 | `SUPERMCP_INSTANCE_ID` | the host name | This replica's name: its spool directory, and the `meta.instance` of the gaps it records. Must be unique among running replicas. The chart sets it to the pod name. |
 | `SUPERMCP_DCR_MODE` | `approval` | Whether an MCP client can register itself: `open`, `approval` or `closed`. |
+| `SUPERMCP_MCP_MAX_SESSIONS` | 5000 | How many MCP sessions one replica holds for servers set to stateful. See "Stateful MCP sessions". |
+| `SUPERMCP_MCP_SESSION_IDLE` | `15m` | How long such a session may go without a request before it is closed. |
 
 Rate-limit budgets are written `count/duration`, for example `10/1m`. A
 malformed value fails the boot, because a limit nobody notices is off is
@@ -419,6 +421,62 @@ never clears.
   losing its connection.
 - The chart's `SupermcpCacheListenerDown` alert fires when a replica has
   reported 0 for ten minutes (`metrics.prometheusRule.for.errors`).
+
+## Stateful MCP sessions
+
+An MCP server is stateless unless someone sets it to stateful (the
+server screen, or `sessions` on `PATCH /api/v1/servers/{id}`). A
+stateless server answers every request on its own, on any replica, and
+this section does not apply to it.
+
+A stateful server keeps a session per client, which is what lets it ask
+the client a question in the middle of a call. The session lives in the
+memory of the replica that answered the client's `initialize`, and only
+there: the MCP library keeps no shared store, and none is added here. So:
+
+- **Route each client to one replica.** With one replica there is
+  nothing to do. With more, the load balancer has to send a client's
+  requests to the replica it started on. Behind ingress-nginx, cookie
+  affinity (`nginx.ingress.kubernetes.io/affinity: cookie`) is the
+  steadiest, for clients that keep cookies; hashing the client address
+  (`nginx.ingress.kubernetes.io/upstream-hash-by: "$binary_remote_addr"`)
+  works for every client whose address stays put. A client reaching the
+  Service directly can use `service.sessionAffinity: ClientIP`. The
+  chart's values carry all three, commented out. Hashing the
+  `Mcp-Session-Id` header does not work: the replica is chosen before the
+  id exists.
+- **A request that reaches the wrong replica is answered `404`**, with
+  the JSON-RPC error `Session not found; initialize a new one`. That is
+  the transport's signal to start a new session, and the MCP clients in
+  common use do so; what the client loses is the session, not any data.
+- **Limits.** `SUPERMCP_MCP_MAX_SESSIONS` (5000) per replica and
+  `SUPERMCP_MCP_SESSION_IDLE` (15 minutes). A full table closes the
+  session idle longest to make room; a table whose every session has a
+  request in flight refuses the new one with `503`. A session is its
+  caller's and its server's: presented by anyone else, or on another
+  server, it is unknown.
+- **What a session does not change.** Each request still authenticates,
+  and the tools it may see and call are worked out for that request, so a
+  permission taken away or a tool removed applies to a session at once. A
+  tool added after a session opened appears in its `tools/list` only once
+  the client starts a new session.
+
+`supermcp_mcp_sessions` is the number of sessions a replica holds, one
+series per replica. `supermcp_mcp_sessions_closed_total{reason}` counts
+why they ended: `idle`, `capacity` (made room for a new one), `client`
+(the client ended it), `shutdown` (the replica drained) and `gone` (the
+session had already ended, usually an `initialize` that failed). A
+`capacity` rate that keeps climbing means the limit is too low for the
+traffic or the affinity is not holding and clients keep starting over.
+
+**On a rollout,** a replica told to stop takes no new requests, lets the
+ones in flight finish within `SUPERMCP_SHUTDOWN_TIMEOUT`, then closes
+every session it holds (`reason="shutdown"`). Each of those clients is
+routed to another replica on its next request, is answered `404`, and
+initialises again. Scaling down does the same to the sessions on the
+replicas removed. Changing a server between stateless and stateful takes
+effect for new connections; a client connected across the change has to
+reconnect.
 
 ## What the alerts mean
 

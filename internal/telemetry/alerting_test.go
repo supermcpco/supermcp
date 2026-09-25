@@ -153,3 +153,31 @@ func TestDBPoolStatsAreReadAtScrape(t *testing.T) {
 		t.Errorf("after the pool changed, acquired = %v, want 3", got)
 	}
 }
+
+// The session gauge is one series per replica, and the close counter has
+// a fixed set of reasons: a server id or session id as a label would give
+// every client a series of its own.
+func TestMCPSessionSeriesAreBounded(t *testing.T) {
+	t.Parallel()
+	reg := prometheus.NewRegistry()
+	m := telemetry.NewMetrics(telemetry.MetricsOptions{Registry: reg})
+
+	m.SetMCPSessions(3)
+	m.SetMCPSessions(2)
+	for _, reason := range []string{"idle", "idle", "capacity", "client", "shutdown", "gone", "srv_123", "", "a session id"} {
+		m.ObserveMCPSessionClosed(reason)
+	}
+
+	if got := value(t, reg, "supermcp_mcp_sessions", map[string]string{}); got != 2 {
+		t.Errorf("mcp_sessions = %v, want 2", got)
+	}
+	want := map[string]float64{"idle": 2, "capacity": 1, "client": 1, "shutdown": 1, "gone": 1, "other": 3}
+	for reason, n := range want {
+		if got := value(t, reg, "supermcp_mcp_sessions_closed_total", map[string]string{"reason": reason}); got != n {
+			t.Errorf("mcp_sessions_closed_total{reason=%q} = %v, want %v", reason, got, n)
+		}
+	}
+	if n := len(family(t, reg, "supermcp_mcp_sessions_closed_total").GetMetric()); n != len(want) {
+		t.Errorf("mcp_sessions_closed_total has %d series, want %d", n, len(want))
+	}
+}

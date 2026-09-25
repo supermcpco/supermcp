@@ -19,7 +19,19 @@ import (
 // ErrNotFound is returned for unknown or invisible servers.
 var ErrNotFound = errors.New("MCP server not found")
 
-// Server is a stored MCP server.
+// ErrInvalidSessions is returned for a session mode that is neither of the
+// two below.
+var ErrInvalidSessions = errors.New("sessions must be stateless or stateful")
+
+// The two session modes. Stateless is the default, and what every server
+// created before the setting existed reads as.
+const (
+	SessionsStateless = "stateless"
+	SessionsStateful  = "stateful"
+)
+
+// Server is a stored MCP server. Sessions is SessionsStateless or
+// SessionsStateful.
 type Server struct {
 	ID           string    `json:"id"`
 	OrgID        string    `json:"organizationId"`
@@ -27,6 +39,7 @@ type Server struct {
 	Name         string    `json:"name"`
 	Instructions string    `json:"instructions,omitempty"`
 	Enabled      bool      `json:"enabled"`
+	Sessions     string    `json:"sessions" enum:"stateless,stateful" doc:"stateless answers every request on its own; stateful keeps a session per client on the replica that initialised it, which needs sticky routing"`
 	Version      int64     `json:"version" doc:"Send back as expectedVersion when updating"`
 	ConnectorIDs []string  `json:"connectorIds" nullable:"false"`
 	CreatedAt    time.Time `json:"createdAt"`
@@ -67,7 +80,8 @@ func (s *Service) Create(ctx context.Context, orgID, name, slug, instructions st
 	if !reSlug.MatchString(slug) {
 		return nil, errors.New("slug must be lowercase kebab-case")
 	}
-	srv := &Server{ID: s.NewID(), OrgID: orgID, Slug: slug, Name: name, Instructions: instructions, Enabled: true, Version: 1}
+	srv := &Server{ID: s.NewID(), OrgID: orgID, Slug: slug, Name: name, Instructions: instructions, Enabled: true,
+		Sessions: SessionsStateless, Version: 1}
 	err := s.DB.Tx(tenant.WithOrg(ctx, orgID), func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, `INSERT INTO mcp_servers (id, organization_id, slug, name, instructions, created_by) VALUES ($1,$2,$3,$4,$5,NULLIF($6,''))`,
 			srv.ID, orgID, slug, name, instructions, createdBy); err != nil {
@@ -118,13 +132,13 @@ func slugify(s string) string {
 	return s
 }
 
-const selectServer = `SELECT s.id, s.organization_id, s.slug, s.name, s.instructions, s.enabled, s.version, s.created_at, s.updated_at,
+const selectServer = `SELECT s.id, s.organization_id, s.slug, s.name, s.instructions, s.enabled, s.sessions, s.version, s.created_at, s.updated_at,
 	COALESCE((SELECT array_agg(connector_id ORDER BY connector_id) FROM mcp_server_connectors sc WHERE sc.server_id = s.id), '{}')
 	FROM mcp_servers s`
 
 func scan(row pgx.Row) (*Server, error) {
 	var srv Server
-	if err := row.Scan(&srv.ID, &srv.OrgID, &srv.Slug, &srv.Name, &srv.Instructions, &srv.Enabled, &srv.Version, &srv.CreatedAt, &srv.UpdatedAt, &srv.ConnectorIDs); err != nil {
+	if err := row.Scan(&srv.ID, &srv.OrgID, &srv.Slug, &srv.Name, &srv.Instructions, &srv.Enabled, &srv.Sessions, &srv.Version, &srv.CreatedAt, &srv.UpdatedAt, &srv.ConnectorIDs); err != nil {
 		return nil, err
 	}
 	if srv.ConnectorIDs == nil {
@@ -206,6 +220,8 @@ type UpdateInput struct {
 	Name         *string
 	Instructions *string
 	Enabled      *bool
+	// Sessions is SessionsStateless or SessionsStateful.
+	Sessions     *string
 	ConnectorIDs *[]string
 	// ExpectedVersion, when not zero, must equal the stored version; see
 	// connector.CheckVersion.
@@ -216,6 +232,9 @@ type UpdateInput struct {
 
 // Update applies a partial update.
 func (s *Service) Update(ctx context.Context, orgID, id string, in UpdateInput) (*Server, error) {
+	if in.Sessions != nil && *in.Sessions != SessionsStateless && *in.Sessions != SessionsStateful {
+		return nil, ErrInvalidSessions
+	}
 	err := s.DB.Tx(tenant.WithOrg(ctx, orgID), func(tx pgx.Tx) error {
 		srv, err := scan(tx.QueryRow(ctx, selectServer+` WHERE s.id = $1 FOR UPDATE OF s`, id))
 		if err != nil {
@@ -234,7 +253,11 @@ func (s *Service) Update(ctx context.Context, orgID, id string, in UpdateInput) 
 		if in.Enabled != nil {
 			srv.Enabled = *in.Enabled
 		}
-		if _, err := tx.Exec(ctx, `UPDATE mcp_servers SET name=$2, instructions=$3, enabled=$4, version=version+1, updated_at=now() WHERE id=$1`, id, srv.Name, srv.Instructions, srv.Enabled); err != nil {
+		if in.Sessions != nil {
+			srv.Sessions = *in.Sessions
+		}
+		if _, err := tx.Exec(ctx, `UPDATE mcp_servers SET name=$2, instructions=$3, enabled=$4, sessions=$5, version=version+1, updated_at=now() WHERE id=$1`,
+			id, srv.Name, srv.Instructions, srv.Enabled, srv.Sessions); err != nil {
 			return err
 		}
 		if in.ConnectorIDs != nil {

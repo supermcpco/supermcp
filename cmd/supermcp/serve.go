@@ -111,7 +111,15 @@ func serveCmd(args []string) error {
 	if admin != nil {
 		_ = admin.Shutdown(shutdownCtx)
 	}
-	if err := srv.Shutdown(shutdownCtx); err != nil {
+	err = srv.Shutdown(shutdownCtx)
+	// Stateful MCP sessions live in this replica's memory. They are closed
+	// once the listener has stopped taking requests, so none is in use when
+	// it goes; their clients reach another replica, are told their session
+	// is unknown, and initialise again there.
+	if deps.MCP != nil {
+		deps.MCP.Close()
+	}
+	if err != nil {
 		log.Error("forced shutdown", "err", err)
 		return err
 	}

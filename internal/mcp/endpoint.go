@@ -4,15 +4,24 @@
 // calling: the server's connectors, filtered by the caller's permissions.
 // tools/list is answered from that surface, and tools/call re-checks the
 // name against it so a client cannot invoke something it was never shown.
+//
+// A server is stateless or stateful. Stateless answers every request on
+// its own, on any replica. Stateful keeps a session per client on the
+// replica that initialised it (sessions.go); the surface, the permission
+// check and the caller are still those of each request, not of the one
+// that opened the session.
 package mcp
 
 import (
+	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"sort"
@@ -55,12 +64,23 @@ type Deps struct {
 	// JSONResponse serves application/json instead of SSE (some clients,
 	// notably Copilot Studio, require it).
 	JSONResponse bool
+	// Sessions bounds the sessions kept for servers set to stateful.
+	Sessions SessionOptions
 }
 
 // Endpoint is the MCP HTTP handler.
 type Endpoint struct {
 	Deps
-	handler *sdk.StreamableHTTPHandler
+	// stateless serves the servers that keep nothing between requests,
+	// stateful the ones that keep a session per client.
+	stateless *sdk.StreamableHTTPHandler
+	stateful  *sdk.StreamableHTTPHandler
+	sessions  *sessionTable
+	// requests holds the context of every stateful request in flight,
+	// under the reference serve puts in a header of it. A session's
+	// handlers run in the context of the request that opened the session;
+	// this is how they reach the one that carried the message instead.
+	requests sync.Map
 
 	// built holds the assembled MCP servers, keyed by the server, its
 	// version and the caller. Assembling one means handing every tool's
@@ -77,6 +97,7 @@ type Endpoint struct {
 type builtServer struct {
 	srv     *sdk.Server
 	names   map[string]bool
+	byName  map[string]visibleTool
 	expires time.Time
 }
 
@@ -101,6 +122,10 @@ type surface struct {
 	instructionsText string
 	names            map[string]bool
 	tools            []visibleTool
+	// byName is the same tools by name. A stateful session runs a call
+	// with the tool as this request sees it, not as it stood when the
+	// session was opened.
+	byName map[string]visibleTool
 	// mcp is the assembled server, shared with every other request that
 	// sees the same tools. nil until getServer assembles it.
 	mcp    *sdk.Server
@@ -120,17 +145,43 @@ type visibleTool struct {
 	ann       tool.Annotations
 }
 
+// requestRefHeader carries the reference to a stateful request's context
+// from serve to the handlers the session runs. serve sets it on every
+// stateful request and removes it from every stateless one, so a client
+// cannot supply one.
+const requestRefHeader = "X-Supermcp-Request-Ref"
+
 // New builds the endpoint.
 func New(d Deps) *Endpoint {
-	e := &Endpoint{Deps: d}
-	e.handler = sdk.NewStreamableHTTPHandler(e.getServer, &sdk.StreamableHTTPOptions{
+	e := &Endpoint{Deps: d, sessions: newSessionTable(d.Sessions, d.Metrics, d.Log)}
+	e.stateless = sdk.NewStreamableHTTPHandler(e.getServer, &sdk.StreamableHTTPOptions{
 		Stateless:                    true,
 		JSONResponse:                 d.JSONResponse,
 		Logger:                       d.Log,
 		MaxRequestBodyBytes:          4 << 20,
 		PropagateRequestCancellation: true,
 	})
+	// The SDK's own idle timeout is left off: the session table closes
+	// idle sessions, so that it knows about every one it closes.
+	e.stateful = sdk.NewStreamableHTTPHandler(e.getServer, &sdk.StreamableHTTPOptions{
+		JSONResponse:        d.JSONResponse,
+		Logger:              d.Log,
+		MaxRequestBodyBytes: 4 << 20,
+	})
 	return e
+}
+
+// Sessions reports how many stateful sessions this replica holds.
+func (e *Endpoint) Sessions() int { return e.sessions.len() }
+
+// Close ends every stateful session and refuses new ones. The server
+// calls it once the HTTP listener has shut down, so no request is still
+// using a session when it goes; a client that comes back reaches another
+// replica, is answered 404 for its old session, and initialises again.
+func (e *Endpoint) Close() {
+	if n := e.sessions.close(); n > 0 && e.Log != nil {
+		e.Log.Info("closed MCP sessions on the way out", "sessions", n)
+	}
 }
 
 // Routes mounts the endpoint.
@@ -141,8 +192,10 @@ func (e *Endpoint) Routes(r chi.Router) {
 
 func (e *Endpoint) serve() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// A stateless server has no stream to resume; answering 405 here
-		// keeps clients that probe with GET from hanging.
+		// Neither mode offers a stream the server writes to on its own: a
+		// stateless server has nothing to resume, and a stateful one sends
+		// what it asks the client on the stream of the request that asked.
+		// Answering 405 here keeps clients that probe with GET from hanging.
 		if r.Method == http.MethodGet {
 			w.Header().Set("Allow", "POST, DELETE")
 			writeRPCError(w, http.StatusMethodNotAllowed, -32000, "Method not allowed in stateless mode")
@@ -186,13 +239,110 @@ func (e *Endpoint) serve() http.HandlerFunc {
 		// The pattern, never the server id: an endpoint label taken from
 		// the URL would give every MCP server installed a series of its own.
 		ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
-		e.handler.ServeHTTP(ww, r.WithContext(context.WithValue(ctx, surfaceKey, s)))
+		e.dispatch(ww, r, s)
 		status := ww.Status()
 		if status == 0 {
 			status = http.StatusOK
 		}
 		e.Metrics.ObserveMCPRequest(routePattern(r), s.method, status)
 	}
+}
+
+// dispatch hands a request whose surface has been built to the transport
+// for its server's session mode.
+func (e *Endpoint) dispatch(w http.ResponseWriter, r *http.Request, s *surface) {
+	r = r.WithContext(context.WithValue(r.Context(), surfaceKey, s))
+	if s.server.Sessions == mcpserver.SessionsStateful {
+		e.serveStateful(w, r, s)
+		return
+	}
+	r.Header.Del(requestRefHeader)
+	e.stateless.ServeHTTP(w, r)
+}
+
+// serveStateful serves one request to a server that keeps sessions.
+//
+// A request naming a session has to name one this replica holds for this
+// server and this caller; anything else is answered 404, which is what
+// tells a client to initialise again. A request naming none has to be an
+// initialise, and takes a place in the session table.
+func (e *Endpoint) serveStateful(w http.ResponseWriter, r *http.Request, s *surface) {
+	p, _ := authz.From(r.Context())
+	owner := ownerOf(p)
+	ref := rand.Text()
+	r.Header.Set(requestRefHeader, ref)
+	e.requests.Store(ref, r.Context())
+	defer e.requests.Delete(ref)
+
+	if id := r.Header.Get(sessionHeader); id != "" {
+		if !e.sessions.begin(id, s.server.ID, owner) {
+			writeRPCError(w, http.StatusNotFound, -32001, "Session not found; initialize a new one")
+			return
+		}
+		defer e.sessions.end(id)
+		ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
+		e.stateful.ServeHTTP(ww, r)
+		if r.Method == http.MethodDelete && ww.Status() == http.StatusNoContent {
+			e.sessions.forget(id, telemetry.SessionClosedClient)
+		}
+		return
+	}
+
+	if r.Method != http.MethodPost {
+		writeRPCError(w, http.StatusBadRequest, -32000, "Bad Request: "+r.Method+" needs an "+sessionHeader+" header")
+		return
+	}
+	if init, err := isInitialize(r); err != nil {
+		writeRPCError(w, http.StatusBadRequest, -32700, "Parse error")
+		return
+	} else if !init {
+		// The transport says a server that needs a session answers 400 to
+		// anything but an initialise that arrives without one.
+		writeRPCError(w, http.StatusBadRequest, -32000, "Bad Request: this server keeps sessions; send initialize first and then the "+sessionHeader+" it answers with")
+		return
+	}
+	if err := e.sessions.reserve(); err != nil {
+		w.Header().Set("Retry-After", "1")
+		writeRPCError(w, http.StatusServiceUnavailable, -32000, err.Error())
+		return
+	}
+	var created string
+	hook := &headerHook{ResponseWriter: w, hook: func(h http.Header, code int) {
+		if id := h.Get(sessionHeader); id != "" && code < 300 {
+			created = id
+			e.sessions.add(id, s.server.ID, owner, s.mcp)
+		}
+	}}
+	e.stateful.ServeHTTP(hook, r)
+	e.sessions.settle(created)
+}
+
+// isInitialize reports whether the request's body is an initialise
+// request, and puts the body back for the transport to read.
+func isInitialize(r *http.Request) (bool, error) {
+	if r.Body == nil {
+		return false, nil
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, 4<<20+1))
+	if err != nil {
+		return false, fmt.Errorf("read request body: %w", err)
+	}
+	_ = r.Body.Close()
+	r.Body = io.NopCloser(bytes.NewReader(body))
+	var msg struct {
+		Method string `json:"method"`
+	}
+	// A batch or anything else that is not one object is not an
+	// initialise; the transport has its own answer for a body it cannot
+	// parse, so only a body that is not JSON at all is refused here.
+	if err := json.Unmarshal(body, &msg); err != nil {
+		var syntax *json.SyntaxError
+		if errors.As(err, &syntax) {
+			return false, err
+		}
+		return false, nil
+	}
+	return msg.Method == "initialize", nil
 }
 
 // buildSurface resolves the server, checks membership and permissions, and
@@ -231,14 +381,14 @@ func (e *Endpoint) buildSurface(r *http.Request) *surface {
 	// request that shares a key, so it is the part worth keeping.
 	key := builtKey(srv, p)
 	if b := e.cachedServer(key); b != nil {
-		return &surface{server: srv, names: b.names, mcp: b.srv}
+		return &surface{server: srv, names: b.names, byName: b.byName, mcp: b.srv}
 	}
 
 	sf, err := e.Servers.Surface(ctx, srv)
 	if err != nil {
 		return &surface{err: err, status: http.StatusInternalServerError}
 	}
-	out := &surface{server: srv, names: map[string]bool{}}
+	out := &surface{server: srv, names: map[string]bool{}, byName: map[string]visibleTool{}}
 	for _, st := range sf.Tools {
 		ann := tool.Derive(st.Tool.Definition, st.Connector.Transport.Type, st.Connector.ReadOnly)
 		d, err := e.Authz.Evaluate(ctx, p, authz.ToolsRead, authz.Resource{OrgID: srv.OrgID, ServerID: srv.ID, ConnectorID: st.Connector.ID, ToolID: st.Tool.ID})
@@ -249,11 +399,13 @@ func (e *Endpoint) buildSurface(r *http.Request) *surface {
 			continue
 		}
 		out.names[st.Tool.Name] = true
-		out.tools = append(out.tools, visibleTool{tool: st.Tool, connector: st.Connector, ann: ann})
+		vt := visibleTool{tool: st.Tool, connector: st.Connector, ann: ann}
+		out.tools = append(out.tools, vt)
+		out.byName[st.Tool.Name] = vt
 	}
 	out.instructionsText = sf.Instructions
 	out.mcp = e.assemble(out)
-	e.keepServer(key, &builtServer{srv: out.mcp, names: out.names, expires: time.Now().Add(builtTTL)})
+	e.keepServer(key, &builtServer{srv: out.mcp, names: out.names, byName: out.byName, expires: time.Now().Add(builtTTL)})
 	return out
 }
 
@@ -312,10 +464,12 @@ func (e *Endpoint) assemble(s *surface) *sdk.Server {
 	for _, vt := range s.tools {
 		srv.AddTool(mcpTool(vt), e.handlerFor(s.server, vt))
 	}
-	// recordMethod is outermost, so a call the guard refuses is still
-	// labelled with the method it asked for. It reads the per-request
-	// surface out of the context, because this server outlives the request.
-	srv.AddReceivingMiddleware(recordMethod(), hiddenToolGuard(s.names))
+	// bindRequest is outermost, so everything after it reads the request
+	// that carried the message. recordMethod is next, so a call the guard
+	// refuses is still labelled with the method it asked for. Both read
+	// the per-request surface out of the context, because this server
+	// outlives the request.
+	srv.AddReceivingMiddleware(e.bindRequest(), recordMethod(), hiddenToolGuard(s.names))
 	return srv
 }
 
@@ -382,8 +536,17 @@ func inputSchema(def *adapter.Tool) any {
 }
 
 // handlerFor runs one tool call after re-checking invoke permission.
-func (e *Endpoint) handlerFor(server *mcpserver.Server, vt visibleTool) sdk.ToolHandler {
+func (e *Endpoint) handlerFor(server *mcpserver.Server, assembled visibleTool) sdk.ToolHandler {
 	return func(ctx context.Context, req *sdk.CallToolRequest) (*sdk.CallToolResult, error) {
+		// The tool as this request sees it. On a stateless server that is
+		// the one assembled; a stateful session was assembled when it
+		// opened, and a tool edited since runs as it is now.
+		vt := assembled
+		if s, _ := ctx.Value(surfaceKey).(*surface); s != nil {
+			if cur, ok := s.byName[req.Params.Name]; ok {
+				vt = cur
+			}
+		}
 		// The caller comes from the request, not from the closure: this
 		// handler is shared by every caller the surface key matches, and
 		// the permission check below has to be about the one calling now.
@@ -472,10 +635,18 @@ func sortedHeaders(h map[string]string) []string {
 // hiddenToolGuard refuses a call for a name outside the surface with a
 // deliberately ambiguous message: a client should not learn whether a tool
 // exists in another workspace.
-func hiddenToolGuard(names map[string]bool) sdk.Middleware {
+//
+// The names are the request's own surface where there is one: a stateful
+// session outlives the surface it was opened with, and a tool taken away
+// since must not stay callable on it.
+func hiddenToolGuard(assembled map[string]bool) sdk.Middleware {
 	return func(next sdk.MethodHandler) sdk.MethodHandler {
 		return func(ctx context.Context, method string, req sdk.Request) (sdk.Result, error) {
 			if method == "tools/call" {
+				names := assembled
+				if s, _ := ctx.Value(surfaceKey).(*surface); s != nil && s.names != nil {
+					names = s.names
+				}
 				if r, ok := req.(*sdk.CallToolRequest); ok && !names[r.Params.Name] {
 					// Deliberately ambiguous: a client must not learn whether a
 					// tool exists in a workspace it cannot see.
@@ -485,6 +656,57 @@ func hiddenToolGuard(names map[string]bool) sdk.Middleware {
 			return next(ctx, method, req)
 		}
 	}
+}
+
+// bindRequest runs a stateful session's handlers in the request that
+// carried the message. The SDK runs them in the context of the request
+// that opened the session, which would name that request's caller and
+// surface for as long as the session lasts. The values come from the
+// current request; cancellation, and the values the SDK keeps for itself,
+// stay the session's. A stateless request carries no reference and passes
+// through untouched.
+func (e *Endpoint) bindRequest() sdk.Middleware {
+	return func(next sdk.MethodHandler) sdk.MethodHandler {
+		return func(ctx context.Context, method string, req sdk.Request) (sdk.Result, error) {
+			extra := req.GetExtra()
+			if extra == nil || extra.Header == nil {
+				return next(ctx, method, req)
+			}
+			ref := extra.Header.Get(requestRefHeader)
+			if ref == "" {
+				return next(ctx, method, req)
+			}
+			v, ok := e.requests.Load(ref)
+			if !ok {
+				// The request has already been answered: the transport
+				// acknowledges a notification before handling it. Nothing
+				// about a notification needs the caller, and the surface of
+				// the request that opened the session is not this one's.
+				if strings.HasPrefix(method, "notifications/") {
+					return next(context.WithValue(ctx, surfaceKey, (*surface)(nil)), method, req)
+				}
+				return nil, &jsonrpc.Error{Code: -32600, Message: "the request carrying this message has ended"}
+			}
+			reqCtx, _ := v.(context.Context)
+			return next(requestContext{Context: ctx, values: reqCtx}, method, req) //nolint:contextcheck // derived from ctx: its cancellation, the request's values
+
+		}
+	}
+}
+
+// requestContext is a session's context with the values of one request
+// laid over it.
+type requestContext struct {
+	context.Context
+	values context.Context
+}
+
+// Value reads the request first and the session second.
+func (c requestContext) Value(key any) any {
+	if v := c.values.Value(key); v != nil {
+		return v
+	}
+	return c.Context.Value(key)
 }
 
 // recordMethod notes which JSON-RPC method is being served. The status
