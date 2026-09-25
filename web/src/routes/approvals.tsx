@@ -132,7 +132,10 @@ function Approvals() {
           {history.map((r) => (
             <li key={r.id} className="rounded-lg px-5 py-4 ring ring-kumo-line">
               <Summary request={r} />
-              {r.reason && (
+              {r.reason && r.state === "cancelled" && (
+                <RequesterNote label="Why the requester withdrew it" text={r.reason} />
+              )}
+              {r.reason && r.state !== "cancelled" && (
                 <Text variant="secondary">
                   {r.state === "rejected" ? "Refused" : "Approved"}: {r.reason}
                 </Text>
@@ -325,11 +328,32 @@ function Summary({ request }: { request: ApprovalRequest }) {
       </Text>
       {request.acknowledgedAt && (
         <Text as="span" variant="secondary">
-          {request.requesterDisplay || request.requestedBy} confirmed from their client that they asked for this call
-          {request.acknowledgement ? `: “${request.acknowledgement}”` : "."} Confirming is not an approval.
+          {request.requesterDisplay || request.requestedBy} confirmed from their client that they asked for this call.
+          Confirming is not an approval.
         </Text>
       )}
+      {request.acknowledgement && <RequesterNote label="Note from the requester" text={request.acknowledgement} />}
     </div>
+  );
+}
+
+/**
+ * Text the person who asked for the call wrote. It is shown apart from the
+ * product's own sentences, and labelled as theirs and unchecked, so that it
+ * cannot pass for anything supermcp says.
+ */
+function RequesterNote({ label, text }: { label: string; text: string }) {
+  return (
+    <figure className="grid gap-1 rounded-md bg-kumo-tint px-3 py-2">
+      <figcaption>
+        <Text as="span" variant="secondary">
+          {label} (their words, not verified)
+        </Text>
+      </figcaption>
+      <blockquote className="break-words whitespace-pre-wrap">
+        <Text as="span">{text}</Text>
+      </blockquote>
+    </figure>
   );
 }
 

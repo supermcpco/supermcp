@@ -72,6 +72,13 @@ type MCP struct {
 	// is full, the session idle longest is closed to make room; its client
 	// is answered 404 on its next request and initialises again.
 	MaxSessions int
+	// MaxSessionsPerCaller is how many of those one credential may hold.
+	// At the limit a caller's own session idle longest makes room.
+	MaxSessionsPerCaller int
+	// MaxSessionsPerOrg is how many one workspace may hold.
+	MaxSessionsPerOrg int
+	// SessionMaxAge is how long a session may last however busy it is.
+	SessionMaxAge time.Duration
 	// SessionIdle is how long a session may go without a request before it
 	// is closed.
 	SessionIdle time.Duration
@@ -85,9 +92,13 @@ type MCP struct {
 // of one client, a few tens of kilobytes; five thousand of them is well
 // inside a replica's memory limit in the chart.
 const (
-	DefaultMCPMaxSessions        = 5000
-	DefaultMCPSessionIdle        = 15 * time.Minute
-	DefaultMCPElicitationTimeout = time.Minute
+	DefaultMCPMaxSessions          = 5000
+	DefaultMCPMaxSessionsPerCaller = 16
+	DefaultMCPSessionIdle          = 15 * time.Minute
+	DefaultMCPSessionMaxAge        = 12 * time.Hour
+	// DefaultMCPElicitationTimeout stays below the router's 60 second
+	// request timeout, so a held call is answered before it is cut off.
+	DefaultMCPElicitationTimeout = 45 * time.Second
 )
 
 // Tracing is where spans go, and how many of them.
@@ -195,12 +206,37 @@ func load(version string, serving bool) (*Config, error) {
 			c.MCP.MaxSessions = n
 		}
 	}
+	c.MCP.MaxSessionsPerCaller = DefaultMCPMaxSessionsPerCaller
+	if v := os.Getenv("SUPERMCP_MCP_MAX_SESSIONS_PER_CALLER"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 || n > c.MCP.MaxSessions {
+			errs = append(errs, fmt.Errorf("SUPERMCP_MCP_MAX_SESSIONS_PER_CALLER must be a whole number between 1 and SUPERMCP_MCP_MAX_SESSIONS, got %q", v))
+		} else {
+			c.MCP.MaxSessionsPerCaller = n
+		}
+	}
+	// A tenth of the replica by default, so no one workspace can hold more
+	// than that of it.
+	c.MCP.MaxSessionsPerOrg = max(c.MCP.MaxSessions/10, 1)
+	if v := os.Getenv("SUPERMCP_MCP_MAX_SESSIONS_PER_ORG"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 || n > c.MCP.MaxSessions {
+			errs = append(errs, fmt.Errorf("SUPERMCP_MCP_MAX_SESSIONS_PER_ORG must be a whole number between 1 and SUPERMCP_MCP_MAX_SESSIONS, got %q", v))
+		} else {
+			c.MCP.MaxSessionsPerOrg = n
+		}
+	}
+	if d, err := boundedDuration("SUPERMCP_MCP_SESSION_MAX_AGE", DefaultMCPSessionMaxAge, 10*time.Minute, 7*24*time.Hour); err != nil {
+		errs = append(errs, err)
+	} else {
+		c.MCP.SessionMaxAge = d
+	}
 	if d, err := boundedDuration("SUPERMCP_MCP_SESSION_IDLE", DefaultMCPSessionIdle, time.Minute, 24*time.Hour); err != nil {
 		errs = append(errs, err)
 	} else {
 		c.MCP.SessionIdle = d
 	}
-	if d, err := boundedDuration("SUPERMCP_MCP_ELICITATION_TIMEOUT", DefaultMCPElicitationTimeout, 5*time.Second, 10*time.Minute); err != nil {
+	if d, err := boundedDuration("SUPERMCP_MCP_ELICITATION_TIMEOUT", DefaultMCPElicitationTimeout, 5*time.Second, 55*time.Second); err != nil {
 		errs = append(errs, err)
 	} else {
 		c.MCP.ElicitationTimeout = d

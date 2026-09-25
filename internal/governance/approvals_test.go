@@ -692,3 +692,46 @@ func TestPolicyReachesTheServersItCouldHold(t *testing.T) {
 		t.Error("a rule on one of the server's tools does not reach it")
 	}
 }
+
+// What a requester writes reaches an approver without anything that can
+// disguise it or anything the detectors know to be sensitive.
+func TestRequesterTextIsCleanedBeforeAnApproverReadsIt(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name, in, want string
+		limit          int
+	}{
+		{"plain", "  Needed for the audit  ", "Needed for the audit", 100},
+		{"line breaks become spaces", "one\ntwo\tthree", "one two three", 100},
+		{"bidirectional override and zero width removed", "pay\u202eevil\u200b bill\x1b[31m", "payevil bill[31m", 100},
+		{"a card number is masked", "card 4111 1111 1111 1111 please", "card <redacted:payment_card> please", 100},
+		{"cut to the limit", "abcdef", "abc", 3},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := governance.RequesterText(tc.in, tc.limit); got != tc.want {
+				t.Errorf("RequesterText(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+// Declining the question about a call does not undo a confirmation that
+// reached the request first.
+func TestWithdrawLeavesAConfirmedRequest(t *testing.T) {
+	t.Parallel()
+	f := newApprovalFixture(t)
+	ctx := t.Context()
+	f.policy(ctx, t, governance.ApprovalPolicy{Name: "destructive", Trigger: governance.TriggerDestructive})
+	r := f.raise(ctx, t, f.call(map[string]any{"amount": 3}))
+	if _, err := f.svc.Acknowledge(ctx, f.orgID, r.ID, alice, "yes"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.svc.Withdraw(ctx, f.orgID, r.ID, alice, "no"); !errors.Is(err, governance.ErrConfirmed) {
+		t.Fatalf("withdrawing a confirmed request: %v", err)
+	}
+	other := f.raise(ctx, t, f.call(map[string]any{"amount": 4}))
+	got, err := f.svc.Withdraw(ctx, f.orgID, other.ID, alice, "not\u202e me")
+	if err != nil || got.State != governance.StateCancelled || got.Reason != "not me" {
+		t.Fatalf("withdrawing an unconfirmed request: %+v %v", got, err)
+	}
+}

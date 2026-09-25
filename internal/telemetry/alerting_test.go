@@ -164,14 +164,14 @@ func TestMCPSessionSeriesAreBounded(t *testing.T) {
 
 	m.SetMCPSessions(3)
 	m.SetMCPSessions(2)
-	for _, reason := range []string{"idle", "idle", "capacity", "client", "shutdown", "gone", "srv_123", "", "a session id"} {
+	for _, reason := range []string{"idle", "idle", "capacity", "client", "shutdown", "gone", "expired", "srv_123", "", "a session id"} {
 		m.ObserveMCPSessionClosed(reason)
 	}
 
 	if got := value(t, reg, "supermcp_mcp_sessions", map[string]string{}); got != 2 {
 		t.Errorf("mcp_sessions = %v, want 2", got)
 	}
-	want := map[string]float64{"idle": 2, "capacity": 1, "client": 1, "shutdown": 1, "gone": 1, "other": 3}
+	want := map[string]float64{"idle": 2, "capacity": 1, "client": 1, "shutdown": 1, "gone": 1, "expired": 1, "other": 3}
 	for reason, n := range want {
 		if got := value(t, reg, "supermcp_mcp_sessions_closed_total", map[string]string{"reason": reason}); got != n {
 			t.Errorf("mcp_sessions_closed_total{reason=%q} = %v, want %v", reason, got, n)
