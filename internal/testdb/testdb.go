@@ -16,12 +16,20 @@
 package testdb
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"log/slog"
+	neturl "net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"testing"
+
+	"github.com/jackc/pgx/v5"
+
+	"github.com/supermcpco/supermcp/internal/store"
 )
 
 // SuffixEnv overrides the derived suffix. Only lower-case letters, digits
@@ -89,4 +97,66 @@ func root() string {
 			return dir
 		}
 	}
+}
+
+// Own returns the URL of a database named name on the server DATABASE_URL
+// (base) points at, created and migrated if it is not already. It is
+// kept between runs on purpose.
+//
+// Creation and the first migration run under one advisory lock on the
+// server's postgres database, held on the admin connection. Without it,
+// packages that own a database each run migration 00002 at the same
+// moment on a fresh server, and its CREATE ROLE supermcp_app races
+// across databases: the role is per server, the IF NOT EXISTS check is
+// per statement, and the loser fails with a duplicate pg_authid key.
+// The lock is per server too, so it also covers a second checkout's run.
+//
+// The test is skipped when Postgres cannot be reached, and fails when it
+// can and the database cannot be prepared.
+func Own(ctx context.Context, t *testing.T, base, name string) string {
+	t.Helper()
+	if base == "" {
+		t.Skip("DATABASE_URL is not set")
+	}
+	u, err := neturl.Parse(base)
+	if err != nil {
+		t.Fatalf("DATABASE_URL is not a URL: %v", err)
+	}
+	admin := *u
+	admin.Path = "/postgres"
+	conn, err := pgx.Connect(ctx, admin.String())
+	if err != nil {
+		t.Skipf("could not reach Postgres to make this package's own database: %v", err)
+	}
+	defer func() { _ = conn.Close(ctx) }()
+
+	// A session lock, released below or when the connection closes.
+	if _, err := conn.Exec(ctx, `SELECT pg_advisory_lock(hashtext('supermcp:testdb'))`); err != nil {
+		t.Fatalf("could not take the test-database lock: %v", err)
+	}
+	defer func() { _, _ = conn.Exec(ctx, `SELECT pg_advisory_unlock(hashtext('supermcp:testdb'))`) }()
+
+	var exists bool
+	if err := conn.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = $1)`, name).Scan(&exists); err != nil {
+		t.Fatalf("could not look for %s: %v", name, err)
+	}
+	if !exists {
+		// CREATE DATABASE cannot run in a transaction; under the lock
+		// nothing else creates it, but "already exists" stays harmless.
+		if _, err := conn.Exec(ctx, `CREATE DATABASE `+name); err != nil &&
+			!strings.Contains(err.Error(), "already exists") {
+			t.Fatalf("could not create %s: %v", name, err)
+		}
+	}
+	own := *u
+	own.Path = "/" + name
+	st, err := store.Open(ctx, own.String(), own.String(), slog.New(slog.DiscardHandler), store.Options{})
+	if err != nil {
+		t.Fatalf("could not open %s: %v", name, err)
+	}
+	defer st.Close()
+	if err := st.Migrate(ctx, true); err != nil {
+		t.Fatalf("could not apply the schema to %s: %v", name, err)
+	}
+	return own.String()
 }
