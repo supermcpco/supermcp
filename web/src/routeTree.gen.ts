@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AnalyticsRouteImport } from './routes/analytics'
 import { Route as ApiKeysRouteImport } from './routes/api-keys'
 import { Route as ApprovalsRouteImport } from './routes/approvals'
 import { Route as LoginRouteImport } from './routes/login'
@@ -38,6 +39,11 @@ import { Route as ConnectorsIdToolsToolIdHistoryRouteImport } from './routes/con
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AnalyticsRoute = AnalyticsRouteImport.update({
+  id: '/analytics',
+  path: '/analytics',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiKeysRoute = ApiKeysRouteImport.update({
@@ -165,6 +171,7 @@ const ConnectorsIdToolsToolIdHistoryRoute =
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/analytics': typeof AnalyticsRoute
   '/api-keys': typeof ApiKeysRoute
   '/approvals': typeof ApprovalsRoute
   '/login': typeof LoginRoute
@@ -192,6 +199,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/analytics': typeof AnalyticsRoute
   '/api-keys': typeof ApiKeysRoute
   '/approvals': typeof ApprovalsRoute
   '/login': typeof LoginRoute
@@ -220,6 +228,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/analytics': typeof AnalyticsRoute
   '/api-keys': typeof ApiKeysRoute
   '/approvals': typeof ApprovalsRoute
   '/login': typeof LoginRoute
@@ -249,6 +258,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/analytics'
     | '/api-keys'
     | '/approvals'
     | '/login'
@@ -276,6 +286,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/analytics'
     | '/api-keys'
     | '/approvals'
     | '/login'
@@ -303,6 +314,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/analytics'
     | '/api-keys'
     | '/approvals'
     | '/login'
@@ -331,6 +343,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AnalyticsRoute: typeof AnalyticsRoute
   ApiKeysRoute: typeof ApiKeysRoute
   ApprovalsRoute: typeof ApprovalsRoute
   LoginRoute: typeof LoginRoute
@@ -364,6 +377,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/analytics': {
+      id: '/analytics'
+      path: '/analytics'
+      fullPath: '/analytics'
+      preLoaderRoute: typeof AnalyticsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api-keys': {
@@ -539,6 +559,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AnalyticsRoute: AnalyticsRoute,
   ApiKeysRoute: ApiKeysRoute,
   ApprovalsRoute: ApprovalsRoute,
   LoginRoute: LoginRoute,
