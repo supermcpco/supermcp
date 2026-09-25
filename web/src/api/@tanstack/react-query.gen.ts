@@ -532,6 +532,8 @@ export const logoutMutation = (options?: Partial<Options<LogoutData>>): UseMutat
 
 /**
  * Change your own password
+ *
+ * Verifies the current password, then sets the new one and ends every other session. A wrong current password counts toward the same lockout as sign-in; once the account is locked the request is refused with 429 until the lockout expires.
  */
 export const changePasswordMutation = (options?: Partial<Options<ChangePasswordData>>): UseMutationOptions<ChangePasswordResponse2, ChangePasswordError, Options<ChangePasswordData>> => {
     const mutationOptions: UseMutationOptions<ChangePasswordResponse2, ChangePasswordError, Options<ChangePasswordData>> = {

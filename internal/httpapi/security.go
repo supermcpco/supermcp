@@ -16,6 +16,9 @@ import (
 func (d Deps) securityRoutes(api huma.API) {
 	huma.Register(api, huma.Operation{OperationID: "change-password", Method: http.MethodPost,
 		Path: "/api/v1/auth/password", Summary: "Change your own password", Tags: []string{"auth"},
+		Description: "Verifies the current password, then sets the new one and ends every other session. A wrong " +
+			"current password counts toward the same lockout as sign-in; once the account is locked the request is " +
+			"refused with 429 until the lockout expires.",
 		Security: sessionSecurity},
 		func(ctx context.Context, in *struct {
 			Body struct {
@@ -41,7 +44,8 @@ func (d Deps) securityRoutes(api huma.API) {
 					return nil, err
 				}
 			}
-			if err := d.Identity.ChangePassword(ctx, p.ID, p.OrgID, in.Body.CurrentPassword, in.Body.NewPassword); err != nil {
+			ip, _ := ctx.Value(ipKey).(string)
+			if err := d.Identity.ChangePassword(ctx, p.ID, p.OrgID, in.Body.CurrentPassword, in.Body.NewPassword, ip); err != nil {
 				d.emit(ctx, audit.Event{Category: audit.CategoryAuth, Action: "password.change",
 					Outcome: audit.Failure, Meta: map[string]any{"reason": err.Error()}})
 				return nil, humaErr(err)
