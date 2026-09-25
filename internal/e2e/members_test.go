@@ -440,3 +440,66 @@ func (h *harness) signIn(t *testing.T, email string) {
 		t.Fatalf("sign in as %s: %d", email, code)
 	}
 }
+
+// TestMemberRoleReplacesInviteRole changes the role of members who joined
+// through an invite. The invite's binding is a grant an administrator made
+// in advance, so a role change replaces it rather than adding to it; and
+// when that binding is what makes someone the last owner, the last-owner
+// rule still refuses the change.
+func TestMemberRoleReplacesInviteRole(t *testing.T) {
+	h := start(t)
+	h.clearInviteLockouts(t)
+	owner := h.register(t, "E2E members invite role")
+	dropOrgs(t, h, owner.Org.ID)
+
+	// join invites a new account's owner to the organisation as roleID and
+	// returns them signed in there.
+	join := func(roleID string) (*harness, string) {
+		t.Helper()
+		m := h.anonymous()
+		who := m.register(t, "E2E invitee's own")
+		dropOrgs(t, h, who.Org.ID)
+		created, code := h.createInvite(t, who.User.Email, roleID, 0)
+		if code != http.StatusCreated {
+			t.Fatalf("invite as %s: %d", roleID, code)
+		}
+		if code := m.do(t, http.MethodPost, "/api/v1/invites/accept",
+			map[string]any{"token": inviteToken(t, created.URL)}, nil); code != http.StatusOK {
+			t.Fatalf("accept the %s invite: %d", roleID, code)
+		}
+		return m, who.User.ID
+	}
+
+	t.Run("replaces the invite binding", func(t *testing.T) {
+		_, viewerID := join("role_viewer")
+		if r := h.members(t)[viewerID].Roles; len(r) != 1 || r[0].RoleID != "role_viewer" || r[0].Source != "invite" {
+			t.Fatalf("after joining the viewer holds %+v", r)
+		}
+		var got memberBody
+		if code := h.do(t, http.MethodPatch, membersPath+"/"+viewerID, map[string]any{"roleId": "role_editor"}, &got); code != http.StatusOK {
+			t.Fatalf("change the invited viewer to editor: %d", code)
+		}
+		if len(got.Roles) != 1 || got.Roles[0].RoleID != "role_editor" || got.Roles[0].Source != "manual" {
+			t.Errorf("after the change the member holds %+v, want only editor", got.Roles)
+		}
+		if r := h.members(t)[viewerID].Roles; len(r) != 1 || r[0].RoleID != "role_editor" {
+			t.Errorf("the list shows %+v, want only editor", r)
+		}
+	})
+
+	t.Run("last owner through an invite", func(t *testing.T) {
+		invited, invitedID := join("role_owner")
+		// The invited owner demotes the one who registered, and so becomes
+		// the only owner, through the invite's binding alone.
+		if code := invited.patchMember(t, owner.User.ID, map[string]any{"roleId": "role_admin"}, nil); code != http.StatusOK {
+			t.Fatalf("demote the first owner: %d", code)
+		}
+		var e apiError
+		if code := h.patchMember(t, invitedID, map[string]any{"roleId": "role_admin"}, &e); code != http.StatusConflict || !e.hasCode("last_owner") {
+			t.Errorf("demote the last owner, who holds it by invite: %d %v, want 409 last_owner", code, e.codes())
+		}
+		if r := h.members(t)[invitedID].Roles; len(r) != 1 || r[0].RoleID != "role_owner" || r[0].Source != "invite" {
+			t.Errorf("a refused change touched the invited owner: %+v", r)
+		}
+	})
+}

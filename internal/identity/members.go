@@ -199,9 +199,10 @@ func (s *Service) SetMemberStatus(ctx context.Context, orgID, actorID, userID st
 	return before, after, nil
 }
 
-// SetMemberRole replaces a member's manual organisation-wide roles with
-// roleID and returns them before and after the change. Bindings an
-// identity provider made (source sso or scim), invite bindings and
+// SetMemberRole replaces the organisation-wide roles an administrator gave
+// a member (source manual, or invite: an invite's role is a manual grant
+// made in advance) with roleID, and returns the member before and after
+// the change. Bindings an identity provider made (source sso or scim) and
 // bindings scoped to a server, connector or tool are left alone, which is
 // why this is allowed for SCIM- and SSO-managed members too.
 func (s *Service) SetMemberRole(ctx context.Context, orgID, actorID, userID, roleID string) (before, after Member, err error) {
@@ -223,14 +224,14 @@ func (s *Service) SetMemberRole(ctx context.Context, orgID, actorID, userID, rol
 		if err != nil {
 			return err
 		}
-		if manualOrgRole(before) == roleID {
+		if grantedOrgRole(before) == roleID {
 			after = before
 			return nil
 		}
 		if err := KeepOwner(ctx, tx, orgID, userID, func() error {
 			if _, err := tx.Exec(ctx, `DELETE FROM role_bindings
 				WHERE organization_id = $1 AND principal_kind = 'user' AND principal_id = $2
-				  AND scope_kind = 'org' AND source = 'manual'`, orgID, userID); err != nil {
+				  AND scope_kind = 'org' AND source IN ('manual', 'invite')`, orgID, userID); err != nil {
 				return err
 			}
 			_, err := tx.Exec(ctx, `INSERT INTO role_bindings
@@ -385,12 +386,13 @@ SELECT count(DISTINCT principal_id) FROM owners`, orgID).Scan(&owners); err != n
 	return nil
 }
 
-// manualOrgRole returns the one role a member holds through manual
-// organisation-wide bindings, or "" when they hold none or several.
-func manualOrgRole(m Member) string {
+// grantedOrgRole returns the one role a member holds through
+// organisation-wide bindings an administrator made, or "" when they hold
+// none or several.
+func grantedOrgRole(m Member) string {
 	var ids []string
 	for _, r := range m.Roles {
-		if r.Source == "manual" && r.ScopeKind == "org" && !slices.Contains(ids, r.RoleID) {
+		if grantedSource(r.Source) && r.ScopeKind == "org" && !slices.Contains(ids, r.RoleID) {
 			ids = append(ids, r.RoleID)
 		}
 	}
@@ -398,6 +400,14 @@ func manualOrgRole(m Member) string {
 		return ""
 	}
 	return ids[0]
+}
+
+// grantedSource reports whether a binding with this source is one an
+// administrator made, directly or through an invite, and so one
+// SetMemberRole replaces; sso and scim bindings belong to the identity
+// provider. SetMemberRole's DELETE spells the same list.
+func grantedSource(source string) bool {
+	return source == "manual" || source == "invite"
 }
 
 // revokeEverything is RevokeEverything inside the caller's transaction, so
