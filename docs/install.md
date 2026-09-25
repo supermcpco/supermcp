@@ -241,16 +241,29 @@ awskms:<key id, alias or ARN>[@<region>][#<deployment>]
   `awskms:eu-central-1/alias/supermcp`.
 - Without `@<region>` the entry uses the active key's region
   (`SUPERMCP_KMS_REGION`, then `AWS_REGION`). An ARN carries its own
-  region, so `@` beside an ARN is refused.
+  region: an `@` that names the same region is accepted, and one that
+  names a different region is refused. The region, wherever it comes
+  from, must look like an AWS region (`eu-central-1`), or the process
+  refuses to start.
 - Without `#<deployment>` the entry uses `SUPERMCP_KMS_DEPLOYMENT`. A
   deployment is part of what every data key was wrapped with, and it
   names the installation rather than the key, so it normally stays the
   same through a move. If the move also renames it, write the old name
   after `#`. If it was never set before and is set now, write `#` with
-  nothing after it.
+  nothing after it. `@<region>` goes before `#<deployment>`; a `@` after
+  the `#` is refused.
 - Entries are comma-separated and may mix KMS and local keys. They are
   tried in order, and only the entry whose reference a data key records
   is asked to open it.
+- A data key whose reference no entry spells exactly may still be opened
+  under the multi-Region rule (see "The master key a restore needs" in
+  `docs/compliance/dr-runbook.md`). That rule also treats one alias name
+  in two regions as a candidate, so such a data key can be sent to a
+  same-named alias in another region. KMS refuses it unless that alias
+  points at a replica of the key that wrapped it, so nothing opens that
+  should not, but the refused call shows in CloudTrail. An entry that
+  names its region (`@<region>`, an ARN, or a pasted reference) opens
+  only its own reference and never takes part in this rule.
 
 The pods need `kms:Decrypt` on the old key until the move is finished,
 and `kms:Encrypt` and `kms:Decrypt` on the new one. The steps are in
