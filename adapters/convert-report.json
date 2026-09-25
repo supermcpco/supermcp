@@ -204,12 +204,6 @@
     "message": "bodyTemplate converted to encoding: raw with Content-Type: application/json"
   },
   {
-    "slug": "sorare",
-    "level": "info",
-    "path": "metadata.category",
-    "message": "category \"gaming\" merged into \"entertainment\""
-  },
-  {
     "slug": "statsig",
     "level": "review",
     "path": "credentials.STATSIG_CONSOLE_API_KEY",

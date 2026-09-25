@@ -8,6 +8,8 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 
 	"github.com/supermcpco/supermcp/pkg/adapter"
 	v1 "github.com/supermcpco/supermcp/pkg/adapter/v1"
@@ -52,6 +54,7 @@ func adapterConvert(args []string) error {
 	out := fs.String("out", "adapters", "output root (<region>/<slug>/adapter.yaml)")
 	report := fs.String("report", "", "write findings as JSON to this file")
 	failOnBlocker := fs.Bool("fail-on-blocker", true, "exit non-zero if any adapter has a blocker")
+	skip := fs.String("skip", "", "comma-separated slugs to leave out of the output and the report")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -61,6 +64,33 @@ func adapterConvert(args []string) error {
 	files, err := v1.LoadDir(*in)
 	if err != nil {
 		return err
+	}
+	// A slug in -skip is still read, so a typo fails here instead of
+	// quietly shipping the adapter it meant to leave out.
+	if *skip != "" {
+		drop := map[string]bool{}
+		for _, s := range strings.Split(*skip, ",") {
+			if s = strings.TrimSpace(s); s != "" {
+				drop[s] = true
+			}
+		}
+		kept := files[:0]
+		for _, f := range files {
+			if drop[f.Adapter.Slug] {
+				delete(drop, f.Adapter.Slug)
+				continue
+			}
+			kept = append(kept, f)
+		}
+		if len(drop) > 0 {
+			missing := make([]string, 0, len(drop))
+			for s := range drop {
+				missing = append(missing, s)
+			}
+			sort.Strings(missing)
+			return fmt.Errorf("-skip names adapters not in %s: %s", *in, strings.Join(missing, ", "))
+		}
+		files = kept
 	}
 	results, err := v1compat.ConvertAll(files)
 	if err != nil {

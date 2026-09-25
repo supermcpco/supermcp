@@ -16,10 +16,16 @@ lint:
 # The catalog is generated; adapters/embed.go and the recorded cassettes
 # are not, so the clean step keeps both. A cassette is an afternoon of
 # calling real upstreams and cannot be regenerated offline.
+#
+# RETIRED stays in the corpus, which the converter tests still read, but is
+# left out of the catalog: immobilienscout24 needs OAuth 1.0a and sorare a
+# bcrypt-salted login, and neither is implemented.
+RETIRED := immobilienscout24,sorare
+
 adapters: build
 	find adapters -name adapter.yaml -delete
 	rm -f adapters/index.gen.json adapters/convert-report.json
-	$(BIN) adapter convert -in pkg/adapter/v1/testdata/corpus -out adapters -report adapters/convert-report.json
+	$(BIN) adapter convert -in pkg/adapter/v1/testdata/corpus -out adapters -report adapters/convert-report.json -skip $(RETIRED)
 	$(BIN) adapter validate --strict adapters
 	$(BIN) adapter index -out adapters/index.gen.json
 	$(BIN) adapter test

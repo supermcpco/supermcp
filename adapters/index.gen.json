@@ -1,6 +1,6 @@
 {
-  "catalogHash": "91e40ff765c8d190",
-  "count": 257,
+  "catalogHash": "28098a298040fc6e",
+  "count": 255,
   "adapters": [
     {
       "slug": "teamleader",
@@ -437,21 +437,6 @@
       "toolCount": 31,
       "contentHash": "ea87bb67b636",
       "dir": "de/hrworks"
-    },
-    {
-      "slug": "immobilienscout24",
-      "name": "ImmobilienScout24 API",
-      "description": "Search real estate listings on ImmobilienScout24, Germany's largest property portal, from any AI assistant. Find apartments and houses for sale or rent, resolve location GeoCodes, and read full listing detail. 3 tools, requires ImmobilienScout24 API credentials (OAuth 1.0a).",
-      "region": "de",
-      "category": "real-estate",
-      "icon": "immobilienscout24",
-      "docsUrl": "https://api.immobilienscout24.de/api-docs/get-started/get-your-client-credentials/",
-      "transport": "http",
-      "auth": "oauth1",
-      "keyless": false,
-      "toolCount": 3,
-      "contentHash": "816b10fa963c",
-      "dir": "de/immobilienscout24"
     },
     {
       "slug": "jtl-wawi",
@@ -1935,7 +1920,7 @@
       "auth": "apiKey",
       "keyless": false,
       "toolCount": 12,
-      "contentHash": "3c1810cf8960",
+      "contentHash": "fec7f5df76a9",
       "dir": "intl/ghost"
     },
     {
@@ -3179,24 +3164,6 @@
       "toolCount": 9,
       "contentHash": "d03443c372ca",
       "dir": "intl/snov"
-    },
-    {
-      "slug": "sorare",
-      "name": "Sorare Fantasy Football",
-      "description": "GraphQL API for Sorare's NFT-based fantasy football, baseball, and basketball games. Query cards, players, lineups, transfer market, and your portfolio with natural-language commands. Handles Sorare's bcrypt-salted login and 30-day JWT caching automatically.",
-      "region": "intl",
-      "category": "entertainment",
-      "icon": "sorare",
-      "docsUrl": "https://github.com/sorare/api",
-      "transport": "graphql",
-      "auth": "login",
-      "keyless": false,
-      "toolCount": 14,
-      "contentHash": "bfdc67ce73c9",
-      "priority": 100,
-      "featured": true,
-      "selfHostOnly": true,
-      "dir": "intl/sorare"
     },
     {
       "slug": "statsig",
