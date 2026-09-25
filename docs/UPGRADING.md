@@ -93,7 +93,7 @@ refuses its outstanding access tokens.
 
 What it needs from you:
 
-- **Nothing for migration 00025.** It adds
+- **Nothing for migration 00026.** It adds
   `service_accounts.token_epoch` (integer, not null, default 0). The
   default is a constant, so no row is rewritten. The table is locked only
   for the catalogue change.
