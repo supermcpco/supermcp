@@ -84,7 +84,7 @@ func TestAWSKMSOpensDataKeysWrappedInAnotherRegion(t *testing.T) {
 			}
 
 			// keys verify finds the key the same way the sealer does.
-			set := &KEKSet{Active: Observed(restored, func(string, string, error) {})}
+			set := &KEKSet{Active: Observed(restored, KeyActive, func(string, string, string, error) {})}
 			dks, _ := store.ListDataKeys(ctx)
 			if _, ok := set.Find(dks[0].KEKRef); !ok {
 				t.Fatalf("KEKSet.Find does not take %s for %s", restored.Ref(), dks[0].KEKRef)

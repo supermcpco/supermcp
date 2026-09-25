@@ -449,8 +449,10 @@ With `metrics.prometheusRule.enabled=true` the chart now also ships
 `SupermcpDBConnPoolSaturated` and `SupermcpMigrationJobFailed`; the
 operations guide says what to do about each. They read new series:
 
-- `supermcp_kek_operations_total{provider,op,outcome}`: master key wraps
-  and unwraps. With AWS KMS each one is a KMS request.
+- `supermcp_kek_operations_total{provider,key,op,outcome}`: master key
+  wraps and unwraps. With AWS KMS each one is a KMS request. `key` is
+  `active` or `previous`, so during a move between two KMS keys a
+  failing old key shows apart from the new one.
 - `supermcp_audit_export_lag_seconds{kind}`: age of the oldest event a
   destination of that kind has not accepted. Every replica runs one query
   a minute to measure it.

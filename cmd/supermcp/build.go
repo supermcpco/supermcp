@@ -74,9 +74,9 @@ func build(ctx context.Context, cfg *config.Config, log *slog.Logger, st *store.
 	observeKEK := secrets.KEKObserver(metrics.ObserveKEK)
 	previous := make([]secrets.KEK, 0, len(keks.Previous))
 	for _, k := range keks.Previous {
-		previous = append(previous, secrets.Observed(k, observeKEK))
+		previous = append(previous, secrets.Observed(k, secrets.KeyPrevious, observeKEK))
 	}
-	sealer := secrets.New(secrets.Observed(keks.Active, observeKEK), &store.KeyStore{DB: db}, previous...)
+	sealer := secrets.New(secrets.Observed(keks.Active, secrets.KeyActive, observeKEK), &store.KeyStore{DB: db}, previous...)
 
 	policy := ssrf.FromEnv(os.Getenv)
 	if cfg.Dev {
