@@ -36,6 +36,8 @@ type fakeIdP struct {
 	email    string
 	groups   []string
 	nonce    string
+	// prompt is the prompt parameter of the last authorization request.
+	prompt string
 }
 
 func newFakeIdP(t *testing.T) *fakeIdP {
@@ -59,6 +61,7 @@ func newFakeIdP(t *testing.T) *fakeIdP {
 	mux.HandleFunc("/authorize", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
 		f.nonce = q.Get("nonce")
+		f.prompt = q.Get("prompt")
 		back, _ := url.Parse(q.Get("redirect_uri"))
 		rq := back.Query()
 		rq.Set("code", "test-code")

@@ -88,6 +88,63 @@ Cookie-authenticated mutations are checked against `Sec-Fetch-Site` and
 `Origin`. Requests carrying an API key are exempt, because they carry no
 ambient credential a browser could attach on someone else's behalf.
 
+### Recent sign-in
+
+A session cookie lives for up to 30 days. The operations that create
+credentials, decide who may do what, or change how the workspace is
+secured also require the session to have signed in, or confirmed its
+password, within the last five minutes (`SUPERMCP_AUTH_FRESH_WINDOW`).
+The permission is checked first. A session that holds the permission but
+is older than the window gets:
+
+```json
+{
+  "title": "Forbidden",
+  "status": 403,
+  "detail": "reauth_required: sign in again to continue: this action needs a sign-in from the last 5 minutes",
+  "errors": [{"location": "session", "message": "…", "value": "reauth_required"}]
+}
+```
+
+The session itself stays valid for everything else. It becomes fresh
+again in one of two ways:
+
+- A password session sends `POST /api/v1/auth/reauth` with
+  `{"password": "…"}`. The session keeps its cookie and its id, and its
+  authentication time becomes now. A wrong password is a `400` and counts
+  toward the same lockout as a failed sign-in.
+- A single sign-on session signs in through its provider again.
+  `GET /api/v1/auth/session` returns `signIn.method` (`password`, `sso` or
+  `saml`) and, for single sign-on, `signIn.reauthUrl`. Send the browser
+  there with `&next=<path>` appended. The provider is asked to
+  authenticate the person again (`prompt=login` or `ForceAuthn`). The
+  callback opens a new session and ends the one it replaces.
+
+Setting a password from a single sign-on session is also subject to the
+window. A password session instead proves itself with the current
+password.
+
+API keys, OAuth access tokens and service accounts are not subject to
+the window, because no person signs them in who could be asked to sign
+in again. Their scopes and the principal's permissions are all that
+apply.
+
+The guarded operations:
+
+| Area | Operations |
+|---|---|
+| API keys | `POST /api/v1/api-keys`, `POST /api/v1/api-keys/{id}/rotate`, `DELETE /api/v1/api-keys/{id}` (a SCIM token is an API key) |
+| Service accounts | `POST /api/v1/service-accounts`, `POST …/{id}/rotate`, `POST …/{id}/disabled`, `DELETE …/{id}` |
+| Roles | `POST /api/v1/roles`, `PATCH /api/v1/roles/{id}`, `DELETE /api/v1/roles/{id}`, `POST /api/v1/roles/{id}/revisions/{revision}/restore` |
+| Role holders | `POST /api/v1/roles/{id}/bindings`, `DELETE /api/v1/roles/{id}/bindings/{bindingId}`, `PATCH /api/v1/org/members/{userId}`, `DELETE /api/v1/org/members/{userId}`, `POST /api/v1/org/invites` |
+| Single sign-on | `POST /api/v1/idps`, `PUT` and `DELETE /api/v1/idps/{id}`, `POST /api/v1/saml-providers`, `PUT` and `DELETE /api/v1/saml-providers/{id}`, `POST /api/v1/saml-providers/{id}/rotate-key` |
+| Security settings | `PUT /api/v1/org/password-policy`, `POST /api/v1/auth/password` from a single sign-on session |
+| Data-loss and approvals | `POST /api/v1/dlp/policies`, `PUT` and `DELETE /api/v1/dlp/policies/{id}`, `POST /api/v1/approval-policies`, `PUT` and `DELETE /api/v1/approval-policies/{id}` |
+| Audit trail | `PUT /api/v1/audit/policy`, `PUT /api/v1/audit/retention`, `POST` and `DELETE /api/v1/audit/legal-hold`, `POST /api/v1/audit/exporters`, `DELETE /api/v1/audit/exporters/{id}` |
+
+The master key and data keys have no HTTP endpoints. Rotating them is a
+command (`supermcp keys`) run by the operator.
+
 ### A program: an API key
 
 ```
@@ -700,7 +757,7 @@ router logs it with the request id.
 |---|---|
 | 400 | The request is malformed, or a value violates a policy (a weak password, a reused password, an unknown scope). |
 | 401 | No credential, or one that did not verify. |
-| 403 | Authenticated, but the permission is not held — or no workspace is selected, or the account is disabled, or registration is closed. |
+| 403 | Authenticated, but the permission is not held — or no workspace is selected, or the account is disabled, or registration is closed, or the session signed in too long ago for the operation (`errors[].value` is `reauth_required`; see "Recent sign-in"). |
 | 404 | No such object *in your workspace*. Objects in other workspaces are not distinguishable from objects that do not exist. |
 | 409 | A record that already exists (a role binding, a tool name, anything else held unique), removing the last owner of a workspace, or a tool write that conflicts (see "Managing tools"). |
 | 422 | The body is well formed but its content is not acceptable: a tool definition with errors, or a required field missing. |

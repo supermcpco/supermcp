@@ -133,7 +133,7 @@ const testBinding = "a-browser"
 func (f *dbFixture) signIn(mutate func(*crewjam.Assertion)) string {
 	f.t.Helper()
 	ctx := f.t.Context()
-	authnURL, err := f.svc.Begin(ctx, f.provider.ID, "/dashboard", testBinding)
+	authnURL, err := f.svc.Begin(ctx, f.provider.ID, "/dashboard", testBinding, false)
 	if err != nil {
 		f.t.Fatal(err)
 	}

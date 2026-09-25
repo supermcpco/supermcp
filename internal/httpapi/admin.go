@@ -50,6 +50,20 @@ type sessionBody struct {
 	// age and has to be changed before anything else will work.
 	PasswordExpired bool `json:"passwordExpired,omitempty"`
 	Registered      bool `json:"registrationOpen,omitempty"`
+	// SignIn says how this session signed in, and so how its holder is
+	// asked to sign in again when an operation refuses it as stale.
+	SignIn *signInDTO `json:"signIn,omitempty"`
+}
+
+type signInDTO struct {
+	Method       string `json:"method" enum:"password,sso,saml" doc:"How the session signed in"`
+	ProviderID   string `json:"providerId,omitempty" doc:"The single sign-on provider, for sso and saml"`
+	ProviderName string `json:"providerName,omitempty" doc:"The provider's name, to put on the button that signs in again"`
+	ReauthURL    string `json:"reauthUrl,omitempty" doc:"Where to send the browser to sign in again through the provider; append &next= to come back. Empty for a password session, which confirms its password with POST /api/v1/auth/reauth."`
+	// AuthenticatedAt and FreshUntil let a client warn before an action
+	// rather than after; the server decides either way.
+	AuthenticatedAt time.Time `json:"authenticatedAt" doc:"When the session last proved who is using it"`
+	FreshUntil      time.Time `json:"freshUntil" doc:"Until when sensitive operations are allowed without signing in again"`
 }
 
 type userDTO struct {
@@ -198,6 +212,7 @@ func (d Deps) startSession(ctx context.Context, u *identity.User, o *identity.Or
 func (d Deps) sessionBodyFor(ctx context.Context, p *authz.Principal) (*sessionOutput, error) {
 	out := &sessionOutput{}
 	out.Body.PasswordExpired = p.PasswordExpired
+	out.Body.SignIn = d.signInFor(ctx, p)
 	orgs, err := d.Identity.Orgs(ctx, p.ID)
 	if err != nil {
 		return nil, err
@@ -655,7 +670,7 @@ func (d Deps) keyRoutes(api huma.API) {
 				Secret string    `json:"secret"`
 			}
 		}, error) {
-			p, err := d.require(ctx, authz.APIKeysSelf, authz.Resource{})
+			p, err := d.requireFresh(ctx, authz.APIKeysSelf, authz.Resource{})
 			if err != nil {
 				return nil, err
 			}
@@ -686,7 +701,7 @@ func (d Deps) keyRoutes(api huma.API) {
 		func(ctx context.Context, in *struct {
 			ID string `path:"id"`
 		}) (*struct{}, error) {
-			p, err := d.require(ctx, authz.APIKeysSelf, authz.Resource{})
+			p, err := d.requireFresh(ctx, authz.APIKeysSelf, authz.Resource{})
 			if err != nil {
 				return nil, err
 			}
@@ -710,7 +725,7 @@ func (d Deps) keyRoutes(api huma.API) {
 				GraceSeconds *int `json:"graceSeconds,omitempty" minimum:"0" maximum:"604800" doc:"How long the old key keeps working, in seconds. 0 stops it at once; omitted means 86400 (24 hours)."`
 			}
 		}) (*struct{ Body rotatedKeyDTO }, error) {
-			p, err := d.require(ctx, authz.APIKeysSelf, authz.Resource{})
+			p, err := d.requireFresh(ctx, authz.APIKeysSelf, authz.Resource{})
 			if err != nil {
 				return nil, err
 			}

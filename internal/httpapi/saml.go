@@ -58,12 +58,14 @@ func (s samlAPI) start(w http.ResponseWriter, r *http.Request) {
 		s.failed(w, r, err)
 		return
 	}
-	url, err := s.svc.Begin(r.Context(), chi.URLParam(r, "id"), r.URL.Query().Get("next"), binding)
+	reauth := r.URL.Query().Get("reauth") == "1"
+	url, err := s.svc.Begin(r.Context(), chi.URLParam(r, "id"), r.URL.Query().Get("next"), binding, reauth)
 	if err != nil {
 		s.failed(w, r, err)
 		return
 	}
 	w.Header().Add("Set-Cookie", s.flowCookie(samlFlowCookie, binding, int(samlFlowTTL.Seconds()), true))
+	s.reauthStart(w, r, true)
 	//nolint:gosec // the URL comes from the provider's own metadata
 	http.Redirect(w, r, url, http.StatusFound)
 }
@@ -103,6 +105,7 @@ func (s samlAPI) acs(w http.ResponseWriter, r *http.Request) {
 	res, err := s.svc.Consume(r.Context(), chi.URLParam(r, "id"), r.PostFormValue("SAMLResponse"), binding)
 	// The sign-in is over either way, so the cookie goes whatever happened.
 	w.Header().Add("Set-Cookie", s.flowCookie(samlFlowCookie, "", 0, true))
+	replaces := s.reauthFinish(w, r, true)
 	if err != nil {
 		s.failed(w, r, err)
 		return
@@ -113,11 +116,13 @@ func (s samlAPI) acs(w http.ResponseWriter, r *http.Request) {
 		s.failed(w, r, err)
 		return
 	}
+	meta := map[string]any{"method": "saml", "provider": res.ProviderName, "groups": res.Groups, "mfa": res.MultiFactor}
+	if s.retireReplaced(r.Context(), replaces, res.UserID) {
+		meta["reauth"] = true
+	}
 	s.emit(r.Context(), audit.Event{OrgID: res.OrgID, Category: audit.CategoryAuth, Action: "session.create",
 		Outcome: audit.Success, ActorKind: "user", ActorID: res.UserID, ActorDisplay: res.Email,
-		SessionID: sess.ID, IP: ip, UserAgent: r.UserAgent(),
-		Meta: map[string]any{"method": "saml", "provider": res.ProviderName, "groups": res.Groups,
-			"mfa": res.MultiFactor}})
+		SessionID: sess.ID, IP: ip, UserAgent: r.UserAgent(), Meta: meta})
 	// Unlike the OpenID Connect path, this is conditional. A SAML
 	// assertion states which authentication context the provider used, so
 	// recording a second factor it never mentioned would let a policy
@@ -296,7 +301,7 @@ func (s samlAPI) register(api huma.API) {
 			if err := s.unavailable(); err != nil {
 				return nil, err
 			}
-			p, err := s.require(ctx, authz.IdpManage, authz.Resource{})
+			p, err := s.requireFresh(ctx, authz.IdpManage, authz.Resource{})
 			if err != nil {
 				return nil, err
 			}
@@ -319,7 +324,7 @@ func (s samlAPI) register(api huma.API) {
 			if err := s.unavailable(); err != nil {
 				return nil, err
 			}
-			p, err := s.require(ctx, authz.IdpManage, authz.Resource{})
+			p, err := s.requireFresh(ctx, authz.IdpManage, authz.Resource{})
 			if err != nil {
 				return nil, err
 			}
@@ -345,7 +350,7 @@ func (s samlAPI) register(api huma.API) {
 			if err := s.unavailable(); err != nil {
 				return nil, err
 			}
-			p, err := s.require(ctx, authz.IdpManage, authz.Resource{})
+			p, err := s.requireFresh(ctx, authz.IdpManage, authz.Resource{})
 			if err != nil {
 				return nil, err
 			}
@@ -367,7 +372,7 @@ func (s samlAPI) register(api huma.API) {
 			if err := s.unavailable(); err != nil {
 				return nil, err
 			}
-			p, err := s.require(ctx, authz.IdpManage, authz.Resource{})
+			p, err := s.requireFresh(ctx, authz.IdpManage, authz.Resource{})
 			if err != nil {
 				return nil, err
 			}

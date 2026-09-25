@@ -51,7 +51,8 @@ func (d Deps) budgetFor(path string) hardening.Limit {
 	switch {
 	// Credential endpoints are attacked slowly and in volume by different
 	// people, so they draw on a budget of their own.
-	case path == "/api/v1/auth/login", strings.HasPrefix(path, "/api/v1/auth/password"):
+	case path == "/api/v1/auth/login", strings.HasPrefix(path, "/api/v1/auth/password"),
+		path == "/api/v1/auth/reauth":
 		return d.Budgets.SignIn
 	case path == "/api/v1/auth/register":
 		return d.Budgets.Register

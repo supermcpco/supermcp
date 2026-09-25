@@ -281,6 +281,7 @@ which are also accepted under the prefix.
 |---|---|---|
 | `SUPERMCP_OPEN_REGISTRATION` | off | Whether anyone who reaches the sign-in page may create an account and a workspace of their own. See the first-run note below. |
 | `SUPERMCP_DCR_MODE` | `approval` | Whether an MCP client may register itself through RFC 7591. `open` accepts any registration, `approval` records it as pending until the operator approves it with `supermcp oauth clients approve`, `closed` refuses. A pending client cannot start an authorisation flow. |
+| `SUPERMCP_AUTH_FRESH_WINDOW` | `5m` | How recently a browser session must have signed in, or confirmed its password, to create or revoke credentials, change roles, or change the security settings. Between `1m` and `24h`; anything else fails the boot. Applies to the whole instance by design, like the session lifetimes. API keys, OAuth access tokens and service accounts are not subject to it. |
 | `SUPERMCP_MCP_RESPONSE_MODE` | `sse` | `json` makes the MCP endpoint answer with `application/json` instead of server-sent events. Some clients require it. |
 
 ### Rate limiting

@@ -148,7 +148,7 @@ func (d Deps) exporterRoutes(api huma.API) {
 			// Configuring where the record goes is not the same as reading
 			// it, and it outlives whoever set it up, so it asks for the
 			// permission that governs the organisation's own settings.
-			p, err := d.require(ctx, authz.OrgSettingsManage, authz.Resource{})
+			p, err := d.requireFresh(ctx, authz.OrgSettingsManage, authz.Resource{})
 			if err != nil {
 				return nil, err
 			}
@@ -204,7 +204,7 @@ func (d Deps) exporterRoutes(api huma.API) {
 		func(ctx context.Context, in *struct {
 			ID string `path:"id"`
 		}) (*struct{}, error) {
-			p, err := d.require(ctx, authz.OrgSettingsManage, authz.Resource{})
+			p, err := d.requireFresh(ctx, authz.OrgSettingsManage, authz.Resource{})
 			if err != nil {
 				return nil, err
 			}
@@ -248,7 +248,7 @@ func (d Deps) exporterRoutes(api huma.API) {
 // organisation is therefore named in the statement rather than left to a
 // row-level policy.
 func (d Deps) setHold(ctx context.Context, from time.Time, until *time.Time, reason string, hold bool) (*legalHoldOutput, error) {
-	p, err := d.require(ctx, authz.AuditExport, authz.Resource{})
+	p, err := d.requireFresh(ctx, authz.AuditExport, authz.Resource{})
 	if err != nil {
 		return nil, err
 	}

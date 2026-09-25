@@ -121,7 +121,7 @@ func (d Deps) inviteRoutes(api huma.API) {
 		Path: "/api/v1/org/invites", Summary: "Invite someone by email and get the link to send them",
 		Tags: []string{"invites"}, Security: sessionSecurity, DefaultStatus: http.StatusCreated},
 		func(ctx context.Context, in *createInviteInput) (*createInviteOutput, error) {
-			p, err := d.require(ctx, authz.OrgMembersManage, authz.Resource{})
+			p, err := d.requireFresh(ctx, authz.OrgMembersManage, authz.Resource{})
 			if err != nil {
 				return nil, err
 			}

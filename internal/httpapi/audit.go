@@ -234,7 +234,7 @@ func (d Deps) auditRoutes(api huma.API) {
 	huma.Register(api, huma.Operation{OperationID: "audit-set-policy", Method: http.MethodPut, Path: "/api/v1/audit/policy",
 		Summary: "Set how much of a tool call's payload is recorded", Tags: []string{"audit"}, Security: sessionSecurity},
 		func(ctx context.Context, in *auditPolicyInput) (*auditPolicyOutput, error) {
-			p, err := d.require(ctx, authz.AuditPolicy, authz.Resource{})
+			p, err := d.requireFresh(ctx, authz.AuditPolicy, authz.Resource{})
 			if err != nil {
 				return nil, err
 			}
@@ -273,7 +273,7 @@ func (d Deps) auditRoutes(api huma.API) {
 	huma.Register(api, huma.Operation{OperationID: "audit-set-retention", Method: http.MethodPut, Path: "/api/v1/audit/retention",
 		Summary: "Set how long the workspace's audit events keep their content", Tags: []string{"audit"}, Security: sessionSecurity},
 		func(ctx context.Context, in *auditRetentionInput) (*auditRetentionOutput, error) {
-			p, err := d.require(ctx, authz.AuditPolicy, authz.Resource{})
+			p, err := d.requireFresh(ctx, authz.AuditPolicy, authz.Resource{})
 			if err != nil {
 				return nil, err
 			}

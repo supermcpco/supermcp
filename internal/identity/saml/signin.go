@@ -18,7 +18,11 @@ import (
 // Begin starts a sign-in and returns the URL to send the browser to. The
 // request is recorded before the redirect, so the assertion that comes
 // back can be tied to a sign-in someone here actually started.
-func (s *Service) Begin(ctx context.Context, providerID, redirectAfter, binding string) (string, error) {
+//
+// forceLogin sets ForceAuthn on the request, so the identity provider
+// authenticates the person again rather than answering from a session it
+// already holds; a re-authentication asks for it.
+func (s *Service) Begin(ctx context.Context, providerID, redirectAfter, binding string, forceLogin bool) (string, error) {
 	p, err := s.load(ctx, providerID)
 	if err != nil {
 		return "", err
@@ -33,6 +37,10 @@ func (s *Service) Begin(ctx context.Context, providerID, redirectAfter, binding 
 	sp, err := s.serviceProvider(p, m)
 	if err != nil {
 		return "", err
+	}
+	if forceLogin {
+		force := true
+		sp.ForceAuthn = &force
 	}
 	// The redirect binding carries the request in the URL; the response
 	// comes back over POST, which is the only binding whose size is not
