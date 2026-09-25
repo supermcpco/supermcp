@@ -9,6 +9,7 @@ reach for when something is wrong.
 | Setting | Default | What it decides |
 |---|---|---|
 | `DATABASE_URL` | none, required | Where everything lives. The application connects as a role that cannot bypass row-level security. |
+| `SUPERMCP_MAINT_DATABASE_URL` | `DATABASE_URL` | Cross-tenant work, and each replica's cache invalidation listener. Must reach Postgres directly or through a session-mode proxy; see "Cache invalidation". |
 | `SUPERMCP_PUBLIC_URL` | none, required | The address clients reach. It appears in token audiences, the single sign-on redirect and the MCP endpoints, so changing it invalidates tokens that named the old one. Must be https unless it points at loopback. |
 | `SUPERMCP_KEK_PROVIDER` | `local` | `local` reads the master key from the environment; `awskms` leaves it in a key service and never in the pod. |
 | `ENCRYPTION_KEK` | none for `local` | 32 bytes, base64. A wrong length fails the boot rather than encrypting with a key nobody meant. |
@@ -124,6 +125,62 @@ stays `decrypt_only` is telling you rows were left behind; the report says
 how many and in which table. Nothing is ever deleted: a retired key still
 opens a restored backup, and you should keep the master key that wraps it
 for as long as you keep the backups.
+
+## Cache invalidation
+
+Each replica caches two things that decide what a caller may do: a
+principal's role bindings with the organisation's tool access rules, and
+the organisation's data-loss policies. Entries live for up to thirty
+seconds. A revoked role or a tightened policy must not keep applying on
+the other replicas for those thirty seconds, so the database tells every
+replica when either changes.
+
+**How it works.** Triggers on `roles`, `role_bindings`,
+`tool_access_rules` and `dlp_policies` (migration 00020) send a Postgres
+notification on the `supermcp_cache` channel naming the cache and the
+workspace: `authz:<organization id>` or `dlp:<organization id>`, or
+`authz:*` for a built-in role, which every workspace shares. Because they
+are triggers, they fire for every path that writes those tables: the
+API, group-to-role mapping at single sign-on, service account changes,
+foreign-key cascades such as deleting a role or a connector, and SQL an
+operator runs by hand. A notification is delivered only when the
+transaction commits, and once per workspace however many rows it
+touched.
+
+Every replica holds one session that `LISTEN`s on that channel and drops
+the named workspace's entries when a notification arrives. Delivery is
+milliseconds. A payload it cannot read drops everything.
+
+**The thirty seconds are the backstop.** While the listener is not
+connected, the caches still expire. When it (re)connects it drops every
+entry, because notifications sent while it was away are not replayed.
+It reconnects on its own with backoff (half a second, doubling, capped
+at thirty seconds).
+
+**It needs a direct connection.** The listening session is opened on
+`SUPERMCP_MAINT_DATABASE_URL`, apart from both pools. `LISTEN` does not
+work through PgBouncer or any other proxy in transaction pooling mode:
+the proxy hands the server connection that ran `LISTEN` to other
+clients, and notifications never reach this one. Point the maintenance
+URL at Postgres itself, or at a proxy in session mode. The listener
+checks: every thirty seconds of silence it sends itself a notification
+from the maintenance pool, a separate session, and waits five seconds
+for it to arrive. If it does not, it reports itself disconnected and
+reconnects. Behind a transaction-pooling proxy it therefore never
+reports connected, and changes reach other replicas within the thirty
+seconds alone.
+
+**What to watch.**
+
+- `supermcp_cache_listener_connected` is 1 on a replica whose listener
+  is connected and delivering. 0 for more than a minute means that
+  replica sees other replicas' changes only when its entries expire; the
+  log says why (`cache invalidation listener disconnected`).
+- `supermcp_cache_invalidations_total{cache,source}` counts drops by
+  cache (`authz`, `dlp`) and cause: `local` for a write on this replica,
+  `notify` for a notification, `reconnect` for the flush after a
+  (re)connect. `reconnect` climbing steadily means the listener keeps
+  losing its connection.
 
 ## What the alerts mean
 

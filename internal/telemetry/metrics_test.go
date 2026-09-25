@@ -30,6 +30,8 @@ func TestInstrumentNamesAndLabels(t *testing.T) {
 	m.SetBreakerState("conn_1", telemetry.BreakerOpen)
 	m.SetAuditQueueDepth(7)
 	m.SetRateLimitDegraded(true)
+	m.ObserveCacheInvalidation(telemetry.CacheAuthz, telemetry.InvalidationNotify)
+	m.SetCacheListenerConnected(true)
 
 	tests := []struct {
 		name       string
@@ -46,6 +48,8 @@ func TestInstrumentNamesAndLabels(t *testing.T) {
 		{name: "breaker state", metric: "supermcp_breaker_state", wantLabels: []string{"connector"}},
 		{name: "audit queue depth", metric: "supermcp_audit_queue_depth", wantLabels: []string{}},
 		{name: "ratelimit degraded", metric: "supermcp_ratelimit_degraded", wantLabels: []string{}},
+		{name: "cache invalidations", metric: "supermcp_cache_invalidations_total", wantLabels: []string{"cache", "source"}},
+		{name: "cache listener", metric: "supermcp_cache_listener_connected", wantLabels: []string{}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -340,4 +344,44 @@ func matches(m *dto.Metric, labels map[string]string) bool {
 		}
 	}
 	return true
+}
+
+// TestCacheInvalidationLabelsAreClosed keeps an organisation id, or any
+// other caller-supplied string, out of the invalidation counter's labels.
+func TestCacheInvalidationLabelsAreClosed(t *testing.T) {
+	t.Parallel()
+	reg := prometheus.NewRegistry()
+	m := telemetry.NewMetrics(telemetry.MetricsOptions{Registry: reg})
+	m.ObserveCacheInvalidation("org_0194f", "someone")
+	m.ObserveCacheInvalidation(telemetry.CacheDLP, telemetry.InvalidationReconnect)
+
+	families, err := reg.Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]float64{}
+	for _, f := range families {
+		if f.GetName() != "supermcp_cache_invalidations_total" {
+			continue
+		}
+		for _, s := range f.GetMetric() {
+			key := ""
+			for _, l := range s.GetLabel() {
+				key += l.GetName() + "=" + l.GetValue() + ","
+			}
+			got[key] = s.GetCounter().GetValue()
+		}
+	}
+	want := map[string]float64{
+		"cache=other,source=other,":   1,
+		"cache=dlp,source=reconnect,": 1,
+	}
+	if len(got) != len(want) {
+		t.Fatalf("series = %v, want %v", got, want)
+	}
+	for k, v := range want {
+		if got[k] != v {
+			t.Errorf("%s = %v, want %v", k, got[k], v)
+		}
+	}
 }

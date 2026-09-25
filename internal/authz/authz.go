@@ -182,28 +182,78 @@ type cacheEntry struct {
 }
 
 // Evaluator loads bindings and evaluates requests.
+//
+// Each principal's bindings and the organisation's tool access rules are
+// cached for TTL. A write on this replica calls Invalidate; a write on any
+// replica reaches InvalidateOrg through the invalidation listener, which
+// the database notifies on commit. TTL is the backstop for when the
+// listener is not connected.
 type Evaluator struct {
-	DB    *tenant.DB
-	TTL   time.Duration
+	DB  *tenant.DB
+	TTL time.Duration
+	// OnInvalidate, when set, is told of each local invalidation (source
+	// "local"), for the invalidation counter.
+	OnInvalidate func(source string)
+
+	// mu guards cache, gen and orgGen.
 	mu    sync.Mutex
 	cache map[string]*cacheEntry
-	now   func() time.Time
+	// gen counts full flushes and orgGen each organisation's
+	// invalidations. A load that started before either moved must not
+	// store what it read, or the entry the invalidation meant to drop
+	// would come back for a whole TTL. orgGen is emptied by a full flush,
+	// so it holds at most the organisations invalidated since the last.
+	gen    uint64
+	orgGen map[string]uint64
+	now    func() time.Time
 }
 
 // New builds an evaluator with a 30s cache.
 func New(db *tenant.DB) *Evaluator {
-	return &Evaluator{DB: db, TTL: 30 * time.Second, cache: map[string]*cacheEntry{}, now: time.Now}
+	return &Evaluator{DB: db, TTL: 30 * time.Second, cache: map[string]*cacheEntry{},
+		orgGen: map[string]uint64{}, now: time.Now}
 }
 
-// Invalidate drops cached bindings for a principal (or all when id is "").
+// Invalidate drops cached bindings after a write on this replica: one
+// principal's, the organisation's when id is "", or everything when orgID
+// is "" too.
 func (e *Evaluator) Invalidate(orgID, kind, id string) {
+	switch {
+	case orgID == "":
+		e.InvalidateAll()
+	case id == "":
+		e.InvalidateOrg(orgID)
+	default:
+		e.mu.Lock()
+		delete(e.cache, cacheKey(orgID, kind, id))
+		e.orgGen[orgID]++
+		e.mu.Unlock()
+	}
+	if e.OnInvalidate != nil {
+		e.OnInvalidate("local")
+	}
+}
+
+// InvalidateOrg drops every cached entry of one organisation.
+func (e *Evaluator) InvalidateOrg(orgID string) {
+	prefix := orgID + "|"
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if id == "" {
-		e.cache = map[string]*cacheEntry{}
-		return
+	for k := range e.cache {
+		if strings.HasPrefix(k, prefix) {
+			delete(e.cache, k)
+		}
 	}
-	delete(e.cache, orgID+"|"+kind+"|"+id)
+	e.orgGen[orgID]++
+}
+
+// InvalidateAll drops every cached entry.
+func (e *Evaluator) InvalidateAll() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	clear(e.cache)
+	clear(e.orgGen)
+	e.gen++
 }
 
 // Evaluate decides whether p holds perm on r.
@@ -335,12 +385,13 @@ func scopeContains(b binding, r Resource) bool {
 
 func (e *Evaluator) load(ctx context.Context, p *Principal) (*cacheEntry, error) {
 	kind, id := p.BindingPrincipal()
-	key := p.OrgID + "|" + kind + "|" + id
+	key := cacheKey(p.OrgID, kind, id)
 	e.mu.Lock()
 	if c, ok := e.cache[key]; ok && e.now().Sub(c.at) < e.TTL {
 		e.mu.Unlock()
 		return c, nil
 	}
+	gen, orgGen := e.gen, e.orgGen[p.OrgID]
 	e.mu.Unlock()
 
 	entry := &cacheEntry{deny: map[string]map[string]bool{}, allow: map[string]map[string]bool{}, at: e.now()}
@@ -393,9 +444,18 @@ WHERE b.organization_id = $1 AND b.principal_kind = $2 AND b.principal_id = $3`,
 		return nil, err
 	}
 	e.mu.Lock()
-	e.cache[key] = entry
+	// An invalidation landed while this read was in flight, so what it
+	// read may be what the invalidation was about. Answer this request
+	// with it, but do not keep it.
+	if e.gen == gen && e.orgGen[p.OrgID] == orgGen {
+		e.cache[key] = entry
+	}
 	e.mu.Unlock()
 	return entry, nil
+}
+
+func cacheKey(orgID, kind, id string) string {
+	return orgID + "|" + kind + "|" + id
 }
 
 // EffectivePermissions lists what a principal holds at org scope (for the

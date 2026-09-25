@@ -125,6 +125,8 @@ type Metrics struct {
 	kekOperations    *prometheus.CounterVec
 	auditExportLag   *prometheus.GaugeVec
 	dbPools          *dbPoolCollector
+	cacheInvalidate  *prometheus.CounterVec
+	cacheListener    prometheus.Gauge
 
 	perTool    bool
 	perToolCap int
@@ -232,6 +234,18 @@ func NewMetrics(opts MetricsOptions) *Metrics {
 		}, []string{"kind"}),
 
 		dbPools: newDBPoolCollector(),
+
+		cacheInvalidate: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: Namespace,
+			Name:      "cache_invalidations_total",
+			Help:      "Cache invalidations by cache and by what caused them: a write on this replica (local), a database notification (notify), or the notification listener reconnecting (reconnect).",
+		}, []string{"cache", "source"}),
+
+		cacheListener: prometheus.NewGauge(prometheus.GaugeOpts{
+			Namespace: Namespace,
+			Name:      "cache_listener_connected",
+			Help:      "1 when this replica's cache invalidation listener is connected and delivering; 0 means changes on other replicas reach this one only when its cache entries expire.",
+		}),
 	}
 
 	opts.Registry.MustRegister(
@@ -249,6 +263,8 @@ func NewMetrics(opts MetricsOptions) *Metrics {
 		m.kekOperations,
 		m.auditExportLag,
 		m.dbPools,
+		m.cacheInvalidate,
+		m.cacheListener,
 	)
 	if opts.GoCollectors {
 		opts.Registry.MustRegister(collectors.NewGoCollector(), collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
@@ -404,6 +420,40 @@ func (m *Metrics) SetAuditExportLag(lag map[string]time.Duration) {
 	for _, kind := range append(kinds[:], OtherLabel) {
 		m.auditExportLag.WithLabelValues(kind).Set(worst[kind].Seconds())
 	}
+}
+
+// Caches and invalidation sources, closed sets like the others: anything
+// else is recorded as OtherLabel.
+const (
+	CacheAuthz = "authz"
+	CacheDLP   = "dlp"
+
+	InvalidationLocal     = "local"
+	InvalidationNotify    = "notify"
+	InvalidationReconnect = "reconnect"
+)
+
+// ObserveCacheInvalidation counts one invalidation of cache, caused by
+// source.
+func (m *Metrics) ObserveCacheInvalidation(cache, source string) {
+	if m == nil {
+		return
+	}
+	m.cacheInvalidate.WithLabelValues(oneOf(cache, CacheAuthz, CacheDLP),
+		oneOf(source, InvalidationLocal, InvalidationNotify, InvalidationReconnect)).Inc()
+}
+
+// SetCacheListenerConnected records whether the cache invalidation
+// listener is connected.
+func (m *Metrics) SetCacheListenerConnected(connected bool) {
+	if m == nil {
+		return
+	}
+	var v float64
+	if connected {
+		v = 1
+	}
+	m.cacheListener.Set(v)
 }
 
 // toolLabel admits a tool name until the cap, then returns OtherTool.

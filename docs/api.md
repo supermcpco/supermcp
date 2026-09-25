@@ -215,7 +215,10 @@ closed. In order:
    resource.
 4. A scoped credential must carry the matching scope, per the table
    above.
-5. Role bindings are loaded for the principal (cached 30 seconds).
+5. Role bindings are loaded for the principal (cached per replica for
+   up to 30 seconds, and dropped on every replica as soon as a role,
+   binding or tool access rule in the workspace changes; see
+   "Cache invalidation" in the operations guide).
    Expired bindings are skipped. A binding applies when its scope
    contains the resource: `org` always, `server`, `connector` or `tool`
    only on an exact match.

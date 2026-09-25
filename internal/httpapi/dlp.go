@@ -95,12 +95,14 @@ func (b dlpPolicyBody) policy() dlp.ScanPolicy {
 }
 
 func (d Deps) dlpRoutes(api huma.API) {
-	// The routes share one reader, so a policy written here is visible to
-	// the next read without waiting for a cache to expire. The tool-call
-	// path holds its own; a change reaches it within the half-minute that
-	// policy caches for, and pointing both at one instance is a field on
-	// Deps away when that half-minute starts to matter.
-	policies := dlp.NewPolicies(d.DB, nil)
+	// The routes share the tool-call path's reader, so a policy written
+	// here drops that cache on this replica before the response goes out.
+	// Other replicas hear of it from the database (see
+	// internal/invalidation).
+	policies := d.DLP
+	if policies == nil {
+		policies = dlp.NewPolicies(d.DB, nil)
+	}
 
 	huma.Register(api, huma.Operation{OperationID: "dlp-detectors", Method: http.MethodGet,
 		Path: "/api/v1/dlp/detectors", Summary: "List the built-in detectors, and what each one lets through",

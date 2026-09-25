@@ -11,7 +11,42 @@ change what people see, and two change what is on the audit trail and at
 rest. Tools can now be created, edited and deleted, which brings
 migration 00019 and a handful of changes to existing behaviour, listed
 under "Tools can be edited" below. Two catalogue adapters that could not
-authenticate are removed.
+authenticate are removed. Migration 00020 adds triggers that make a
+revoked role or a changed data-loss policy apply on every replica at
+once; see "Access changes reach every replica at once" below.
+
+### Access changes reach every replica at once
+
+A revoked role binding, a narrowed role, a changed tool access rule or a
+changed data-loss policy used to keep applying on replicas other than
+the one that made the change for up to thirty seconds, until their
+caches expired. Migration 00020 adds triggers to `roles`,
+`role_bindings`, `tool_access_rules` and `dlp_policies` that send a
+Postgres notification on commit, and each replica now holds one extra
+database session that listens for it and drops the affected
+workspace's entries. The thirty-second expiry stays as the backstop.
+
+What it needs from you:
+
+- **One more connection per replica**, opened on
+  `SUPERMCP_MAINT_DATABASE_URL` (or `DATABASE_URL` when that is unset),
+  held for the life of the process. Allow for it in `max_connections`.
+- **That URL must reach Postgres directly**, or through a proxy in
+  session mode. `LISTEN` does not work through PgBouncer in transaction
+  mode. The replica still serves; it just falls back to the thirty
+  seconds, logs `cache invalidation listener disconnected`, and
+  `supermcp_cache_listener_connected` stays 0. The operations guide
+  ("Cache invalidation") has the details.
+- Nothing for the migration itself. It is additive: an older replica
+  still running during the roll ignores the notifications and keeps its
+  expiry.
+
+New series: `supermcp_cache_invalidations_total{cache,source}` and
+`supermcp_cache_listener_connected`.
+
+Within one replica, the data-loss policy routes now share the tool-call
+path's reader, so a policy change there applies to the next tool call
+on that replica rather than after the expiry.
 
 ### Four more alerts, and the metrics behind them
 

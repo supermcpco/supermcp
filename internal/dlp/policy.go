@@ -74,13 +74,28 @@ type ScanPolicy struct {
 
 // Policies reads and writes the policies, with a short cache in front of
 // the read the tool-call path makes.
+//
+// A write through this reader drops its own cache entry at once. A write
+// anywhere else — another reader, another replica — reaches InvalidateOrg
+// through the invalidation listener, which the database notifies on
+// commit. The expiry is the backstop for when the listener is not
+// connected.
 type Policies struct {
 	DB    *tenant.DB
 	NewID func() string
+	// OnInvalidate, when set, is told of each local invalidation (source
+	// "local"), for the invalidation counter.
+	OnInvalidate func(source string)
 
+	// mu guards cache, gen and orgGen.
 	mu    sync.Mutex
 	cache map[string]cacheEntry
-	now   func() time.Time
+	// gen counts full flushes and orgGen each organisation's
+	// invalidations, so a read that was in flight when one landed does not
+	// put back what it dropped. A full flush empties orgGen.
+	gen    uint64
+	orgGen map[string]uint64
+	now    func() time.Time
 }
 
 type cacheEntry struct {
@@ -122,7 +137,7 @@ func NewPolicies(db *tenant.DB, newID func() string) *Policies {
 	if newID == nil {
 		newID = newUUID
 	}
-	return &Policies{DB: db, NewID: newID, cache: map[string]cacheEntry{}, now: time.Now}
+	return &Policies{DB: db, NewID: newID, cache: map[string]cacheEntry{}, orgGen: map[string]uint64{}, now: time.Now}
 }
 
 // Select returns the policy that governs a call, from a list already read.
@@ -253,6 +268,9 @@ func (p *Policies) Screen(ctx context.Context, orgID, connectorID, toolID string
 // refreshes the cache.
 func (p *Policies) List(ctx context.Context, orgID string) ([]ScanPolicy, error) {
 	out := []ScanPolicy{}
+	p.mu.Lock()
+	gen, orgGen := p.gen, p.orgGen[orgID]
+	p.mu.Unlock()
 	err := p.DB.Tx(tenant.WithOrg(ctx, orgID), func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `SELECT id, organization_id, name, COALESCE(connector_id,''), COALESCE(tool_id,''),
 			scan, detectors, action, enabled, max_bytes, COALESCE(created_by,''), created_at, updated_at
@@ -275,7 +293,9 @@ func (p *Policies) List(ctx context.Context, orgID string) ([]ScanPolicy, error)
 		return nil, fmt.Errorf("read dlp policies: %w", err)
 	}
 	p.mu.Lock()
-	p.cache[orgID] = cacheEntry{list: out, at: p.now()}
+	if p.gen == gen && p.orgGen[orgID] == orgGen {
+		p.cache[orgID] = cacheEntry{list: out, at: p.now()}
+	}
 	p.mu.Unlock()
 	return out, nil
 }
@@ -516,9 +536,34 @@ func aggregate(rec Recording) []findingRow {
 	return rows
 }
 
+// invalidate is the local path, after a write through this reader.
 func (p *Policies) invalidate(orgID string) {
+	p.InvalidateOrg(orgID)
+	if p.OnInvalidate != nil {
+		p.OnInvalidate("local")
+	}
+}
+
+// InvalidateOrg drops one organisation's cached policies.
+func (p *Policies) InvalidateOrg(orgID string) {
+	if p == nil {
+		return
+	}
 	p.mu.Lock()
 	delete(p.cache, orgID)
+	p.orgGen[orgID]++
+	p.mu.Unlock()
+}
+
+// InvalidateAll drops every cached policy.
+func (p *Policies) InvalidateAll() {
+	if p == nil {
+		return
+	}
+	p.mu.Lock()
+	clear(p.cache)
+	clear(p.orgGen)
+	p.gen++
 	p.mu.Unlock()
 }
 
