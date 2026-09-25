@@ -333,6 +333,94 @@
         "defaults": {},
         "overrides": []
       }
+    },
+    {
+      "id": 11,
+      "title": "Master key calls",
+      "type": "timeseries",
+      "description": "Calls to the master key by outcome. With AWS KMS these are real KMS requests, made only when a data key is not already in memory, so errors here are calls something needed.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 40
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "expr": "sum by (provider, outcome) (rate(supermcp_kek_operations_total[5m]))",
+          "legendFormat": "{{provider}} {{outcome}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 12,
+      "title": "Audit export lag",
+      "type": "timeseries",
+      "description": "How old the oldest event is that a destination has not yet accepted, the worst of each kind. It climbs while a receiver refuses and falls back to zero once it catches up.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 40
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "expr": "max by (kind) (supermcp_audit_export_lag_seconds)",
+          "legendFormat": "{{kind}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 13,
+      "title": "Database pools",
+      "type": "timeseries",
+      "description": "Connections in use as a share of each pool's ceiling, busiest replica. Near one and staying there means requests are queueing for a connection.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 48
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "expr": "max by (pool) (supermcp_db_pool_acquired_connections / supermcp_db_pool_max_connections)",
+          "legendFormat": "{{pool}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "max": 1
+        },
+        "overrides": []
+      }
     }
   ]
 }

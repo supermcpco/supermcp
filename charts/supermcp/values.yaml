@@ -160,7 +160,8 @@ metrics:
     labelValue: "1"
     annotations: {}
   # Alert rules ship with the chart because an operator should not have to
-  # reinvent what this system's failure looks like.
+  # reinvent what this system's failure looks like. The migration job rule
+  # reads kube-state-metrics and stays silent without it.
   prometheusRule:
     enabled: false
     # How long a symptom must persist before it is worth waking someone.

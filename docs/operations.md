@@ -127,7 +127,8 @@ for as long as you keep the backups.
 
 ## What the alerts mean
 
-The chart ships six rules. Each is a symptom rather than a cause.
+The chart ships ten rules with `metrics.prometheusRule.enabled=true`.
+Each is a symptom rather than a cause.
 
 - **Nothing answering.** No replica responded. Clients cannot reach any tool.
 - **A quarter of tool calls failing.** Usually the upstreams, not this
@@ -144,6 +145,29 @@ The chart ships six rules. Each is a symptom rather than a cause.
   one is worth waking someone. With `SUPERMCP_AUDIT_ON_UNAVAILABLE=spool`
   they go to disk instead, and `supermcp_audit_spool_depth` above zero
   means part of the record is somewhere a database backup does not reach.
+- **KMS unreachable.** More than half of the calls to AWS KMS are failing.
+  Replicas that already hold their data keys carry on; one that restarts
+  cannot open any stored credential, so do not restart pods to fix it.
+  Check the key's policy and state, the pod's AWS identity, and the route
+  to KMS. `supermcp_kek_operations_total` counts real KMS requests,
+  which happen only when a data key is not already in memory.
+- **Audit export lagging.** A destination has not accepted an event for
+  over fifteen minutes. Nothing is lost: delivery resumes from where it
+  stopped. The destination's `lastError` in its workspace says why, and
+  `SELECT id, organization_id, consecutive_failures, last_error FROM
+  audit_exporters WHERE enabled ORDER BY consecutive_failures DESC` finds
+  it across all of them.
+- **A database pool saturated.** A replica has used more than nine in ten
+  of the `app` or `maint` pool's connections for ten minutes and requests
+  are queueing for one. Look for slow queries and long transactions
+  first. More connections per replica (`pool_max_conns` in the database
+  URL) only helps if Postgres has them to give.
+- **The migration job failed.** An install or upgrade stopped at the
+  schema, and the previous version is still serving. Read
+  `kubectl logs job/<release>-migrate` before the job is removed, which
+  happens after `database.migrate.ttlSecondsAfterFinished`. This rule
+  reads `kube_job_failed` from kube-state-metrics and never fires without
+  it.
 
 ## Traces
 
@@ -159,12 +183,13 @@ this instance to a vendor who never asked for it.
 
 `metrics.dashboard.enabled=true` ships a Grafana dashboard as a ConfigMap
 carrying the label the Grafana sidecar watches, so it appears without
-anybody importing anything. Ten panels, in the order an incident is
+anybody importing anything. Thirteen panels, in the order an incident is
 usually read: what the instance is doing, what is failing and why,
 latency end to end beside the time spent waiting on the upstream (when
 those two move together the problem is outside this system), the surface
-build, MCP methods, refusals, open breakers, the audit queue and whether
-the rate limiter is degraded.
+build, MCP methods, refusals, open breakers, the audit queue, whether
+the rate limiter is degraded, master key calls, audit export lag and how
+full the database pools are.
 
 The JSON is `charts/supermcp/dashboards/supermcp.json` for anyone not
 running that sidecar.

@@ -60,6 +60,12 @@ type sweeps struct {
 	// operator can see the writer falling behind before events start being
 	// dropped, and see a backlog that a database backup would not include.
 	depth func()
+	// exportLag receives how far each kind of audit destination is behind.
+	// Every replica measures it, not only the one that ran the last sweep:
+	// the answer comes from shared state, so they agree, and a replica
+	// that has not held the lock for an hour then cannot keep publishing
+	// what it saw an hour ago.
+	exportLag func(map[string]time.Duration)
 }
 
 // start runs the sweeps until ctx is cancelled. Export runs often, because
@@ -107,6 +113,9 @@ func (s sweeps) start(ctx context.Context) {
 			return err
 		})
 	}
+	if s.exportLag != nil && s.exporters != nil {
+		go s.measureExportLag(ctx, time.Minute)
+	}
 	if s.depth != nil {
 		go func() {
 			t := time.NewTicker(15 * time.Second)
@@ -120,6 +129,29 @@ func (s sweeps) start(ctx context.Context) {
 				}
 			}
 		}()
+	}
+}
+
+// measureExportLag publishes the audit export lag every period until ctx
+// is cancelled. A failed measurement leaves the last one standing and is
+// logged; the next tick tries again.
+func (s sweeps) measureExportLag(ctx context.Context, period time.Duration) {
+	t := time.NewTicker(period)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			c, cancel := context.WithTimeout(ctx, period/2)
+			lag, err := s.exporters.Lag(c)
+			cancel()
+			if err != nil {
+				s.log.Warn("could not measure audit export lag", "err", err)
+				continue
+			}
+			s.exportLag(lag)
+		}
 	}
 }
 

@@ -1,6 +1,7 @@
 package telemetry_test
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -249,6 +250,9 @@ func TestNilMetricsRecordsNothing(t *testing.T) {
 	m.SetBreakerState("c", telemetry.BreakerOpen)
 	m.SetAuditQueueDepth(1)
 	m.SetRateLimitDegraded(true)
+	m.ObserveKEK(telemetry.KEKProviderAWSKMS, telemetry.KEKUnwrap, errors.New("down"))
+	m.SetAuditExportLag(map[string]time.Duration{telemetry.ExportKindWebhook: time.Hour})
+	m.WatchDBPool(telemetry.PoolApp, func() telemetry.DBPoolStats { return telemetry.DBPoolStats{} })
 	if m.Registry() != nil {
 		t.Error("Registry on a nil Metrics returned a registry")
 	}

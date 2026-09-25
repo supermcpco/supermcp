@@ -60,4 +60,50 @@ spec:
           annotations:
             summary: "the audit writer is falling behind"
             description: "Events queue before they are written, and a full queue drops them. A dropped event is a gap in the record."
+
+        # Reads the awskms provider only; a local key cannot be unreachable.
+        # Unwrapped data keys are cached, so KMS is called on a cold cache
+        # and for new keys only: an error here is a call something needed.
+        # The window is shorter than the wait so one failure cannot fire it.
+        - alert: SupermcpKMSUnreachable
+          expr: |
+            sum(rate(supermcp_kek_operations_total{provider="awskms",outcome="error"}[5m]))
+              / sum(rate(supermcp_kek_operations_total{provider="awskms"}[5m])) > 0.5
+          for: {{ .Values.metrics.prometheusRule.for.errors }}
+          labels: { severity: critical }
+          annotations:
+            summary: "AWS KMS is refusing or not answering"
+            description: "Most master key calls are failing. Replicas that already hold their data keys keep working; a restarted or new one cannot open any stored credential, and a new workspace cannot save one. Check the key policy, the pod's AWS identity and the route to KMS."
+
+        - alert: SupermcpAuditExportLag
+          expr: max by (kind) (supermcp_audit_export_lag_seconds) > 900
+          for: {{ .Values.metrics.prometheusRule.for.errors }}
+          labels: { severity: warning }
+          annotations:
+            summary: "audit events are not reaching a {{`{{ $labels.kind }}`}} destination"
+            description: "The oldest undelivered event is over fifteen minutes old. Nothing is lost, delivery resumes from the cursor, but the receiver is behind. The destination's lastError says why; audit_exporters.last_error has it for every workspace."
+
+        - alert: SupermcpDBConnPoolSaturated
+          expr: |
+            max by (pool) (
+              supermcp_db_pool_acquired_connections / supermcp_db_pool_max_connections > 0.9
+                and rate(supermcp_db_pool_empty_acquires_total[5m]) > 0
+            )
+          for: {{ .Values.metrics.prometheusRule.for.errors }}
+          labels: { severity: warning }
+          annotations:
+            summary: "the {{`{{ $labels.pool }}`}} database pool is full and callers are queueing"
+            description: "Requests wait for a connection before they do anything, so everything slows at once. Look for slow queries or held transactions before raising pool_max_conns in the database URL."
+{{- if .Values.database.migrate.enabled }}
+
+        # Needs kube-state-metrics. The hook job is kept after a failure, but
+        # only for database.migrate.ttlSecondsAfterFinished, so this fires
+        # on the first evaluation rather than waiting it out.
+        - alert: SupermcpMigrationJobFailed
+          expr: max(kube_job_failed{namespace="{{ .Release.Namespace }}", job_name="{{ include "supermcp.fullname" . }}-migrate", condition="true"}) == 1
+          labels: { severity: warning }
+          annotations:
+            summary: "the schema migration failed"
+            description: "The install or upgrade stopped before the new version rolled out; the old one is still serving. kubectl logs job/{{ include "supermcp.fullname" . }}-migrate says why, and it is deleted after {{ .Values.database.migrate.ttlSecondsAfterFinished }}s."
+{{- end }}
 {{- end }}
