@@ -167,6 +167,10 @@ choose if an auditor will ask.
 - Watch your own CVE feeds for the base image, Postgres and Redis. The
   release pipeline signs images and produces an SBOM; acting on what the
   SBOM says is yours.
+- Vulnerabilities in supermcp itself are fixed only in the latest minor
+  release and announced as GitHub security advisories on the repository;
+  watch those, and upgrade. `SECURITY.md` says how they are reported,
+  which versions are supported and how disclosure works.
 
 ### Access to the system itself
 
