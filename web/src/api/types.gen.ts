@@ -4,6 +4,19 @@ export type ClientOptions = {
     baseUrl: 'https://supermcp.example' | (string & {});
 };
 
+export type AcceptInviteInputBody = {
+    /**
+     * A URL to the JSON Schema for this object.
+     */
+    readonly $schema?: string;
+    name?: string;
+    /**
+     * Required when there is no session
+     */
+    password?: string;
+    token: string;
+};
+
 export type AllowDto = {
     description: string;
     /**
@@ -358,6 +371,31 @@ export type CreateBindingInputBody = {
      */
     scopeId?: string;
     scopeKind?: 'org' | 'server' | 'connector' | 'tool';
+};
+
+export type CreateInviteInputBody = {
+    /**
+     * A URL to the JSON Schema for this object.
+     */
+    readonly $schema?: string;
+    email: string;
+    /**
+     * How long the link works; 7 days when omitted
+     */
+    expiresInDays?: number;
+    roleId: string;
+};
+
+export type CreateInviteOutputBody = {
+    /**
+     * A URL to the JSON Schema for this object.
+     */
+    readonly $schema?: string;
+    invite: InviteDto;
+    /**
+     * The link to send. Shown once; it cannot be read back.
+     */
+    url: string;
 };
 
 export type CredentialInfo = {
@@ -791,6 +829,53 @@ export type IndexEntry = {
     transport: string;
 };
 
+export type InviteDto = {
+    acceptedAt?: string;
+    createdAt: string;
+    email: string;
+    expiresAt: string;
+    id: string;
+    /**
+     * The user who created the invite
+     */
+    invitedBy?: string;
+    revokedAt?: string;
+    roleId: string;
+    roleName: string;
+    status: 'pending' | 'accepted' | 'revoked' | 'expired';
+};
+
+export type InviteLookupDto = {
+    /**
+     * A URL to the JSON Schema for this object.
+     */
+    readonly $schema?: string;
+    email: string;
+    expiresAt: string;
+    orgName: string;
+    /**
+     * No account exists for the email; accepting without a session creates one
+     */
+    registrationRequired: boolean;
+    roleName: string;
+};
+
+export type InviteLookupInputBody = {
+    /**
+     * A URL to the JSON Schema for this object.
+     */
+    readonly $schema?: string;
+    token: string;
+};
+
+export type InvitesOutputBody = {
+    /**
+     * A URL to the JSON Schema for this object.
+     */
+    readonly $schema?: string;
+    invites: Array<InviteDto>;
+};
+
 export type InvocationDto = {
     createdAt: string;
     durationMs: number;
@@ -913,6 +998,51 @@ export type LoginRequest = {
     readonly $schema?: string;
     email: string;
     password: string;
+};
+
+export type MemberDto = {
+    /**
+     * A URL to the JSON Schema for this object.
+     */
+    readonly $schema?: string;
+    email: string;
+    /**
+     * The member is the caller
+     */
+    isSelf: boolean;
+    joinedAt: string;
+    lastSignInAt?: string;
+    name?: string;
+    roles: Array<MemberRoleDto>;
+    /**
+     * An identity provider provisions this member; deactivate or remove them there
+     */
+    scimManaged: boolean;
+    /**
+     * How the member signs in
+     */
+    source: 'password' | 'sso' | 'scim';
+    status: 'active' | 'deactivated';
+    userId: string;
+};
+
+export type MemberRoleDto = {
+    bindingId: string;
+    roleId: string;
+    roleName: string;
+    scopeKind: 'org' | 'server' | 'connector' | 'tool';
+    /**
+     * manual, sso, scim or invite
+     */
+    source: string;
+};
+
+export type MembersOutputBody = {
+    /**
+     * A URL to the JSON Schema for this object.
+     */
+    readonly $schema?: string;
+    members: Array<MemberDto>;
 };
 
 export type OrgDto = {
@@ -1572,6 +1702,18 @@ export type ToolsEnableResponse = {
     OK: boolean;
 };
 
+export type UpdateMemberInputBody = {
+    /**
+     * A URL to the JSON Schema for this object.
+     */
+    readonly $schema?: string;
+    /**
+     * Replaces the member's manually granted organisation-wide roles
+     */
+    roleId?: string;
+    status?: 'active' | 'deactivated';
+};
+
 export type UserDto = {
     email: string;
     id: string;
@@ -1592,6 +1734,15 @@ export type VerifyResult = {
     scrubbed?: number;
     unsigned?: number;
     valid: boolean;
+};
+
+export type AcceptInviteInputBodyWritable = {
+    name?: string;
+    /**
+     * Required when there is no session
+     */
+    password?: string;
+    token: string;
 };
 
 export type ApprovalDecisionInputBodyWritable = {
@@ -1821,6 +1972,23 @@ export type CreateBindingInputBodyWritable = {
      */
     scopeId?: string;
     scopeKind?: 'org' | 'server' | 'connector' | 'tool';
+};
+
+export type CreateInviteInputBodyWritable = {
+    email: string;
+    /**
+     * How long the link works; 7 days when omitted
+     */
+    expiresInDays?: number;
+    roleId: string;
+};
+
+export type CreateInviteOutputBodyWritable = {
+    invite: InviteDto;
+    /**
+     * The link to send. Shown once; it cannot be read back.
+     */
+    url: string;
 };
 
 export type DlpDetectorOutputBodyWritable = {
@@ -2105,6 +2273,25 @@ export type ImportOutputBodyWritable = {
     warnings?: Array<string>;
 };
 
+export type InviteLookupDtoWritable = {
+    email: string;
+    expiresAt: string;
+    orgName: string;
+    /**
+     * No account exists for the email; accepting without a session creates one
+     */
+    registrationRequired: boolean;
+    roleName: string;
+};
+
+export type InviteLookupInputBodyWritable = {
+    token: string;
+};
+
+export type InvitesOutputBodyWritable = {
+    invites: Array<InviteDto>;
+};
+
 export type KeysCreateRequestWritable = {
     name: string;
     scopes?: Array<string> | null;
@@ -2171,6 +2358,32 @@ export type ListSsoProvidersResponseWritable = {
 export type LoginRequestWritable = {
     email: string;
     password: string;
+};
+
+export type MemberDtoWritable = {
+    email: string;
+    /**
+     * The member is the caller
+     */
+    isSelf: boolean;
+    joinedAt: string;
+    lastSignInAt?: string;
+    name?: string;
+    roles: Array<MemberRoleDto>;
+    /**
+     * An identity provider provisions this member; deactivate or remove them there
+     */
+    scimManaged: boolean;
+    /**
+     * How the member signs in
+     */
+    source: 'password' | 'sso' | 'scim';
+    status: 'active' | 'deactivated';
+    userId: string;
+};
+
+export type MembersOutputBodyWritable = {
+    members: Array<MemberDtoWritable>;
 };
 
 export type PasswordPolicyWritable = {
@@ -2584,6 +2797,14 @@ export type ToolsEnableRequestWritable = {
 
 export type ToolsEnableResponseWritable = {
     OK: boolean;
+};
+
+export type UpdateMemberInputBodyWritable = {
+    /**
+     * Replaces the member's manually granted organisation-wide roles
+     */
+    roleId?: string;
+    status?: 'active' | 'deactivated';
 };
 
 export type VerifyResultWritable = {
@@ -4440,6 +4661,212 @@ export type UpdateIdpResponses = {
 };
 
 export type UpdateIdpResponse = UpdateIdpResponses[keyof UpdateIdpResponses];
+
+export type InviteAcceptData = {
+    body: AcceptInviteInputBodyWritable;
+    path?: never;
+    query?: never;
+    url: '/api/v1/invites/accept';
+};
+
+export type InviteAcceptErrors = {
+    /**
+     * Error
+     */
+    default: ErrorModel;
+};
+
+export type InviteAcceptError = InviteAcceptErrors[keyof InviteAcceptErrors];
+
+export type InviteAcceptResponses = {
+    /**
+     * OK
+     */
+    200: SessionBody;
+};
+
+export type InviteAcceptResponse = InviteAcceptResponses[keyof InviteAcceptResponses];
+
+export type InviteLookupData = {
+    body: InviteLookupInputBodyWritable;
+    path?: never;
+    query?: never;
+    url: '/api/v1/invites/lookup';
+};
+
+export type InviteLookupErrors = {
+    /**
+     * Error
+     */
+    default: ErrorModel;
+};
+
+export type InviteLookupError = InviteLookupErrors[keyof InviteLookupErrors];
+
+export type InviteLookupResponses = {
+    /**
+     * OK
+     */
+    200: InviteLookupDto;
+};
+
+export type InviteLookupResponse = InviteLookupResponses[keyof InviteLookupResponses];
+
+export type InvitesListData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/org/invites';
+};
+
+export type InvitesListErrors = {
+    /**
+     * Error
+     */
+    default: ErrorModel;
+};
+
+export type InvitesListError = InvitesListErrors[keyof InvitesListErrors];
+
+export type InvitesListResponses = {
+    /**
+     * OK
+     */
+    200: InvitesOutputBody;
+};
+
+export type InvitesListResponse = InvitesListResponses[keyof InvitesListResponses];
+
+export type InvitesCreateData = {
+    body: CreateInviteInputBodyWritable;
+    path?: never;
+    query?: never;
+    url: '/api/v1/org/invites';
+};
+
+export type InvitesCreateErrors = {
+    /**
+     * Error
+     */
+    default: ErrorModel;
+};
+
+export type InvitesCreateError = InvitesCreateErrors[keyof InvitesCreateErrors];
+
+export type InvitesCreateResponses = {
+    /**
+     * Created
+     */
+    201: CreateInviteOutputBody;
+};
+
+export type InvitesCreateResponse = InvitesCreateResponses[keyof InvitesCreateResponses];
+
+export type InvitesRevokeData = {
+    body?: never;
+    path: {
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/org/invites/{id}';
+};
+
+export type InvitesRevokeErrors = {
+    /**
+     * Error
+     */
+    default: ErrorModel;
+};
+
+export type InvitesRevokeError = InvitesRevokeErrors[keyof InvitesRevokeErrors];
+
+export type InvitesRevokeResponses = {
+    /**
+     * No Content
+     */
+    204: void;
+};
+
+export type InvitesRevokeResponse = InvitesRevokeResponses[keyof InvitesRevokeResponses];
+
+export type MembersListData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/org/members';
+};
+
+export type MembersListErrors = {
+    /**
+     * Error
+     */
+    default: ErrorModel;
+};
+
+export type MembersListError = MembersListErrors[keyof MembersListErrors];
+
+export type MembersListResponses = {
+    /**
+     * OK
+     */
+    200: MembersOutputBody;
+};
+
+export type MembersListResponse = MembersListResponses[keyof MembersListResponses];
+
+export type MembersRemoveData = {
+    body?: never;
+    path: {
+        userId: string;
+    };
+    query?: never;
+    url: '/api/v1/org/members/{userId}';
+};
+
+export type MembersRemoveErrors = {
+    /**
+     * Error
+     */
+    default: ErrorModel;
+};
+
+export type MembersRemoveError = MembersRemoveErrors[keyof MembersRemoveErrors];
+
+export type MembersRemoveResponses = {
+    /**
+     * No Content
+     */
+    204: void;
+};
+
+export type MembersRemoveResponse = MembersRemoveResponses[keyof MembersRemoveResponses];
+
+export type MembersUpdateData = {
+    body: UpdateMemberInputBodyWritable;
+    path: {
+        userId: string;
+    };
+    query?: never;
+    url: '/api/v1/org/members/{userId}';
+};
+
+export type MembersUpdateErrors = {
+    /**
+     * Error
+     */
+    default: ErrorModel;
+};
+
+export type MembersUpdateError = MembersUpdateErrors[keyof MembersUpdateErrors];
+
+export type MembersUpdateResponses = {
+    /**
+     * OK
+     */
+    200: MemberDto;
+};
+
+export type MembersUpdateResponse = MembersUpdateResponses[keyof MembersUpdateResponses];
 
 export type GetPasswordPolicyData = {
     body?: never;

@@ -17,6 +17,7 @@ import {
   SealCheck,
   SquaresFour,
   Stack,
+  Users,
   UsersThree,
   Storefront,
 } from "@phosphor-icons/react";
@@ -44,6 +45,7 @@ const nav = [
 ] as const;
 
 const settingsNav = [
+  { to: "/settings/members", label: "Members", icon: Users },
   { to: "/settings/security", label: "Security", icon: ShieldCheck },
   { to: "/settings/audit", label: "Audit trail", icon: ClipboardText },
   { to: "/settings/dlp", label: "Data-loss rules", icon: ShieldWarning },

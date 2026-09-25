@@ -152,6 +152,8 @@ func New(d Deps) (http.Handler, huma.API) {
 	d.dlpRoutes(api)
 	d.approvalRoutes(api)
 	d.roleRoutes(api)
+	d.memberRoutes(api)
+	d.inviteRoutes(api)
 	d.blobRoutes(api)
 	d.connectorAuthRoutes(api)
 

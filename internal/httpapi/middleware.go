@@ -55,6 +55,10 @@ func (d Deps) budgetFor(path string) hardening.Limit {
 		return d.Budgets.SignIn
 	case path == "/api/v1/auth/register":
 		return d.Budgets.Register
+	// Invite lookup and acceptance need no credential, can create an
+	// account, and are where an invite token would be guessed.
+	case strings.HasPrefix(path, "/api/v1/invites/"):
+		return d.Budgets.Invite
 	// Dynamic client registration writes a row per call and needs no
 	// credential to reach.
 	case path == "/oauth/register":

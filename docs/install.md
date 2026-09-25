@@ -294,6 +294,7 @@ message, so an operator who mistyped two finds out about both at once.
 | `SUPERMCP_RATELIMIT_ENABLED` | on | Off only when set to an explicit false value. A value that does not parse leaves the limiter on. |
 | `SUPERMCP_RATELIMIT_SIGNIN` | `10/1m` | `POST /api/v1/auth/login` and the password routes. |
 | `SUPERMCP_RATELIMIT_REGISTER` | `5/1h` | `POST /api/v1/auth/register`. |
+| `SUPERMCP_RATELIMIT_INVITE` | `5/1h` | `POST /api/v1/invites/lookup` and `POST /api/v1/invites/accept`. |
 | `SUPERMCP_RATELIMIT_DCR` | `10/1h` | `POST /oauth/register`. |
 | `SUPERMCP_RATELIMIT_TOOL_CALL` | `600/1m` | Everything under `/mcp/`. |
 | `SUPERMCP_RATELIMIT_API` | `300/1m` | The rest of the surface. |

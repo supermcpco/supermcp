@@ -477,7 +477,7 @@ func TestBoundedLimiter(t *testing.T) {
 func TestDefaultBudgets(t *testing.T) {
 	t.Parallel()
 	b := hardening.DefaultBudgets()
-	for _, l := range []hardening.Limit{b.SignIn, b.Register, b.DCR, b.ToolCall, b.API} {
+	for _, l := range []hardening.Limit{b.SignIn, b.Register, b.Invite, b.DCR, b.ToolCall, b.API} {
 		if l.Name == "" || l.Burst <= 0 || l.Window <= 0 {
 			t.Errorf("default budget %+v is unusable", l)
 		}
