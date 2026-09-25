@@ -182,7 +182,7 @@ func TestKEKFromEnvSelection(t *testing.T) {
 			t.Parallel()
 			// The fake client keeps the KMS cases off the network; the
 			// selection under test is the same either way.
-			set, err := kekFromEnv(context.Background(), envMap(tc.env), AWSKMSConfig{Client: newFakeKMS()})
+			set, err := kekFromEnv(context.Background(), envMap(tc.env), func(string) KMSClient { return newFakeKMS() })
 			if tc.wantErr != "" {
 				if err == nil {
 					t.Fatalf("err = nil, want one naming %s", tc.wantErr)

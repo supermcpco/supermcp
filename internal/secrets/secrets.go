@@ -103,7 +103,7 @@ type KeyStore interface {
 // Sealer encrypts and decrypts with per-scope data keys.
 type Sealer struct {
 	kek   KEK
-	older map[string]KEK // decrypt-only master keys, by reference
+	older []KEK // decrypt-only master keys, in the order configured
 	store KeyStore
 	mu    sync.RWMutex
 	deks  map[[keyIDLen]byte][]byte // unwrapped, process lifetime
@@ -129,12 +129,9 @@ type Sealer struct {
 // step needed to finish it.
 func New(kek KEK, store KeyStore, decryptOnly ...KEK) *Sealer {
 	s := &Sealer{kek: kek, store: store, deks: map[[keyIDLen]byte][]byte{}}
-	if len(decryptOnly) > 0 {
-		s.older = make(map[string]KEK, len(decryptOnly))
-		for _, k := range decryptOnly {
-			if k != nil {
-				s.older[k.Ref()] = k
-			}
+	for _, k := range decryptOnly {
+		if k != nil {
+			s.older = append(s.older, k)
 		}
 	}
 	return s
@@ -291,12 +288,20 @@ func (s *Sealer) unwrap(ctx context.Context, dk *DataKey) ([]byte, error) {
 // A reference no key here spells exactly may still be one of them in
 // another region (an AWS multi-Region key after a restore elsewhere); the
 // key that says so is then the one attempt.
+//
+// The order is fixed, the active key and then each decrypt-only key as
+// configured, and every exact match is tried before any cross-region
+// one. An alias of one name can stand for unrelated keys in two regions,
+// and the key recorded under the exact reference is the one that wrapped
+// the data key.
 func (s *Sealer) kekFor(dk *DataKey) (KEK, error) {
 	if dk.KEKRef == s.kek.Ref() {
 		return s.kek, nil
 	}
-	if k, ok := s.older[dk.KEKRef]; ok {
-		return k, nil
+	for _, k := range s.older {
+		if k.Ref() == dk.KEKRef {
+			return k, nil
+		}
 	}
 	if k, ok := openerFor(s.kek, dk.KEKRef); ok {
 		return k, nil

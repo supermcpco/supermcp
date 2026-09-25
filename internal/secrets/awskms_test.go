@@ -42,6 +42,9 @@ type fakeKMS struct {
 	decErr  error
 	encCall int
 	decCall int
+	// decKeys is the key each Decrypt resolved to, in order, so a test can
+	// assert that a data key was only ever sent to the key that wrapped it.
+	decKeys []string
 }
 
 func newFakeKMS() *fakeKMS { return &fakeKMS{blobs: map[string]kmsBlob{}} }
@@ -117,6 +120,9 @@ func (f *fakeKMS) decrypt(region string, in *kms.DecryptInput) (*kms.DecryptOutp
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.decCall++
+	if in.KeyId != nil {
+		f.decKeys = append(f.decKeys, f.resolve(region, *in.KeyId))
+	}
 	if f.decErr != nil {
 		return nil, f.decErr
 	}

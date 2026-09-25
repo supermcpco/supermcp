@@ -598,11 +598,7 @@ func (s *Sealer) decryptOnly() []KEK {
 	if len(s.older) == 0 {
 		return nil
 	}
-	out := make([]KEK, 0, len(s.older))
-	for _, k := range s.older {
-		out = append(out, k)
-	}
-	return out
+	return append([]KEK(nil), s.older...)
 }
 
 // zeroKey overwrites key material the moment it stops being needed, so a

@@ -61,11 +61,11 @@ type AWSKMSConfig struct {
 	// alias pointed at then, so re-pointing the alias strands every data
 	// key already wrapped: decryption names the alias, which now resolves
 	// to a key that did not make the blob. Replacing the key is a master
-	// key rotation (keys rotate-kek), and SUPERMCP_KEK_PREVIOUS names only
-	// local keys today, so there is no rotation from one KMS key to
-	// another yet. AWS's own automatic rotation is different: it changes
-	// the key material behind one key id, keeps the old material, and
-	// needs nothing from this process.
+	// key rotation: the new key active, the old one named in
+	// SUPERMCP_KEK_PREVIOUS as "awskms:<key>", then keys rotate-kek. AWS's
+	// own automatic rotation is different: it changes the key material
+	// behind one key id, keeps the old material, and needs nothing from
+	// this process.
 	KeyID string
 	// Region is required even when KeyID is an ARN, because it is also the
 	// endpoint the client talks to and a silent mismatch between the two

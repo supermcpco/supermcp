@@ -31,8 +31,9 @@ Subcommands:
   rotate-signing   replace the key that signs access tokens (-revoke for an incident)
 
 All of them read the master keys from the same settings as the gateway:
-SUPERMCP_KEK_PROVIDER (local|awskms), and SUPERMCP_KEK_PREVIOUS for a key
-that may only decrypt.
+SUPERMCP_KEK_PROVIDER (local|awskms), and SUPERMCP_KEK_PREVIOUS for keys
+that may only decrypt: a local key's base64, <reference>|<base64>, or
+awskms:<key id, alias or ARN>[@<region>][#<deployment>].
 
 Reach for rotate-kek when the master key is suspect or is moving; it
 rewrites no ciphertext. Reach for rotate-dek when the sealed values
@@ -567,14 +568,33 @@ type keyCheck struct {
 	Scope  string `json:"scope"`
 	KEKRef string `json:"kek_ref"`
 	Status string `json:"status"`
+	// Active is whether the key is recorded under the active master key,
+	// which is what says a previous key can be let go.
+	Active bool `json:"active"`
+	// HeldBy names the configured key that opened it: active, previous,
+	// or replica (a multi-Region key opening its replica's data key).
+	HeldBy string `json:"held_by,omitempty"`
 	Error  string `json:"error,omitempty"`
+}
+
+// verifyReport is what keys verify prints, as text or JSON.
+type verifyReport struct {
+	Checked     int        `json:"checked"`
+	Active      string     `json:"active"`
+	Previous    []string   `json:"previous"`
+	UnderActive int        `json:"under_active"`
+	Keys        []keyCheck `json:"keys"`
+	Failed      []keyCheck `json:"failed"`
 }
 
 // keysVerify opens every data key with the keys this process holds and
 // leaves by the error path if any of them cannot be opened, so it works
 // as a deployment check. Run before a rotation it says whether the new
 // configuration can read what is already there; run after, it says
-// whether anything was left behind.
+// whether anything was left behind. It also says which master key each
+// scope's data keys are recorded under, because "every key opens" is true
+// half way through a move too, and what an operator needs before taking a
+// previous key out of the configuration is that nothing is under it.
 func keysVerify(args []string) error {
 	fs := flag.NewFlagSet("keys verify", flag.ContinueOnError)
 	format := fs.String("format", "text", "text | json")
@@ -597,68 +617,81 @@ func keysVerify(args []string) error {
 	if err != nil {
 		return fmt.Errorf("list data keys: %w", err)
 	}
-	// Every key is checked before anything is reported, because the
-	// interesting answer during a rotation is how many are stranded and
-	// under which reference, not which one failed first.
-	failed := make([]keyCheck, 0)
-	for _, dk := range all {
-		if err := ctx.Err(); err != nil {
-			return fmt.Errorf("verification stopped: %w", err)
-		}
-		res := keyCheck{KeyID: fmt.Sprintf("%x", dk.ID[:4]), Scope: dk.Scope, KEKRef: dk.KEKRef, Status: dk.Status}
-		kek, ok := d.Set.Find(dk.KEKRef)
-		if !ok {
-			res.Error = "this process holds no key with that reference"
-			failed = append(failed, res)
-			continue
-		}
-		if err := openDataKey(ctx, kek, dk); err != nil {
-			res.Error = err.Error()
-			failed = append(failed, res)
-		}
+	checks, err := d.Set.Check(ctx, all)
+	if err != nil {
+		return fmt.Errorf("verification stopped: %w", err)
 	}
-
+	rep := buildVerifyReport(d.Set, checks)
 	if *format == "json" {
-		if err := printJSON(struct {
-			Checked int        `json:"checked"`
-			Active  string     `json:"active"`
-			Failed  []keyCheck `json:"failed"`
-		}{len(all), d.Set.Active.Ref(), failed}); err != nil {
+		if err := printJSON(rep); err != nil {
 			return err
 		}
 	} else {
-		fmt.Printf("checked %d data keys against %s\n", len(all), d.Set.Active.Ref())
-		for _, f := range failed {
-			fmt.Printf("  %s (%s, %s) wrapped by %s: %s\n", f.KeyID, f.Scope, f.Status, f.KEKRef, f.Error)
-		}
-		if len(failed) == 0 {
-			fmt.Println("every data key opens")
-		}
+		printVerifyReport(rep)
 	}
-	if len(failed) > 0 {
-		return fmt.Errorf("%d of %d data keys cannot be opened by this process", len(failed), len(all))
+	if len(rep.Failed) > 0 {
+		return fmt.Errorf("%d of %d data keys cannot be opened by this process", len(rep.Failed), rep.Checked)
 	}
 	return nil
 }
 
-// openDataKey unwraps a key and throws the material away again. The
-// command only needs to know that it opens; keeping the bytes any longer
-// than the check takes would put every tenant's data key in one process's
-// heap for the length of a run.
-func openDataKey(ctx context.Context, kek secrets.KEK, dk *secrets.DataKey) error {
-	dek, err := kek.Unwrap(ctx, dk.Wrapped)
-	if err != nil {
-		return err
+func buildVerifyReport(set *secrets.KEKSet, checks []secrets.DataKeyCheck) verifyReport {
+	rep := verifyReport{
+		Checked: len(checks), Active: set.Active.Ref(),
+		Previous: make([]string, 0, len(set.Previous)),
+		Keys:     make([]keyCheck, 0, len(checks)), Failed: make([]keyCheck, 0),
 	}
-	defer func() {
-		for i := range dek {
-			dek[i] = 0
+	for _, k := range set.Previous {
+		rep.Previous = append(rep.Previous, k.Ref())
+	}
+	for _, c := range checks {
+		res := keyCheck{
+			KeyID: shortKey(c.Key.ID), Scope: c.Key.Scope, KEKRef: c.Key.KEKRef,
+			Status: c.Key.Status, Active: c.Active, HeldBy: c.HeldBy,
 		}
-	}()
-	if len(dek) != 32 {
-		return fmt.Errorf("unwrapped to %d bytes, want 32", len(dek))
+		if c.Active {
+			rep.UnderActive++
+		}
+		if c.Err != nil {
+			res.Error = c.Err.Error()
+			rep.Failed = append(rep.Failed, res)
+		}
+		rep.Keys = append(rep.Keys, res)
 	}
-	return nil
+	return rep
+}
+
+func printVerifyReport(rep verifyReport) {
+	fmt.Printf("checked %d data keys against %s\n", rep.Checked, rep.Active)
+	for _, p := range rep.Previous {
+		fmt.Printf("previous key %s may decrypt\n", p)
+	}
+	for _, k := range rep.Keys {
+		under := "under the active key"
+		if !k.Active {
+			under = "under " + k.KEKRef
+			if k.HeldBy != "" {
+				under += " (" + k.HeldBy + ")"
+			}
+		}
+		fmt.Printf("  %-44s %s %-12s %s\n", k.Scope, k.KeyID, k.Status, under)
+	}
+	for _, f := range rep.Failed {
+		fmt.Printf("  %s (%s, %s) wrapped by %s: %s\n", f.KeyID, f.Scope, f.Status, f.KEKRef, f.Error)
+	}
+	if len(rep.Failed) == 0 {
+		fmt.Println("every data key opens")
+	}
+	fmt.Printf("%d of %d data keys are under the active key\n", rep.UnderActive, rep.Checked)
+	// Advice only when it is the next step. A key that does not open is a
+	// configuration to fix first, and rotate-kek would stop on it.
+	switch {
+	case len(rep.Failed) > 0:
+	case rep.UnderActive < rep.Checked:
+		fmt.Println("run keys rotate-kek before removing a key from SUPERMCP_KEK_PREVIOUS")
+	case len(rep.Previous) > 0:
+		fmt.Println("the database no longer needs SUPERMCP_KEK_PREVIOUS; backups taken before the rotation still do")
+	}
 }
 
 // keysDeps is what both subcommands need: the configured master keys and
