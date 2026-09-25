@@ -15,6 +15,8 @@ import { useSession } from "../lib/session";
 import { Badge, Loading, SignInFirst } from "../lib/ui";
 import { message } from "../lib/errors";
 import { invalidateTool, isReferencesConflict } from "../lib/tool-api";
+import { resyncSummary } from "../lib/resync";
+import { ResyncReview } from "../components/resync-review";
 
 export const Route = createFileRoute("/connectors/$id/tools/")({
   component: Tools,
@@ -34,9 +36,13 @@ function Tools() {
   const connector = useQuery({ ...connectorsGetOptions({ path: { id } }), enabled: signedIn, retry: false });
   const tools = useQuery({ ...connectorsToolsOptions({ path: { id } }), enabled: signedIn, retry: false });
   const canEdit = can("tools:update");
+  // Re-syncing rewrites the connector's settings and its tools.
+  const canResync = canEdit && can("connectors:update");
 
   const [confirming, setConfirming] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [reviewing, setReviewing] = useState(false);
+  const [resynced, setResynced] = useState<string | null>(null);
 
   const enable = useMutation({
     ...toolsEnableMutation(),
@@ -77,6 +83,33 @@ function Tools() {
           </Link>
         )}
       </div>
+
+      {connector.data?.catalogOutdated && !reviewing && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-md bg-kumo-tint px-4 py-3 ring ring-kumo-line">
+          <Text>This server carries a newer version of the catalog adapter this connector was installed from.</Text>
+          {canResync && (
+            <Button
+              onClick={() => {
+                setResynced(null);
+                setReviewing(true);
+              }}
+            >
+              Review re-sync
+            </Button>
+          )}
+        </div>
+      )}
+      {reviewing && (
+        <ResyncReview
+          connectorId={id}
+          onApplied={(data) => {
+            setReviewing(false);
+            setResynced(`Re-synced with the catalog: ${resyncSummary(data.applied)}.`);
+          }}
+          onClose={() => setReviewing(false)}
+        />
+      )}
+      <div role="status">{resynced && <Text>{resynced}</Text>}</div>
 
       {error && (
         <div role="alert" className="rounded-md bg-kumo-tint px-4 py-3 ring ring-kumo-line">

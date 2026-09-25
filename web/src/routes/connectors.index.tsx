@@ -53,6 +53,7 @@ function Connectors() {
                   </Text>
                   {!c.enabled && <Badge>disabled</Badge>}
                   {c.readOnly && <Badge>read-only</Badge>}
+                  {c.catalogOutdated && <Badge>catalog update available</Badge>}
                 </div>
                 <Text as="span" variant="secondary">
                   {String(c.transport?.type ?? "")} · {String(c.auth?.type ?? "none")} · {c.toolCount} tools
