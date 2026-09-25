@@ -7,6 +7,7 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -125,23 +126,72 @@ func (s *Service) RotateServiceAccountSecret(ctx context.Context, orgID, id stri
 	return secret, nil
 }
 
-// SetServiceAccountDisabled turns an account off or on.
-func (s *Service) SetServiceAccountDisabled(ctx context.Context, orgID, id string, disabled bool) error {
-	return s.DB.Tx(tenant.WithOrg(ctx, orgID), func(tx pgx.Tx) error {
-		var at any
+// reasonServiceAccountDisabled is recorded on the API keys a disable
+// revokes.
+const reasonServiceAccountDisabled = "service account disabled"
+
+// SetServiceAccountDisabled turns an account off or on, and returns how
+// many API keys turning it off revoked.
+//
+// Turning it off cuts it off completely, in one transaction: every API key
+// it holds is revoked with no grace period, and its token epoch moves on so
+// that access tokens it was already issued are refused before they expire
+// (see ServiceAccountTokenEpoch). A service account is never issued a
+// refresh token, so there is none to revoke. Turning it back on restores
+// neither the keys nor the tokens; it only lets the secret obtain new
+// tokens.
+func (s *Service) SetServiceAccountDisabled(ctx context.Context, orgID, id string, disabled bool) (revokedKeys int, err error) {
+	err = s.DB.Tx(tenant.WithOrg(ctx, orgID), func(tx pgx.Tx) error {
+		q := `UPDATE service_accounts SET disabled_at = NULL, updated_at = now()
+			WHERE id = $1 AND organization_id = $2`
 		if disabled {
-			at = s.now()
+			q = `UPDATE service_accounts SET disabled_at = now(), token_epoch = token_epoch + 1, updated_at = now()
+				WHERE id = $1 AND organization_id = $2`
 		}
-		tag, err := tx.Exec(ctx, `UPDATE service_accounts SET disabled_at = $3, updated_at = now()
-			WHERE id = $1 AND organization_id = $2`, id, orgID, at)
+		tag, err := tx.Exec(ctx, q, id, orgID)
 		if err != nil {
 			return err
 		}
 		if tag.RowsAffected() == 0 {
 			return ErrServiceAccountUnknown
 		}
+		if !disabled {
+			return nil
+		}
+		tag, err = tx.Exec(ctx, `UPDATE api_keys SET revoked_at = now(), revoked_reason = $3
+			WHERE organization_id = $1 AND principal_kind = 'service_account' AND principal_id = $2 AND revoked_at IS NULL`,
+			orgID, id, reasonServiceAccountDisabled)
+		if err != nil {
+			return err
+		}
+		revokedKeys = int(tag.RowsAffected())
 		return nil
 	})
+	if err != nil {
+		return 0, fmt.Errorf("set service account disabled: %w", err)
+	}
+	return revokedKeys, nil
+}
+
+// ServiceAccountTokenEpoch reports the epoch an access token for the
+// account must carry, and whether the account may use one at all. An
+// access token is a signed JWT nobody stores, so disabling an account
+// cannot revoke the ones it holds; it moves the epoch on instead, and a
+// token issued under an earlier epoch is refused. A deleted account is
+// ErrServiceAccountUnknown.
+func (s *Service) ServiceAccountTokenEpoch(ctx context.Context, orgID, id string) (epoch int, active bool, err error) {
+	var disabled *time.Time
+	err = s.DB.Tx(tenant.WithOrg(ctx, orgID), func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT token_epoch, disabled_at FROM service_accounts
+			WHERE id = $1 AND organization_id = $2`, id, orgID).Scan(&epoch, &disabled)
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, false, ErrServiceAccountUnknown
+	}
+	if err != nil {
+		return 0, false, fmt.Errorf("read service account token epoch: %w", err)
+	}
+	return epoch, disabled == nil, nil
 }
 
 // DeleteServiceAccount removes an account and the bindings that named it.

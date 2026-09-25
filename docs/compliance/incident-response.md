@@ -80,11 +80,14 @@ long. `GET $URL/api/v1/api-keys` shows each key's last use and client address.
 
 ### Cut off a service account
 
-`DELETE $URL/api/v1/service-accounts/<id>` (`serviceaccounts:manage`) removes its
-bindings and revokes its API keys. Setting it `disabled` stops only new tokens from
-its secret. Its API keys, and access tokens already issued, keep working until
-they expire, which is up to an hour. If it must stay, rotate its secret with
-`POST .../service-accounts/<id>/rotate` and revoke its keys one by one.
+Disabling it is enough: `POST $URL/api/v1/service-accounts/<id>/disabled` with
+`{"disabled": true}` (`serviceaccounts:manage`). Its secret gets no new tokens, its
+API keys are revoked at once with no grace period, and access tokens already
+issued are refused before they expire. It holds no refresh tokens. The audit event
+`service_account.update` records `meta.revokedKeys`. Turning it back on brings
+none of the keys or tokens back. Issue new keys, and rotate its secret with
+`POST .../service-accounts/<id>/rotate` if the secret leaked. `DELETE
+$URL/api/v1/service-accounts/<id>` also removes it and its bindings.
 
 ### Reject an OAuth client
 
