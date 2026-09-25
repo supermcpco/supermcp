@@ -55,7 +55,7 @@ Migration 00027 adds a search index to `audit_events`; see "The audit
 trail can be searched" below. Migration 00028 lets the history keep data-loss policies, approval policies and sign-in providers; see "Policies and sign-in providers have a history" below.
 Migration 00030 stops counting every OpenID Connect sign-in as a second factor; see "OpenID Connect sign-ins count a second factor only by a rule" below.
 Migration 00031 adds workspace data-loss detectors; see "Workspaces can write their own data-loss detectors" below.
-Migration 00032 adds a session setting to MCP servers; see "MCP servers can keep sessions" below.
+Migration 00032 adds a session setting to MCP servers and records a requester's confirmation on approval requests; see "MCP servers can keep sessions" below.
 
 ### OpenID Connect sign-ins count a second factor only by a rule
 
@@ -215,8 +215,20 @@ sessions a replica keeps, `SUPERMCP_MCP_MAX_SESSIONS` (5000) and
 series: `supermcp_mcp_sessions` and
 `supermcp_mcp_sessions_closed_total{reason}`.
 
+The same migration adds two columns to `approval_requests`,
+`acknowledged_at` and `acknowledgement`, again catalogue changes that
+rewrite no row, and grants the application `UPDATE` on those two columns
+only. On a stateful server whose client can be asked, a call held for
+approval asks the person behind the client to confirm it; their answer
+is recorded there, or withdraws the request. It never approves. A pod of
+the previous release reads approval requests without the new columns and
+never asks. One more setting, `SUPERMCP_MCP_ELICITATION_TIMEOUT` (60s),
+bounds the wait; a proxy in front of `/mcp/` needs a read timeout above
+it.
+
 The server object in the API gains `sessions`, and
-`PATCH /api/v1/servers/{id}` accepts it. Regenerate generated API
+`PATCH /api/v1/servers/{id}` accepts it. Approval requests gain
+`acknowledgedAt` and `acknowledgement`. Regenerate generated API
 clients.
 
 ### The audit trail can be searched

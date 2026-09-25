@@ -323,6 +323,12 @@ function Summary({ request }: { request: ApprovalRequest }) {
         {request.requesterDisplay || request.requestedBy} · asked {new Date(request.createdAt).toLocaleString()}
         {request.state === "pending" ? ` · lapses ${lapses.toLocaleString()}` : ""}
       </Text>
+      {request.acknowledgedAt && (
+        <Text as="span" variant="secondary">
+          {request.requesterDisplay || request.requestedBy} confirmed from their client that they asked for this call
+          {request.acknowledgement ? `: “${request.acknowledgement}”` : "."} Confirming is not an approval.
+        </Text>
+      )}
     </div>
   );
 }

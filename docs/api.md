@@ -545,6 +545,49 @@ anywhere, so a tool that sends the caller's identity upstream never
 serves one person's answer to another. Every error path in the cache
 resolves to a miss.
 
+### Calls held for approval
+
+A call an approval policy reaches does not run. It comes back at once as
+an error result whose text tells the model what happened and whose
+structured content names the request:
+
+```json
+{"status":"approval_pending","approvalRequestId":"…","state":"pending","tool":"refund_payment",
+ "policy":"Refunds","expiresAt":"…","retryWith":"_approval"}
+```
+
+Once someone else has approved it, the same tool called with
+`"_approval": "<request id>"` runs the arguments that were approved, once.
+
+On a **stateful** server (see "Sessions") whose client declared the
+`elicitation` capability at `initialize`, the server first asks the
+person behind the client about the call with `elicitation/create`, on the
+stream of the call itself. The question names the tool and the request,
+never the arguments or anything secret, and offers a form with a
+`confirm` checkbox and an optional `note` of up to 500 characters:
+
+- **accept with `confirm: true`** records the confirmation and the note
+  on the request, as `acknowledgedAt` and `acknowledgement`, for the
+  approver to read (`GET /api/v1/approvals/{id}` and the approvals
+  screen, which show them). It approves nothing: the request stays
+  pending, the person who asked still may not decide it, and the result
+  says so and carries `"acknowledged": true`. A request is asked about
+  once; the same call repeated is not asked again.
+- **decline, cancel, or accept without `confirm`** withdraws the request,
+  as `POST /api/v1/approvals/{id}/cancel` would, recorded on the audit
+  trail as `approval.cancel` with `meta.via` `elicitation`. The result
+  says it was withdrawn.
+- **No answer** within `SUPERMCP_MCP_ELICITATION_TIMEOUT` (60 s by
+  default), or before the call's own deadline if that is sooner, or
+  before the replica starts shutting down, leaves the request pending and
+  the result exactly as it would have been without the question.
+
+On a stateless server, with a client that did not declare the
+capability, or when the endpoint answers with `application/json`
+(`SUPERMCP_MCP_RESPONSE_MODE=json`, where the transport has no stream to
+carry the question on), nothing is asked and a held call behaves as
+described at the top of this section.
+
 ## Managing tools
 
 A connector's tools can be added, edited and deleted through the admin

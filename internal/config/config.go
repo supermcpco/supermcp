@@ -75,14 +75,19 @@ type MCP struct {
 	// SessionIdle is how long a session may go without a request before it
 	// is closed.
 	SessionIdle time.Duration
+	// ElicitationTimeout is how long a call held for approval waits for
+	// the person behind the client to confirm it, when the server can ask.
+	// The call's own deadline, if sooner, wins.
+	ElicitationTimeout time.Duration
 }
 
 // The session defaults. A session holds a few goroutines and the state
 // of one client, a few tens of kilobytes; five thousand of them is well
 // inside a replica's memory limit in the chart.
 const (
-	DefaultMCPMaxSessions = 5000
-	DefaultMCPSessionIdle = 15 * time.Minute
+	DefaultMCPMaxSessions        = 5000
+	DefaultMCPSessionIdle        = 15 * time.Minute
+	DefaultMCPElicitationTimeout = time.Minute
 )
 
 // Tracing is where spans go, and how many of them.
@@ -181,7 +186,7 @@ func load(version string, serving bool) (*Config, error) {
 			c.AuthFreshWindow = d
 		}
 	}
-	c.MCP = MCP{MaxSessions: DefaultMCPMaxSessions, SessionIdle: DefaultMCPSessionIdle}
+	c.MCP = MCP{MaxSessions: DefaultMCPMaxSessions, SessionIdle: DefaultMCPSessionIdle, ElicitationTimeout: DefaultMCPElicitationTimeout}
 	if v := os.Getenv("SUPERMCP_MCP_MAX_SESSIONS"); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil || n < 1 || n > 1_000_000 {
@@ -194,6 +199,11 @@ func load(version string, serving bool) (*Config, error) {
 		errs = append(errs, err)
 	} else {
 		c.MCP.SessionIdle = d
+	}
+	if d, err := boundedDuration("SUPERMCP_MCP_ELICITATION_TIMEOUT", DefaultMCPElicitationTimeout, 5*time.Second, 10*time.Minute); err != nil {
+		errs = append(errs, err)
+	} else {
+		c.MCP.ElicitationTimeout = d
 	}
 	if c.Tracing.Sample < 0 || c.Tracing.Sample > 1 {
 		errs = append(errs, fmt.Errorf("SUPERMCP_TRACE_SAMPLE must be between 0 and 1, got %v", c.Tracing.Sample))

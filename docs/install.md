@@ -411,6 +411,7 @@ MCP sessions").
 |---|---|---|
 | `SUPERMCP_MCP_MAX_SESSIONS` | `5000` | How many sessions one replica holds. When it is full, the session idle longest is closed to make room, and its client is answered `404` and initialises again; when every session has a request in flight, a new one is refused with `503` and `Retry-After: 1`. A whole number from 1 to 1000000; anything else fails the boot. |
 | `SUPERMCP_MCP_SESSION_IDLE` | `15m` | How long a session may go without a request before it is closed. Between `1m` and `24h`; anything else fails the boot. |
+| `SUPERMCP_MCP_ELICITATION_TIMEOUT` | `60s` | How long a call held for approval waits for the person behind a client to confirm it, when the server can ask (docs/api.md, "Calls held for approval"). The call's own deadline wins if it is sooner. Between `5s` and `10m`; anything else fails the boot. |
 
 ### Rate limiting
 
