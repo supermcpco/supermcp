@@ -50,6 +50,10 @@ type Budgets struct {
 	// Analytics covers the usage analytics, whose every request runs
 	// aggregates over up to 90 days on the pool that records tool calls.
 	Analytics Limit
+	// DLPTest covers running detectors over text an administrator sends:
+	// the data-loss preview and the pattern test. Each request compiles a
+	// pattern or scans up to 256 KiB, which costs far more than a read.
+	DLPTest Limit
 	// API covers the rest of the admin API.
 	API Limit
 }
@@ -197,6 +201,7 @@ func DefaultBudgets() Budgets {
 		DCR:       Limit{Name: "dcr", Burst: 10, Window: time.Hour},
 		ToolCall:  Limit{Name: "tool_call", Burst: 600, Window: time.Minute},
 		Analytics: Limit{Name: "analytics", Burst: 30, Window: time.Minute},
+		DLPTest:   Limit{Name: "dlp_test", Burst: 60, Window: time.Minute},
 		API:       Limit{Name: "api", Burst: 300, Window: time.Minute},
 	}
 }

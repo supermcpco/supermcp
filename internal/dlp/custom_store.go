@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -34,6 +35,37 @@ type DetectorPatch struct {
 type PolicyChange struct {
 	Before ScanPolicy
 	After  ScanPolicy
+}
+
+// DetectorRecord is a detector as the revision history and the audit trail
+// keep it: everything but the samples, of which it keeps the count. The
+// samples are shaped like the values the detector exists to keep out of
+// records, and a digest of one would not hide it: a contract id of six
+// digits is a million guesses away from any hash of it (00011_dlp.sql
+// makes the same argument about findings). They live in the detector's
+// row alone.
+type DetectorRecord struct {
+	ID                string    `json:"id"`
+	Name              string    `json:"name"`
+	Detector          string    `json:"detector"`
+	Description       string    `json:"description"`
+	Pattern           string    `json:"pattern"`
+	Flags             string    `json:"flags"`
+	MustMatchCount    int       `json:"mustMatchCount"`
+	MustNotMatchCount int       `json:"mustNotMatchCount"`
+	Enabled           bool      `json:"enabled"`
+	Version           int64     `json:"version"`
+	CreatedBy         string    `json:"createdBy,omitempty"`
+	UpdatedBy         string    `json:"updatedBy,omitempty"`
+	CreatedAt         time.Time `json:"createdAt"`
+	UpdatedAt         time.Time `json:"updatedAt"`
+}
+
+// Recorded is the detector as the history and the audit trail keep it.
+func (c CustomDetector) Recorded() DetectorRecord {
+	return DetectorRecord{ID: c.ID, Name: c.Name, Detector: c.Ref(), Description: c.Description, Pattern: c.Pattern,
+		Flags: c.Flags, MustMatchCount: len(c.MustMatch), MustNotMatchCount: len(c.MustNotMatch), Enabled: c.Enabled,
+		Version: c.Version, CreatedBy: c.CreatedBy, UpdatedBy: c.UpdatedBy, CreatedAt: c.CreatedAt, UpdatedAt: c.UpdatedAt}
 }
 
 const detectorColumns = `id, organization_id, name, description, pattern, flags, must_match, must_not_match,
@@ -91,7 +123,7 @@ func (p *Policies) CreateDetector(ctx context.Context, orgID string, c CustomDet
 		if err := insertDetector(ctx, tx, &c); err != nil {
 			return err
 		}
-		return p.recordDetector(ctx, tx, c, revisionCreate, audit.Created(c), c.CreatedBy)
+		return p.recordDetector(ctx, tx, c, revisionCreate, audit.Created(c.Recorded()), c.CreatedBy)
 	})
 	if err != nil {
 		return CustomDetector{}, err
@@ -119,6 +151,9 @@ func (p *Policies) UpdateDetector(ctx context.Context, orgID, id string, patch D
 		if err := after.Validate(); err != nil {
 			return err
 		}
+		if err := policiesFit(ctx, tx, orgID, after); err != nil {
+			return err
+		}
 		after.UpdatedBy = actorID
 		if err := updateDetector(ctx, tx, &after); err != nil {
 			return err
@@ -126,10 +161,10 @@ func (p *Policies) UpdateDetector(ctx context.Context, orgID, id string, patch D
 		if err := p.detectorBaseline(ctx, tx, before); err != nil {
 			return err
 		}
-		return p.recordDetector(ctx, tx, after, revisionUpdate, audit.Changes(before, after), actorID)
+		return p.recordDetector(ctx, tx, after, revisionUpdate, audit.Changes(before.Recorded(), after.Recorded()), actorID)
 	})
 	if err != nil {
-		return CustomDetector{}, CustomDetector{}, err
+		return CustomDetector{}, CustomDetector{}, concurrent(err)
 	}
 	p.invalidate(orgID)
 	return before, after, nil
@@ -207,61 +242,146 @@ func (p *Policies) DeleteDetector(ctx context.Context, orgID, id string, force b
 		if err := p.detectorBaseline(ctx, tx, before); err != nil {
 			return err
 		}
-		return p.recordDetector(ctx, tx, before, revisionDelete, audit.Deleted(before), actorID)
+		return p.recordDetector(ctx, tx, before, revisionDelete, audit.Deleted(before.Recorded()), actorID)
 	})
 	if err != nil {
-		return CustomDetector{}, nil, err
+		return CustomDetector{}, nil, concurrent(err)
 	}
 	p.invalidate(orgID)
 	return before, changes, nil
 }
 
 // RestoreDetector puts a detector back the way a revision recorded it,
-// through the statements an edit uses. A detector since deleted is
-// recreated under its old id and name; one that still exists is updated,
-// and its version moves on as an edit's would. The samples are checked
-// again either way.
+// through the statements an edit uses. The history holds no samples (see
+// DetectorRecord), so a detector that still exists keeps the samples it
+// has now, and the restored pattern is checked against them: samplesKept
+// is true. A detector since deleted is recreated under its old id and
+// name with no samples, since there are none left to keep, and
+// samplesKept is false. Either way its version moves on as an edit's
+// would.
 //
 // It returns the detector as restored and the one it replaced, read under
 // the row lock; the second is nil when the detector was recreated.
-func (p *Policies) RestoreDetector(ctx context.Context, orgID, id string, c CustomDetector, actorID string) (CustomDetector, *CustomDetector, error) {
-	c = normalise(c)
-	if err := c.Validate(); err != nil {
-		return CustomDetector{}, nil, err
-	}
+func (p *Policies) RestoreDetector(ctx context.Context, orgID, id string, c CustomDetector, actorID string) (restored CustomDetector, replaced *CustomDetector, samplesKept bool, err error) {
 	c.ID, c.OrgID, c.UpdatedBy = id, orgID, actorID
-	var replaced *CustomDetector
-	err := p.DB.Tx(tenant.WithOrg(ctx, orgID), func(tx pgx.Tx) error {
+	c.MustMatch, c.MustNotMatch = nil, nil
+	err = p.DB.Tx(tenant.WithOrg(ctx, orgID), func(tx pgx.Tx) error {
 		before, err := readDetector(ctx, tx, orgID, id, "FOR UPDATE")
 		switch {
 		case errors.Is(err, ErrDetectorNotFound):
+			c = normalise(c)
+			if err := c.Validate(); err != nil {
+				return err
+			}
 			if err := insertDetector(ctx, tx, &c); err != nil {
 				return err
 			}
-			return p.recordDetector(ctx, tx, c, revisionCreate, audit.Created(c), actorID)
+			return p.recordDetector(ctx, tx, c, revisionCreate, audit.Created(c.Recorded()), actorID)
 		case err != nil:
 			return err
 		}
 		// The name is how policies find the detector; the one stored wins.
-		c.Name, c.Detector = before.Name, before.Ref()
-		c.Version = before.Version
+		c.Name = before.Name
+		c.MustMatch, c.MustNotMatch = before.MustMatch, before.MustNotMatch
+		c = normalise(c)
+		if err := c.Validate(); err != nil {
+			return err
+		}
+		if err := policiesFit(ctx, tx, orgID, c); err != nil {
+			return err
+		}
 		if err := updateDetector(ctx, tx, &c); err != nil {
 			return err
 		}
 		if err := p.detectorBaseline(ctx, tx, before); err != nil {
 			return err
 		}
-		if err := p.recordDetector(ctx, tx, c, revisionUpdate, audit.Changes(before, c), actorID); err != nil {
+		if err := p.recordDetector(ctx, tx, c, revisionUpdate, audit.Changes(before.Recorded(), c.Recorded()), actorID); err != nil {
 			return err
 		}
-		replaced = &before
+		replaced, samplesKept = &before, true
 		return nil
 	})
 	if err != nil {
-		return CustomDetector{}, nil, err
+		return CustomDetector{}, nil, false, err
 	}
 	p.invalidate(orgID)
-	return c, replaced, nil
+	return c, replaced, samplesKept, nil
+}
+
+// policiesFit checks that every policy naming d still fits ScanCostBudget
+// with d's pattern as it is about to be stored. It reads the policies and
+// the other detectors they name in two statements.
+func policiesFit(ctx context.Context, tx pgx.Tx, orgID string, d CustomDetector) error {
+	rows, err := tx.Query(ctx, `SELECT name, detectors, max_bytes FROM dlp_policies
+		WHERE organization_id = $1 AND $2 = ANY(detectors)`, orgID, d.Ref())
+	if err != nil {
+		return err
+	}
+	type user struct {
+		name      string
+		detectors []string
+		maxBytes  int
+	}
+	users, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (user, error) {
+		var u user
+		err := row.Scan(&u.name, &u.detectors, &u.maxBytes)
+		return u, err
+	})
+	if err != nil || len(users) == 0 {
+		return err
+	}
+	var others []string
+	for _, u := range users {
+		for _, n := range u.detectors {
+			if slug, ok := IsCustom(n); ok && slug != d.Name && !slices.Contains(others, slug) {
+				others = append(others, slug)
+			}
+		}
+	}
+	sizes := map[string]int{}
+	if len(others) > 0 {
+		rows, err := tx.Query(ctx, `SELECT name, pattern, flags FROM dlp_detectors WHERE name = ANY($1)`, others)
+		if err != nil {
+			return err
+		}
+		type named struct{ name, pattern, flags string }
+		have, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (named, error) {
+			var n named
+			err := row.Scan(&n.name, &n.pattern, &n.flags)
+			return n, err
+		})
+		if err != nil {
+			return err
+		}
+		for _, n := range have {
+			size, err := ProgramSize(n.pattern, n.flags)
+			if err != nil {
+				// A stored pattern that no longer compiles is priced at the
+				// most a detector may cost, rather than at nothing.
+				size = MaxProgramInsts
+			}
+			sizes[n.name] = size
+		}
+	}
+	own, err := ProgramSize(d.Pattern, d.Flags)
+	if err != nil {
+		return err
+	}
+	sizes[d.Name] = own
+	for _, u := range users {
+		var named []int
+		for _, n := range u.detectors {
+			if slug, ok := IsCustom(n); ok {
+				named = append(named, sizes[slug])
+			}
+		}
+		if total, limit := scanCost(named, u.maxBytes); total > limit {
+			return invalid("pattern", "with this pattern the rule %q would run custom detectors of %d instructions over %d bytes, and the most it may run is %d; simplify the pattern, or take the detector out of the rule first",
+				u.name, total, effectiveMaxBytes(u.maxBytes), limit)
+		}
+	}
+	return nil
 }
 
 func (patch DetectorPatch) apply(c CustomDetector) CustomDetector {
@@ -362,7 +482,7 @@ func (p *Policies) recordDetector(ctx context.Context, tx pgx.Tx, c CustomDetect
 	if p.Revisions == nil {
 		return nil
 	}
-	return p.Revisions.Record(ctx, tx, DetectorRevisionKind, c.ID, action, c, diff, actorID)
+	return p.Revisions.Record(ctx, tx, DetectorRevisionKind, c.ID, action, c.Recorded(), diff, actorID)
 }
 
 // detectorBaseline records a detector's state before its first recorded
@@ -372,5 +492,5 @@ func (p *Policies) detectorBaseline(ctx context.Context, tx pgx.Tx, before Custo
 	if p.Revisions == nil {
 		return nil
 	}
-	return p.Revisions.RecordBaseline(ctx, tx, DetectorRevisionKind, before.ID, before)
+	return p.Revisions.RecordBaseline(ctx, tx, DetectorRevisionKind, before.ID, before.Recorded())
 }

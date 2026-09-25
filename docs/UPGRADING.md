@@ -153,17 +153,19 @@ and a data-loss policy names one as `custom:<name>` beside the built-ins
 (`docs/api.md`, "Data-loss prevention"). The settings screen has a
 Detectors tab for them.
 
-Migration 00031:
+Migration 00031 runs outside a transaction, each statement safe to run
+again if it is interrupted:
 
-- creates `dlp_detectors`, with row-level security forced like the other
-  workspace tables and a trigger that sends `dlp:<organization id>` on
-  the `supermcp_cache` channel, as `dlp_policies` does. A new table takes
-  no lock on anything a tool call reads.
-- drops and re-adds the check constraint on `revisions.entity_kind` with
-  one kind more, `dlp_detector`, as 00028 did: an exclusive lock on
-  `revisions` while Postgres checks the existing rows. Configuration
-  changes wait for it; tool calls do not. It is quick unless the history
-  is very large.
+- it creates `dlp_detectors`, with row-level security forced like the
+  other workspace tables, a trigger that sends `dlp:<organization id>` on
+  the `supermcp_cache` channel as `dlp_policies` does, and a trigger that
+  moves a detector's `version` when its pattern changes without it. A new
+  table takes no lock on anything a tool call reads.
+- it replaces the check constraint on `revisions.entity_kind` with one
+  kind more, `dlp_detector`, in two steps: the swap, `NOT VALID`, is a
+  catalogue change under a brief exclusive lock on `revisions`, and the
+  check of the existing rows, `VALIDATE CONSTRAINT`, runs under a lock
+  that lets writes to `revisions` through.
 
 No rollout order matters. A replica of the previous release neither
 reads nor writes the new table, and the constraint's list is a superset.
@@ -173,10 +175,20 @@ it, and where a policy names nothing but custom detectors it runs every
 built-in instead, as it does for an empty list. Create custom detectors,
 and the policies that use them, once the roll is done.
 
+A new setting, `SUPERMCP_RATELIMIT_DLP_TEST` (default `60/1m` per
+caller), is the budget for `POST /api/v1/dlp/preview` and the new
+`POST /api/v1/dlp/detectors/test`. The preview drew on the API's
+budget before.
+
+A string in which one detector, built-in or custom, matches more than
+100 times is now masked or refused whole, with one finding of rule
+`too_many_matches`, instead of one finding per match.
+
 What changes for callers of the API:
 
 - `GET /api/v1/dlp/detectors` answers with a further list, `custom`,
-  beside `detectors`, which is unchanged.
+  beside `detectors`, which is unchanged. Patterns in it are shown only
+  to holders of `dlp:manage`, and samples to nobody.
 - A policy's `detectors` accepts `custom:<name>`. A name the workspace
   does not have is `400`, as an unknown built-in is.
 - `POST /api/v1/dlp/preview` runs the workspace's detectors too.

@@ -199,6 +199,7 @@ func build(ctx context.Context, cfg *config.Config, log *slog.Logger, st *store.
 	// rule may hold a call until a person agrees to it.
 	dlpPolicies := dlp.NewPolicies(db, newID)
 	dlpPolicies.Revisions = revisions
+	dlpPolicies.Log = log
 	dlpPolicies.OnInvalidate = func(source string) { metrics.ObserveCacheInvalidation(telemetry.CacheDLP, source) }
 	// Both caches above are per replica. The database notifies every
 	// replica when what they hold changes; this holds the connection that

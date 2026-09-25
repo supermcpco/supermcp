@@ -45,11 +45,28 @@ const (
 	MaxCustomDetectors = 50
 	// maxDescriptionChars matches the column's check.
 	maxDescriptionChars = 500
-	// maxProgramInsts bounds the compiled program. RE2 runs in time
-	// proportional to text times program, so a 512-byte pattern such as
-	// \w{1000} that compiles to a thousand instructions would cost a
-	// thousand times what its length suggests on every call.
-	maxProgramInsts = 2000
+	// MaxProgramInsts bounds one detector's compiled program. RE2 runs in
+	// time proportional to text times program, and the worst patterns
+	// measured ([a-z]{1,100}Q, .{1,140}Q over 64 KiB of letters) cost about
+	// 12 ns per instruction per byte, so [a-z]{1,650}Q at 1302 instructions
+	// took 750 ms on one 64 KiB value. At 256, one detector alone fits the
+	// ScanCostBudget of a policy at the default 64 KiB window, and Go's
+	// bounded backtracker, which it uses below 500 instructions, applies to
+	// the short values most arguments are.
+	MaxProgramInsts = 256
+	// ScanCostBudget is what the custom detectors of one policy may cost:
+	// the sum of their program sizes times the bytes the policy reads
+	// (maxBytes, or DefaultMaxBytes). 16 Mi instruction-bytes is 256
+	// instructions at 64 KiB, about 200 ms at the measured worst case of
+	// 12 ns per instruction-byte, whatever maxBytes is. A pattern such as
+	// \bCN-\d{6}\b is 13 instructions, so a policy at the default window
+	// can name about nineteen of them. It is checked when a policy is
+	// saved and when a detector a policy names is changed.
+	ScanCostBudget = 16 << 20
+	// MaxScanTime is the longest one screen may run, when the call's own
+	// deadline is later or absent. The cost budget keeps a scan well
+	// inside it; this is the backstop, and reaching it refuses the call.
+	MaxScanTime = time.Second
 	// maxTestMatches caps the offsets one tested sample reports.
 	maxTestMatches = 20
 )
@@ -245,14 +262,44 @@ func CompilePattern(pattern, flags string) (*regexp.Regexp, error) {
 	if err != nil {
 		return nil, invalid("pattern", "the pattern does not compile: %s", describeSyntax(err))
 	}
-	if len(prog.Inst) > maxProgramInsts {
-		return nil, invalid("pattern", "the pattern is too complex to run on every tool call; use smaller repetition counts")
+	if len(prog.Inst) > MaxProgramInsts {
+		return nil, invalid("pattern", "the pattern compiles to %d instructions and the limit is %d; it would be too slow to run on every tool call. Use smaller repetition counts",
+			len(prog.Inst), MaxProgramInsts)
 	}
 	re, err := regexp.Compile(src)
 	if err != nil {
 		return nil, invalid("pattern", "the pattern does not compile: %s", describeSyntax(err))
 	}
 	return re, nil
+}
+
+// ProgramSize is the size of the program a valid pattern compiles to, the
+// unit ScanCostBudget is counted in.
+func ProgramSize(pattern, flags string) (int, error) {
+	src := pattern
+	if flags == FlagCaseInsensitive {
+		src = "(?i)" + pattern
+	}
+	parsed, err := syntax.Parse(src, syntax.Perl)
+	if err != nil {
+		return 0, invalid("pattern", "the pattern does not compile: %s", describeSyntax(err))
+	}
+	prog, err := syntax.Compile(parsed.Simplify())
+	if err != nil {
+		return 0, invalid("pattern", "the pattern does not compile: %s", describeSyntax(err))
+	}
+	return len(prog.Inst), nil
+}
+
+// scanCost is what a policy's custom detectors cost at the bytes it reads.
+func scanCost(sizes []int, maxBytes int) (total, limit int) {
+	if maxBytes <= 0 {
+		maxBytes = DefaultMaxBytes
+	}
+	for _, n := range sizes {
+		total += n
+	}
+	return total, ScanCostBudget / maxBytes
 }
 
 // describeSyntax keeps the parser's reason and drops its "error parsing
@@ -367,10 +414,13 @@ func (d customDetector) Name() string { return d.name }
 
 func (d customDetector) Kind() Kind { return Kind(d.name) }
 
-// Find reports every match. CompilePattern refused every pattern that can
-// match an empty span, so each one covers at least one byte.
+// Find reports the matches, up to findCap: a custom pattern has no check
+// that discards candidates, so the search itself stops there, and the
+// scanner treats a string that reached the cap as one match. CompilePattern
+// refused every pattern that can match an empty span, so each match covers
+// at least one byte.
 func (d customDetector) Find(s string) []Match {
-	locs := d.re.FindAllStringIndex(s, -1)
+	locs := d.re.FindAllStringIndex(s, findCap)
 	if len(locs) == 0 {
 		return nil
 	}

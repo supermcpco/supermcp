@@ -112,9 +112,11 @@ addresses, telephone numbers, national identifiers, credentials) and
 any the workspace writes itself: a regular expression for an identifier
 of its own, such as a contract id, which a rule runs only when it names
 it. A workspace detector stores its pattern and the sample strings it is
-tested against on every save, in the clear, in `dlp_detectors`; the
-samples are meant to be invented, and nothing a tool call carried is
-ever written there.
+tested against on every save, in the clear, in its row in
+`dlp_detectors` and nowhere else: the revision history and the audit
+trail record how many samples there are, not what they are, and only
+holders of `dlp:manage` can read them back. The samples are meant to be
+invented, and nothing a tool call carried is ever written there.
 
 Some calls do not reach an upstream at all: an approval rule holds the
 call, seals its arguments under the workspace's data key, and answers

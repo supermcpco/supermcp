@@ -473,3 +473,20 @@ func TestAnalyticsBudget(t *testing.T) {
 		t.Errorf("analytics budget %d is not below the API's %d", got.Burst, api.Burst)
 	}
 }
+
+// TestDLPTestBudget: the routes that run detectors over text the caller
+// sends draw on a budget of their own, smaller than the API's.
+func TestDLPTestBudget(t *testing.T) {
+	t.Parallel()
+	d := Deps{Budgets: hardening.DefaultBudgets()}
+	api := d.budgetFor("/api/v1/dlp/policies")
+	for _, path := range []string{"/api/v1/dlp/preview", "/api/v1/dlp/detectors/test"} {
+		got := d.budgetFor(path)
+		if got.Name != "dlp_test" || got.Burst >= api.Burst {
+			t.Errorf("%s draws on %q (%d), want dlp_test below the API's %d", path, got.Name, got.Burst, api.Burst)
+		}
+	}
+	if got := d.budgetFor("/api/v1/dlp/detectors"); got.Name != api.Name {
+		t.Errorf("the detector list draws on %q", got.Name)
+	}
+}

@@ -1394,7 +1394,7 @@ export const dlpDetectorsRevisionsGetOptions = (options: Options<DlpDetectorsRev
 /**
  * Put a custom data-loss detector back the way an earlier revision found it
  *
- * Needs revisions:rollback and dlp:manage, and a browser session must have signed in within the fresh-auth window. A deleted detector is recreated under its old id and name; the samples are checked again.
+ * Needs revisions:rollback and dlp:manage, and a browser session must have signed in within the fresh-auth window. The history holds no samples: a detector that exists keeps its current samples (samplesKept: true) and the restored pattern is checked against them; a deleted one is recreated under its old id and name with none.
  */
 export const dlpDetectorsRevisionsRestoreMutation = (options?: Partial<Options<DlpDetectorsRevisionsRestoreData>>): UseMutationOptions<DlpDetectorsRevisionsRestoreResponse, DlpDetectorsRevisionsRestoreError, Options<DlpDetectorsRevisionsRestoreData>> => {
     const mutationOptions: UseMutationOptions<DlpDetectorsRevisionsRestoreResponse, DlpDetectorsRevisionsRestoreError, Options<DlpDetectorsRevisionsRestoreData>> = {

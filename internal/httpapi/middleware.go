@@ -70,6 +70,10 @@ func (d Deps) budgetFor(path string) hardening.Limit {
 	// draws on a budget smaller than the rest of the API's.
 	case strings.HasPrefix(path, "/api/v1/analytics/"):
 		return d.Budgets.Analytics
+	// The preview and the pattern test run detectors over text the caller
+	// sends, and the editor asks again as a pattern is typed.
+	case path == "/api/v1/dlp/preview", path == "/api/v1/dlp/detectors/test":
+		return d.Budgets.DLPTest
 	}
 	return d.Budgets.API
 }

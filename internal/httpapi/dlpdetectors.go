@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"net/http"
+	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 
@@ -25,6 +26,58 @@ import (
 // conflictInUse is the code on a delete refused because policies name
 // the detector.
 const conflictInUse = "in_use"
+
+// conflictConcurrent is the code on a write that lost a deadlock with
+// another write to the same policies and detectors.
+const conflictConcurrent = "concurrent_change"
+
+// detectorTestMaxBody caps what the test route reads: 40 samples of 1024
+// bytes and a 512-byte pattern, with room for the JSON around them.
+const detectorTestMaxBody = 64 << 10
+
+// customDetectorDTO is a custom detector as the API shows it. The pattern
+// goes only to holders of dlp:manage, and the samples only to them on a
+// single detector's read or their own write: they are shaped like the
+// values the detector exists to catch. Everyone who can read the
+// detectors sees how many samples there are.
+type customDetectorDTO struct {
+	ID                string    `json:"id"`
+	Name              string    `json:"name"`
+	Detector          string    `json:"detector" doc:"What a policy names it: custom:<name>"`
+	Description       string    `json:"description"`
+	Pattern           string    `json:"pattern,omitempty" doc:"Only to holders of dlp:manage"`
+	Flags             string    `json:"flags" enum:",i"`
+	MustMatch         []string  `json:"mustMatch,omitempty" doc:"Only on a single detector's read, and on a write's answer, to holders of dlp:manage"`
+	MustNotMatch      []string  `json:"mustNotMatch,omitempty" doc:"As mustMatch"`
+	MustMatchCount    int       `json:"mustMatchCount"`
+	MustNotMatchCount int       `json:"mustNotMatchCount"`
+	Enabled           bool      `json:"enabled"`
+	Version           int64     `json:"version" doc:"Send back as expectedVersion when updating"`
+	CreatedBy         string    `json:"createdBy,omitempty"`
+	UpdatedBy         string    `json:"updatedBy,omitempty"`
+	CreatedAt         time.Time `json:"createdAt"`
+	UpdatedAt         time.Time `json:"updatedAt"`
+	SamplesKept       *bool     `json:"samplesKept,omitempty" doc:"On a restore only: true when the detector kept the samples it had, which the history does not hold"`
+}
+
+func detectorDTO(c dlp.CustomDetector, pattern, samples bool) customDetectorDTO {
+	out := customDetectorDTO{ID: c.ID, Name: c.Name, Detector: c.Ref(), Description: c.Description, Flags: c.Flags,
+		MustMatchCount: len(c.MustMatch), MustNotMatchCount: len(c.MustNotMatch), Enabled: c.Enabled,
+		Version: c.Version, CreatedBy: c.CreatedBy, UpdatedBy: c.UpdatedBy, CreatedAt: c.CreatedAt, UpdatedAt: c.UpdatedAt}
+	if pattern {
+		out.Pattern = c.Pattern
+	}
+	if samples {
+		out.MustMatch, out.MustNotMatch = c.MustMatch, c.MustNotMatch
+	}
+	return out
+}
+
+// managesDLP reports, without recording a refusal, whether the caller may
+// see what only dlp:manage sees.
+func (d Deps) managesDLP(ctx context.Context) bool {
+	return d.Authz.Require(ctx, authz.DLPManage, authz.Resource{}) == nil
+}
 
 type dlpDetectorCreateInput struct {
 	Body struct {
@@ -64,7 +117,7 @@ type dlpDetectorDeleteInput struct {
 }
 
 type dlpCustomDetectorOutput struct {
-	Body dlp.CustomDetector
+	Body customDetectorDTO
 }
 
 type dlpDetectorTestInput struct {
@@ -99,7 +152,8 @@ func (d Deps) dlpDetectorRoutes(api huma.API, policies *dlp.Policies) {
 			if err != nil {
 				return nil, dlpErr(err)
 			}
-			return &dlpCustomDetectorOutput{Body: got}, nil
+			manage := d.managesDLP(ctx)
+			return &dlpCustomDetectorOutput{Body: detectorDTO(got, manage, manage)}, nil
 		})
 
 	huma.Register(api, huma.Operation{OperationID: "dlp-detector-create", Method: http.MethodPost,
@@ -123,8 +177,8 @@ func (d Deps) dlpDetectorRoutes(api huma.API, policies *dlp.Policies) {
 				d.adminFailed(ctx, "dlp.detector.create", "dlp_detector", "", err)
 				return nil, dlpErr(err)
 			}
-			d.admin(ctx, "dlp.detector.create", "dlp_detector", got.ID, got.Name, audit.Created(got))
-			return &dlpCustomDetectorOutput{Body: got}, nil
+			d.admin(ctx, "dlp.detector.create", "dlp_detector", got.ID, got.Name, audit.Created(got.Recorded()))
+			return &dlpCustomDetectorOutput{Body: detectorDTO(got, true, true)}, nil
 		})
 
 	huma.Register(api, huma.Operation{OperationID: "dlp-detector-update", Method: http.MethodPatch,
@@ -163,8 +217,8 @@ func (d Deps) dlpDetectorRoutes(api huma.API, policies *dlp.Policies) {
 				d.adminFailed(ctx, "dlp.detector.update", "dlp_detector", in.ID, err)
 				return nil, dlpErr(err)
 			}
-			d.admin(ctx, "dlp.detector.update", "dlp_detector", got.ID, got.Name, audit.Changes(before, got))
-			return &dlpCustomDetectorOutput{Body: got}, nil
+			d.admin(ctx, "dlp.detector.update", "dlp_detector", got.ID, got.Name, audit.Changes(before.Recorded(), got.Recorded()))
+			return &dlpCustomDetectorOutput{Body: detectorDTO(got, true, true)}, nil
 		})
 
 	huma.Register(api, huma.Operation{OperationID: "dlp-detector-delete", Method: http.MethodDelete,
@@ -186,10 +240,16 @@ func (d Deps) dlpDetectorRoutes(api huma.API, policies *dlp.Policies) {
 				d.adminFailed(ctx, "dlp.detector.delete", "dlp_detector", in.ID, err)
 				return nil, dlpErr(err)
 			}
+			// The policies changed because the detector went, and their
+			// events say so, so a reader of the trail does not look for
+			// somebody who edited them.
 			for _, c := range changed {
-				d.admin(ctx, "dlp.policy.update", "dlp_policy", c.After.ID, c.After.Name, audit.Changes(c.Before, c.After))
+				d.emit(ctx, audit.Event{Category: audit.CategoryAdmin, Action: "dlp.policy.update", Outcome: audit.Success,
+					TargetKind: "dlp_policy", TargetID: c.After.ID, TargetDisplay: c.After.Name,
+					Diff: audit.Changes(c.Before, c.After),
+					Meta: map[string]any{"cause": "dlp.detector.delete", "detectorId": before.ID}})
 			}
-			d.admin(ctx, "dlp.detector.delete", "dlp_detector", before.ID, before.Name, audit.Deleted(before))
+			d.admin(ctx, "dlp.detector.delete", "dlp_detector", before.ID, before.Name, audit.Deleted(before.Recorded()))
 			return nil, nil //nolint:nilnil // huma's no-content shape
 		})
 
@@ -197,7 +257,7 @@ func (d Deps) dlpDetectorRoutes(api huma.API, policies *dlp.Policies) {
 		Path: "/api/v1/dlp/detectors/test", Summary: "Try a pattern on samples before saving it",
 		Description: "Applies the rules a save applies to the pattern and reports, per sample, whether it " +
 			"matched and at which byte offsets. The samples are never quoted back.",
-		Tags: []string{"dlp"}, Security: sessionSecurity},
+		Tags: []string{"dlp"}, Security: sessionSecurity, MaxBodyBytes: detectorTestMaxBody},
 		func(ctx context.Context, in *dlpDetectorTestInput) (*dlpDetectorTestOutput, error) {
 			if _, err := d.require(ctx, authz.DLPManage, authz.Resource{}); err != nil {
 				return nil, err
@@ -217,8 +277,9 @@ func (d Deps) dlpDetectorRoutes(api huma.API, policies *dlp.Policies) {
 		Path:    "/api/v1/dlp/detectors/{id}/revisions/{revision}/restore",
 		Summary: "Put a custom data-loss detector back the way an earlier revision found it",
 		Description: "Needs revisions:rollback and dlp:manage, and a browser session must have signed in within " +
-			"the fresh-auth window. A deleted detector is recreated under its old id and name; the samples are " +
-			"checked again.",
+			"the fresh-auth window. The history holds no samples: a detector that exists keeps its current " +
+			"samples (samplesKept: true) and the restored pattern is checked against them; a deleted one is " +
+			"recreated under its old id and name with none.",
 		Tags: []string{"dlp"}, Security: sessionSecurity},
 		func(ctx context.Context, in *revisionGetInput) (*dlpCustomDetectorOutput, error) {
 			p, snapshot, err := d.snapshotToRestore(ctx, dlpDetectorRevisions, in)
@@ -232,17 +293,19 @@ func (d Deps) dlpDetectorRoutes(api huma.API, policies *dlp.Policies) {
 			if err := snapInto(snapshot, "", &want); err != nil {
 				return nil, err
 			}
-			got, replaced, err := policies.RestoreDetector(ctx, p.OrgID, in.ID, want, p.ID)
+			got, replaced, kept, err := policies.RestoreDetector(ctx, p.OrgID, in.ID, want, p.ID)
 			if err != nil {
 				d.restoreFailed(ctx, dlpDetectorRevisions, in, err)
 				return nil, dlpErr(err)
 			}
 			if replaced != nil {
-				d.admin(ctx, "dlp.detector.update", "dlp_detector", got.ID, got.Name, audit.Changes(*replaced, got))
+				d.admin(ctx, "dlp.detector.update", "dlp_detector", got.ID, got.Name, audit.Changes(replaced.Recorded(), got.Recorded()))
 			} else {
-				d.admin(ctx, "dlp.detector.create", "dlp_detector", got.ID, got.Name, audit.Created(got))
+				d.admin(ctx, "dlp.detector.create", "dlp_detector", got.ID, got.Name, audit.Created(got.Recorded()))
 			}
 			d.restored(ctx, dlpDetectorRevisions, in, got.Name)
-			return &dlpCustomDetectorOutput{Body: got}, nil
+			out := &dlpCustomDetectorOutput{Body: detectorDTO(got, true, true)}
+			out.Body.SamplesKept = &kept
+			return out, nil
 		})
 }
