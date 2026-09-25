@@ -98,32 +98,54 @@ func (s *Store) Close() {
 	s.App.Close()
 }
 
+// migrateLockPoll is how often a waiting migrator asks for the lock again.
+const migrateLockPoll = 500 * time.Millisecond
+
+// errMigrateLockHeld is what a migrator that will not wait reports.
+var errMigrateLockHeld = errors.New("another migration is running (advisory lock held)")
+
 // Migrate applies pending migrations under a session-level advisory lock.
-// wait controls whether to block for the lock or fail fast.
+// wait controls whether to wait for the lock or fail fast.
+//
+// A waiting migrator polls pg_try_advisory_lock rather than blocking in
+// pg_advisory_lock. A session blocked inside that statement holds a
+// snapshot for as long as it waits, and CREATE INDEX CONCURRENTLY waits for
+// every snapshot older than its own; with the lock holder running such a
+// migration, the two wait on each other through the client, where Postgres
+// cannot see the cycle, and neither ever finishes. Between polls the
+// waiting session is idle, outside any transaction, and holds nothing.
 func (s *Store) Migrate(ctx context.Context, wait bool) error {
+	return s.migrate(ctx, wait, true)
+}
+
+// MigrateOrWait is Migrate for a serving replica that migrates on start.
+// When another process holds the lock it waits for that one to finish and
+// then checks the schema, rather than queueing up to migrate after it: if
+// migrations are still pending the other migrator failed, and repeating
+// its work from every replica in turn is not the answer. It returns an
+// error then, and the migrate command, or this replica's next start,
+// applies them.
+func (s *Store) MigrateOrWait(ctx context.Context) error {
+	return s.migrate(ctx, true, false)
+}
+
+func (s *Store) migrate(ctx context.Context, wait, afterOthers bool) error {
 	conn, err := s.Maint.Acquire(ctx)
 	if err != nil {
 		return err
 	}
 	defer conn.Release()
 
-	if wait {
-		if _, err := conn.Exec(ctx, "SELECT pg_advisory_lock($1)", MigrateLockID); err != nil {
-			return fmt.Errorf("acquire migrate lock: %w", err)
-		}
-	} else {
-		var got bool
-		if err := conn.QueryRow(ctx, "SELECT pg_try_advisory_lock($1)", MigrateLockID).Scan(&got); err != nil {
-			return fmt.Errorf("acquire migrate lock: %w", err)
-		}
-		if !got {
-			return errors.New("another migration is running (advisory lock held)")
-		}
+	waited, err := s.lockMigrations(ctx, conn, wait)
+	if err != nil {
+		return err
 	}
 	// Deliberately not ctx: the lock must be released even if the caller's
 	// context is already cancelled.
 	defer func() { //nolint:contextcheck
-		_, _ = conn.Exec(context.Background(), "SELECT pg_advisory_unlock($1)", MigrateLockID)
+		unlock, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_, _ = conn.Exec(unlock, "SELECT pg_advisory_unlock($1)", MigrateLockID)
 	}()
 
 	db := stdlib.OpenDBFromPool(s.Maint)
@@ -137,6 +159,20 @@ func (s *Store) Migrate(ctx context.Context, wait bool) error {
 	if err != nil {
 		return err
 	}
+	pending, err := provider.HasPending(ctx)
+	if err != nil {
+		return fmt.Errorf("migrate: check for pending migrations: %w", err)
+	}
+	if !pending {
+		if waited {
+			s.log.Info("another migrator brought the schema up to date")
+		}
+		return nil
+	}
+	if waited && !afterOthers {
+		return errors.New("another migrator held the migration lock and finished with migrations still pending; " +
+			"see its logs, then run `supermcp migrate`")
+	}
 	results, err := provider.Up(ctx)
 	for _, r := range results {
 		s.log.Info("migration applied", "version", r.Source.Version, "path", r.Source.Path, "duration", r.Duration)
@@ -145,6 +181,35 @@ func (s *Store) Migrate(ctx context.Context, wait bool) error {
 		return fmt.Errorf("migrate: %w", err)
 	}
 	return nil
+}
+
+// lockMigrations takes the migration lock on conn, which must not be in a
+// transaction, polling while someone else holds it. It reports whether it
+// had to wait.
+func (s *Store) lockMigrations(ctx context.Context, conn *pgxpool.Conn, wait bool) (bool, error) {
+	var tick *time.Ticker
+	for waited := false; ; waited = true {
+		var got bool
+		if err := conn.QueryRow(ctx, "SELECT pg_try_advisory_lock($1)", MigrateLockID).Scan(&got); err != nil {
+			return waited, fmt.Errorf("acquire migrate lock: %w", err)
+		}
+		if got {
+			return waited, nil
+		}
+		if !wait {
+			return false, errMigrateLockHeld
+		}
+		if tick == nil {
+			s.log.Info("another migrator holds the migration lock; waiting for it to finish")
+			tick = time.NewTicker(migrateLockPoll)
+			defer tick.Stop()
+		}
+		select {
+		case <-tick.C:
+		case <-ctx.Done():
+			return waited, fmt.Errorf("acquire migrate lock: %w", ctx.Err())
+		}
+	}
 }
 
 // SchemaVersion returns the newest applied migration version, or 0.

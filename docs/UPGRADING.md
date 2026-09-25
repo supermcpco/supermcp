@@ -274,6 +274,19 @@ What that means for you:
 - **If the build fails or is cancelled**, Postgres leaves an invalid
   index behind and the migration is not recorded. Run
   `supermcp migrate` again: it drops the leftover and rebuilds.
+- **Replicas starting together no longer hang on it.** Before this
+  release, a second migrator (another `supermcp migrate`, or a replica
+  with `SUPERMCP_MIGRATE_ON_START`) that started while the first was
+  applying a `CREATE INDEX CONCURRENTLY` migration waited for the lock in
+  a way that held a snapshot, and the build waited for that snapshot: both
+  stayed stuck until one was killed, and Postgres reported no deadlock. A
+  waiting migrator now polls for the lock and holds nothing between
+  polls. If you hit this on an earlier release, cancel the waiting
+  migrator (`pg_cancel_backend` on the session in `pg_stat_activity`
+  whose `wait_event` is `advisory`); the build then finishes. A replica
+  migrating on start now also waits for another migrator to finish and
+  does not migrate after it; if migrations are still pending then, it
+  exits with an error.
 
 ### Usage analytics read an index of their own
 

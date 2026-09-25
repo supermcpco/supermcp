@@ -40,7 +40,9 @@ func serveCmd(args []string) error {
 		if err != nil {
 			return err
 		}
-		err = mst.Migrate(ctx, true)
+		// A replica that finds another one migrating waits for it and
+		// checks the result, rather than migrating after it.
+		err = mst.MigrateOrWait(ctx)
 		mst.Close()
 		if err != nil {
 			return err
