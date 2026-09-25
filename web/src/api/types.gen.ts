@@ -1895,6 +1895,110 @@ export type UpdateMemberInputBody = {
     status?: 'active' | 'deactivated';
 };
 
+export type UsageGroup = {
+    calls: number;
+    /**
+     * Calls whose status was not success: error, timeout or denied
+     */
+    errors: number;
+    /**
+     * The tool, connector or server id; empty for calls that went through no server
+     */
+    id: string;
+    /**
+     * Its current name, or its name at the time of the call if it is gone; empty if unknown
+     */
+    name: string;
+    /**
+     * Median duration of a call, in milliseconds
+     */
+    p50Ms?: number;
+    /**
+     * 95th percentile duration of a call, in milliseconds
+     */
+    p95Ms?: number;
+    /**
+     * Median time spent waiting on the upstream, in milliseconds
+     */
+    upstreamP50Ms?: number;
+    /**
+     * 95th percentile time spent waiting on the upstream, in milliseconds
+     */
+    upstreamP95Ms?: number;
+};
+
+export type UsagePoint = {
+    calls: number;
+    /**
+     * Calls whose status was not success: error, timeout or denied
+     */
+    errors: number;
+    /**
+     * Median duration of a call, in milliseconds
+     */
+    p50Ms?: number;
+    /**
+     * 95th percentile duration of a call, in milliseconds
+     */
+    p95Ms?: number;
+    /**
+     * Start of the bucket, in UTC
+     */
+    start: string;
+    /**
+     * Median time spent waiting on the upstream, in milliseconds
+     */
+    upstreamP50Ms?: number;
+    /**
+     * 95th percentile time spent waiting on the upstream, in milliseconds
+     */
+    upstreamP95Ms?: number;
+};
+
+export type UsageReport = {
+    /**
+     * A URL to the JSON Schema for this object.
+     */
+    readonly $schema?: string;
+    bucket: 'hour' | 'day';
+    by: 'tool' | 'connector' | 'server';
+    from: string;
+    series: Array<UsagePoint>;
+    to: string;
+    /**
+     * The busiest entries by call count over the whole window
+     */
+    top: Array<UsageGroup>;
+    /**
+     * The whole window
+     */
+    totals: UsageStats;
+};
+
+export type UsageStats = {
+    calls: number;
+    /**
+     * Calls whose status was not success: error, timeout or denied
+     */
+    errors: number;
+    /**
+     * Median duration of a call, in milliseconds
+     */
+    p50Ms?: number;
+    /**
+     * 95th percentile duration of a call, in milliseconds
+     */
+    p95Ms?: number;
+    /**
+     * Median time spent waiting on the upstream, in milliseconds
+     */
+    upstreamP50Ms?: number;
+    /**
+     * 95th percentile time spent waiting on the upstream, in milliseconds
+     */
+    upstreamP95Ms?: number;
+};
+
 export type UserDto = {
     email: string;
     id: string;
@@ -3075,6 +3179,22 @@ export type UpdateMemberInputBodyWritable = {
     status?: 'active' | 'deactivated';
 };
 
+export type UsageReportWritable = {
+    bucket: 'hour' | 'day';
+    by: 'tool' | 'connector' | 'server';
+    from: string;
+    series: Array<UsagePoint>;
+    to: string;
+    /**
+     * The busiest entries by call count over the whole window
+     */
+    top: Array<UsageGroup>;
+    /**
+     * The whole window
+     */
+    totals: UsageStats;
+};
+
 export type VerifyResultWritable = {
     anchors: number;
     brokenAt?: number;
@@ -3086,6 +3206,52 @@ export type VerifyResultWritable = {
     unsigned?: number;
     valid: boolean;
 };
+
+export type AnalyticsUsageData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Start of the window (RFC 3339, inclusive). Defaults to seven days before to
+         */
+        from?: string;
+        /**
+         * End of the window (RFC 3339, exclusive). Defaults to now
+         */
+        to?: string;
+        /**
+         * Width of one point in the series, in UTC. Defaults to hour for a window of two days or less, day otherwise
+         */
+        bucket?: 'hour' | 'day';
+        /**
+         * What the top list is broken down by
+         */
+        by?: 'tool' | 'connector' | 'server';
+        /**
+         * How many entries the top list holds
+         */
+        limit?: number;
+    };
+    url: '/api/v1/analytics/usage';
+};
+
+export type AnalyticsUsageErrors = {
+    /**
+     * Error
+     */
+    default: ErrorModel;
+};
+
+export type AnalyticsUsageError = AnalyticsUsageErrors[keyof AnalyticsUsageErrors];
+
+export type AnalyticsUsageResponses = {
+    /**
+     * OK
+     */
+    200: UsageReport;
+};
+
+export type AnalyticsUsageResponse = AnalyticsUsageResponses[keyof AnalyticsUsageResponses];
 
 export type KeysListData = {
     body?: never;
