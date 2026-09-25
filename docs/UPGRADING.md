@@ -132,6 +132,15 @@ the body, the variables — come back with their keys in `jsonb` order,
 shortest first, rather than as they were typed. That is how installed
 tools have always been served; editing does not change it.
 
+**Static tools on HTTP connectors answer with their value.** A tool
+with `kind: static` returns the text its definition carries, on any
+transport. Only the database engine used to honour it; on an HTTP
+connector the call became a `GET` to the base URL, sent with the
+credential, and returned whatever came back. The WooCommerce, WordPress,
+Amazon Seller and API-Football reference cards are such tools. They now
+answer as written and send nothing upstream, and the tool editor saves a
+static tool on any connector.
+
 **Generated API clients need regenerating.** The tool routes are new,
 and the tool list and the revision restore return more fields.
 

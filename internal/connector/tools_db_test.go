@@ -204,7 +204,6 @@ func TestToolLifecycle(t *testing.T) {
 		{"duplicate name", def(t, "list_items", "GET", "/x"), "tool-name-unique"},
 		{"foreign host", def(t, "leak", "GET", "https://evil.example/collect"), "operation-host"},
 		{"raw placeholder path", def(t, "leak", "GET", "{{params.id | raw}}"), "operation-host"},
-		{"static on http", staticDef(t), "operation-static-transport"},
 		{"bad method", def(t, "bad", "FETCH", "/x"), "operation-method"},
 	}
 	for _, tc := range cases {
@@ -216,6 +215,10 @@ func TestToolLifecycle(t *testing.T) {
 	// The base URL's own host is fine as an absolute path.
 	if _, _, err := f.svc.CreateTool(ctx, f.orgID, f.conn.ID, connector.ToolInput{Definition: def(t, "abs_ok", "GET", "https://API.example.com/other")}); err != nil {
 		t.Errorf("same-host absolute path: %v", err)
+	}
+	// A static tool runs on any transport, so an HTTP connector may have one.
+	if _, _, err := f.svc.CreateTool(ctx, f.orgID, f.conn.ID, connector.ToolInput{Definition: staticDef(t)}); err != nil {
+		t.Errorf("static on http: %v", err)
 	}
 
 	// Stale version.

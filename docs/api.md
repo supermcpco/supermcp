@@ -452,7 +452,6 @@ stop a save; warnings come back with the saved tool.
 | `input-required`, `input-object`, `input-required-unknown`, `schema-subset` | error | As in an adapter. |
 | `placeholder-syntax`, `placeholder-unknown`, `placeholder-namespace` | error | As in an adapter. |
 | `operation-method`, `operation-kind`, `operation-document`, `operation-statement`, `operation-tool`, `operation-static`, `operation-body-encoding` | error | As in an adapter. |
-| `operation-static-transport` | error | `kind: static` on a connector that is not a database connector. Only the database engine runs static operations. |
 | `operation-host` | error | On an HTTP or SOAP connector, an `operation.path` that is an absolute URL, or that starts with a placeholder filtered `raw`, points at a host that is neither the base URL's host, a host the connector's other tools already use, nor the host this tool had before. It would send the connector's credential somewhere new. |
 | `jmespath-parses` | error | The response transform does not compile. |
 | `transform-length` | error | The response transform is longer than 4000 characters. |

@@ -145,15 +145,51 @@ func (e *Executor) Execute(ctx context.Context, c Call) (*Result, error) {
 }
 
 func (e *Executor) run(ctx context.Context, c Call, invocationID string) (*Result, error) {
+	def := c.Tool.Definition
+	var resp *engine.Response
+	var err error
+	if def.Operation.Kind == "static" {
+		// A static tool answers with text its definition carries. Nothing
+		// goes upstream, so no credential is decrypted and no engine is
+		// asked: the HTTP engine has no static kind and would send a GET to
+		// the connector's base URL instead. The arguments are still
+		// screened, as every call's are.
+		if _, err := e.screen(ctx, c, invocationID, dlp.StageArguments, applyDefaults(def, c.Args)); err != nil {
+			return nil, err
+		}
+		resp = staticResponse(def)
+	} else {
+		// A hit skips the connector read and the credential decrypt, but
+		// stays inside run so the call is still recorded and audited: a
+		// cached call is still a call.
+		if hit, ok := e.Cache.Lookup(ctx, c); ok {
+			return hit, nil
+		}
+		resp, err = e.upstream(ctx, c, invocationID)
+	}
+	var ue *engine.UpstreamError
+	if err != nil && !errors.As(err, &ue) {
+		return nil, err
+	}
+	return e.finish(ctx, c, invocationID, resp, ue)
+}
+
+// staticResponse is what a static tool answers: its value, as written.
+func staticResponse(def *adapter.Tool) *engine.Response {
+	var v any
+	if def.Operation.Value != nil {
+		v, _ = def.Operation.Value.Value()
+	}
+	return &engine.Response{Body: v, MediaType: "text/plain"}
+}
+
+// upstream prepares the connector's credential and runs the tool through
+// the engine for its transport. An *engine.UpstreamError comes back with
+// the response it describes.
+func (e *Executor) upstream(ctx context.Context, c Call, invocationID string) (*engine.Response, error) {
 	eng, ok := e.engines[c.Connector.Transport.Type]
 	if !ok {
 		return nil, fmt.Errorf("transport %s: %w", c.Connector.Transport.Type, engine.ErrUnsupported)
-	}
-	// A hit skips the connector read and the credential decrypt, but stays
-	// inside run so the call is still recorded and audited: a cached call
-	// is still a call.
-	if hit, ok := e.Cache.Lookup(ctx, c); ok {
-		return hit, nil
 	}
 	resolved, err := e.Connectors.Resolve(ctx, c.Connector.OrgID, c.Connector.ID)
 	if err != nil {
@@ -202,12 +238,14 @@ func (e *Executor) run(ctx context.Context, c Call, invocationID string) (*Resul
 	req := &engine.Request{Connector: resolved.Connector, Tool: def, Vars: vars, Auth: auth, HTTP: doer,
 		Limits: engine.Limits{MaxRows: def.Operation.MaxRows, MaxInlineBytes: 16 << 20}}
 	upstreamCtx, upstreamSpan := e.Tracer.Start(ctx, "upstream."+string(c.Connector.Transport.Type))
-	resp, err := eng.Execute(upstreamCtx, req)
-	upstreamSpan.End()
-	var ue *engine.UpstreamError
-	if err != nil && !errors.As(err, &ue) {
-		return nil, err
-	}
+	defer upstreamSpan.End()
+	return eng.Execute(upstreamCtx, req)
+}
+
+// finish turns an engine's response into the call's result: the transform,
+// the result screen and the cache apply to every tool, static or not.
+func (e *Executor) finish(ctx context.Context, c Call, invocationID string, resp *engine.Response, ue *engine.UpstreamError) (*Result, error) {
+	def := c.Tool.Definition
 	out := &Result{Meta: resp.Meta}
 	if resp.Stream != nil {
 		content, cerr := e.Content.Binary(ctx, c, resp, e.MaxBlobBytes)
@@ -262,7 +300,9 @@ func (e *Executor) run(ctx context.Context, c Call, invocationID string) (*Resul
 	if def.Output != nil && def.Output.N != nil {
 		out.Structured = body
 	}
-	e.Cache.Store(ctx, c, out)
+	if def.Operation.Kind != "static" {
+		e.Cache.Store(ctx, c, out)
+	}
 	return out, nil
 }
 

@@ -100,6 +100,7 @@ type toolFixture struct {
 	key      string
 	orgs     []string // organisations to remove afterwards
 	upstream string
+	calls    *int // requests the fake upstream has served
 }
 
 // newToolFixture signs up an owner with one imported connector (one GET
@@ -107,8 +108,8 @@ type toolFixture struct {
 func newToolFixture(t *testing.T) *toolFixture {
 	t.Helper()
 	h := start(t)
-	upstream, _ := fakeUpstream(t)
-	f := &toolFixture{h: h, upstream: upstream.URL}
+	upstream, calls := fakeUpstream(t)
+	f := &toolFixture{h: h, upstream: upstream.URL, calls: calls}
 	f.admin = h.register(t, "E2E tools")
 	f.orgs = append(f.orgs, f.admin.Org.ID)
 	f.octx = tenant.WithOrg(context.Background(), f.admin.Org.ID)
@@ -831,5 +832,33 @@ func TestToolsEnableRecordsRevision(t *testing.T) {
 	}
 	if _, ok := f.mcpTools(t)["fake_get_item"]; ok {
 		t.Error("the disabled tool is still served")
+	}
+}
+
+// A static tool on an HTTP connector answers with its text and sends
+// nothing upstream. The HTTP engine has no static kind, and such a tool
+// used to become a GET to the connector's base URL.
+func TestStaticToolOnHTTPConnectorSendsNothing(t *testing.T) {
+	f := newToolFixture(t)
+	def := definition(t, "fake_status_card", "Reference card: the statuses an item can have, for testing.",
+		map[string]any{"kind": "static", "value": "pending, active, retired"}, nil)
+	f.mustCreate(t, def)
+
+	before := *f.calls
+	res := f.callMCP(t, "fake_status_card", map[string]any{})
+	if res.IsError {
+		t.Fatalf("static tool call failed: %+v", res.Content)
+	}
+	if text := res.Content[0].(*sdk.TextContent).Text; text != "pending, active, retired" {
+		t.Errorf("static tool answered %q, want its value", text)
+	}
+	if *f.calls != before {
+		t.Errorf("a static tool sent %d request(s) upstream", *f.calls-before)
+	}
+
+	draft := definition(t, "fake_status_card_draft", "Reference card: the statuses an item can have, as a draft.",
+		map[string]any{"kind": "static", "value": "pending"}, nil)
+	if out := f.draft(t, f.h, map[string]any{"definition": draft}, http.StatusOK); !strings.Contains(out, "sends no request") {
+		t.Errorf("draft preview of a static tool: %s", out)
 	}
 }
