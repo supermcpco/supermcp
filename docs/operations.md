@@ -299,3 +299,10 @@ configured for this server.
 process waits rather than racing. A migration numbered below the current
 version is refused; that means two branches added migrations at once and
 one needs renumbering.
+
+**Pods of the previous release fail once the migration Job has run.**
+CI refuses a migration that drops, renames, retypes or empties anything
+(`scripts/check-migrations.sh`), so during a rolling upgrade old pods keep
+working against the new schema. The exceptions carry
+`-- supermcp:breaking` and each has a section in `docs/UPGRADING.md` that
+names the migration's number: find it and do what it says.
