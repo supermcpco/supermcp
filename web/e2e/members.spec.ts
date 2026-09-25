@@ -1,5 +1,5 @@
 import type { Browser, Page } from "@playwright/test";
-import { test, expect, expectAccessible } from "./fixtures";
+import { test, expect, expectAccessible, signUp } from "./fixtures";
 
 // Members and invitations, end to end: an owner invites somebody by link,
 // that person joins from a browser that has never seen the workspace, and
@@ -66,6 +66,8 @@ test("an owner invites someone who joins from the link, then changes, deactivate
 
     const listed = page.getByRole("list", { name: "Invitations" }).getByRole("listitem").filter({ hasText: email });
     await expect(listed.getByText("pending")).toBeVisible();
+    // The owner signed up without a name, so the list names them by address.
+    await expect(listed.getByText(`sent by ${workspace.email}`, { exact: false })).toBeVisible();
 
     // One open invitation per address.
     await page.getByRole("button", { name: "Done" }).click();
@@ -80,6 +82,10 @@ test("an owner invites someone who joins from the link, then changes, deactivate
     await member.page.goto(link);
     await expect(member.page.getByRole("heading", { name: `Join ${workspace.org}` })).toBeVisible();
     await expect(member.page.getByText(email).first()).toBeVisible();
+    // The workspace's rules as they stand, which here are the defaults.
+    await expect(
+      member.page.getByText("At least 12 characters, using at least 2 of lower case, upper case, digits and symbols."),
+    ).toBeVisible();
     await expectAccessible(member.page);
 
     await member.page.getByLabel("Name").fill(invitee.name);
@@ -92,7 +98,8 @@ test("an owner invites someone who joins from the link, then changes, deactivate
   await test.step("the owner sees them with the invited role", async () => {
     await page.goto("/settings/members");
     const row = memberRow(page, email);
-    await expect(row.getByText(invitee.name)).toBeVisible();
+    // The name also labels the row's buttons for a screen reader.
+    await expect(row.getByText(invitee.name).first()).toBeVisible();
     await expect(row.getByRole("list", { name: `Roles of ${invitee.name}` }).getByText("viewer")).toBeVisible();
     await expect(row.getByText("Password", { exact: true })).toBeVisible();
     await expect(row.getByText("active", { exact: true })).toBeVisible();
@@ -142,7 +149,8 @@ test("a revoked link shows the same generic error as any other", async ({ page, 
 
   await page.getByRole("button", { name: `Revoke the invitation for ${email}` }).click();
   const listed = page.getByRole("list", { name: "Invitations" }).getByRole("listitem").filter({ hasText: email });
-  await expect(listed.getByText("revoked")).toBeVisible();
+  // Exact: the address itself starts with "revoked".
+  await expect(listed.getByText("revoked", { exact: true })).toBeVisible();
 
   const visitor = await stranger(browser);
   await visitor.page.goto(link);
@@ -151,6 +159,50 @@ test("a revoked link shows the same generic error as any other", async ({ page, 
   // business: a made-up token reads exactly the same.
   await visitor.page.goto("/invite/not-a-real-token");
   await expect(visitor.page.getByRole("alert")).toHaveText("This invitation is not valid or has expired.");
+  await expectAccessible(visitor.page);
+  await visitor.context.close();
+});
+
+test("the invite page states the workspace's own password rules, and an account made meanwhile is sent to sign in", async ({
+  page,
+  browser,
+  workspace,
+}) => {
+  test.setTimeout(90_000);
+  expect(workspace.email).toBeTruthy();
+  await page.goto("/settings/security");
+  await page.getByLabel("Minimum length").fill("16");
+  await page.getByLabel("Character classes").fill("3");
+  await page.getByRole("button", { name: "Save rules" }).click();
+  await expect(page.getByText("Saved.")).toBeVisible();
+
+  const email = unique("meanwhile");
+  const link = await invite(page, email, "viewer");
+  const token = link.split("/invite/")[1];
+
+  const visitor = await stranger(browser);
+  await visitor.page.goto(link);
+  await expect(
+    visitor.page.getByText("At least 16 characters, using at least 3 of lower case, upper case, digits and symbols."),
+  ).toBeVisible();
+  await expect(visitor.page.getByLabel("Password")).toHaveAttribute("minlength", "16");
+  await expectAccessible(visitor.page);
+
+  // Somebody signs up with the invited address while the page is open, so
+  // the account exists by the time the form is sent.
+  const elsewhere = await stranger(browser);
+  await signUp(elsewhere.page, { email, password: "Elsewhere Horse Battery 3", org: `Elsewhere ${Date.now()}` });
+  await elsewhere.context.close();
+
+  await visitor.page.getByLabel("Name").fill(invitee.name);
+  await visitor.page.getByLabel("Password").fill(invitee.password);
+  await visitor.page.getByRole("button", { name: "Create account and join" }).click();
+  const alert = visitor.page.getByRole("alert");
+  await expect(alert).toContainText("An account already exists for this email address. Sign in first");
+  await expect(alert.getByRole("link", { name: "Sign in to accept" })).toHaveAttribute(
+    "href",
+    `/login?next=${encodeURIComponent(`/invite/${token}`)}`,
+  );
   await expectAccessible(visitor.page);
   await visitor.context.close();
 });

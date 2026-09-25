@@ -14,7 +14,12 @@ const conflicts: Record<string, string> = {
   last_owner: "The workspace must keep at least one active owner. Make someone else an owner first.",
   scim_managed: "This member is managed by your identity provider. Deactivate or remove them there.",
   invite_exists: "An invitation for this email address is already open. Revoke it first to send a new one.",
+  already_member: "This person is already a member of the workspace. Change their role or reactivate them instead.",
+  invite_limit: "Too many invitations are open. Revoke some, or wait for them to be accepted, before sending more.",
 };
+
+/** What any screen says when the server has locked the caller out for a while. */
+export const tooManyAttempts = "Too many attempts. Wait a few minutes, then try again.";
 
 /** The stable code of a refusal, when the server gave one. */
 export function conflictCode(e: unknown): string | undefined {
@@ -28,6 +33,7 @@ export function conflictCode(e: unknown): string | undefined {
 export function memberError(e: unknown): string {
   const code = conflictCode(e);
   if (code) return conflicts[code];
+  if (status(e) === 429) return tooManyAttempts;
   if (status(e) === 501) return notReady;
   return message(e);
 }
@@ -41,18 +47,65 @@ export const inviteInvalid = "This invitation is not valid or has expired.";
 /**
  * What the invite page says when accepting fails. Every flavour of "no
  * such invite" reads the same, so a link cannot be used to learn whether
- * an invitation ever existed.
+ * an invitation ever existed. A 409 is matched on its stable code, never
+ * on the server's prose.
  */
 export function acceptError(e: unknown): { text: string; signInFirst: boolean } {
   const s = status(e);
   if (s === 404) return { text: inviteInvalid, signInFirst: false };
   if (s === 403) return { text: "This invitation is for a different email address.", signInFirst: false };
-  // The only other refusal is an account that already exists for the
-  // email: the server will not attach it to an unauthenticated request.
-  if (s === 409)
-    return { text: "An account already exists for this email address. Sign in to accept the invitation.", signInFirst: true };
+  if (s === 429) return { text: tooManyAttempts, signInFirst: false };
+  if (s === 409) {
+    if (hasCode(e, "account_exists"))
+      return {
+        text: "An account already exists for this email address. Sign in first, then accept the invitation.",
+        signInFirst: true,
+      };
+    if (hasCode(e, "already_member"))
+      return { text: "You are already a member of this workspace.", signInFirst: false };
+  }
   if (s === 501) return { text: "Accepting invitations is not available on this server yet.", signInFirst: false };
   return { text: message(e), signInFirst: false };
+}
+
+/** What the invite page says when looking the link up fails. */
+export function lookupError(e: unknown): string {
+  const s = status(e);
+  if (s === 429) return tooManyAttempts;
+  if (s === 501) return "Invitations are not available on this server yet.";
+  return inviteInvalid;
+}
+
+function hasCode(e: unknown, code: string): boolean {
+  return details(e).some((d) => d.value === code);
+}
+
+/** The shape of a workspace's password policy, as the server sends it. */
+export type PasswordRules = { minLength: number; requireClasses: number };
+
+/**
+ * The workspace's password rules in one sentence, for the hint under a new
+ * password. Zero or missing values fall back to the server's defaults
+ * (12 characters, 2 classes), as the server's own check does.
+ */
+export function passwordHint(policy: Partial<PasswordRules> | undefined): string {
+  const length = policy?.minLength && policy.minLength > 0 ? policy.minLength : 12;
+  const classes = policy?.requireClasses && policy.requireClasses > 0 ? Math.min(4, policy.requireClasses) : 2;
+  const head = `At least ${length} characters`;
+  if (classes <= 1) return `${head}.`;
+  if (classes >= 4) return `${head}, using lower case, upper case, digits and symbols.`;
+  return `${head}, using at least ${classes} of lower case, upper case, digits and symbols.`;
+}
+
+/** The minimum length the password field enforces before submitting. */
+export function passwordMinLength(policy: Partial<PasswordRules> | undefined): number {
+  return policy?.minLength && policy.minLength > 0 ? policy.minLength : 12;
+}
+
+/** "Sent by Ada Lovelace"; nothing when the sender is unknown or has left. */
+export function invitedBy(name: string | undefined): string | undefined {
+  const n = name?.trim();
+  return n ? `sent by ${n}` : undefined;
 }
 
 const sources: Record<string, string> = { password: "Password", sso: "SSO", scim: "SCIM" };

@@ -3,13 +3,18 @@ import {
   acceptError,
   conflictCode,
   expiryDays,
+  invitedBy,
   inviteInvalid,
+  lookupError,
   memberError,
   notReady,
+  passwordHint,
+  passwordMinLength,
   relativeTime,
   safeNext,
   sameEmail,
   sourceLabel,
+  tooManyAttempts,
 } from "./members";
 
 const conflict = (value: string) => ({
@@ -19,7 +24,7 @@ const conflict = (value: string) => ({
 });
 
 describe("memberError", () => {
-  it.each(["self", "last_owner", "scim_managed", "invite_exists"])("explains %s without the server's prose", (code) => {
+  it.each(["self", "last_owner", "scim_managed", "invite_exists", "already_member", "invite_limit"])("explains %s without the server's prose", (code) => {
     expect(conflictCode(conflict(code))).toBe(code);
     const text = memberError(conflict(code));
     expect(text).not.toBe("server prose");
@@ -35,6 +40,10 @@ describe("memberError", () => {
     expect(memberError(conflict("something_new"))).toBe("server prose");
   });
 
+  it("says to wait on a lockout", () => {
+    expect(memberError({ status: 429, detail: "too many requests" })).toBe(tooManyAttempts);
+  });
+
   it("says the feature is not there yet on a 501", () => {
     expect(memberError({ status: 501, detail: "not implemented" })).toBe(notReady);
   });
@@ -45,12 +54,66 @@ describe("acceptError", () => {
     expect(acceptError({ status: 404, detail: "revoked" }).text).toBe(inviteInvalid);
   });
 
-  it("sends an existing account to sign in", () => {
-    expect(acceptError({ status: 409, detail: "exists" })).toMatchObject({ signInFirst: true });
+  it("sends an existing account to sign in, matching on the code", () => {
+    const got = acceptError(conflict("account_exists"));
+    expect(got.signInFirst).toBe(true);
+    expect(got.text).toMatch(/sign in first/i);
+    expect(got.text).not.toBe("server prose");
+  });
+
+  it("does not send an unrecognised conflict to sign in", () => {
+    expect(acceptError(conflict("something_new"))).toEqual({ text: "server prose", signInFirst: false });
+    expect(acceptError({ status: 409, detail: "exists" }).signInFirst).toBe(false);
+  });
+
+  it("explains an existing membership", () => {
+    expect(acceptError(conflict("already_member"))).toEqual({
+      text: expect.stringMatching(/already a member/),
+      signInFirst: false,
+    });
+  });
+
+  it("says to wait on a lockout", () => {
+    expect(acceptError({ status: 429, detail: "locked" })).toEqual({ text: tooManyAttempts, signInFirst: false });
   });
 
   it("explains a different email", () => {
     expect(acceptError({ status: 403 }).text).toMatch(/different email/);
+  });
+});
+
+describe("lookupError", () => {
+  it("reads the same for every refusal but a lockout or a missing feature", () => {
+    expect(lookupError({ status: 404 })).toBe(inviteInvalid);
+    expect(lookupError({ status: 410 })).toBe(inviteInvalid);
+    expect(lookupError(new Error("network"))).toBe(inviteInvalid);
+    expect(lookupError({ status: 429 })).toBe(tooManyAttempts);
+    expect(lookupError({ status: 501 })).toMatch(/not available/);
+  });
+});
+
+describe("passwordHint", () => {
+  it.each([
+    [undefined, "At least 12 characters, using at least 2 of lower case, upper case, digits and symbols."],
+    [{ minLength: 16, requireClasses: 3 }, "At least 16 characters, using at least 3 of lower case, upper case, digits and symbols."],
+    [{ minLength: 10, requireClasses: 1 }, "At least 10 characters."],
+    [{ minLength: 20, requireClasses: 4 }, "At least 20 characters, using lower case, upper case, digits and symbols."],
+    [{ minLength: 0, requireClasses: 0 }, "At least 12 characters, using at least 2 of lower case, upper case, digits and symbols."],
+  ])("%j", (policy, want) => {
+    expect(passwordHint(policy)).toBe(want);
+  });
+
+  it("enforces the policy's length in the field", () => {
+    expect(passwordMinLength({ minLength: 16 })).toBe(16);
+    expect(passwordMinLength(undefined)).toBe(12);
+  });
+});
+
+describe("invitedBy", () => {
+  it("names the sender, or says nothing", () => {
+    expect(invitedBy("Ada Lovelace")).toBe("sent by Ada Lovelace");
+    expect(invitedBy("  ")).toBeUndefined();
+    expect(invitedBy(undefined)).toBeUndefined();
   });
 });
 

@@ -9,9 +9,8 @@ import {
   logoutMutation,
   sessionQueryKey,
 } from "../api/@tanstack/react-query.gen";
-import type { InviteLookupDto } from "../api/types.gen";
-import { status } from "../lib/errors";
-import { acceptError, inviteInvalid, sameEmail } from "../lib/members";
+import type { InviteLookupDto, PasswordPolicy } from "../api/types.gen";
+import { acceptError, inviteInvalid, lookupError, passwordHint, passwordMinLength, sameEmail } from "../lib/members";
 import { useRefreshSession, useSession } from "../lib/session";
 import { Loading } from "../lib/ui";
 
@@ -41,7 +40,7 @@ function Invite() {
     <div className="flex min-h-full items-center justify-center px-4 py-10">
       <div className="grid w-full max-w-sm gap-6">
         {lookup.isError ? (
-          <Invalid unavailable={status(lookup.error) === 501} />
+          <Invalid text={lookupError(lookup.error)} />
         ) : lookup.data && !loading ? (
           <Found token={token} invite={lookup.data} />
         ) : (
@@ -57,22 +56,24 @@ function Invite() {
   );
 }
 
-function Invalid({ unavailable }: { unavailable: boolean }) {
+function Invalid({ text }: { text: string }) {
   return (
     <div className="grid gap-1.5">
       <Text as="h1" variant="heading2">
         Invitation
       </Text>
       <div role="alert">
-        <Text>{unavailable ? "Invitations are not available on this server yet." : inviteInvalid}</Text>
+        <Text>{text}</Text>
       </div>
-      <Text variant="secondary">
-        Ask whoever sent it for a new link, or{" "}
-        <Link to="/login" search={{}} className="underline">
-          sign in
-        </Link>{" "}
-        if you already have an account.
-      </Text>
+      {text === inviteInvalid && (
+        <Text variant="secondary">
+          Ask whoever sent it for a new link, or{" "}
+          <Link to="/login" search={{}} className="underline">
+            sign in
+          </Link>{" "}
+          if you already have an account.
+        </Text>
+      )}
     </div>
   );
 }
@@ -157,6 +158,7 @@ function Found({ token, invite }: { token: string; invite: InviteLookupDto }) {
         {intro}
         <Register
           email={invite.email}
+          policy={invite.passwordPolicy}
           pending={accept.isPending}
           onSubmit={(name, password) => {
             setError(null);
@@ -189,10 +191,12 @@ function Found({ token, invite }: { token: string; invite: InviteLookupDto }) {
 /** The new account's details: the email is fixed by the invitation. */
 function Register({
   email,
+  policy,
   pending,
   onSubmit,
 }: {
   email: string;
+  policy: PasswordPolicy | undefined;
   pending: boolean;
   onSubmit: (name: string, password: string) => void;
 }) {
@@ -224,13 +228,13 @@ function Register({
           type="password"
           autoComplete="new-password"
           required
-          minLength={12}
+          minLength={passwordMinLength(policy)}
           value={password}
           aria-describedby="invite-password-hint"
           onChange={(e) => setPassword(e.currentTarget.value)}
         />
         <Text as="span" variant="secondary" id="invite-password-hint">
-          At least 12 characters, mixing letters with digits or symbols.
+          {passwordHint(policy)}
         </Text>
       </label>
       <Button type="submit" variant="primary" disabled={pending}>

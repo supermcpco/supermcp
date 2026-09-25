@@ -21,6 +21,7 @@ import {
   defaultExpiryDays,
   expiryDays,
   maxExpiryDays,
+  invitedBy,
   memberError,
   notReady,
   relativeTime,
@@ -551,7 +552,7 @@ function InviteSection({ roles, rolesLoading }: { roles: RoleDto[]; rolesLoading
                 <Badge>{inv.status}</Badge>
               </div>
               <Text as="span" variant="secondary">
-                {inv.roleName} · {inviteWhen(inv)}
+                {[inv.roleName, inviteWhen(inv), invitedBy(inv.invitedByName)].filter(Boolean).join(" · ")}
               </Text>
             </div>
             {inv.status === "pending" && (
