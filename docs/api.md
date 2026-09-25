@@ -626,6 +626,35 @@ A `days` below `minDays` or above `maxDays` is `422`, with the bound in
 one as the same action with outcome `failure`. The hourly sweep reads
 the new value on its next run.
 
+## Usage analytics
+
+`GET /api/v1/analytics/usage` (`connectors:read`, the permission the
+tool-call list asks for) counts the current workspace's tool calls over a
+window. It reads the rows the tool-call list reads and nothing else;
+Prometheus has no workspace label and is not consulted.
+
+| Parameter | Means |
+|---|---|
+| `from`, `to` | The window, RFC 3339, `from` inclusive and `to` exclusive. `to` defaults to now, `from` to seven days before `to`. |
+| `bucket` | `hour` or `day`, cut in UTC. Defaults to `hour` for a window of two days or less, `day` otherwise. |
+| `by` | `tool` (default), `connector` or `server`: what the top list is broken down by. |
+| `limit` | How many entries the top list holds, 1 to 50, default 10. |
+
+A window longer than 90 days, or one whose `from` is not before its `to`,
+is `422` with the reason in `detail`.
+
+The answer has `totals` for the whole window, `series` with one entry per
+bucket (empty buckets included, with zero calls), and `top`, the busiest
+entries by call count over the whole window. Each of these carries
+`calls`; `errors`, the calls whose status was not `success` (so `error`,
+`timeout` and `denied`); `p50Ms` and `p95Ms`, the median and 95th
+percentile of the call's duration; and `upstreamP50Ms` and
+`upstreamP95Ms`, the same for the time spent waiting on the upstream.
+The percentiles are left out when there is nothing to take them over. A
+`top` entry also has `id` and `name`: a tool's current name, or the name
+it was called by if it has been deleted. Calls that went through no MCP
+server are one entry with an empty `id` when `by=server`.
+
 ## Members
 
 The people in the current workspace and what an administrator can do
