@@ -162,6 +162,7 @@ The guarded operations:
 | API keys | `POST /api/v1/api-keys`, `POST /api/v1/api-keys/{id}/rotate`, `DELETE /api/v1/api-keys/{id}` (a SCIM token is an API key) |
 | Service accounts | `POST /api/v1/service-accounts`, `POST …/{id}/rotate`, `POST …/{id}/disabled`, `DELETE …/{id}` |
 | Connector credentials | `PUT /api/v1/connectors/{id}/credentials`, `POST /api/v1/connectors/{id}/oauth/authorize` |
+| What server-bound keys reach | `POST /api/v1/servers`, `PATCH /api/v1/servers/{id}` when it sets `connectorIds` or `enabled: true` (not a rename, new instructions or turning it off), `POST /api/v1/servers/{id}/revisions/{revision}/restore`, `POST /api/v1/connectors/{id}/revisions/{revision}/restore` |
 | OAuth clients | `GET /oauth/authorize` (redirects to `/reauth`), `POST /oauth/consent` with `decision=allow` |
 | Approvals | `POST /api/v1/approvals/{id}/approve` (not reject or cancel) |
 | Roles | `POST /api/v1/roles`, `PATCH /api/v1/roles/{id}`, `DELETE /api/v1/roles/{id}`, `POST /api/v1/roles/{id}/revisions/{revision}/restore` |

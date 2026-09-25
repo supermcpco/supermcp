@@ -542,7 +542,9 @@ func (d Deps) serverRoutes(api huma.API) {
 		})
 
 	huma.Register(api, huma.Operation{OperationID: "servers-create", Method: http.MethodPost, Path: "/api/v1/servers",
-		Summary: "Create an MCP server", Tags: []string{"servers"}, Security: sessionSecurity},
+		Summary: "Create an MCP server", Tags: []string{"servers"}, Security: sessionSecurity,
+		Description: "A browser session must have signed in within the fresh-auth window: a new server is a new " +
+			"endpoint for keys to reach its connectors through."},
 		func(ctx context.Context, in *struct {
 			Body struct {
 				Name         string   `json:"name"`
@@ -551,7 +553,7 @@ func (d Deps) serverRoutes(api huma.API) {
 				ConnectorIDs []string `json:"connectorIds,omitempty"`
 			}
 		}) (*struct{ Body *mcpserver.Server }, error) {
-			p, err := d.require(ctx, authz.ServersCreate, authz.Resource{})
+			p, err := d.requireFresh(ctx, authz.ServersCreate, authz.Resource{})
 			if err != nil {
 				return nil, err
 			}
@@ -581,7 +583,10 @@ func (d Deps) serverRoutes(api huma.API) {
 		})
 
 	huma.Register(api, huma.Operation{OperationID: "servers-update", Method: http.MethodPatch, Path: "/api/v1/servers/{id}",
-		Summary: "Update an MCP server", Tags: []string{"servers"}, Security: sessionSecurity},
+		Summary: "Update an MCP server", Tags: []string{"servers"}, Security: sessionSecurity,
+		Description: "Setting connectorIds, or enabled to true, widens what keys bound to the server can reach, so a " +
+			"browser session must have signed in within the fresh-auth window to do either. A rename, new " +
+			"instructions or turning the server off do not ask."},
 		func(ctx context.Context, in *struct {
 			ID   string `path:"id"`
 			Body struct {
@@ -591,9 +596,15 @@ func (d Deps) serverRoutes(api huma.API) {
 				ConnectorIDs *[]string `json:"connectorIds,omitempty"`
 			}
 		}) (*struct{ Body *mcpserver.Server }, error) {
-			p, err := d.require(ctx, authz.ServersUpdate, authz.Resource{ServerID: in.ID})
+			r := authz.Resource{ServerID: in.ID}
+			p, err := d.require(ctx, authz.ServersUpdate, r)
 			if err != nil {
 				return nil, err
+			}
+			if in.Body.ConnectorIDs != nil || (in.Body.Enabled != nil && *in.Body.Enabled) {
+				if err := d.checkFresh(ctx, p, authz.ServersUpdate, r); err != nil {
+					return nil, err
+				}
 			}
 			before, _ := d.Servers.Get(ctx, p.OrgID, in.ID)
 			srv, err := d.Servers.Update(ctx, p.OrgID, in.ID, mcpserver.UpdateInput{Name: in.Body.Name, Instructions: in.Body.Instructions, Enabled: in.Body.Enabled, ConnectorIDs: in.Body.ConnectorIDs, ActorID: p.ID})

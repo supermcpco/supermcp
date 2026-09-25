@@ -236,6 +236,53 @@ func TestFreshAuthGuardsSensitiveOperations(t *testing.T) {
 	}
 }
 
+// TestFreshAuthGuardsServerReach shows that what widens the reach of a
+// server-bound key asks for a recent sign-in: creating a server, changing
+// which connectors a server serves or turning it on, and putting a server
+// or a connector back the way a revision found it. A rename does not.
+func TestFreshAuthGuardsServerReach(t *testing.T) {
+	h := start(t)
+	admin := h.register(t, "E2E fresh auth servers")
+	h.clearLockouts(t, admin.User.Email)
+
+	var srv struct {
+		ID string `json:"id"`
+	}
+	if code := h.do(t, http.MethodPost, "/api/v1/servers", map[string]any{"name": "while fresh"}, &srv); code != http.StatusOK {
+		t.Fatalf("a fresh session creating a server: %d", code)
+	}
+	h.ageSessions(t, admin.User.ID)
+
+	for _, c := range []struct {
+		method, path string
+		body         any
+	}{
+		{http.MethodPost, "/api/v1/servers", map[string]any{"name": "while stale"}},
+		{http.MethodPatch, "/api/v1/servers/" + srv.ID, map[string]any{"connectorIds": []string{}}},
+		{http.MethodPatch, "/api/v1/servers/" + srv.ID, map[string]any{"enabled": true}},
+		// The check comes before the snapshot is read, so a revision
+		// that does not exist is enough.
+		{http.MethodPost, "/api/v1/servers/" + srv.ID + "/revisions/99/restore", nil},
+		{http.MethodPost, "/api/v1/connectors/none/revisions/99/restore", nil},
+	} {
+		var r refusal
+		if code := h.do(t, c.method, c.path, c.body, &r); code != http.StatusForbidden || r.code() != "reauth_required" {
+			t.Errorf("%s %s %v from a stale session: %d %+v, want 403 reauth_required", c.method, c.path, c.body, code, r)
+		}
+	}
+	// A rename or turning a server off narrows nothing's reach.
+	if code := h.do(t, http.MethodPatch, "/api/v1/servers/"+srv.ID, map[string]any{"name": "renamed", "enabled": false}, nil); code != http.StatusOK {
+		t.Fatalf("a stale session renaming a server: %d, want 200", code)
+	}
+
+	if code := h.do(t, http.MethodPost, "/api/v1/auth/reauth", map[string]any{"password": e2ePassword}, nil); code != http.StatusOK {
+		t.Fatalf("re-authenticating: %d", code)
+	}
+	if code := h.do(t, http.MethodPatch, "/api/v1/servers/"+srv.ID, map[string]any{"connectorIds": []string{}, "enabled": true}, nil); code != http.StatusOK {
+		t.Fatalf("a re-authenticated session changing a server's connectors: %d", code)
+	}
+}
+
 // TestReauthLockout shows the prompt is no easier to guess a password
 // through than the sign-in form: enough wrong answers lock the account,
 // and then even the right one is refused.

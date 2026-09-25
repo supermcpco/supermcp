@@ -747,6 +747,8 @@ export const connectorsRevisionsGet = <ThrowOnError extends boolean = false>(opt
 
 /**
  * Put a connector back the way an earlier revision found it
+ *
+ * A browser session must have signed in within the fresh-auth window.
  */
 export const connectorsRevisionsRestore = <ThrowOnError extends boolean = false>(options: Options<ConnectorsRevisionsRestoreData, ThrowOnError>) => (options.client ?? client).post<ConnectorsRevisionsRestoreResponses, ConnectorsRevisionsRestoreErrors, ThrowOnError>({
     security: [{
@@ -1272,6 +1274,8 @@ export const rolesRevisionsGet = <ThrowOnError extends boolean = false>(options:
 
 /**
  * Put a role back the way an earlier revision found it
+ *
+ * A browser session must have signed in within the fresh-auth window.
  */
 export const rolesRevisionsRestore = <ThrowOnError extends boolean = false>(options: Options<RolesRevisionsRestoreData, ThrowOnError>) => (options.client ?? client).post<RolesRevisionsRestoreResponses, RolesRevisionsRestoreErrors, ThrowOnError>({
     security: [{
@@ -1388,6 +1392,8 @@ export const serversList = <ThrowOnError extends boolean = false>(options?: Opti
 
 /**
  * Create an MCP server
+ *
+ * A browser session must have signed in within the fresh-auth window: a new server is a new endpoint for keys to reach its connectors through.
  */
 export const serversCreate = <ThrowOnError extends boolean = false>(options: Options<ServersCreateData, ThrowOnError>) => (options.client ?? client).post<ServersCreateResponses, ServersCreateErrors, ThrowOnError>({
     security: [{
@@ -1431,6 +1437,8 @@ export const serversGet = <ThrowOnError extends boolean = false>(options: Option
 
 /**
  * Update an MCP server
+ *
+ * Setting connectorIds, or enabled to true, widens what keys bound to the server can reach, so a browser session must have signed in within the fresh-auth window to do either. A rename, new instructions or turning the server off do not ask.
  */
 export const serversUpdate = <ThrowOnError extends boolean = false>(options: Options<ServersUpdateData, ThrowOnError>) => (options.client ?? client).patch<ServersUpdateResponses, ServersUpdateErrors, ThrowOnError>({
     security: [{
@@ -1474,6 +1482,8 @@ export const serversRevisionsGet = <ThrowOnError extends boolean = false>(option
 
 /**
  * Put an MCP server back the way an earlier revision found it
+ *
+ * A browser session must have signed in within the fresh-auth window.
  */
 export const serversRevisionsRestore = <ThrowOnError extends boolean = false>(options: Options<ServersRevisionsRestoreData, ThrowOnError>) => (options.client ?? client).post<ServersRevisionsRestoreResponses, ServersRevisionsRestoreErrors, ThrowOnError>({
     security: [{
