@@ -41,6 +41,14 @@ var ErrKMSConfig = errors.New("aws kms configuration is incomplete")
 // problems, and retrying changes nothing.
 var ErrKeyServiceUnavailable = errors.New("key service unavailable")
 
+// ErrKeyRefused marks a key service call the service answered with a
+// refusal: a ciphertext it rejects, a key policy that denies the call, a
+// disabled key, a blob made under another key. Retrying changes nothing.
+// It is wrapped alongside the provider's own error, as
+// ErrKeyServiceUnavailable is, and a failure is exactly one of the two
+// unless the caller gave up first.
+var ErrKeyRefused = errors.New("key service refused the call")
+
 // KMSClient is the part of the KMS API this package uses. It is declared
 // here, at the consumer, so tests can supply a fake and so no AWS type
 // appears in the KEK contract.
@@ -100,8 +108,11 @@ type AWSKMS struct {
 	// and opening a data key wrapped in another region needs the one it
 	// was wrapped with.
 	deploymentSet bool
-	ref           string
-	timeout       time.Duration
+	// pinned stops forRef: set on a previous key whose entry named its
+	// region, which opens its own reference and nothing else.
+	pinned  bool
+	ref     string
+	timeout time.Duration
 }
 
 var _ KEK = (*AWSKMS)(nil)
@@ -238,10 +249,14 @@ func (a *AWSKMS) Verify(ctx context.Context) error {
 // bounded by a.timeout: once the caller has given up, the failure says
 // nothing about the service.
 func (a *AWSKMS) callErr(ctx context.Context, op string, err error) error {
-	if ctx.Err() == nil && kmsUnavailable(err) {
+	switch {
+	case ctx.Err() != nil:
+		return fmt.Errorf("kms %s with %s: %w", op, a.ref, err)
+	case kmsUnavailable(err):
 		return fmt.Errorf("kms %s with %s: %w: %w", op, a.ref, ErrKeyServiceUnavailable, err)
+	default:
+		return fmt.Errorf("kms %s with %s: %w: %w", op, a.ref, ErrKeyRefused, err)
 	}
-	return fmt.Errorf("kms %s with %s: %w", op, a.ref, err)
 }
 
 // kmsUnavailable reports whether err is KMS, or the way to it, failing
@@ -340,6 +355,9 @@ func awsKMSRef(keyID, region string) string {
 // region it came from. Only the encryption context changes: a deployment
 // that was never configured defaulted to the reference, which is ref.
 func (a *AWSKMS) forRef(ref string) (KEK, bool) {
+	if a.pinned {
+		return nil, false
+	}
 	stored, ok := parseKMSRef(ref)
 	if !ok {
 		return nil, false
