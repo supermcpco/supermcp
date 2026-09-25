@@ -57,3 +57,30 @@ test("a stale session is asked for the password and then gets the key", async ({
   await expect(page.getByRole("heading", { name: "Copy this key now" })).toBeVisible();
   await expect(dialog).toBeHidden();
 });
+
+// The server sends a browser to /reauth when there is no screen of ours
+// to open the dialog on: the OAuth consent page, and a provider sign-in
+// that did not confirm a recent sign-in. It says why, takes the password,
+// and goes on to where it was sent from.
+test("the re-authentication page explains a refusal and returns to where it was sent from", async ({
+  page,
+  workspace,
+}) => {
+  sql(
+    `UPDATE sessions SET authenticated_at = now() - interval '10 minutes'
+     WHERE user_id = (SELECT id FROM users WHERE email = $1)`,
+    workspace.email,
+  );
+  await page.goto("/reauth?error=reauth_not_recent&next=%2Fapi-keys");
+  await expect(page.getByRole("heading", { name: "Confirm it is you" })).toBeVisible();
+  await expect(page.getByRole("alert")).toContainText("answered from an earlier sign-in");
+  await expectAccessible(page);
+
+  await page.getByLabel("Password").fill(workspace.password);
+  await page.getByRole("button", { name: "Confirm" }).click();
+  await expect(page).toHaveURL(/\/api-keys$/);
+  await page.getByLabel("Name").fill("After the page");
+  await page.getByRole("button", { name: "Create key" }).click();
+  await expect(page.getByRole("heading", { name: "Copy this key now" })).toBeVisible();
+  await expect(page.getByRole("dialog")).toBeHidden();
+});
