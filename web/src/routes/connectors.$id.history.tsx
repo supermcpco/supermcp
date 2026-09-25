@@ -1,8 +1,10 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Text } from "@cloudflare/kumo";
+import { Button, Text } from "@cloudflare/kumo";
 import { ArrowLeft } from "@phosphor-icons/react";
 import {
+  connectorsGetOptions,
+  connectorsGetQueryKey,
   connectorsListQueryKey,
   connectorsRevisionsListOptions,
   connectorsRevisionsListQueryKey,
@@ -11,6 +13,7 @@ import {
 import { useSession } from "../lib/session";
 import { Loading, SignInFirst } from "../lib/ui";
 import { message } from "../lib/errors";
+import { isVersionConflict } from "../lib/tool-api";
 import { RevisionList } from "../components/revisions";
 
 export const Route = createFileRoute("/connectors/$id/history")({
@@ -22,14 +25,23 @@ function History() {
   const { signedIn, can, loading } = useSession();
   const qc = useQueryClient();
   const revisions = useQuery({ ...connectorsRevisionsListOptions({ path: { id } }), enabled: signedIn, retry: false });
+  // The connector itself is read for its version: a restore says which
+  // one it was looking at, and is refused if somebody has moved it on.
+  const connector = useQuery({ ...connectorsGetOptions({ path: { id } }), enabled: signedIn, retry: false });
 
   const restore = useMutation({
     ...connectorsRevisionsRestoreMutation(),
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: connectorsRevisionsListQueryKey({ path: { id } }) });
+      await qc.invalidateQueries({ queryKey: connectorsGetQueryKey({ path: { id } }) });
       await qc.invalidateQueries({ queryKey: connectorsListQueryKey() });
     },
   });
+  const conflict = restore.error ? isVersionConflict(restore.error) : false;
+  const reload = async () => {
+    await Promise.all([connector.refetch(), revisions.refetch()]);
+    restore.reset();
+  };
 
   if (loading) return <Loading />;
   if (!signedIn) return <SignInFirst />;
@@ -56,8 +68,15 @@ function History() {
       </div>
 
       {restore.error && (
-        <div role="alert" className="rounded-md bg-kumo-tint px-4 py-3 ring ring-kumo-line">
+        <div role="alert" className="grid gap-2 rounded-md bg-kumo-tint px-4 py-3 ring ring-kumo-line">
           <Text>{message(restore.error)}</Text>
+          {conflict && (
+            <div>
+              <Button type="button" onClick={reload}>
+                Reload the connector
+              </Button>
+            </div>
+          )}
         </div>
       )}
 
@@ -69,8 +88,10 @@ function History() {
         <RevisionList
           revisions={revisions.data?.revisions ?? []}
           canRestore={can("revisions:rollback")}
-          restoring={restore.isPending}
-          onRestore={(revision) => restore.mutate({ path: { id, revision } })}
+          restoring={restore.isPending || !connector.data}
+          onRestore={(revision) =>
+            restore.mutate({ path: { id, revision }, body: { expectedVersion: connector.data?.version } })
+          }
           empty="No changes recorded yet."
         />
       )}
