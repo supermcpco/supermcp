@@ -65,13 +65,15 @@ jobs:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build-mode }}
           queries: security-and-quality
-          # Recorded upstream responses, the vendored v1 corpus and the
-          # generated API client are data or generated code, not code
-          # anyone here writes. Excluding paths affects the
+          # The adapter catalogue (YAML the JavaScript pack reads as an
+          # application config file, with basic-auth constants such as
+          # Toggl's literal "api_token" password), the vendored v1 corpus
+          # and the generated API client are data or generated code, not
+          # code anyone here writes. Excluding paths affects the
           # javascript-typescript analysis only; Go sees what it compiles.
           config: |
             paths-ignore:
-              - adapters/**/cassettes/**
+              - adapters/**
               - pkg/adapter/v1/testdata/corpus/**
               - web/src/api/**
               - web/node_modules/**
