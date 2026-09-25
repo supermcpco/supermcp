@@ -836,9 +836,13 @@ export type InviteDto = {
     expiresAt: string;
     id: string;
     /**
-     * The user who created the invite
+     * The id of the user who created the invite
      */
     invitedBy?: string;
+    /**
+     * The inviter's name, or address when they have no name; absent once they have left the organisation
+     */
+    invitedByName?: string;
     revokedAt?: string;
     roleId: string;
     roleName: string;
@@ -853,6 +857,10 @@ export type InviteLookupDto = {
     email: string;
     expiresAt: string;
     orgName: string;
+    /**
+     * The organisation's password policy; present only when registrationRequired is true
+     */
+    passwordPolicy?: PasswordPolicy;
     /**
      * No account exists for the email; accepting without a session creates one
      */
@@ -2277,6 +2285,10 @@ export type InviteLookupDtoWritable = {
     email: string;
     expiresAt: string;
     orgName: string;
+    /**
+     * The organisation's password policy; present only when registrationRequired is true
+     */
+    passwordPolicy?: PasswordPolicyWritable;
     /**
      * No account exists for the email; accepting without a session creates one
      */

@@ -177,6 +177,17 @@ choose if an auditor will ask.
 - Who holds the `owner` and `admin` roles, and reviewing that.
 - Turning `SUPERMCP_OPEN_REGISTRATION` off again after the first
   account, if you turned it on to create it.
+- Delivering invite links. The software sends no email. An administrator
+  who invites someone receives a link once and must get it to that
+  person through a channel you trust. Anyone who has the link can open
+  it. They can join only as the invited address, only once, and only
+  before it expires (7 days by default, 30 at most). A new account
+  created from the link still needs a password that meets your policy.
+  If a link reaches the wrong person, revoke the invite. Links begin
+  with `SUPERMCP_PUBLIC_URL`. The token is part of the page path
+  `/invite/<token>`, so a reverse proxy or load balancer in front of the
+  instance may record it in its access log. Either keep those logs as
+  confidential as the link, or strip that path from them.
 - Choosing `SUPERMCP_DCR_MODE`. The default, `approval`, means the
   operator must approve each MCP client that registers itself, with
   `supermcp oauth clients approve`. Set

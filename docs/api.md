@@ -593,6 +593,87 @@ Refusals are `409` with a stable code in `errors[0].value`:
 A `userId` that is not a member of the current workspace, including one
 in another workspace, is `404`.
 
+## Invites
+
+An invite brings a person into the current workspace with one role. The
+server sends no email. Creating an invite returns a link once, and the
+administrator sends it to the person. Invites work when
+`SUPERMCP_OPEN_REGISTRATION` is off. They create an account only for the
+invited address, and only in the inviting workspace.
+
+| Method | Path | Permission | Audit |
+|---|---|---|---|
+| `GET` | `/api/v1/org/invites` | `org:members:manage` | none |
+| `POST` | `/api/v1/org/invites` | `org:members:manage` | `invite.create` |
+| `DELETE` | `/api/v1/org/invites/{id}` | `org:members:manage` | `invite.revoke` |
+| `POST` | `/api/v1/invites/lookup` | none | none |
+| `POST` | `/api/v1/invites/accept` | none, or a session | `account.register`, `member.join` |
+
+**Creating.** Send `{"email", "roleId", "expiresInDays"}`.
+`expiresInDays` is optional. It defaults to 7 and can be 1 to 30. The
+`201` response contains `invite` and `url`, which is
+`<SUPERMCP_PUBLIC_URL>/invite/<token>`. The token is 32 random bytes.
+The server stores only its SHA-256 digest, so the link cannot be read
+back later. If it is lost, revoke the invite and create another. The
+token and the link never appear in list responses or the audit trail.
+The `invite.create` diff contains the invite exactly as the list returns
+it.
+
+Refusals:
+
+| Status | `errors[].value` | Means |
+|---|---|---|
+| 400 | | The address is not an email address. |
+| 403 | | The role grants `*` (for example `owner`), and the caller does not hold `*`. |
+| 404 | | The workspace has no role with that id. |
+| 409 | `invite_exists` | The address already has an open invite. Revoke it first. An expired invite that was never revoked is revoked automatically. |
+| 409 | `already_member` | The person is already a member, active or deactivated. |
+| 409 | `invite_limit` | The workspace already has 100 pending invites. |
+
+**Listing** returns the newest 500 invites. Each one has a `status`:
+`pending`, `accepted`, `revoked` or `expired`. `invitedBy` is the id of
+the user who created the invite. `invitedByName` is that user's name, or
+their address if they have no name. It is omitted after they leave the
+workspace.
+
+**Revoking** works on any invite that has not been accepted or revoked,
+including an expired one. It answers `204`. An invite that cannot be
+revoked, or that belongs to another workspace, is `404`.
+
+**Looking up and accepting.** The page at `/invite/<token>` posts the
+token in a JSON body, `{"token": "..."}`. The token never goes in an API
+path, so it stays out of the access-log lines for these calls.
+`lookup` returns `orgName`, `email`, `roleName`, `expiresAt` and
+`registrationRequired`, which is `true` when the address has no account.
+When it is `true`, the response also includes `passwordPolicy`, the
+workspace's password rules in the same shape as
+`GET /api/v1/org/password-policy`. The person holding the link has no
+session, so they cannot call that endpoint. An unknown, expired, revoked or accepted token always gets the same
+`404`. Each `404` counts against the caller's address, like a failed
+sign-in, and repeated misses lock it out with `429`. Both endpoints
+share the `SUPERMCP_RATELIMIT_INVITE` budget.
+
+How `accept` behaves depends on whether the caller has a session:
+
+- **No session.** Send `password` and optionally `name`. The password
+  must meet the workspace's policy. The server creates an account for
+  the invited address, makes it a member with the invited role, and
+  returns a new session cookie, the same way `register` does. If an
+  account already has that address, the reply is `409` with the error
+  value `account_exists` at `body.password`. The person signs in, with a
+  password or single sign-on, and opens the link again. Accounts are
+  never merged on an unauthenticated request.
+- **A session.** Send only the token. The signed-in account's address
+  must match the invite, or the reply is `403`. Sending a password is
+  `400`. The account joins the workspace, and the session switches to
+  it.
+
+An invite can be used once. When two people accept at the same moment,
+one succeeds and the other gets `404`. A new account is recorded as
+`account.register` with `meta.via = "invite"`. Every acceptance is
+recorded as `member.join` in the workspace, with the new member as the
+actor and the role in `meta`.
+
 ## Errors
 
 ### The admin API

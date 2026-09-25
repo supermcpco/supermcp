@@ -13,9 +13,46 @@ migration 00019 and a handful of changes to existing behaviour, listed
 under "Tools can be edited" below. Two catalogue adapters that could not
 authenticate are removed. Migration 00020 adds triggers that make a
 revoked role or a changed data-loss policy apply on every replica at
-once; see "Access changes reach every replica at once" below.
-Migration 00022 adds an index to `audit_events`; see "The audit export
-reads by workspace and sequence" below.
+once; see "Access changes reach every replica at once" below. Migration
+00021 adds invites; see "Colleagues can be invited" below. Migration 00022
+adds an index to `audit_events`; see "The audit export reads by workspace
+and sequence" below.
+
+### Colleagues can be invited
+
+Administrators can now invite a person by email address with a role. The
+server sends no email: it returns a link once, and the administrator
+sends it. The person opens the link and either signs in with an account
+for that address or creates one with a password. This works with
+`SUPERMCP_OPEN_REGISTRATION=off`. `docs/api.md` ("Invites") covers the
+API.
+
+What it needs from you:
+
+- **Nothing for migration 00021.** It adds the `org_invites` table and
+  two functions, and changes nothing that exists. An older replica
+  still running during the roll never reads them.
+- **Check who holds `org:members:manage`.** Until now, no endpoint
+  checked this permission, so granting it had no effect. Now it lets the
+  holder list, create and revoke invites, and manage members. The
+  built-in `owner` and `admin` roles already have it. Check any custom
+  role that includes it. Inviting someone to a role that grants `*`,
+  such as `owner`, also requires the inviter to hold `*`.
+- **Set `SUPERMCP_PUBLIC_URL`** to the address people use to reach the
+  server. Invite links are built from it.
+- **A new rate-limit budget,** `SUPERMCP_RATELIMIT_INVITE` (default
+  `5/1h` per client address). It covers the two unauthenticated invite
+  endpoints. If several people accept invites from behind one NAT at the
+  same time, raise it. Failed invite lookups also count toward the
+  sign-in lockout for that address, in `login_lockouts` under
+  `invite:<address>`.
+- **The link's token is in the page path** `/invite/<token>`. Proxies
+  in front of the server may log it. See the shared-responsibility
+  document.
+
+New audit actions: `invite.create`, `invite.revoke`, `invite.accept`
+(failures only), `member.join`, and `account.register` with
+`meta.via = "invite"`.
 
 ### The audit export reads by workspace and sequence
 
