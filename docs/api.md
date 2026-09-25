@@ -712,16 +712,21 @@ detectors and either records what they find (`allow`), masks it
 |---|---|
 | `GET /api/v1/dlp/policies`, `GET /api/v1/dlp/policies/{id}` | `connectors:read` |
 | `POST /api/v1/dlp/policies`, `PUT` and `DELETE /api/v1/dlp/policies/{id}` | `dlp:manage`, recent sign-in |
-| `POST /api/v1/dlp/preview` | `dlp:manage` |
+| `POST /api/v1/dlp/preview` | `dlp:manage`; the `SUPERMCP_RATELIMIT_DLP_TEST` budget |
 | `GET /api/v1/dlp/detectors`, `GET /api/v1/dlp/detectors/{id}` | `connectors:read` |
 | `POST /api/v1/dlp/detectors`, `PATCH` and `DELETE /api/v1/dlp/detectors/{id}` | `dlp:manage`, recent sign-in |
-| `POST /api/v1/dlp/detectors/test` | `dlp:manage` |
+| `POST /api/v1/dlp/detectors/test` | `dlp:manage`; the `SUPERMCP_RATELIMIT_DLP_TEST` budget |
 
 ### Detectors
 
 `GET /api/v1/dlp/detectors` lists the built-in detectors under
 `detectors` (name, kind, what each matches and what it deliberately
-does not) and the organisation's own under `custom`. A policy's
+does not) and the organisation's own under `custom`. The list shows a
+custom detector's `pattern` only to holders of `dlp:manage`, and its
+samples to nobody: it carries `mustMatchCount` and `mustNotMatchCount`
+instead. `GET /api/v1/dlp/detectors/{id}` shows a holder of `dlp:manage`
+the samples too, for an editor; anyone else sees neither pattern nor
+samples. A policy's
 `detectors` names the ones it runs: a built-in by its name
 (`payment_card`), a custom detector as `custom:<name>`
 (`custom:contract_id`, which is the custom detector's `detector` field).
@@ -752,8 +757,31 @@ longer than 512; when it does not compile (RE2 has no lookarounds and no
 backreferences, which is also why its cost is linear in the text and a
 pattern cannot backtrack catastrophically); when it can match an empty
 string (`CN-\d*|`, `(?:CN)?`, a pattern of anchors alone); or when it
-compiles to a program too large to run on every tool call (large
-repetition counts such as `[a-z]{1000}`). Each sample in `mustMatch` must
+compiles to more than 256 instructions (large repetition counts such as
+`[a-z]{1,650}Q`; the message says how many it compiled to).
+
+Linear is still text times program. So the custom detectors one policy
+names share a cost budget: the sum of their program sizes times the
+bytes the policy reads (`maxBytes`, 64 KiB when zero) may be at most
+16 Mi instruction-bytes. That is 256 instructions at 64 KiB, which is
+about 60 ms on a quiet machine at the slowest shape measured and about
+200 ms on a loaded one; a contract-id pattern such as `\bCN-\d{6}\b` is
+13 instructions, so a policy at the default window can name about
+nineteen. A policy that exceeds it is `400` when saved, with the sizes
+in the message; an edit or a restore of a detector that would push a
+policy naming it over is `422` at `body.pattern`, naming the policy.
+Lower `maxBytes` to name more.
+
+A screen runs under the call's own deadline, or one second when that is
+later or absent. A scan that reaches it refuses the call, whatever the
+policy's action, with the reason in the refusal and on the audit trail
+(`meta.error` for the arguments, `meta.dlpRefusal` for a result): a
+value nobody finished reading may carry what the policy is for. The
+preview is held to the same second and answers `422` when it reaches
+it. A
+policy naming a stored detector that cannot be compiled (a row written
+by hand, say) refuses every call it screens, and the server logs the
+detector once per cache load; every other policy screens as before. Each sample in `mustMatch` must
 contain a match and none in `mustNotMatch` may; these are checked on
 every save, including an edit that changes only the pattern. The `422`
 names what failed in `errors[].location`: `body.pattern`, `body.flags`,
@@ -761,8 +789,11 @@ names what failed in `errors[].location`: `body.pattern`, `body.flags`,
 message names a sample by its position and never quotes it. An
 organisation holds at most 50 custom detectors.
 
-Samples are stored as written and appear in the history and in the
-audit trail's diffs. Use made-up values.
+Samples are stored as written in the detector's row and nowhere else:
+the revision history and the audit trail's diffs keep
+`mustMatchCount` and `mustNotMatchCount`, not the samples, nor a hash of
+them (a six-digit id is a million guesses from any unkeyed hash of it).
+Use made-up values anyway.
 
 A custom detector scans within the same byte budget as the built-ins
 (the policy's `maxBytes`, 64 KiB by default). Its findings name it
@@ -777,19 +808,28 @@ refusal names the detector.
   leaves the rest. `expectedVersion` is required; a stale one is `409`
   with `version_conflict` at `body.expectedVersion` and the version
   stored now at `version`, as a tool edit's is. A `name` other than the
-  current one is `422`.
+  current one is `422`. A write that deadlocks with a concurrent policy
+  write (Postgres aborts one of the two) is `409` with
+  `concurrent_change`; nothing was written, and it can be sent again.
 - `DELETE /api/v1/dlp/detectors/{id}` is `409` while policies name the
   detector: `in_use` at `query.force`, then one entry per policy at
   `references.dlpPolicies`, with its name as `message` and its id as
   `value`. With `?force=true` the detector is removed from those policies
   in the same transaction, each change recorded in the policy's history
-  and audited as `dlp.policy.update`; a policy left naming no detector is
-  also switched off.
+  and audited as `dlp.policy.update` with `meta.cause`
+  `dlp.detector.delete` and `meta.detectorId`; a policy left naming no
+  detector is also switched off.
 - `POST /api/v1/dlp/detectors/test` takes `{pattern, flags, samples}`
   (up to 40 samples) and answers, per sample, `matched` and the byte
   offsets of each match (`start` inclusive, `end` exclusive, at most 20,
   with `more` when there were more). It applies the rules a save applies
   to the pattern and writes nothing; the samples are never quoted back.
+  A body over 64 KiB is `413` before it is read.
+
+A string in which one detector matches more than 100 times is treated
+as one match, masked or refused whole, with `rule` `too_many_matches`:
+a value that dense with matches is the thing itself, and a span per
+match is what would cost the memory. This holds for the built-ins too.
 
 Changes are audited as `dlp.detector.create`, `dlp.detector.update` and
 `dlp.detector.delete`. Each replica caches an organisation's compiled
@@ -1121,11 +1161,14 @@ What each kind puts back:
   policies without a revision) is `400`, as is a scope that another rule
   now holds.
 - **Custom data-loss detector.** Every setting but the name, which is how
-  policies refer to it and never changes. The pattern and its samples are
-  checked again as a save checks them, so a version that would no longer
-  pass is `422`. A deleted detector is recreated under its old id and
-  name; the policies a forced delete took it out of stay as they are, and
-  each has its own history to restore from.
+  policies refer to it and never changes, and the samples, which the
+  history does not hold. A detector that exists keeps the samples it has
+  now, and the answer says so with `samplesKept: true`; the restored
+  pattern is checked against them and against the cost budget of every
+  policy naming it, so a version that would no longer pass is `422`. A
+  deleted detector is recreated under its old id and name with no
+  samples (`samplesKept: false`); the policies a forced delete took it
+  out of stay as they are, and each has its own history to restore from.
 - **Approval policy.** Every setting. Rules are read on every tool call,
   not cached, so the next call is governed by the restored rule. A deleted
   rule is recreated under its old id. Requests it raised before the delete

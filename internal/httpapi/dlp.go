@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 
@@ -69,7 +70,7 @@ type dlpDetectorOutput struct {
 		// Custom is the organisation's own, which a policy names as
 		// custom:<name>. It is empty when data-loss prevention is not
 		// configured.
-		Custom []dlp.CustomDetector `json:"custom" nullable:"false" doc:"The organisation's own detectors; a policy names one by its detector field, custom:<name>"`
+		Custom []customDetectorDTO `json:"custom" nullable:"false" doc:"The organisation's own detectors; a policy names one by its detector field, custom:<name>. Patterns only to holders of dlp:manage, samples never"`
 	}
 }
 
@@ -122,10 +123,15 @@ func (d Deps) dlpRoutes(api huma.API) {
 			}
 			out := &dlpDetectorOutput{}
 			out.Body.Detectors = dlp.Catalogue()
-			out.Body.Custom = []dlp.CustomDetector{}
+			out.Body.Custom = []customDetectorDTO{}
 			if policies != nil {
-				if out.Body.Custom, err = policies.ListDetectors(ctx, p.OrgID); err != nil {
+				list, err := policies.ListDetectors(ctx, p.OrgID)
+				if err != nil {
 					return nil, err
+				}
+				manage := d.managesDLP(ctx)
+				for _, c := range list {
+					out.Body.Custom = append(out.Body.Custom, detectorDTO(c, manage, false))
 				}
 			}
 			return out, nil
@@ -280,7 +286,7 @@ func (d Deps) dlpRoutes(api huma.API) {
 
 	huma.Register(api, huma.Operation{OperationID: "dlp-preview", Method: http.MethodPost,
 		Path: "/api/v1/dlp/preview", Summary: "Run the detectors over a sample to see what a policy would catch",
-		Tags: []string{"dlp"}, Security: sessionSecurity},
+		Tags: []string{"dlp"}, Security: sessionSecurity, MaxBodyBytes: previewMaxBytes + 16<<10},
 		func(ctx context.Context, in *dlpPreviewInput) (*dlpPreviewOutput, error) {
 			p, err := d.require(ctx, authz.DLPManage, authz.Resource{})
 			if err != nil {
@@ -301,7 +307,14 @@ func (d Deps) dlpRoutes(api huma.API) {
 			if !run {
 				return nil, huma.Error400BadRequest("none of these detectors exists or is enabled")
 			}
+			// A preview is never saved, so no cost budget has been checked
+			// against it; the deadline a tool call runs under bounds it.
+			opt.Deadline = time.Now().Add(dlp.MaxScanTime)
 			masked, res, refused := dlp.Apply(in.Body.Sample, rule.Action, opt)
+			if errors.Is(refused, dlp.ErrScanDeadline) {
+				return nil, huma.Error422UnprocessableEntity("these detectors did not finish reading the sample in time; " +
+					"a tool call screened by them would be refused. Name fewer or simpler detectors, or send a shorter sample")
+			}
 			out := &dlpPreviewOutput{}
 			out.Body.Findings = res.Findings
 			if out.Body.Findings == nil {
@@ -334,6 +347,9 @@ func dlpErr(err error) error {
 		// beside the input or the sample that caused it.
 		return huma.Error422UnprocessableEntity(bad.Reason,
 			&huma.ErrorDetail{Location: "body." + bad.Field, Message: bad.Reason})
+	case errors.Is(err, dlp.ErrConcurrentChange):
+		return huma.Error409Conflict(dlp.ErrConcurrentChange.Error(),
+			&huma.ErrorDetail{Location: "body", Message: dlp.ErrConcurrentChange.Error(), Value: conflictConcurrent})
 	case errors.Is(err, dlp.ErrDetectorNameTaken):
 		return huma.Error409Conflict(err.Error(),
 			&huma.ErrorDetail{Location: "body.name", Message: err.Error(), Value: conflictNameTaken})

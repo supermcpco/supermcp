@@ -414,6 +414,7 @@ message, so an operator who mistyped two finds out about both at once.
 | `SUPERMCP_RATELIMIT_DCR` | `10/1h` | `POST /oauth/register`. |
 | `SUPERMCP_RATELIMIT_TOOL_CALL` | `600/1m` | Everything under `/mcp/`. |
 | `SUPERMCP_RATELIMIT_ANALYTICS` | `30/1m` | Everything under `/api/v1/analytics/`. Each request aggregates up to 90 days of tool calls. |
+| `SUPERMCP_RATELIMIT_DLP_TEST` | `60/1m` | `POST /api/v1/dlp/preview` and `POST /api/v1/dlp/detectors/test`, which run detectors over text the caller sends. The detector editor asks once per pause in typing. |
 | `SUPERMCP_RATELIMIT_API` | `300/1m` | The rest of the surface. |
 | `SUPERMCP_RATELIMIT_MAX_KEYS` | `100000` | Bounds the in-memory bucket map, so a distributed flood cannot turn the limiter itself into the outage. |
 | `SUPERMCP_EXPECTED_REPLICAS` | `1` | Only used without Redis: the in-memory limiter divides each budget by this number. |

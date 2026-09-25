@@ -113,6 +113,12 @@ func (d patternDetector) Name() string { return d.name }
 
 func (d patternDetector) Kind() Kind { return d.kind }
 
+// findCap is the most matches a detector reports for one string. One more
+// than a scan records tells the scanner the string overflowed, and it then
+// treats the string as one match; stopping here is what bounds the memory
+// a string dense with matches can cost.
+const findCap = maxFindings + 1
+
 func (d patternDetector) Find(s string) []Match {
 	if d.window == nil {
 		return d.find(s, 0, nil)
@@ -120,6 +126,9 @@ func (d patternDetector) Find(s string) []Match {
 	var out []Match
 	for _, w := range d.window(s) {
 		out = d.find(s[w.start:w.end], w.start, out)
+		if len(out) >= findCap {
+			break
+		}
 	}
 	return out
 }
@@ -132,7 +141,14 @@ func (d patternDetector) find(s string, offset int, out []Match) []Match {
 		if r.pre != nil && !r.pre(s) {
 			continue
 		}
+		// Every candidate is looked at: the check below throws most of them
+		// away, so stopping the search at a count of candidates could miss
+		// a real card number behind a hundred order numbers. What stops at
+		// the cap is what is kept.
 		for _, loc := range r.re.FindAllStringIndex(s, -1) {
+			if len(out) >= findCap {
+				return out
+			}
 			conf := r.conf
 			if r.check != nil {
 				c, ok := r.check(s[loc[0]:loc[1]])

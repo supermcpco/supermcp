@@ -19,11 +19,14 @@ import (
 // forced.
 
 type customDetectorBody struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
-	Detector string `json:"detector"`
-	Version  int64  `json:"version"`
-	Enabled  bool   `json:"enabled"`
+	ID             string   `json:"id"`
+	Name           string   `json:"name"`
+	Detector       string   `json:"detector"`
+	Pattern        string   `json:"pattern"`
+	MustMatch      []string `json:"mustMatch"`
+	MustMatchCount int      `json:"mustMatchCount"`
+	Version        int64    `json:"version"`
+	Enabled        bool     `json:"enabled"`
 }
 
 // contractID is an invented identifier of the shape the detector below
@@ -85,7 +88,8 @@ func TestDLPCustomDetectors(t *testing.T) {
 	if code := h.do(t, http.MethodPost, "/api/v1/dlp/detectors", detector, &created); code != http.StatusCreated {
 		t.Fatalf("create: %d", code)
 	}
-	if created.Detector != "custom:contract_id" || created.Version != 1 || !created.Enabled {
+	if created.Detector != "custom:contract_id" || created.Version != 1 || !created.Enabled ||
+		len(created.MustMatch) != 1 || created.Pattern == "" {
 		t.Errorf("created %+v", created)
 	}
 	var listed struct {
@@ -95,6 +99,21 @@ func TestDLPCustomDetectors(t *testing.T) {
 	if code := h.do(t, http.MethodGet, "/api/v1/dlp/detectors", nil, &listed); code != http.StatusOK ||
 		len(listed.Custom) != 1 || listed.Custom[0].ID != created.ID || len(listed.Detectors) == 0 {
 		t.Errorf("list: %d %+v", code, listed)
+	}
+	// The list shows the pattern to a manager, and the samples to nobody;
+	// one detector's read shows the manager its samples, for the editor.
+	if c := listed.Custom[0]; c.Pattern == "" || c.MustMatch != nil || c.MustMatchCount != 1 {
+		t.Errorf("the list shows %+v", c)
+	}
+	var one customDetectorBody
+	if code := h.do(t, http.MethodGet, "/api/v1/dlp/detectors/"+created.ID, nil, &one); code != http.StatusOK ||
+		len(one.MustMatch) != 1 || one.MustMatch[0] != contractID {
+		t.Errorf("one detector: %d %+v", code, one)
+	}
+	// The body of the test route is capped before it is read.
+	huge := map[string]any{"pattern": `CN-\d{6}`, "samples": []string{strings.Repeat("x", 70<<10)}}
+	if code := h.do(t, http.MethodPost, "/api/v1/dlp/detectors/test", huge, nil); code != http.StatusRequestEntityTooLarge {
+		t.Errorf("a 70 KiB test body: %d", code)
 	}
 
 	// --- editing it -------------------------------------------------------
@@ -195,6 +214,30 @@ func TestDLPCustomDetectors(t *testing.T) {
 	if code := h.do(t, http.MethodGet, path, nil, nil); code != http.StatusNotFound {
 		t.Errorf("get after delete: %d", code)
 	}
+
+	// The trail names why the policy changed, and nowhere holds a sample:
+	// the detector's events and revisions keep how many there were.
+	events := h.auditEvents(t, context.Background(), s.orgID)
+	var cause bool
+	for _, e := range events {
+		raw, _ := json.Marshal(e)
+		if strings.HasPrefix(e.Action, "dlp.detector.") && strings.Contains(string(raw), contractID) {
+			t.Errorf("%s quotes a sample: %s", e.Action, raw)
+		}
+		if e.Action == "dlp.policy.update" && e.TargetID == rule.ID && e.Meta["cause"] == "dlp.detector.delete" &&
+			e.Meta["detectorId"] == created.ID {
+			cause = true
+		}
+	}
+	if !cause {
+		t.Errorf("no dlp.policy.update naming the forced delete as its cause among %v", actions(events))
+	}
+	for _, r := range h.history(t, path) {
+		raw, _ := json.Marshal(r)
+		if strings.Contains(string(raw), contractID) {
+			t.Errorf("revision %d quotes a sample", r.Revision)
+		}
+	}
 }
 
 // conflictVersionCode is the machine code of a stale write.
@@ -209,7 +252,7 @@ func TestDLPCustomDetectorPermissions(t *testing.T) {
 	dropOrgs(t, h, admin.Org.ID)
 	viewer := h.member(t, admin.Org.ID, "role_viewer")
 
-	body := map[string]any{"name": "contract_id", "pattern": `CN-\d{6}`}
+	body := map[string]any{"name": "contract_id", "pattern": `CN-\d{6}`, "mustMatch": []string{"CN-000001"}}
 	if code := viewer.do(t, http.MethodGet, "/api/v1/dlp/detectors", nil, nil); code != http.StatusOK {
 		t.Errorf("a viewer reading: %d", code)
 	}
@@ -225,8 +268,17 @@ func TestDLPCustomDetectorPermissions(t *testing.T) {
 	if code := h.do(t, http.MethodPost, "/api/v1/dlp/detectors", body, &created); code != http.StatusCreated {
 		t.Fatalf("create as the owner: %d", code)
 	}
-	if code := viewer.do(t, http.MethodGet, "/api/v1/dlp/detectors/"+created.ID, nil, nil); code != http.StatusOK {
-		t.Errorf("a viewer reading one: %d", code)
+	var seen customDetectorBody
+	if code := viewer.do(t, http.MethodGet, "/api/v1/dlp/detectors/"+created.ID, nil, &seen); code != http.StatusOK ||
+		seen.Pattern != "" || seen.MustMatch != nil {
+		t.Errorf("a viewer reading one: %d %+v, want neither pattern nor samples", code, seen)
+	}
+	var listed struct {
+		Custom []customDetectorBody `json:"custom"`
+	}
+	if code := viewer.do(t, http.MethodGet, "/api/v1/dlp/detectors", nil, &listed); code != http.StatusOK ||
+		len(listed.Custom) != 1 || listed.Custom[0].Pattern != "" {
+		t.Errorf("a viewer listing: %d %+v, want no pattern", code, listed)
 	}
 	if code := viewer.do(t, http.MethodPatch, "/api/v1/dlp/detectors/"+created.ID,
 		map[string]any{"expectedVersion": 1, "enabled": false}, nil); code != http.StatusForbidden {

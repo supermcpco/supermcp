@@ -119,6 +119,11 @@ type Result struct {
 	// shown as content rather than as an error. It is kept so the metric
 	// can tell the upstream's fault from the caller's; zero otherwise.
 	UpstreamStatus int
+	// Refusal is why a data-loss policy refused the result, for the audit
+	// event: it names detectors and kinds, never values. An arguments
+	// refusal is an error and is recorded as one; this is the half that
+	// comes back after the upstream call has already happened.
+	Refusal string
 }
 
 // Execute runs the call and records it.
@@ -280,6 +285,7 @@ func (e *Executor) finish(ctx context.Context, c Call, invocationID string, resp
 		if errors.Is(serr, dlp.ErrRefused) {
 			out.IsError = true
 			out.Content = []mcp.Content{&mcp.TextContent{Text: userFacing(serr)}}
+			out.Refusal = serr.Error()
 			return out, nil
 		}
 		return nil, serr
@@ -346,6 +352,13 @@ func (e *Executor) screen(ctx context.Context, c Call, invocationID string, stag
 	scr, err := e.DLP.Screen(ctx, c.Connector.OrgID, c.Connector.ID, c.Tool.ID, stage, v)
 	switch {
 	case errors.Is(err, dlp.ErrRefused):
+		// Two refusals are not about what the call carried but about the
+		// rule that could not finish reading it. They fail closed, and an
+		// operator needs to hear of them as well as the caller.
+		if e.Log != nil && (errors.Is(err, dlp.ErrScanDeadline) || errors.Is(err, dlp.ErrDetectorBroken)) {
+			e.Log.Warn("data-loss policy could not screen this half of the call; the call was refused",
+				"err", err, "tool", c.Tool.Name, "stage", stage)
+		}
 		e.recordFindings(ctx, c, invocationID, stage, scr)
 		return nil, err
 	case err != nil:
@@ -605,6 +618,9 @@ func (e *Executor) auditCall(ctx context.Context, c Call, status string, errText
 	reqID := middleware.GetReqID(ctx)
 	if reqID != "" {
 		meta["requestId"] = reqID
+	}
+	if res != nil && res.Refusal != "" {
+		meta["dlpRefusal"] = res.Refusal
 	}
 	var payload any
 	if in != nil || out != nil {

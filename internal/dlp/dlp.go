@@ -20,6 +20,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 	"unicode/utf8"
 )
 
@@ -35,6 +36,17 @@ const maxFindings = 100
 // ErrRefused is returned when a policy's action is refuse and the scan
 // found something. The message names the kinds, never the values.
 var ErrRefused = errors.New("blocked by a data-loss prevention policy")
+
+// ErrScanDeadline is why a scan that ran out of time is refused, whatever
+// the policy's action: a value nobody finished reading may carry exactly
+// what the policy is for. It is always wrapped with ErrRefused.
+var ErrScanDeadline = errors.New("the data-loss scan did not finish in time")
+
+// ruleTooMany names the finding that stands for a string in which one
+// detector matched more than maxFindings times. The whole string is
+// treated as the match: a value that dense with matches is the thing
+// itself, and collecting a span per match is what would cost the memory.
+const ruleTooMany = "too_many_matches"
 
 // Confidence is how much the detector is claiming. It is advisory: a
 // policy acts on detectors, not on confidence, but a finding at low
@@ -104,6 +116,10 @@ type Options struct {
 	MaxBytes int
 	// Root prefixes every path. Empty means "$".
 	Root string
+	// Deadline, when set, is when the scan must have finished. It is
+	// checked before each detector runs over each string; a scan that
+	// reaches it stops and Apply refuses the value with ErrScanDeadline.
+	Deadline time.Time
 }
 
 // Result is what one scan saw.
@@ -124,6 +140,8 @@ type scanner struct {
 	secretKey bool
 	mask      bool
 	budget    int
+	deadline  time.Time
+	timedOut  bool
 	res       Result
 }
 
@@ -142,6 +160,9 @@ func Scan(v any, opt Options) Result {
 func Apply(v any, act Action, opt Options) (any, Result, error) {
 	s := newScanner(opt, act == ActionMask)
 	out, _ := s.walk(v, s.root(opt))
+	if s.timedOut {
+		return nil, s.res, fmt.Errorf("%w: %w", ErrRefused, ErrScanDeadline)
+	}
 	if act == ActionRefuse && s.res.Matches > 0 {
 		return nil, s.res, fmt.Errorf("%w: %s", ErrRefused, strings.Join(s.res.Kinds(), ", "))
 	}
@@ -173,7 +194,7 @@ func newScanner(opt Options, mask bool) *scanner {
 	if len(dets) == 0 {
 		dets = builtins
 	}
-	s := &scanner{mask: mask, budget: opt.MaxBytes}
+	s := &scanner{mask: mask, budget: opt.MaxBytes, deadline: opt.Deadline}
 	switch {
 	case s.budget == 0:
 		s.budget = DefaultMaxBytes
@@ -268,7 +289,7 @@ func (s *scanner) array(a []any, path string) (any, bool) {
 // text scans one string within the remaining budget and returns it, masked
 // if that is the action.
 func (s *scanner) text(in, path string) string {
-	if in == "" {
+	if in == "" || s.timedOut {
 		return in
 	}
 	if s.budget <= 0 {
@@ -287,7 +308,20 @@ func (s *scanner) text(in, path string) string {
 
 	var hits []Finding
 	for _, d := range s.detectors {
-		for _, m := range d.Find(part) {
+		if !s.deadline.IsZero() && !time.Now().Before(s.deadline) {
+			s.timedOut = true
+			return in
+		}
+		ms := d.Find(part)
+		if len(ms) > maxFindings {
+			// Detectors stop at maxFindings+1 (see findCap), so this is
+			// the overflow: the whole string stands as one match, masked
+			// or refused whole, and no span per match is ever collected.
+			hits = append(hits, Finding{Detector: d.Name(), Rule: ruleTooMany, Kind: d.Kind(),
+				Confidence: ms[0].Confidence, Path: path, Start: 0, End: len(in)})
+			continue
+		}
+		for _, m := range ms {
 			hits = append(hits, Finding{Detector: d.Name(), Rule: m.Rule, Kind: d.Kind(),
 				Confidence: m.Confidence, Path: path, Start: m.Start, End: m.End})
 		}

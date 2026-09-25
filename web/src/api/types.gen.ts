@@ -426,7 +426,7 @@ export type CredentialInfo = {
     set: boolean;
 };
 
-export type CustomDetector = {
+export type CustomDetectorDto = {
     /**
      * A URL to the JSON Schema for this object.
      */
@@ -434,14 +434,32 @@ export type CustomDetector = {
     createdAt: string;
     createdBy?: string;
     description: string;
+    /**
+     * What a policy names it: custom:<name>
+     */
     detector: string;
     enabled: boolean;
     flags: '' | 'i';
     id: string;
-    mustMatch: Array<string>;
-    mustNotMatch: Array<string>;
+    /**
+     * Only on a single detector's read, and on a write's answer, to holders of dlp:manage
+     */
+    mustMatch?: Array<string> | null;
+    mustMatchCount: number;
+    /**
+     * As mustMatch
+     */
+    mustNotMatch?: Array<string> | null;
+    mustNotMatchCount: number;
     name: string;
-    pattern: string;
+    /**
+     * Only to holders of dlp:manage
+     */
+    pattern?: string;
+    /**
+     * On a restore only: true when the detector kept the samples it had, which the history does not hold
+     */
+    samplesKept?: boolean;
     updatedAt: string;
     updatedBy?: string;
     /**
@@ -501,9 +519,9 @@ export type DlpDetectorOutputBody = {
      */
     readonly $schema?: string;
     /**
-     * The organisation's own detectors; a policy names one by its detector field, custom:<name>
+     * The organisation's own detectors; a policy names one by its detector field, custom:<name>. Patterns only to holders of dlp:manage, samples never
      */
-    custom: Array<CustomDetector>;
+    custom: Array<CustomDetectorDto>;
     /**
      * The built-in detectors
      */
@@ -2549,18 +2567,36 @@ export type CreateInviteOutputBodyWritable = {
     url: string;
 };
 
-export type CustomDetectorWritable = {
+export type CustomDetectorDtoWritable = {
     createdAt: string;
     createdBy?: string;
     description: string;
+    /**
+     * What a policy names it: custom:<name>
+     */
     detector: string;
     enabled: boolean;
     flags: '' | 'i';
     id: string;
-    mustMatch: Array<string>;
-    mustNotMatch: Array<string>;
+    /**
+     * Only on a single detector's read, and on a write's answer, to holders of dlp:manage
+     */
+    mustMatch?: Array<string> | null;
+    mustMatchCount: number;
+    /**
+     * As mustMatch
+     */
+    mustNotMatch?: Array<string> | null;
+    mustNotMatchCount: number;
     name: string;
-    pattern: string;
+    /**
+     * Only to holders of dlp:manage
+     */
+    pattern?: string;
+    /**
+     * On a restore only: true when the detector kept the samples it had, which the history does not hold
+     */
+    samplesKept?: boolean;
     updatedAt: string;
     updatedBy?: string;
     /**
@@ -2596,9 +2632,9 @@ export type DlpDetectorCreateInputBodyWritable = {
 
 export type DlpDetectorOutputBodyWritable = {
     /**
-     * The organisation's own detectors; a policy names one by its detector field, custom:<name>
+     * The organisation's own detectors; a policy names one by its detector field, custom:<name>. Patterns only to holders of dlp:manage, samples never
      */
-    custom: Array<CustomDetectorWritable>;
+    custom: Array<CustomDetectorDtoWritable>;
     /**
      * The built-in detectors
      */
@@ -5461,7 +5497,7 @@ export type DlpDetectorCreateResponses = {
     /**
      * Created
      */
-    201: CustomDetector;
+    201: CustomDetectorDto;
 };
 
 export type DlpDetectorCreateResponse = DlpDetectorCreateResponses[keyof DlpDetectorCreateResponses];
@@ -5545,7 +5581,7 @@ export type DlpDetectorGetResponses = {
     /**
      * OK
      */
-    200: CustomDetector;
+    200: CustomDetectorDto;
 };
 
 export type DlpDetectorGetResponse = DlpDetectorGetResponses[keyof DlpDetectorGetResponses];
@@ -5572,7 +5608,7 @@ export type DlpDetectorUpdateResponses = {
     /**
      * OK
      */
-    200: CustomDetector;
+    200: CustomDetectorDto;
 };
 
 export type DlpDetectorUpdateResponse = DlpDetectorUpdateResponses[keyof DlpDetectorUpdateResponses];
@@ -5661,7 +5697,7 @@ export type DlpDetectorsRevisionsRestoreResponses = {
     /**
      * OK
      */
-    200: CustomDetector;
+    200: CustomDetectorDto;
 };
 
 export type DlpDetectorsRevisionsRestoreResponse = DlpDetectorsRevisionsRestoreResponses[keyof DlpDetectorsRevisionsRestoreResponses];

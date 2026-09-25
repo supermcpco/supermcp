@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 	"strconv"
 	"strings"
@@ -42,6 +43,16 @@ var ErrNotFound = errors.New("dlp policy not found")
 
 // ErrInvalid marks a policy the caller could fix.
 var ErrInvalid = errors.New("the policy is not valid")
+
+// ErrConcurrentChange is a write that lost a deadlock with another write
+// to the same policies and detectors, which Postgres broke by aborting
+// this one. Nothing was written; the same request can be sent again.
+var ErrConcurrentChange = errors.New("a data-loss policy or detector was changed at the same moment; try again")
+
+// ErrDetectorBroken is why a call is refused when its policy names a
+// custom detector that cannot be compiled. It is always wrapped with
+// ErrRefused: a rule that cannot run is not a rule that passed.
+var ErrDetectorBroken = errors.New("a detector this policy names cannot run")
 
 // Stage is one half of a tool call: what went out, or what came back.
 type Stage string
@@ -93,6 +104,9 @@ type Policies struct {
 	// OnInvalidate, when set, is told of each local invalidation (source
 	// "local"), for the invalidation counter.
 	OnInvalidate func(source string)
+	// Log receives the one line written when a stored detector cannot be
+	// compiled. Nil logs nothing.
+	Log *slog.Logger
 
 	// mu guards cache, gen, orgGen and compiled.
 	mu    sync.Mutex
@@ -139,6 +153,11 @@ type cacheEntry struct {
 	// custom is the organisation's enabled custom detectors, compiled,
 	// by the name a policy uses for them.
 	custom map[string]Detector
+	// broken is the enabled detectors that did not compile, by the same
+	// name, with the reason. A policy naming one refuses every call it
+	// screens. Kept in the entry, so the failure costs one compile per
+	// load and not one per call.
+	broken map[string]error
 	at     time.Time
 }
 
@@ -335,15 +354,21 @@ func (p *Policies) Screen(ctx context.Context, orgID, connectorID, toolID string
 	if !found || !rule.Covers(stage) {
 		return out, nil
 	}
-	custom, err := p.Custom(ctx, orgID)
+	e, err := p.entry(ctx, orgID)
 	if err != nil {
 		return out, err
 	}
 	out.Applied, out.ScanPolicy = true, rule
-	opt, run := rule.OptionsWith("$."+string(stage), custom)
+	for _, name := range rule.Detectors {
+		if reason, ok := e.broken[name]; ok {
+			return out, fmt.Errorf("%w: %w: %s (%w)", ErrRefused, ErrDetectorBroken, name, reason)
+		}
+	}
+	opt, run := rule.OptionsWith("$."+string(stage), e.custom)
 	if !run {
 		return out, nil
 	}
+	opt.Deadline = scanDeadline(ctx, p.now())
 	value, res, err := Apply(v, rule.Action, opt)
 	out.Result = res
 	if err != nil {
@@ -351,6 +376,16 @@ func (p *Policies) Screen(ctx context.Context, orgID, connectorID, toolID string
 	}
 	out.Value = value
 	return out, nil
+}
+
+// scanDeadline is when a screen must have finished: MaxScanTime from now,
+// or the call's own deadline when that comes first.
+func scanDeadline(ctx context.Context, now time.Time) time.Time {
+	dl := now.Add(MaxScanTime)
+	if d, ok := ctx.Deadline(); ok && d.Before(dl) {
+		dl = d
+	}
+	return dl
 }
 
 // List returns every policy in the organisation, oldest first, and
@@ -419,24 +454,34 @@ func (p *Policies) load(ctx context.Context, orgID string) (cacheEntry, error) {
 	// to compile, but the lock is on the tool-call path.
 	compiled := make(map[string]Detector, len(stored))
 	custom := make(map[string]Detector, len(stored))
+	var broken map[string]error
 	for _, c := range stored {
 		key := c.ID + "@" + strconv.FormatInt(c.Version, 10)
 		d, ok := prev[key]
 		if !ok {
-			// Every stored pattern passed this same check when it was
-			// saved, so a failure here means the rules changed under it.
-			// The error reaches the call site, which decides what an
-			// unreadable policy means, rather than the detector quietly
-			// dropping out of the policies that name it.
-			if d, err = NewCustom(c); err != nil {
-				return cacheEntry{}, fmt.Errorf("custom detector %s: %w", c.Name, err)
+			// Every pattern saved through this package passed this same
+			// check, so a failure means the rules changed under it or the
+			// row was written by hand. Only this detector is lost: the
+			// policies that name it refuse (see Screen), and every other
+			// policy in the organisation screens as before.
+			var cerr error
+			if d, cerr = NewCustom(c); cerr != nil {
+				if broken == nil {
+					broken = map[string]error{}
+				}
+				broken[c.Ref()] = cerr
+				if p.Log != nil {
+					p.Log.Error("a stored data-loss detector cannot be compiled; the policies naming it refuse every call they screen",
+						"org_id", orgID, "detector", c.Ref(), "detector_id", c.ID, "err", cerr)
+				}
+				continue
 			}
 		}
 		compiled[key] = d
 		custom[c.Ref()] = d
 	}
 
-	e := cacheEntry{list: list, custom: custom, at: p.now()}
+	e := cacheEntry{list: list, custom: custom, broken: broken, at: p.now()}
 	p.mu.Lock()
 	if p.gen == gen && p.orgGen[orgID] == orgGen {
 		p.cache[orgID] = e
@@ -474,7 +519,7 @@ func (p *Policies) Create(ctx context.Context, orgID string, v ScanPolicy) (Scan
 		if err := scopeExists(ctx, tx, v); err != nil {
 			return err
 		}
-		if err := customExist(ctx, tx, v.Detectors); err != nil {
+		if err := customCheck(ctx, tx, v); err != nil {
 			return err
 		}
 		if err := insertPolicy(ctx, tx, &v); err != nil {
@@ -483,7 +528,7 @@ func (p *Policies) Create(ctx context.Context, orgID string, v ScanPolicy) (Scan
 		return p.record(ctx, tx, v, revisionCreate, audit.Created(v), v.CreatedBy)
 	})
 	if err != nil {
-		return ScanPolicy{}, scopeConflict(err)
+		return ScanPolicy{}, concurrent(scopeConflict(err))
 	}
 	p.invalidate(orgID)
 	return v, nil
@@ -508,7 +553,7 @@ func (p *Policies) Update(ctx context.Context, orgID, id string, v ScanPolicy, a
 		if err := scopeExists(ctx, tx, v); err != nil {
 			return err
 		}
-		if err := customExist(ctx, tx, v.Detectors); err != nil {
+		if err := customCheck(ctx, tx, v); err != nil {
 			return err
 		}
 		if err := updatePolicy(ctx, tx, &v); err != nil {
@@ -520,7 +565,7 @@ func (p *Policies) Update(ctx context.Context, orgID, id string, v ScanPolicy, a
 		return p.record(ctx, tx, v, revisionUpdate, audit.Changes(before, v), actorID)
 	})
 	if err != nil {
-		return ScanPolicy{}, scopeConflict(err)
+		return ScanPolicy{}, concurrent(scopeConflict(err))
 	}
 	p.invalidate(orgID)
 	return v, nil
@@ -551,7 +596,7 @@ func (p *Policies) Restore(ctx context.Context, orgID, id string, v ScanPolicy, 
 			if err := scopeExists(ctx, tx, v); err != nil {
 				return err
 			}
-			if err := customExist(ctx, tx, v.Detectors); err != nil {
+			if err := customCheck(ctx, tx, v); err != nil {
 				return err
 			}
 			if err := insertPolicy(ctx, tx, &v); err != nil {
@@ -564,7 +609,7 @@ func (p *Policies) Restore(ctx context.Context, orgID, id string, v ScanPolicy, 
 		if err := scopeExists(ctx, tx, v); err != nil {
 			return err
 		}
-		if err := customExist(ctx, tx, v.Detectors); err != nil {
+		if err := customCheck(ctx, tx, v); err != nil {
 			return err
 		}
 		if err := updatePolicy(ctx, tx, &v); err != nil {
@@ -580,7 +625,7 @@ func (p *Policies) Restore(ctx context.Context, orgID, id string, v ScanPolicy, 
 		return nil
 	})
 	if err != nil {
-		return ScanPolicy{}, nil, scopeConflict(err)
+		return ScanPolicy{}, nil, concurrent(scopeConflict(err))
 	}
 	p.invalidate(orgID)
 	return v, replaced, nil
@@ -765,15 +810,15 @@ func scopeExists(ctx context.Context, tx pgx.Tx, v ScanPolicy) error {
 	return nil
 }
 
-// customExist checks that every custom detector a policy names is one of
-// this organisation's, under row-level security like scopeExists. The
-// rows are locked FOR SHARE until the policy's transaction ends, so a
-// delete of one of them waits for it and then sees the policy that now
-// names it, rather than both committing and leaving a policy that names
-// nothing.
-func customExist(ctx context.Context, tx pgx.Tx, names []string) error {
+// customCheck checks that every custom detector a policy names is one of
+// this organisation's, under row-level security like scopeExists, and
+// that together they fit ScanCostBudget at the bytes the policy reads.
+// The rows are locked FOR SHARE until the policy's transaction ends, so a
+// delete or an edit of one of them waits for it and then sees the policy
+// that now names it, rather than both committing unchecked.
+func customCheck(ctx context.Context, tx pgx.Tx, v ScanPolicy) error {
 	var want []string
-	for _, n := range names {
+	for _, n := range v.Detectors {
 		if slug, ok := IsCustom(n); ok && !slices.Contains(want, slug) {
 			want = append(want, slug)
 		}
@@ -781,20 +826,56 @@ func customExist(ctx context.Context, tx pgx.Tx, names []string) error {
 	if len(want) == 0 {
 		return nil
 	}
-	rows, err := tx.Query(ctx, `SELECT name FROM dlp_detectors WHERE name = ANY($1) FOR SHARE`, want)
+	rows, err := tx.Query(ctx, `SELECT name, pattern, flags FROM dlp_detectors WHERE name = ANY($1) FOR SHARE`, want)
 	if err != nil {
 		return err
 	}
-	have, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	type named struct{ name, pattern, flags string }
+	have, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (named, error) {
+		var n named
+		err := row.Scan(&n.name, &n.pattern, &n.flags)
+		return n, err
+	})
 	if err != nil {
 		return err
 	}
+	sizes := make([]int, 0, len(have))
 	for _, slug := range want {
-		if !slices.Contains(have, slug) {
+		i := slices.IndexFunc(have, func(n named) bool { return n.name == slug })
+		if i < 0 {
 			return fmt.Errorf("%w: no detector called %s%s in this organisation", ErrInvalid, CustomPrefix, slug)
 		}
+		size, err := ProgramSize(have[i].pattern, have[i].flags)
+		if err != nil {
+			return fmt.Errorf("%w: the detector %s%s cannot be compiled", ErrInvalid, CustomPrefix, slug)
+		}
+		sizes = append(sizes, size)
+	}
+	if total, limit := scanCost(sizes, v.MaxBytes); total > limit {
+		return fmt.Errorf("%w: the custom detectors this policy names compile to %d instructions, and a policy reading %d bytes may run at most %d; name fewer or simpler ones, or lower maxBytes",
+			ErrInvalid, total, effectiveMaxBytes(v.MaxBytes), limit)
 	}
 	return nil
+}
+
+func effectiveMaxBytes(n int) int {
+	if n <= 0 {
+		return DefaultMaxBytes
+	}
+	return n
+}
+
+// concurrent turns a deadlock Postgres broke by aborting this transaction
+// into ErrConcurrentChange. A policy write locks its row and then the
+// detectors it names; a detector delete locks the detector and then the
+// policies naming it; the two can meet the other way round.
+func concurrent(err error) error {
+	var pge *pgconn.PgError
+	// 40P01 is deadlock_detected.
+	if errors.As(err, &pge) && pge.Code == "40P01" {
+		return fmt.Errorf("%w (%w)", ErrConcurrentChange, err)
+	}
+	return err
 }
 
 // scopeConflict turns the unique index into something an administrator can
