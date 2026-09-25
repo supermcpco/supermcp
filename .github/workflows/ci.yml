@@ -23,6 +23,24 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        # The migration check on a pull request compares with the base
+        # branch, which a shallow clone does not have.
+        with: { fetch-depth: 0 }
+      # Static, needs no database, and a destructive migration should stop
+      # the run before the jobs that start Postgres. The fixtures run first:
+      # a checker that stopped refusing would otherwise pass everything.
+      # Pull requests check only the migrations they add or change, so a
+      # shipped one is never re-argued; main checks them all.
+      - name: migrations are expand-only
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          scripts/check-migrations_test.sh
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            scripts/check-migrations.sh --since "origin/$BASE_REF"
+          else
+            scripts/check-migrations.sh
+          fi
       - uses: actions/setup-go@v5
         with: { go-version-file: go.mod, cache: true }
       - name: gofmt
