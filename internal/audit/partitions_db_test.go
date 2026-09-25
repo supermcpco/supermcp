@@ -479,6 +479,9 @@ func TestCutReadsMonthsBeforeItTakesTheTable(t *testing.T) {
 	names := monthsFor(ctx, t, db, date(2007, 1, 1, 0, 0, 0), date(2007, 1, 1, 0, 0, 0))
 	s := newStream(ctx, t, db)
 	writeAt(ctx, t, db, date(2007, 1, 10, 9, 0, 0), s.org(), 4)
+	// The cut leaves its anchor at a seq whose event is gone; cleanup finds
+	// it only through the range recorded before the cut.
+	s.bounds(ctx)
 
 	inFlight := holdChainLock(ctx, t, db)
 	defer func() { _ = inFlight.Rollback(context.WithoutCancel(ctx)) }()
