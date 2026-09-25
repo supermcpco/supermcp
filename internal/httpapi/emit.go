@@ -2,9 +2,16 @@ package httpapi
 
 import (
 	"context"
+	"errors"
+	"net/http"
+	"strings"
+
+	"github.com/danielgtaylor/huma/v2"
+	"github.com/go-chi/chi/v5/middleware"
 
 	"github.com/supermcpco/supermcp/internal/audit"
 	"github.com/supermcpco/supermcp/internal/authz"
+	"github.com/supermcpco/supermcp/internal/mcpauth"
 )
 
 // Every handler that changes something, and every sign-in attempt, records
@@ -31,6 +38,9 @@ func (d Deps) emitAs(ctx context.Context, e audit.Event) {
 	if ua, ok := ctx.Value(uaKey).(string); ok {
 		e.UserAgent = ua
 	}
+	if e.RequestID == "" {
+		e.RequestID = middleware.GetReqID(ctx)
+	}
 	d.Audit.Emit(ctx, e)
 }
 
@@ -44,7 +54,7 @@ func (d Deps) admin(ctx context.Context, action, targetKind, targetID, display s
 
 // adminFailed records an attempt that did not take effect. A rejected
 // change is as interesting as an accepted one when reconstructing what
-// someone tried to do.
+// someone tried to do. What it says about err is errorMeta's.
 func (d Deps) adminFailed(ctx context.Context, action, targetKind, targetID string, err error) {
 	if err == nil {
 		return
@@ -52,8 +62,97 @@ func (d Deps) adminFailed(ctx context.Context, action, targetKind, targetID stri
 	d.emit(ctx, audit.Event{
 		Category: audit.CategoryAdmin, Action: action, Outcome: audit.Failure,
 		TargetKind: targetKind, TargetID: targetID,
-		Meta: map[string]any{"error": err.Error()},
+		Meta: errorMeta(ctx, nil, "error", err),
 	})
+}
+
+// errorMeta adds to meta what an audit event may say about err, and
+// returns it. The audit trail is hash-chained, readable by workspace
+// administrators and shipped by every exporter, and a driver or upstream
+// error can name a host, a DSN fragment or the SQL, so the text of an
+// error is never recorded as it is:
+//
+//   - An error the API answers with a status of its own (a 4xx, or a
+//     503 for something unavailable) is recorded under key as a stable
+//     code, with the message the caller was given under "message".
+//   - Anything else is recorded under key as internalMessage, the text
+//     the caller got. The error itself is in the log under the same
+//     request id, written once by whoever answered the request.
+//
+// "requestId" is set whenever the request has one.
+func errorMeta(ctx context.Context, meta map[string]any, key string, err error) map[string]any {
+	if meta == nil {
+		meta = map[string]any{}
+	}
+	id := middleware.GetReqID(ctx)
+	if code, msg, ok := errorCode(err); ok {
+		meta[key] = code
+		meta["message"] = msg
+	} else {
+		meta[key] = internalMessage(id)
+	}
+	if id != "" {
+		meta["requestId"] = id
+	}
+	return meta
+}
+
+// errorCode is the stable code and client message for an error the API
+// answers with a status of its own. err is either that answer already
+// (a huma.StatusError, an OAuth error) or a service error, which is run
+// through the mappers the admin handlers answer with: they are pure and
+// their sentinels do not overlap, so the first that gives it a status
+// other than 500 is the one the caller saw.
+func errorCode(err error) (code, msg string, ok bool) {
+	var oe *mcpauth.OAuthError
+	if errors.As(err, &oe) {
+		return oe.Code, oe.Description, true
+	}
+	var se huma.StatusError
+	if errors.As(err, &se) {
+		return statusCode(se)
+	}
+	for _, m := range []func(error) error{roleErr, bindingErr, approvalErr, dlpErr, revisionErr, samlErr, inviteErr, reauthErr, ssoErr, humaErr} {
+		if errors.As(m(err), &se) {
+			if code, msg, ok := statusCode(se); ok {
+				return code, msg, true
+			}
+		}
+	}
+	return "", "", false
+}
+
+// statusCode is the code for an answered error: the code in its details
+// when it carries one (conflict codes such as last_owner), else its
+// status in words ("not_found"). A 500 has none.
+func statusCode(se huma.StatusError) (code, msg string, ok bool) {
+	status := se.GetStatus()
+	if status == http.StatusInternalServerError || status < 400 {
+		return "", "", false
+	}
+	var model *huma.ErrorModel
+	if errors.As(se, &model) {
+		for _, d := range model.Errors {
+			if v, isStr := d.Value.(string); isStr && isCode(v) {
+				return v, se.Error(), true
+			}
+		}
+	}
+	return strings.ReplaceAll(strings.ToLower(http.StatusText(status)), " ", "_"), se.Error(), true
+}
+
+// isCode reports whether s looks like a code the API defines rather than
+// a value a caller sent.
+func isCode(s string) bool {
+	if s == "" || len(s) > 64 {
+		return false
+	}
+	for _, r := range s {
+		if (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '_' && r != '.' {
+			return false
+		}
+	}
+	return true
 }
 
 // authEvent records a sign-in, a sign-out or anything else about who the

@@ -224,7 +224,10 @@ func itoa(n int) string {
 	return string(b[i:])
 }
 
-// errStatus maps service errors to HTTP statuses.
+// errStatus maps service errors to HTTP statuses and the message the
+// client may see. An error it does not know is a 500 with no message:
+// its text can name a host, a DSN or a query, so the caller answers with
+// internalMessage and the text goes to the log.
 func errStatus(err error) (int, string) {
 	switch {
 	case err == nil:
@@ -255,7 +258,7 @@ func errStatus(err error) (int, string) {
 	case errors.Is(err, tenant.ErrNoOrg):
 		return http.StatusForbidden, "no organisation selected"
 	}
-	return http.StatusInternalServerError, err.Error()
+	return http.StatusInternalServerError, ""
 }
 
 var _ = context.Background

@@ -149,6 +149,7 @@ func build(ctx context.Context, cfg *config.Config, log *slog.Logger, st *store.
 	sso := sso.New(db, sealer, idpClient, newID, cfg.PublicURL)
 	provisioning := scim.New(db, ids, az, newID)
 	provisioning.Audit = auditor
+	provisioning.Log = log
 	// The exporter dials customer-supplied URLs, so it uses the guarded
 	// client for the same reason the identity providers do.
 	exportClient := httpclient.New(dialer, "audit-exporters", httpclient.DefaultPolicy())

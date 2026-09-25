@@ -510,6 +510,12 @@ connector and sealed; a test uses the same path as a call, so look at the
 tool's own mapping first. The audit trail records the failure with the
 error class.
 
+**A client reports a 500.** The response says only "something went
+wrong; the request id is …", with the same id in `X-Request-Id`, and the
+audit event (if the request was a change) carries it as `meta.requestId`.
+Search the log for that id in `req_id`: the `request failed` line (`scim
+request failed` for SCIM) has the underlying error in `err`.
+
 **Single sign-on stops working.** The provider's signing keys rotate, and
 they are cached for ten minutes. If a sign-in fails immediately after a
 rotation at the provider, the next attempt usually succeeds. If it does

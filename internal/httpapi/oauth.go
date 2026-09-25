@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 
 	"github.com/supermcpco/supermcp/internal/audit"
 	"github.com/supermcpco/supermcp/internal/authz"
@@ -188,8 +189,15 @@ func (d Deps) register(w http.ResponseWriter, r *http.Request) {
 	}
 	out, err := d.OAuth.Register(r.Context(), in, clientIP(r))
 	if err != nil {
+		var oe *mcpauth.OAuthError
+		if !asOAuth(err, &oe) {
+			// writeOAuthError answers this with a bare 500; the cause is
+			// kept here, once, under the request id the audit event names.
+			d.Log.ErrorContext(r.Context(), "oauth client registration failed", "err", err,
+				"req_id", middleware.GetReqID(r.Context()))
+		}
 		d.emit(r.Context(), audit.Event{Category: audit.CategoryAuth, Action: "oauth.client.register", Outcome: audit.Failure,
-			TargetKind: "oauth_client", TargetDisplay: in.Name, Meta: map[string]any{"error": err.Error()}})
+			TargetKind: "oauth_client", TargetDisplay: in.Name, Meta: errorMeta(r.Context(), nil, "error", err)})
 		writeOAuthError(w, err)
 		return
 	}

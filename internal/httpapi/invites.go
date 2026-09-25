@@ -209,7 +209,7 @@ func (d Deps) acceptInvite(ctx context.Context, in *acceptInviteInput) (*session
 	res, err := d.Identity.AcceptInvite(ctx, in.Body.Token, ip, userID,
 		identity.AcceptInput{Name: in.Body.Name, Password: in.Body.Password})
 	if err != nil {
-		d.authEvent(ctx, "invite.accept", audit.Failure, "", map[string]any{"reason": err.Error()})
+		d.authEvent(ctx, "invite.accept", audit.Failure, "", errorMeta(ctx, nil, "reason", err))
 		return nil, inviteErr(err)
 	}
 	d.invalidate(res.Org.ID, "user", res.User.ID)

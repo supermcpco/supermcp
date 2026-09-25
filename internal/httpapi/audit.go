@@ -321,11 +321,11 @@ func (d Deps) auditRoutes(api huma.API) {
 				return nil, err
 			}
 			if err := d.AuditRetention.SetDays(ctx, p.OrgID, in.Body.Days); err != nil {
-				d.adminFailed(ctx, "audit.retention.set", "organization", p.OrgID, err)
 				var outOfRange *audit.RetentionRangeError
 				if errors.As(err, &outOfRange) {
-					return nil, huma.Error422UnprocessableEntity(outOfRange.Error())
+					err = huma.Error422UnprocessableEntity(outOfRange.Error())
 				}
+				d.adminFailed(ctx, "audit.retention.set", "organization", p.OrgID, err)
 				return nil, err
 			}
 			d.admin(ctx, "audit.retention.set", "organization", p.OrgID, "",
