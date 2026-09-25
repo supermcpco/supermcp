@@ -43,6 +43,9 @@ What it needs from you:
 
 New series: `supermcp_cache_invalidations_total{cache,source}` and
 `supermcp_cache_listener_connected`.
+With `metrics.prometheusRule.enabled=true` the chart also ships
+`SupermcpCacheListenerDown`; behind PgBouncer in transaction mode, set
+`metrics.prometheusRule.cacheInvalidation.expected=false` to leave it out.
 
 Within one replica, the data-loss policy routes now share the tool-call
 path's reader, so a policy change there applies to the next tool call

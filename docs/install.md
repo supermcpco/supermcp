@@ -141,7 +141,7 @@ start.
 | `PodDisruptionBudget` | `minAvailable: 1`. With `replicaCount: 1` this blocks voluntary eviction entirely, which is deliberate. |
 | `HorizontalPodAutoscaler` | Only when `autoscaling.enabled` is true. |
 | `NetworkPolicy` | Only when `networkPolicy.enabled` is true. The default egress rule is allow-all; see "Egress" below. |
-| `ServiceMonitor`, `PrometheusRule` | Only when the matching `metrics.*.enabled` value is true. The six alert rules are explained in `docs/operations.md`. |
+| `ServiceMonitor`, `PrometheusRule` | Only when the matching `metrics.*.enabled` value is true. The alert rules are explained in `docs/operations.md`. |
 
 `SUPERMCP_EXPECTED_REPLICAS` is set from `replicaCount` automatically.
 It matters when there is no Redis: the in-memory rate limiter divides

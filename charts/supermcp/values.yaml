@@ -169,6 +169,14 @@ metrics:
       down: 5m
       errors: 10m
       latency: 15m
+    # Each replica listens for cache invalidations on
+    # SUPERMCP_MAINT_DATABASE_URL, which the install guide says must reach
+    # Postgres directly. Behind PgBouncer in transaction mode the listener
+    # never connects, by design, and revocations rely on the thirty-second
+    # expiry alone; set this to false there so SupermcpCacheListenerDown
+    # does not fire forever.
+    cacheInvalidation:
+      expected: true
 
 nodeSelector: {}
 tolerations: []
