@@ -35,6 +35,10 @@ type Claims struct {
 	// than one factor. We issue no factor of our own, so this is the only
 	// evidence a policy requiring one can read.
 	MultiFactor bool
+	// AuthnInstant is the latest AuthnInstant among the assertion's
+	// authentication statements: when the provider authenticated the
+	// person. Nil when the assertion carried none.
+	AuthnInstant *time.Time
 }
 
 // verifier holds everything needed to check an assertion for one
@@ -143,6 +147,15 @@ func (v *verifier) claims(a *crewjam.Assertion) (*Claims, error) {
 	}
 	if a.Conditions != nil {
 		c.NotOnOrAfter = a.Conditions.NotOnOrAfter
+	}
+	for _, st := range a.AuthnStatements {
+		if st.AuthnInstant.IsZero() {
+			continue
+		}
+		if c.AuthnInstant == nil || st.AuthnInstant.After(*c.AuthnInstant) {
+			at := st.AuthnInstant
+			c.AuthnInstant = &at
+		}
 	}
 	c.Email = strings.ToLower(strings.TrimSpace(firstAttribute(a, v.mapping.email, emailAttributes)))
 	if c.Email == "" && isEmailNameID(a.Subject.NameID) {

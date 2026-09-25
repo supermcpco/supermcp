@@ -91,6 +91,13 @@ type Result struct {
 	ProviderID    string
 	ProviderName  string
 	RedirectAfter string
+	// AuthTime is when the provider says the person authenticated: the
+	// auth_time claim of a verified ID token. Nil when the provider did
+	// not say, which is always the case for plain OAuth2 (GitHub).
+	AuthTime *time.Time
+	// Replaces is the session this sign-in was started to re-authenticate,
+	// as recorded by Begin; empty for an ordinary sign-in.
+	Replaces string
 }
 
 // Service handles provider configuration and the sign-in exchange.
@@ -370,11 +377,15 @@ func (s *Service) load(ctx context.Context, id string) (*Provider, error) {
 // --- sign-in ---------------------------------------------------------------
 
 // Begin starts a sign-in and returns the URL to send the browser to.
-// forceLogin asks the provider to authenticate the person again rather
-// than answer from a sign-in it already holds, which is what a
-// re-authentication is for (prompt=login; a provider that does not know
-// the parameter ignores it).
-func (s *Service) Begin(ctx context.Context, idpID, redirectAfter, binding string, forceLogin bool) (string, error) {
+//
+// replaces names the session a re-authentication would replace, and is
+// empty for an ordinary sign-in. It is kept on the request row, so the
+// callback that answers this sign-in, and no other, reads it back. A
+// re-authentication also asks the provider to authenticate the person
+// again rather than answer from a sign-in it already holds (prompt=login
+// and max_age=0). A provider may ignore both; whether it did is judged
+// from the auth_time it returns, not from having asked.
+func (s *Service) Begin(ctx context.Context, idpID, redirectAfter, binding, replaces string) (string, error) {
 	p, err := s.load(ctx, idpID)
 	if err != nil {
 		return "", err
@@ -388,8 +399,8 @@ func (s *Service) Begin(ctx context.Context, idpID, redirectAfter, binding strin
 	state, nonce, verifier := randomString(32), randomString(24), randomString(43)
 	challenge := sha256.Sum256([]byte(verifier))
 	err = s.DB.Pre(ctx, func(tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, `SELECT auth_sso_request_create($1,$2,$3,$4,$5,$6,$7)`,
-			state, p.ID, nonce, verifier, safeRedirect(redirectAfter), s.now().Add(requestTTL), BindingDigest(binding))
+		_, err := tx.Exec(ctx, `SELECT auth_sso_request_open($1,$2,$3,$4,$5,$6,$7,NULLIF($8,''))`,
+			state, p.ID, nonce, verifier, safeRedirect(redirectAfter), s.now().Add(requestTTL), BindingDigest(binding), replaces)
 		return err
 	})
 	if err != nil {
@@ -408,8 +419,11 @@ func (s *Service) Begin(ctx context.Context, idpID, redirectAfter, binding strin
 		q.Set("code_challenge", base64.RawURLEncoding.EncodeToString(challenge[:]))
 		q.Set("code_challenge_method", "S256")
 	}
-	if forceLogin {
+	if replaces != "" {
 		q.Set("prompt", "login")
+		if p.Protocol == "oidc" {
+			q.Set("max_age", "0")
+		}
 	}
 	sep := "?"
 	if strings.Contains(p.AuthorizationEndpoint, "?") {
@@ -436,10 +450,11 @@ func (s *Service) Callback(ctx context.Context, state, code, binding string) (*R
 		return nil, ErrStateInvalid
 	}
 	var idpID, nonce, verifier, redirectAfter, wantBinding string
+	var replaces *string
 	var expires time.Time
 	err := s.DB.Pre(ctx, func(tx pgx.Tx) error {
-		return tx.QueryRow(ctx, `SELECT idp_id, nonce, code_verifier, redirect_after, expires_at, binding
-			FROM auth_sso_request_consume($1)`, state).Scan(&idpID, &nonce, &verifier, &redirectAfter, &expires, &wantBinding)
+		return tx.QueryRow(ctx, `SELECT idp_id, nonce, code_verifier, redirect_after, expires_at, binding, replaces_session
+			FROM auth_sso_request_take($1)`, state).Scan(&idpID, &nonce, &verifier, &redirectAfter, &expires, &wantBinding, &replaces)
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrStateInvalid
@@ -480,6 +495,10 @@ func (s *Service) Callback(ctx context.Context, state, code, binding string) (*R
 		return nil, err
 	}
 	res.RedirectAfter = redirectAfter
+	res.AuthTime = claims.AuthTime
+	if replaces != nil {
+		res.Replaces = *replaces
+	}
 	return res, nil
 }
 
@@ -536,12 +555,17 @@ type identityClaims struct {
 	Email   string
 	Name    string
 	Groups  []string
+	// AuthTime is read from the verified ID token only. The user
+	// endpoint's answer is not signed and says nothing about when anybody
+	// authenticated.
+	AuthTime *time.Time
 }
 
 // identify turns a token response into claims, verifying the ID token when
 // there is one and asking the user endpoint when there is not.
 func (s *Service) identify(ctx context.Context, p *Provider, tok *tokenResponse, nonce string) (*identityClaims, error) {
 	var claims map[string]any
+	var authTime *time.Time
 	if tok.IDToken != "" {
 		verified, err := s.keys.verify(ctx, p, tok.IDToken)
 		if err != nil {
@@ -551,6 +575,9 @@ func (s *Service) identify(ctx context.Context, p *Provider, tok *tokenResponse,
 			return nil, err
 		}
 		claims = verified
+		if t, ok := claimTime(verified, "auth_time"); ok && t.Unix() > 0 {
+			authTime = &t
+		}
 	}
 	// Ask the user endpoint when the ID token carried no address, and
 	// always for GitHub, which issues no ID token at all.
@@ -570,10 +597,11 @@ func (s *Service) identify(ctx context.Context, p *Provider, tok *tokenResponse,
 		}
 	}
 	out := &identityClaims{
-		Subject: firstNonEmpty(claimString(claims, "sub"), claimString(claims, "oid"), claimString(claims, "id")),
-		Email:   strings.ToLower(strings.TrimSpace(claimString(claims, "email"))),
-		Name:    firstNonEmpty(claimString(claims, "name"), claimString(claims, "preferred_username")),
-		Groups:  claimStrings(claims, p.GroupsClaim),
+		Subject:  firstNonEmpty(claimString(claims, "sub"), claimString(claims, "oid"), claimString(claims, "id")),
+		Email:    strings.ToLower(strings.TrimSpace(claimString(claims, "email"))),
+		Name:     firstNonEmpty(claimString(claims, "name"), claimString(claims, "preferred_username")),
+		Groups:   claimStrings(claims, p.GroupsClaim),
+		AuthTime: authTime,
 	}
 	if out.Subject == "" {
 		return nil, fmt.Errorf("%w: no subject claim", ErrProviderFailed)
@@ -787,6 +815,17 @@ func safeRedirect(s string) string {
 		return ""
 	}
 	return s
+}
+
+// ConfirmsSignIn reports whether signing in through this provider can
+// say when the person authenticated: an OpenID Connect provider returns
+// auth_time when asked, a plain OAuth2 provider such as GitHub cannot.
+func (s *Service) ConfirmsSignIn(ctx context.Context, idpID string) (bool, error) {
+	p, err := s.load(ctx, idpID)
+	if err != nil {
+		return false, err
+	}
+	return p.Protocol == "oidc", nil
 }
 
 func firstNonEmpty(vals ...string) string {

@@ -17,6 +17,8 @@ type consentData struct {
 	Servers    []*mcpserver.Server
 	ServerID   string
 	Error      string
+	// Status overrides the 400 an error page is served with.
+	Status int
 }
 
 // The consent page is plain HTML with no scripts: it is shown mid-flow to
@@ -73,7 +75,10 @@ func renderConsent(w http.ResponseWriter, data consentData) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'")
-	if data.Error != "" {
+	switch {
+	case data.Status != 0:
+		w.WriteHeader(data.Status)
+	case data.Error != "":
 		w.WriteHeader(http.StatusBadRequest)
 	}
 	_ = consentTemplate.Execute(w, data)

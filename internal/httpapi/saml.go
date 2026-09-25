@@ -58,14 +58,12 @@ func (s samlAPI) start(w http.ResponseWriter, r *http.Request) {
 		s.failed(w, r, err)
 		return
 	}
-	reauth := r.URL.Query().Get("reauth") == "1"
-	url, err := s.svc.Begin(r.Context(), chi.URLParam(r, "id"), r.URL.Query().Get("next"), binding, reauth)
+	url, err := s.svc.Begin(r.Context(), chi.URLParam(r, "id"), r.URL.Query().Get("next"), binding, reauthReplaces(r))
 	if err != nil {
 		s.failed(w, r, err)
 		return
 	}
 	w.Header().Add("Set-Cookie", s.flowCookie(samlFlowCookie, binding, int(samlFlowTTL.Seconds()), true))
-	s.reauthStart(w, r, true)
 	//nolint:gosec // the URL comes from the provider's own metadata
 	http.Redirect(w, r, url, http.StatusFound)
 }
@@ -105,40 +103,20 @@ func (s samlAPI) acs(w http.ResponseWriter, r *http.Request) {
 	res, err := s.svc.Consume(r.Context(), chi.URLParam(r, "id"), r.PostFormValue("SAMLResponse"), binding)
 	// The sign-in is over either way, so the cookie goes whatever happened.
 	w.Header().Add("Set-Cookie", s.flowCookie(samlFlowCookie, "", 0, true))
-	replaces := s.reauthFinish(w, r, true)
 	if err != nil {
 		s.failed(w, r, err)
 		return
 	}
-	ip, _ := r.Context().Value(ipKey).(string)
-	sess, err := s.Identity.CreateSession(r.Context(), res.UserID, res.OrgID, "saml", res.ProviderID, ip, r.UserAgent())
-	if err != nil {
-		s.failed(w, r, err)
-		return
-	}
-	meta := map[string]any{"method": "saml", "provider": res.ProviderName, "groups": res.Groups, "mfa": res.MultiFactor}
-	if s.retireReplaced(r.Context(), replaces, res.UserID) {
-		meta["reauth"] = true
-	}
-	s.emit(r.Context(), audit.Event{OrgID: res.OrgID, Category: audit.CategoryAuth, Action: "session.create",
-		Outcome: audit.Success, ActorKind: "user", ActorID: res.UserID, ActorDisplay: res.Email,
-		SessionID: sess.ID, IP: ip, UserAgent: r.UserAgent(), Meta: meta})
-	// Unlike the OpenID Connect path, this is conditional. A SAML
+	// Unlike the OpenID Connect path, the factor is conditional. A SAML
 	// assertion states which authentication context the provider used, so
 	// recording a second factor it never mentioned would let a policy
 	// that requires one be satisfied by a password.
-	if res.MultiFactor {
-		if err := s.Identity.MarkVerified(r.Context(), sess.ID); err != nil {
-			s.Log.Warn("could not record the provider's verification", "session", sess.ID, "err", err)
-		}
-	}
-	w.Header().Add("Set-Cookie", s.cookieValue(sess.Secret, int(s.Identity.Cfg.SessionAbsolute.Seconds())))
-	next := res.RedirectAfter
-	if next == "" {
-		next = "/"
-	}
-	//nolint:gosec // safeRedirect in the saml package kept this path local
-	http.Redirect(w, r, next, http.StatusFound)
+	s.finishProviderSignIn(w, r, providerSignIn{
+		UserID: res.UserID, OrgID: res.OrgID, Email: res.Email, ProviderID: res.ProviderID,
+		ProviderName: res.ProviderName, Method: "saml", At: res.AuthnInstant, Replaces: res.Replaces,
+		Verified: res.MultiFactor, Next: res.RedirectAfter,
+		Meta: map[string]any{"method": "saml", "provider": res.ProviderName, "groups": res.Groups, "mfa": res.MultiFactor},
+	}, func(err error) { s.failed(w, r, err) })
 }
 
 // failed sends the person back to the sign-in page with something they

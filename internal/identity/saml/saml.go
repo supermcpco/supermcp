@@ -115,6 +115,13 @@ type Result struct {
 	ProviderName  string
 	MultiFactor   bool
 	RedirectAfter string
+	// AuthnInstant is when the identity provider says the person
+	// authenticated, from the assertion's AuthnStatement. Nil when it
+	// carried none.
+	AuthnInstant *time.Time
+	// Replaces is the session this sign-in was started to re-authenticate,
+	// as recorded by Begin; empty for an ordinary sign-in.
+	Replaces string
 }
 
 // Service handles provider configuration and the assertion exchange.

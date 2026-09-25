@@ -72,12 +72,19 @@ func (d Deps) checkFresh(ctx context.Context, p *authz.Principal, perm authz.Per
 	return errReauthRequired(d.freshWindow())
 }
 
-// fresh reports whether p may perform a guarded operation now. Anything
-// other than a browser session passes; a session passes when it
-// authenticated within window. A session with no recorded time fails,
-// which is the safe reading of a row nothing has vouched for.
+// nonInteractive are the credentials no person signs in with, and so
+// none that could be asked to sign in again: API keys, OAuth access
+// tokens and service accounts (client_credentials). They are named here
+// rather than inferred, so a kind of credential added later is held to
+// the window until somebody decides otherwise.
+var nonInteractive = map[string]bool{"api_key": true, "oauth_at": true, "client_credentials": true}
+
+// fresh reports whether p may perform a guarded operation now. The
+// non-interactive credentials pass; everything else, a browser session
+// included, passes only when it authenticated within window. A time
+// nobody vouched for fails.
 func fresh(p *authz.Principal, window time.Duration, now time.Time) bool {
-	if p.AuthMethod != "session" {
+	if nonInteractive[p.AuthMethod] {
 		return true
 	}
 	if p.SignIn.At.IsZero() {
@@ -172,77 +179,170 @@ func reauthErr(err error) error {
 }
 
 // A single sign-on session re-authenticates by signing in through its
-// provider again. The start endpoints take reauth=1 for that: the
-// provider is asked to authenticate the person afresh (prompt=login for
-// OpenID Connect, ForceAuthn for SAML), and the browser carries the id of
-// the session being replaced through the round trip. The callback opens a
-// new session, which is fresh because it is new, and revokes the one it
-// replaces when both belong to the same person. The SAML consumer is
-// reached by a cross-site POST that carries no Lax cookie, the session
-// cookie included, which is why the id travels in a cookie of its own.
+// provider again. The start endpoints take reauth=1 for that. Begin
+// records the session being replaced on the sign-in's own request row, so
+// only the callback answering that sign-in reads it back, and asks the
+// provider to authenticate the person afresh (prompt=login and max_age=0
+// for OpenID Connect, ForceAuthn for SAML).
 //
-// The cookie holds the session's id, the digest stored in the table, not
-// the secret the session cookie holds; knowing it lets nobody act as the
-// session. The worst a forged one can do is have a person's sign-in end
-// another of that same person's sessions.
+// Having asked proves nothing: GitHub ignores the parameters, and any
+// provider may answer from a session it already holds. So the callback
+// judges the answer by the time the provider says the person
+// authenticated (auth_time from a verified ID token, AuthnInstant from a
+// signed assertion). A re-authentication is accepted only when that time
+// is within the window and the person, workspace and provider are those
+// of the session being replaced. Then a new session opens carrying that
+// time, and the old one is ended. Otherwise no session opens, the old one
+// is left exactly as it was, and the browser goes to /reauth with the
+// reason.
+
+// Reasons a re-authentication through a provider is refused. The web
+// client turns each into a sentence on its /reauth page.
 const (
-	reauthFlowCookie = "sm_reauth"
-	reauthFlowTTL    = 15 * time.Minute
+	reauthMismatch    = "reauth_mismatch"
+	reauthUnconfirmed = "reauth_unconfirmed"
+	reauthNotRecent   = "reauth_not_recent"
 )
 
-// reauthStart, on a sign-in asked for as a re-authentication, remembers
-// which session the browser holds so the callback can retire it.
-func (d Deps) reauthStart(w http.ResponseWriter, r *http.Request, crossSite bool) {
+// reauthReplaces returns the session a sign-in started with reauth=1
+// would replace: the one the browser holds, if any.
+func reauthReplaces(r *http.Request) string {
 	if r.URL.Query().Get("reauth") != "1" {
-		return
-	}
-	if p, ok := authz.From(r.Context()); ok && p.AuthMethod == "session" && p.SessionID != "" {
-		w.Header().Add("Set-Cookie", d.flowCookie(reauthFlowCookie, p.SessionID, int(reauthFlowTTL.Seconds()), crossSite))
-	}
-}
-
-// reauthFinish returns the session a re-authentication replaces, if any,
-// and clears the cookie that named it whatever happens next.
-func (d Deps) reauthFinish(w http.ResponseWriter, r *http.Request, crossSite bool) string {
-	c, err := r.Cookie(d.flowCookieName(reauthFlowCookie))
-	if err != nil || c.Value == "" {
 		return ""
 	}
-	w.Header().Add("Set-Cookie", d.flowCookie(reauthFlowCookie, "", 0, crossSite))
-	return c.Value
+	if p, ok := authz.From(r.Context()); ok && p.AuthMethod == "session" {
+		return p.SessionID
+	}
+	return ""
 }
 
-// retireReplaced revokes the session a re-authentication replaced, when
-// it is still live and belongs to the person who just signed in. It
-// reports whether it did. A failure is logged and not fatal: the new
-// session is already open, and the old one still expires on its own.
-func (d Deps) retireReplaced(ctx context.Context, sessionID, userID string) bool {
-	if sessionID == "" {
-		return false
+// providerSignIn is what either protocol's callback knows once the
+// provider's answer has been verified and linked to an account.
+type providerSignIn struct {
+	UserID, OrgID, Email, ProviderID, ProviderName string
+	// Method is sso or saml.
+	Method string
+	// At is when the provider says the person authenticated; nil when it
+	// did not say.
+	At *time.Time
+	// Replaces is the session a re-authentication was started from.
+	Replaces string
+	// Verified says the provider vouched for the person's factors, which
+	// the session records for policies that require one.
+	Verified bool
+	Next     string
+	Meta     map[string]any
+}
+
+// vouchedTime is what a provider's authentication time is worth: its
+// time, but never later than now, since a clock running ahead must not
+// buy a sign-in that stays fresh for longer. Zero when it did not say.
+func vouchedTime(at *time.Time, now time.Time) time.Time {
+	if at == nil || at.IsZero() {
+		return time.Time{}
 	}
-	old, err := d.Identity.LoadSession(ctx, sessionID)
-	if err != nil || old.UserID != userID {
-		return false
+	if at.After(now) {
+		return now
 	}
-	if err := d.Identity.RevokeSession(ctx, sessionID, "replaced by re-authentication"); err != nil {
-		if d.Log != nil {
+	return *at
+}
+
+// judgeReauth decides whether a sign-in may replace the session it was
+// started to re-authenticate. It returns that session and "" to go
+// ahead, nil and "" when there is nothing to replace (an ordinary
+// sign-in, or the session has ended since), or a reason to refuse.
+func (d Deps) judgeReauth(ctx context.Context, in providerSignIn, now time.Time) (*identity.Session, string) {
+	if in.Replaces == "" {
+		return nil, ""
+	}
+	old, err := d.Identity.LoadSession(ctx, in.Replaces)
+	if err != nil {
+		return nil, ""
+	}
+	if old.UserID != in.UserID || old.OrgID != in.OrgID || old.AuthProviderID != in.ProviderID {
+		return old, reauthMismatch
+	}
+	at := vouchedTime(in.At, now)
+	if at.IsZero() {
+		return old, reauthUnconfirmed
+	}
+	if now.Sub(at) > d.freshWindow() {
+		return old, reauthNotRecent
+	}
+	return old, ""
+}
+
+// finishProviderSignIn opens the session a verified provider sign-in
+// earned, or refuses a re-authentication that does not hold up, and
+// sends the browser on. fail is the protocol's own failure page.
+func (d Deps) finishProviderSignIn(w http.ResponseWriter, r *http.Request, in providerSignIn, fail func(error)) {
+	ctx := r.Context()
+	ip, _ := ctx.Value(ipKey).(string)
+	now := time.Now()
+	next := in.Next
+	if next == "" {
+		next = "/"
+	}
+	old, reason := d.judgeReauth(ctx, in, now)
+	if reason != "" {
+		// No session opens: the one being replaced stays exactly as it
+		// was, stale, and the person is told why.
+		meta := map[string]any{"method": in.Method, "provider": in.ProviderName, "reason": reason}
+		if in.At != nil {
+			meta["providerAuthenticatedAt"] = *in.At
+		}
+		d.emitAs(ctx, audit.Event{OrgID: old.OrgID, Category: audit.CategoryAuth, Action: "session.reauth",
+			Outcome: audit.Failure, ActorKind: "user", ActorID: old.UserID,
+			TargetKind: "session", TargetID: old.ID, SessionID: old.ID, Meta: meta})
+		//nolint:gosec // a fixed local path; next was kept local by the provider package
+		http.Redirect(w, r, "/reauth?error="+reason+"&next="+url.QueryEscape(next), http.StatusFound)
+		return
+	}
+	sess, err := d.Identity.CreateSession(ctx, in.UserID, in.OrgID, in.Method, in.ProviderID,
+		vouchedTime(in.At, now), ip, r.UserAgent())
+	if err != nil {
+		fail(err)
+		return
+	}
+	meta := in.Meta
+	if old != nil {
+		if err := d.Identity.RevokeSession(ctx, old.ID, "replaced by re-authentication"); err != nil && d.Log != nil {
+			// The new session is open and fresh; the old one still
+			// expires on its own.
 			d.Log.Warn("could not end the session a re-authentication replaced", "err", err)
 		}
-		return false
+		meta["reauth"] = true
+		d.emitAs(ctx, audit.Event{OrgID: in.OrgID, Category: audit.CategoryAuth, Action: "session.reauth",
+			Outcome: audit.Success, ActorKind: "user", ActorID: in.UserID, ActorDisplay: in.Email,
+			TargetKind: "session", TargetID: old.ID, SessionID: sess.ID,
+			Meta: map[string]any{"method": in.Method, "provider": in.ProviderName, "replacedBy": sess.ID}})
 	}
-	return true
+	d.emitAs(ctx, audit.Event{OrgID: in.OrgID, Category: audit.CategoryAuth, Action: "session.create",
+		Outcome: audit.Success, ActorKind: "user", ActorID: in.UserID, ActorDisplay: in.Email,
+		SessionID: sess.ID, Meta: meta})
+	if in.Verified {
+		if err := d.Identity.MarkVerified(ctx, sess.ID); err != nil && d.Log != nil {
+			d.Log.Warn("could not record the provider's verification", "session", sess.ID, "err", err)
+		}
+	}
+	w.Header().Add("Set-Cookie", d.cookieValue(sess.Secret, int(d.Identity.Cfg.SessionAbsolute.Seconds())))
+	//nolint:gosec // next was kept local by the provider package
+	http.Redirect(w, r, next, http.StatusFound)
 }
 
 // signInFor describes a browser session's sign-in for the session
 // bootstrap. The provider's name is looked up rather than stored, so a
 // renamed provider shows its new name; a provider that is gone or turned
-// off leaves the name empty and the client falls back to the sign-in page.
+// off leaves the name and the URL empty.
 func (d Deps) signInFor(ctx context.Context, p *authz.Principal) *signInDTO {
 	if p.AuthMethod != "session" || p.SignIn.Method == "" {
 		return nil
 	}
-	out := &signInDTO{Method: p.SignIn.Method, ProviderID: p.SignIn.ProviderID,
-		AuthenticatedAt: p.SignIn.At, FreshUntil: p.SignIn.At.Add(d.freshWindow())}
+	out := &signInDTO{Method: p.SignIn.Method, ProviderID: p.SignIn.ProviderID, CanReauth: p.SignIn.Method == "password"}
+	if !p.SignIn.At.IsZero() {
+		at, until := p.SignIn.At, p.SignIn.At.Add(d.freshWindow())
+		out.AuthenticatedAt, out.FreshUntil = &at, &until
+	}
 	if p.SignIn.ProviderID == "" {
 		return out
 	}
@@ -256,8 +356,12 @@ func (d Deps) signInFor(ctx context.Context, p *authz.Principal) *signInDTO {
 			return out
 		}
 		for _, l := range list {
-			if l.ID == p.SignIn.ProviderID {
-				out.ProviderName = l.Name
+			if l.ID != p.SignIn.ProviderID {
+				continue
+			}
+			out.ProviderName = l.Name
+			if ok, err := d.SSO.ConfirmsSignIn(ctx, l.ID); err == nil && ok {
+				out.CanReauth = true
 				out.ReauthURL = "/auth/sso/" + url.PathEscape(l.ID) + "/start?reauth=1"
 			}
 		}
@@ -271,7 +375,10 @@ func (d Deps) signInFor(ctx context.Context, p *authz.Principal) *signInDTO {
 		}
 		for _, l := range list {
 			if l.ID == p.SignIn.ProviderID {
+				// An assertion carries AuthnInstant, so a SAML provider
+				// can always say when the person authenticated.
 				out.ProviderName = l.Name
+				out.CanReauth = true
 				out.ReauthURL = "/api/v1/auth/saml/" + url.PathEscape(l.ID) + "/login?reauth=1"
 			}
 		}

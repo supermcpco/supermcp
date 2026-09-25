@@ -36,8 +36,12 @@ type fakeIdP struct {
 	email    string
 	groups   []string
 	nonce    string
-	// prompt is the prompt parameter of the last authorization request.
-	prompt string
+	// prompt and maxAge are the parameters of the last authorization
+	// request that ask a provider to authenticate the person again.
+	prompt, maxAge string
+	// authTime, when set, is the auth_time the ID token asserts. Nil
+	// leaves the claim out, as a provider that does not say would.
+	authTime func() int64
 }
 
 func newFakeIdP(t *testing.T) *fakeIdP {
@@ -62,6 +66,7 @@ func newFakeIdP(t *testing.T) *fakeIdP {
 		q := r.URL.Query()
 		f.nonce = q.Get("nonce")
 		f.prompt = q.Get("prompt")
+		f.maxAge = q.Get("max_age")
 		back, _ := url.Parse(q.Get("redirect_uri"))
 		rq := back.Query()
 		rq.Set("code", "test-code")
@@ -102,6 +107,9 @@ func (f *fakeIdP) idToken(t *testing.T) string {
 		"iss": f.URL, "sub": f.subject, "aud": f.clientID, "email": f.email,
 		"email_verified": true, "name": "SSO User", "groups": f.groups, "nonce": f.nonce,
 		"iat": nowUnix(), "exp": nowUnix() + 300,
+	}
+	if f.authTime != nil {
+		claims["auth_time"] = f.authTime()
 	}
 	seg := func(v any) string {
 		b, err := json.Marshal(v)

@@ -108,7 +108,7 @@ func (d Deps) connectorAuthRoutes(api huma.API) {
 		func(ctx context.Context, in *struct {
 			ID string `path:"id"`
 		}) (*struct{ Body connectorAuthStart }, error) {
-			p, err := d.require(ctx, authz.ConnectorsAuth, authz.Resource{ConnectorID: in.ID})
+			p, err := d.requireFresh(ctx, authz.ConnectorsAuth, authz.Resource{ConnectorID: in.ID})
 			if err != nil {
 				return nil, err
 			}
