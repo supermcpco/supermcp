@@ -55,6 +55,7 @@ Migration 00027 adds a search index to `audit_events`; see "The audit
 trail can be searched" below. Migration 00028 lets the history keep data-loss policies, approval policies and sign-in providers; see "Policies and sign-in providers have a history" below.
 Migration 00030 stops counting every OpenID Connect sign-in as a second factor; see "OpenID Connect sign-ins count a second factor only by a rule" below.
 Migration 00031 adds workspace data-loss detectors; see "Workspaces can write their own data-loss detectors" below.
+Migration 00032 adds a session setting to MCP servers; see "MCP servers can keep sessions" below.
 
 ### OpenID Connect sign-ins count a second factor only by a rule
 
@@ -192,6 +193,31 @@ What changes for callers of the API:
 - A policy's `detectors` accepts `custom:<name>`. A name the workspace
   does not have is `400`, as an unknown built-in is.
 - `POST /api/v1/dlp/preview` runs the workspace's detectors too.
+
+
+### MCP servers can keep sessions
+
+Migration 00032 adds `mcp_servers.sessions`, `stateless` or `stateful`,
+with the default `stateless`, so every existing server keeps behaving as
+it does. It is a column with a constant default and a check, added under
+`lock_timeout = 5s`: the ACCESS EXCLUSIVE lock on `mcp_servers` is held
+for a catalogue change and a check of that table's few rows. If the
+migration fails on the lock timeout, something held a long transaction on
+the table; run it again. Rollout order does not matter: pods of the
+previous release neither read nor write the column.
+
+Nothing changes until someone sets a server to stateful. Before doing so
+with more than one replica, set up sticky routing (docs/operations.md,
+"Stateful MCP sessions"); the chart's values carry commented examples
+under `service` and `ingress.annotations`. Two settings bound the
+sessions a replica keeps, `SUPERMCP_MCP_MAX_SESSIONS` (5000) and
+`SUPERMCP_MCP_SESSION_IDLE` (15m); an invalid value fails the boot. New
+series: `supermcp_mcp_sessions` and
+`supermcp_mcp_sessions_closed_total{reason}`.
+
+The server object in the API gains `sessions`, and
+`PATCH /api/v1/servers/{id}` accepts it. Regenerate generated API
+clients.
 
 ### The audit trail can be searched
 

@@ -46,6 +46,7 @@ type Config struct {
 	RateLimit RateLimit
 	Metrics   Metrics
 	Tracing   Tracing
+	MCP       MCP
 
 	Version string
 }
@@ -63,6 +64,26 @@ type RateLimit struct {
 	// The in-memory backing divides every budget by it.
 	ExpectedReplicas int
 }
+
+// MCP bounds the sessions the endpoint keeps for servers set to stateful.
+// Stateless servers keep nothing, and none of this applies to them.
+type MCP struct {
+	// MaxSessions is how many sessions one replica holds at once. When it
+	// is full, the session idle longest is closed to make room; its client
+	// is answered 404 on its next request and initialises again.
+	MaxSessions int
+	// SessionIdle is how long a session may go without a request before it
+	// is closed.
+	SessionIdle time.Duration
+}
+
+// The session defaults. A session holds a few goroutines and the state
+// of one client, a few tens of kilobytes; five thousand of them is well
+// inside a replica's memory limit in the chart.
+const (
+	DefaultMCPMaxSessions = 5000
+	DefaultMCPSessionIdle = 15 * time.Minute
+)
 
 // Tracing is where spans go, and how many of them.
 type Tracing struct {
@@ -159,6 +180,20 @@ func load(version string, serving bool) (*Config, error) {
 		default:
 			c.AuthFreshWindow = d
 		}
+	}
+	c.MCP = MCP{MaxSessions: DefaultMCPMaxSessions, SessionIdle: DefaultMCPSessionIdle}
+	if v := os.Getenv("SUPERMCP_MCP_MAX_SESSIONS"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 || n > 1_000_000 {
+			errs = append(errs, fmt.Errorf("SUPERMCP_MCP_MAX_SESSIONS must be a whole number between 1 and 1000000, got %q", v))
+		} else {
+			c.MCP.MaxSessions = n
+		}
+	}
+	if d, err := boundedDuration("SUPERMCP_MCP_SESSION_IDLE", DefaultMCPSessionIdle, time.Minute, 24*time.Hour); err != nil {
+		errs = append(errs, err)
+	} else {
+		c.MCP.SessionIdle = d
 	}
 	if c.Tracing.Sample < 0 || c.Tracing.Sample > 1 {
 		errs = append(errs, fmt.Errorf("SUPERMCP_TRACE_SAMPLE must be between 0 and 1, got %v", c.Tracing.Sample))
@@ -305,6 +340,24 @@ func intenv(k string, def int) int {
 		}
 	}
 	return def
+}
+
+// boundedDuration reads a duration that has to fall inside a range. A value
+// that does not parse, or falls outside, fails the boot: a limit an
+// operator mistyped should not quietly become a different limit.
+func boundedDuration(k string, def, lo, hi time.Duration) (time.Duration, error) {
+	v := os.Getenv(k)
+	if v == "" {
+		return def, nil
+	}
+	d, err := time.ParseDuration(v)
+	switch {
+	case err != nil:
+		return 0, fmt.Errorf("%s %q is not a duration, for example %s", k, v, def)
+	case d < lo || d > hi:
+		return 0, fmt.Errorf("%s must be between %s and %s, got %s", k, lo, hi, d)
+	}
+	return d, nil
 }
 
 func durenv(k string, def time.Duration) time.Duration {

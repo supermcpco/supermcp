@@ -134,6 +134,8 @@ type Metrics struct {
 	dbPools          *dbPoolCollector
 	cacheInvalidate  *prometheus.CounterVec
 	cacheListener    prometheus.Gauge
+	mcpSessions      prometheus.Gauge
+	mcpSessionsEnded *prometheus.CounterVec
 
 	perTool    bool
 	perToolCap int
@@ -263,6 +265,18 @@ func NewMetrics(opts MetricsOptions) *Metrics {
 			Name:      "cache_listener_connected",
 			Help:      "1 when this replica's cache invalidation listener is connected and delivering; 0 means changes on other replicas reach this one only when its cache entries expire.",
 		}),
+
+		mcpSessions: prometheus.NewGauge(prometheus.GaugeOpts{
+			Namespace: Namespace,
+			Name:      "mcp_sessions",
+			Help:      "MCP sessions this replica holds for servers set to stateful. Sessions are not shared between replicas.",
+		}),
+
+		mcpSessionsEnded: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: Namespace,
+			Name:      "mcp_sessions_closed_total",
+			Help:      "MCP sessions this replica closed, by why: idle past the limit, capacity to make room for a new one, client when the client ended it, shutdown when the replica drained, gone when the session had already ended.",
+		}, []string{"reason"}),
 	}
 
 	opts.Registry.MustRegister(
@@ -283,6 +297,8 @@ func NewMetrics(opts MetricsOptions) *Metrics {
 		m.dbPools,
 		m.cacheInvalidate,
 		m.cacheListener,
+		m.mcpSessions,
+		m.mcpSessionsEnded,
 	)
 	if opts.GoCollectors {
 		opts.Registry.MustRegister(collectors.NewGoCollector(), collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
@@ -489,6 +505,33 @@ func (m *Metrics) SetCacheListenerConnected(connected bool) {
 		v = 1
 	}
 	m.cacheListener.Set(v)
+}
+
+// Why an MCP session ended, a closed set: anything else is recorded as
+// OtherLabel.
+const (
+	SessionClosedIdle     = "idle"
+	SessionClosedCapacity = "capacity"
+	SessionClosedClient   = "client"
+	SessionClosedShutdown = "shutdown"
+	SessionClosedGone     = "gone"
+)
+
+// SetMCPSessions records how many MCP sessions this replica holds.
+func (m *Metrics) SetMCPSessions(n int) {
+	if m == nil {
+		return
+	}
+	m.mcpSessions.Set(float64(n))
+}
+
+// ObserveMCPSessionClosed counts one session ending, for reason.
+func (m *Metrics) ObserveMCPSessionClosed(reason string) {
+	if m == nil {
+		return
+	}
+	m.mcpSessionsEnded.WithLabelValues(oneOf(reason, SessionClosedIdle, SessionClosedCapacity,
+		SessionClosedClient, SessionClosedShutdown, SessionClosedGone)).Inc()
 }
 
 // toolLabel admits a tool name until the cap, then returns OtherTool.

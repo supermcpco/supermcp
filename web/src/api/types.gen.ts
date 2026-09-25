@@ -1779,6 +1779,10 @@ export type Server = {
     instructions?: string;
     name: string;
     organizationId: string;
+    /**
+     * stateless answers every request on its own; stateful keeps a session per client on the replica that initialised it, which needs sticky routing
+     */
+    sessions: 'stateless' | 'stateful';
     slug: string;
     updatedAt: string;
     /**
@@ -1811,6 +1815,10 @@ export type ServersUpdateRequest = {
     expectedVersion?: number;
     instructions?: string;
     name?: string;
+    /**
+     * stateful keeps a session per client on the replica that initialised it, so the server can ask the client a question mid-call; it needs sticky routing. Clients connected when this changes have to reconnect
+     */
+    sessions?: 'stateless' | 'stateful';
 };
 
 export type ServiceAccount = {
@@ -3431,6 +3439,10 @@ export type ServerWritable = {
     instructions?: string;
     name: string;
     organizationId: string;
+    /**
+     * stateless answers every request on its own; stateful keeps a session per client on the replica that initialised it, which needs sticky routing
+     */
+    sessions: 'stateless' | 'stateful';
     slug: string;
     updatedAt: string;
     /**
@@ -3455,6 +3467,10 @@ export type ServersUpdateRequestWritable = {
     expectedVersion?: number;
     instructions?: string;
     name?: string;
+    /**
+     * stateful keeps a session per client on the replica that initialised it, so the server can ask the client a question mid-call; it needs sticky routing. Clients connected when this changes have to reconnect
+     */
+    sessions?: 'stateless' | 'stateful';
 };
 
 export type ServiceAccountWritable = {

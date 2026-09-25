@@ -150,7 +150,7 @@ func BenchmarkToolsList(b *testing.B) {
 			b.ResetTimer()
 			for range b.N {
 				rec := httptest.NewRecorder()
-				e.handler.ServeHTTP(rec, surfaceRequest(b, body, s))
+				e.stateless.ServeHTTP(rec, surfaceRequest(b, body, s))
 				if rec.Code != http.StatusOK {
 					b.Fatalf("status %d: %s", rec.Code, rec.Body.String())
 				}
@@ -189,7 +189,7 @@ func TestSurfaceRebuildAllocations(t *testing.T) {
 		b.ReportAllocs()
 		for range b.N {
 			rec := httptest.NewRecorder()
-			e.handler.ServeHTTP(rec, surfaceRequest(b, body, s))
+			e.stateless.ServeHTTP(rec, surfaceRequest(b, body, s))
 			if rec.Code != http.StatusOK {
 				b.Fatalf("status %d", rec.Code)
 			}

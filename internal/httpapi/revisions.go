@@ -300,6 +300,7 @@ func (d Deps) serverRestoreRoute(api huma.API) {
 				Name:            snapString(snapshot, "name"),
 				Instructions:    snapString(snapshot, "instructions"),
 				Enabled:         snapBool(snapshot, "enabled"),
+				Sessions:        snapSessions(snapshot),
 				ConnectorIDs:    snapStrings(snapshot, "connectorIds"),
 				ExpectedVersion: restore.expectedVersion(),
 			})
@@ -504,6 +505,16 @@ func revisionErr(err error) error {
 
 func snapString(m map[string]any, key string) *string {
 	s, _ := m[key].(string)
+	return &s
+}
+
+// snapSessions reads a server's session mode. A revision written before
+// the setting existed has none, and the server it records was stateless.
+func snapSessions(m map[string]any) *string {
+	s, _ := m["sessions"].(string)
+	if s == "" {
+		s = mcpserver.SessionsStateless
+	}
 	return &s
 }
 

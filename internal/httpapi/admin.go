@@ -609,6 +609,7 @@ func (d Deps) serverRoutes(api huma.API) {
 				Name         *string   `json:"name,omitempty"`
 				Instructions *string   `json:"instructions,omitempty"`
 				Enabled      *bool     `json:"enabled,omitempty"`
+				Sessions     *string   `json:"sessions,omitempty" enum:"stateless,stateful" doc:"stateful keeps a session per client on the replica that initialised it, so the server can ask the client a question mid-call; it needs sticky routing. Clients connected when this changes have to reconnect"`
 				ConnectorIDs *[]string `json:"connectorIds,omitempty"`
 				// ExpectedVersion is optional for one release, then required
 				// as it is on a tool update.
@@ -627,7 +628,7 @@ func (d Deps) serverRoutes(api huma.API) {
 			}
 			before, _ := d.Servers.Get(ctx, p.OrgID, in.ID)
 			srv, err := d.Servers.Update(ctx, p.OrgID, in.ID, mcpserver.UpdateInput{Name: in.Body.Name, Instructions: in.Body.Instructions,
-				Enabled: in.Body.Enabled, ConnectorIDs: in.Body.ConnectorIDs, ExpectedVersion: in.Body.ExpectedVersion, ActorID: p.ID})
+				Enabled: in.Body.Enabled, Sessions: in.Body.Sessions, ConnectorIDs: in.Body.ConnectorIDs, ExpectedVersion: in.Body.ExpectedVersion, ActorID: p.ID})
 			if err != nil {
 				d.adminFailed(ctx, "server.update", "server", in.ID, err)
 				return nil, humaErr(err)
@@ -890,7 +891,7 @@ func humaErr(err error) error {
 	if errors.Is(err, mcpauth.ErrRotateRevoked) || errors.Is(err, mcpauth.ErrRotateExpired) || errors.Is(err, mcpauth.ErrRotateTwice) {
 		return huma.Error409Conflict(err.Error())
 	}
-	if errors.Is(err, mcpauth.ErrGraceRange) {
+	if errors.Is(err, mcpauth.ErrGraceRange) || errors.Is(err, mcpserver.ErrInvalidSessions) {
 		return huma.Error400BadRequest(err.Error())
 	}
 	if herr := toolConflict(err); herr != nil {

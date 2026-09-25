@@ -7,7 +7,9 @@ import {
   serversCreateMutation,
   serversListOptions,
   serversListQueryKey,
+  serversUpdateMutation,
 } from "../api/@tanstack/react-query.gen";
+import type { Server } from "../api/types.gen";
 import { useSession } from "../lib/session";
 import { Badge, Loading, SignInFirst } from "../lib/ui";
 import { message } from "../lib/errors";
@@ -104,10 +106,63 @@ function Servers() {
                 </Text>
               </div>
               <Endpoint id={s.id} />
+              <Sessions server={s} />
             </div>
           </li>
         ))}
       </ul>
+    </div>
+  );
+}
+
+const selectClass = "rounded-md border border-kumo-line bg-kumo-base px-3 py-2";
+
+/**
+ * Whether the endpoint keeps a session per client. Stateful is what lets
+ * the server ask the client to confirm a call held for approval; it keeps
+ * the session on one replica, so it needs sticky routing.
+ */
+function Sessions({ server }: { server: Server }) {
+  const qc = useQueryClient();
+  const [error, setError] = useState<string | null>(null);
+  const update = useMutation({
+    ...serversUpdateMutation(),
+    onSuccess: async () => {
+      setError(null);
+      await qc.invalidateQueries({ queryKey: serversListQueryKey() });
+    },
+    onError: (e) => setError(message(e)),
+  });
+  return (
+    <div className="grid gap-1.5">
+      <label className="flex flex-wrap items-center gap-2">
+        <Text as="span">Sessions</Text>
+        <select
+          className={selectClass}
+          value={server.sessions}
+          disabled={update.isPending}
+          onChange={(e) =>
+            update.mutate({
+              path: { id: server.id },
+              body: { sessions: e.currentTarget.value as Server["sessions"], expectedVersion: server.version },
+            })
+          }
+        >
+          <option value="stateless">Stateless: any replica answers</option>
+          <option value="stateful">Stateful: can ask the client to confirm</option>
+        </select>
+      </label>
+      {server.sessions === "stateful" && (
+        <Text variant="secondary">
+          Each client keeps to the replica it started on, so the load balancer needs sticky routing. Clients connected
+          when this changes have to reconnect.
+        </Text>
+      )}
+      {error && (
+        <div role="alert">
+          <Text>{error}</Text>
+        </div>
+      )}
     </div>
   );
 }
