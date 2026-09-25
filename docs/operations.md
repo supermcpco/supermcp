@@ -220,7 +220,11 @@ Each is a symptom rather than a cause.
   cannot open any stored credential, so do not restart pods to fix it.
   Check the key's policy and state, the pod's AWS identity, and the route
   to KMS. `supermcp_kek_operations_total` counts real KMS requests,
-  which happen only when a data key is not already in memory.
+  which happen only when a data key is not already in memory. A request
+  that needed KMS and could not reach it (a failed connection, a
+  timeout, throttling, a KMS server error) answers 503 and logs `key
+  service unavailable` with the request id and the AWS error; a refusal
+  (access denied, a disabled key, a rejected ciphertext) stays a 500.
 - **Audit export lagging.** A destination has not accepted an event for
   over fifteen minutes. Nothing is lost: delivery resumes from where it
   stopped. The destination's `lastError` in its workspace says why, and

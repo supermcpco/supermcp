@@ -131,6 +131,7 @@ func New(d Deps) (http.Handler, huma.API) {
 		"session": {Type: "apiKey", In: "cookie", Name: SessionCookie},
 		"apiKey":  {Type: "apiKey", In: "header", Name: "X-API-Key"},
 	}
+	cfg.Transformers = append([]huma.Transformer{logKeyServiceErrors(d.Log)}, cfg.Transformers...)
 	api := humachi.New(r, cfg)
 
 	registerCatalog(api, d.Catalog)
