@@ -74,7 +74,7 @@ type revisionDTO struct {
 	ActorDisplay string         `json:"actorDisplay,omitempty"`
 	CreatedAt    time.Time      `json:"createdAt"`
 	Diff         *audit.Diff    `json:"diff,omitempty"`
-	Snapshot     map[string]any `json:"snapshot,omitempty" doc:"The entity as it stood after this change; only on a single revision"`
+	Snapshot     map[string]any `json:"snapshot,omitempty" doc:"The entity as it stood after this change; only on a single revision. A connector's secret auth and transport values read ***"`
 }
 
 type revisionListInput struct {
@@ -93,6 +93,37 @@ type revisionListOutput struct {
 type revisionGetInput struct {
 	ID       string `path:"id"`
 	Revision int    `path:"revision" minimum:"1"`
+}
+
+// redact hides the secrets a connector revision can hold in its auth and
+// transport, in the diff and the snapshot alike. Only the response is
+// redacted: a restore reads the stored snapshot, so it puts the real
+// values back.
+func (k revisionKind) redact(dto revisionDTO) revisionDTO {
+	if k.kind != governance.KindConnector {
+		return dto
+	}
+	dto.Snapshot = redactConnectorFields(dto.Snapshot)
+	if dto.Diff != nil {
+		dto.Diff = &audit.Diff{Before: redactConnectorFields(dto.Diff.Before), After: redactConnectorFields(dto.Diff.After)}
+	}
+	return dto
+}
+
+// redactConnectorFields returns a copy of a connector's fields with auth
+// and transport redacted.
+func redactConnectorFields(m map[string]any) map[string]any {
+	if m == nil {
+		return nil
+	}
+	out := make(map[string]any, len(m))
+	for k, v := range m {
+		if k == "auth" || k == "transport" {
+			v = connector.RedactConfig(v)
+		}
+		out[k] = v
+	}
+	return out
 }
 
 func revisionToDTO(r governance.Revision) revisionDTO {
@@ -130,7 +161,7 @@ func (d Deps) revisionListRoute(api huma.API, k revisionKind) {
 			out := &revisionListOutput{}
 			out.Body.Revisions = make([]revisionDTO, 0, len(list))
 			for _, r := range list {
-				out.Body.Revisions = append(out.Body.Revisions, revisionToDTO(r))
+				out.Body.Revisions = append(out.Body.Revisions, k.redact(revisionToDTO(r)))
 			}
 			// Only a full page can have anything behind it; a short one is
 			// the start of the history, and saying so saves a round trip.
@@ -163,7 +194,7 @@ func (d Deps) revisionGetRoute(api huma.API, k revisionKind) {
 			}
 			dto := revisionToDTO(*r)
 			dto.Snapshot = fields
-			return &struct{ Body revisionDTO }{Body: dto}, nil
+			return &struct{ Body revisionDTO }{Body: k.redact(dto)}, nil
 		})
 }
 

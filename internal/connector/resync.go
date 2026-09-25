@@ -139,7 +139,8 @@ type SkippedTool struct {
 
 // FieldChange is one connector-level setting that differs from the
 // bundled adapter. Before and After are the value as text: the string
-// for instructions, indented JSON for transport and auth.
+// for instructions, indented JSON for transport and auth, with secrets
+// redacted (RedactConfig).
 type FieldChange struct {
 	Field  string
 	Before string
@@ -337,9 +338,18 @@ func planResync(c *Connector, stored []*Tool, creds map[string]bool, a *adapter.
 		if err != nil {
 			return nil, fmt.Errorf("compare %s: %w", f.name, err)
 		}
-		if b != af {
-			p.NotApplied = append(p.NotApplied, FieldChange{Field: f.name, Before: b, After: af})
+		if b == af {
+			continue
 		}
+		// Compared as stored, shown redacted: a difference only in a
+		// secret still shows, as the same *** on both sides.
+		if b, err = redactedText(f.before); err != nil {
+			return nil, fmt.Errorf("compare %s: %w", f.name, err)
+		}
+		if af, err = redactedText(f.after); err != nil {
+			return nil, fmt.Errorf("compare %s: %w", f.name, err)
+		}
+		p.NotApplied = append(p.NotApplied, FieldChange{Field: f.name, Before: b, After: af})
 	}
 	for _, name := range a.Credentials.Keys {
 		if a.Credentials.Values[name].Required && !creds[name] {
@@ -405,6 +415,23 @@ func decodeGeneric(raw []byte) (map[string]any, error) {
 		return nil, err
 	}
 	return m, nil
+}
+
+// redactedText is canonicalText with the secrets redacted, for showing.
+func redactedText(v any) (string, error) {
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return "", err
+	}
+	m, err := decodeGeneric(raw)
+	if err != nil {
+		return "", err
+	}
+	out, err := json.MarshalIndent(RedactConfig(m), "", "  ")
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
 }
 
 // canonicalText renders a value as indented JSON with sorted keys, so two

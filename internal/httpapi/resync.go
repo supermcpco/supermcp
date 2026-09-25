@@ -52,7 +52,7 @@ type resyncSkipDTO struct {
 // resyncFieldDTO is one connector setting a re-sync replaces.
 type resyncFieldDTO struct {
 	Field  string `json:"field" enum:"instructions,transport,auth"`
-	Before string `json:"before" doc:"The current value: text for instructions, JSON for transport and auth"`
+	Before string `json:"before" doc:"The current value: text for instructions, JSON for transport and auth with secret values shown as ***"`
 	After  string `json:"after" doc:"The bundled value, in the same form"`
 }
 
