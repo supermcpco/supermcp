@@ -48,6 +48,15 @@ func TestValidateTool(t *testing.T) {
 			want: []want{{"tool-name-format", "name"}, {"description-min-60", "description"}, {"input-required", "input"}},
 		},
 		{
+			name:      "a name in supermcp's own namespace",
+			transport: adapter.TransportHTTP,
+			tool: func(t *testing.T) *adapter.Tool {
+				return &adapter.Tool{Name: "supermcp_approval_status", Description: longDescription, Input: mustNode(t, obj),
+					Operation: adapter.Operation{Method: "GET", Path: "/invoices/{{params.id}}"}}
+			},
+			want: []want{{"tool-name-reserved", "name"}},
+		},
+		{
 			name:      "unknown param and bad method",
 			transport: adapter.TransportHTTP,
 			tool: func(t *testing.T) *adapter.Tool {

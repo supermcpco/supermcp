@@ -943,7 +943,7 @@ func (o *OAuth) PrincipalFromToken(ctx context.Context, token string) (*authz.Pr
 	}
 	return &authz.Principal{
 		Kind: kind, ID: sub, OrgID: str("org"), ServerID: str("mcp_server"),
-		Scopes: scopeList(str("scope")), AuthMethod: "oauth_at",
+		Scopes: scopeList(str("scope")), AuthMethod: "oauth_at", ClientID: str("client_id"),
 	}, nil
 }
 

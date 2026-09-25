@@ -275,7 +275,7 @@ func NewMetrics(opts MetricsOptions) *Metrics {
 		mcpSessionsEnded: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace: Namespace,
 			Name:      "mcp_sessions_closed_total",
-			Help:      "MCP sessions this replica closed, by why: idle past the limit, capacity to make room for a new one, client when the client ended it, shutdown when the replica drained, gone when the session had already ended.",
+			Help:      "MCP sessions this replica closed, by why: idle past the limit, capacity to make room for a new one, client when the client ended it, shutdown when the replica drained, gone when the session had already ended, expired when it outlived the maximum age.",
 		}, []string{"reason"}),
 	}
 
@@ -515,6 +515,7 @@ const (
 	SessionClosedClient   = "client"
 	SessionClosedShutdown = "shutdown"
 	SessionClosedGone     = "gone"
+	SessionClosedExpired  = "expired"
 )
 
 // SetMCPSessions records how many MCP sessions this replica holds.
@@ -531,7 +532,7 @@ func (m *Metrics) ObserveMCPSessionClosed(reason string) {
 		return
 	}
 	m.mcpSessionsEnded.WithLabelValues(oneOf(reason, SessionClosedIdle, SessionClosedCapacity,
-		SessionClosedClient, SessionClosedShutdown, SessionClosedGone)).Inc()
+		SessionClosedClient, SessionClosedShutdown, SessionClosedGone, SessionClosedExpired)).Inc()
 }
 
 // toolLabel admits a tool name until the cap, then returns OtherTool.

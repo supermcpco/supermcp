@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/jackc/pgx/v5"
 
 	"github.com/supermcpco/supermcp/internal/audit"
+	"github.com/supermcpco/supermcp/internal/dlp"
 	"github.com/supermcpco/supermcp/internal/secrets"
 	"github.com/supermcpco/supermcp/internal/tenant"
 )
@@ -123,7 +125,40 @@ var (
 	ErrTooManyPending   = errors.New("too many requests are already waiting for this tool")
 	ErrInvalidPolicy    = errors.New("this approval policy is not usable as written")
 	ErrNotPending       = errors.New("this request is no longer waiting for an answer")
+	ErrConfirmed        = errors.New("the person who asked for this request has confirmed it")
 )
+
+// maxReason bounds a withdrawal's reason, as the API does.
+const maxReason = 2000
+
+// RequesterText is what is kept of text the person asking for a call
+// wrote, which an approver will read: control and format characters
+// (bidirectional overrides, zero-width joiners, escapes) removed, line
+// breaks and tabs turned into spaces, anything the data-loss detectors
+// recognise masked, and at most limit characters. It is the requester's
+// word and is shown as such, never as part of the product's own text.
+func RequesterText(s string, limit int) string {
+	var b strings.Builder
+	for _, r := range s {
+		switch {
+		case r == '\n' || r == '\r' || r == '\t':
+			b.WriteRune(' ')
+		case unicode.In(r, unicode.Cc, unicode.Cf):
+		default:
+			b.WriteRune(r)
+		}
+	}
+	out := strings.TrimSpace(b.String())
+	if masked, _, err := dlp.Apply(out, dlp.ActionMask, dlp.Options{}); err == nil {
+		if m, ok := masked.(string); ok {
+			out = m
+		}
+	}
+	if r := []rune(out); len(r) > limit {
+		out = strings.TrimSpace(string(r[:limit]))
+	}
+	return out
+}
 
 // MaxAcknowledgement bounds the note a requester adds when they confirm.
 // It is read by an approver, not stored for its own sake.
@@ -482,8 +517,21 @@ func (a *Approvals) Decide(ctx context.Context, orgID, id string, d Decision) (*
 
 // Cancel withdraws a request. Only the asker may: a person who wanted the
 // request gone and could not answer it themselves would otherwise have a
-// way to make an awkward question disappear.
+// way to make an awkward question disappear. The reason is the asker's
+// own text, and is kept as RequesterText leaves it.
 func (a *Approvals) Cancel(ctx context.Context, orgID, id, actorID, reason string) (*ApprovalRequest, error) {
+	return a.cancel(ctx, orgID, id, actorID, reason, false)
+}
+
+// Withdraw is Cancel for a request its asker has not confirmed. It is what
+// declining the question about a held call does: a confirmation that
+// reached the request first, from another answer to the same question,
+// stands.
+func (a *Approvals) Withdraw(ctx context.Context, orgID, id, actorID, reason string) (*ApprovalRequest, error) {
+	return a.cancel(ctx, orgID, id, actorID, reason, true)
+}
+
+func (a *Approvals) cancel(ctx context.Context, orgID, id, actorID, reason string, unconfirmedOnly bool) (*ApprovalRequest, error) {
 	if actorID == "" {
 		return nil, errors.New("withdrawing a request needs to name who did it")
 	}
@@ -492,8 +540,8 @@ func (a *Approvals) Cancel(ctx context.Context, orgID, id, actorID, reason strin
 		var err error
 		out, err = scanRequest(tx.QueryRow(ctx, `UPDATE approval_requests
 			SET state = 'cancelled', cancelled_at = now(), reason = $3
-			WHERE id = $1 AND state = 'pending' AND requested_by = $2
-			RETURNING `+requestColumns, id, actorID, strings.TrimSpace(reason)), nil)
+			WHERE id = $1 AND state = 'pending' AND requested_by = $2 AND (NOT $4 OR acknowledged_at IS NULL)
+			RETURNING `+requestColumns, id, actorID, RequesterText(reason, maxReason), unconfirmedOnly), nil)
 		if errors.Is(err, pgx.ErrNoRows) {
 			current, ferr := a.read(ctx, tx, id)
 			switch {
@@ -501,6 +549,8 @@ func (a *Approvals) Cancel(ctx context.Context, orgID, id, actorID, reason strin
 				return ferr
 			case current.RequestedBy != actorID:
 				return ErrNotRequester
+			case unconfirmedOnly && current.State == StatePending && current.AcknowledgedAt != nil:
+				return ErrConfirmed
 			case current.State == StateExpired:
 				return ErrRequestExpired
 			default:
@@ -523,10 +573,7 @@ func (a *Approvals) Acknowledge(ctx context.Context, orgID, id, actorID, note st
 	if actorID == "" {
 		return nil, errors.New("confirming a request needs to name who did it")
 	}
-	note = strings.TrimSpace(note)
-	if r := []rune(note); len(r) > MaxAcknowledgement {
-		note = string(r[:MaxAcknowledgement])
-	}
+	note = RequesterText(note, MaxAcknowledgement)
 	var out *ApprovalRequest
 	wrote := false
 	err := a.DB.Tx(tenant.WithOrg(ctx, orgID), func(tx pgx.Tx) error {

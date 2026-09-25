@@ -152,9 +152,8 @@ func (e *Endpoint) systemCall(ctx context.Context, server *mcpserver.Server, req
 		return statusResult(r, describe(r)), nil
 	}
 
-	if rs := []rune(in.Reason); len(rs) > 2000 {
-		in.Reason = string(rs[:2000])
-	}
+	// The reason is cleaned and cut to length where it is stored
+	// (governance.RequesterText), as the API's is.
 	after, err := e.Approvals.Cancel(ctx, server.OrgID, r.ID, p.ID, in.Reason)
 	if err != nil {
 		e.audit(ctx, p, audit.Event{OrgID: server.OrgID, Category: audit.CategoryAdmin, Action: "approval.cancel",

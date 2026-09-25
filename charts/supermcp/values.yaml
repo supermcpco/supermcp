@@ -164,6 +164,9 @@ ingress:
   #   nginx.ingress.kubernetes.io/affinity: cookie
   #   nginx.ingress.kubernetes.io/session-cookie-name: supermcp-route
   #   nginx.ingress.kubernetes.io/session-cookie-max-age: "1800"
+  #   nginx.ingress.kubernetes.io/session-cookie-secure: "true"
+  #   nginx.ingress.kubernetes.io/session-cookie-samesite: "Strict"
+  #   nginx.ingress.kubernetes.io/session-cookie-path: "/mcp"
   # or
   #   nginx.ingress.kubernetes.io/upstream-hash-by: "$binary_remote_addr"
   annotations: {}

@@ -58,6 +58,9 @@ func TestMCPSessionBounds(t *testing.T) {
 		{"idle not a duration", "", "ten minutes", 0, 0, "is not a duration"},
 	}
 	t.Setenv("SUPERMCP_MCP_ELICITATION_TIMEOUT", "")
+	t.Setenv("SUPERMCP_MCP_MAX_SESSIONS_PER_CALLER", "")
+	t.Setenv("SUPERMCP_MCP_MAX_SESSIONS_PER_ORG", "")
+	t.Setenv("SUPERMCP_MCP_SESSION_MAX_AGE", "")
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			t.Setenv("DATABASE_URL", "postgres://example.invalid/db")
@@ -90,8 +93,8 @@ func TestMCPElicitationTimeout(t *testing.T) {
 	}{
 		{"", DefaultMCPElicitationTimeout, ""},
 		{"30s", 30 * time.Second, ""},
-		{"1s", 0, "between 5s and 10m0s"},
-		{"1h", 0, "between 5s and 10m0s"},
+		{"1s", 0, "between 5s and 55s"},
+		{"1m", 0, "between 5s and 55s"},
 		{"soon", 0, "is not a duration"},
 	}
 	for _, c := range cases {
@@ -111,6 +114,47 @@ func TestMCPElicitationTimeout(t *testing.T) {
 			}
 			if cfg.MCP.ElicitationTimeout != c.want {
 				t.Errorf("timeout = %s, want %s", cfg.MCP.ElicitationTimeout, c.want)
+			}
+		})
+	}
+}
+
+// TestMCPSessionShares cannot run in parallel: it sets the environment.
+func TestMCPSessionShares(t *testing.T) {
+	cases := []struct {
+		name, max, caller, org, age string
+		wantCaller, wantOrg         int
+		wantAge                     time.Duration
+		wantErr                     string
+	}{
+		{"defaults", "", "", "", "", 16, 500, 12 * time.Hour, ""},
+		{"org follows the table", "200", "", "", "", 16, 20, 12 * time.Hour, ""},
+		{"set", "", "4", "40", "2h", 4, 40, 2 * time.Hour, ""},
+		{"caller above the table", "10", "11", "", "", 0, 0, 0, "SUPERMCP_MCP_MAX_SESSIONS_PER_CALLER"},
+		{"org of none", "", "", "0", "", 0, 0, 0, "SUPERMCP_MCP_MAX_SESSIONS_PER_ORG"},
+		{"age too short", "", "", "", "1m", 0, 0, 0, "SUPERMCP_MCP_SESSION_MAX_AGE"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Setenv("DATABASE_URL", "postgres://example.invalid/db")
+			t.Setenv("SUPERMCP_PUBLIC_URL", "https://supermcp.example")
+			t.Setenv("SUPERMCP_MCP_MAX_SESSIONS", c.max)
+			t.Setenv("SUPERMCP_MCP_MAX_SESSIONS_PER_CALLER", c.caller)
+			t.Setenv("SUPERMCP_MCP_MAX_SESSIONS_PER_ORG", c.org)
+			t.Setenv("SUPERMCP_MCP_SESSION_MAX_AGE", c.age)
+			cfg, err := Load("test")
+			if c.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), c.wantErr) {
+					t.Fatalf("err = %v, want one saying %q", err, c.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.MCP.MaxSessionsPerCaller != c.wantCaller || cfg.MCP.MaxSessionsPerOrg != c.wantOrg || cfg.MCP.SessionMaxAge != c.wantAge {
+				t.Errorf("got %d / %d / %s, want %d / %d / %s", cfg.MCP.MaxSessionsPerCaller, cfg.MCP.MaxSessionsPerOrg,
+					cfg.MCP.SessionMaxAge, c.wantCaller, c.wantOrg, c.wantAge)
 			}
 		})
 	}

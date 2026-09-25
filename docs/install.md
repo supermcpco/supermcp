@@ -409,9 +409,12 @@ MCP sessions").
 
 | Setting | Default | What it decides |
 |---|---|---|
-| `SUPERMCP_MCP_MAX_SESSIONS` | `5000` | How many sessions one replica holds. When it is full, the session idle longest is closed to make room, and its client is answered `404` and initialises again; when every session has a request in flight, a new one is refused with `503` and `Retry-After: 1`. A whole number from 1 to 1000000; anything else fails the boot. |
+| `SUPERMCP_MCP_MAX_SESSIONS` | `5000` | How many sessions one replica holds. When it is full, an idle session is closed to make room, but only the newcomer's own or one belonging to a caller or workspace holding more than its share; its client is answered `404` and initialises again. With none such, a new session is refused with `503` and `Retry-After: 1` (docs/operations.md, "Stateful MCP sessions"). A whole number from 1 to 1000000; anything else fails the boot. |
+| `SUPERMCP_MCP_MAX_SESSIONS_PER_CALLER` | `16` | How many of those one credential (an API key, an OAuth client) may hold. At the limit its own session idle longest makes room; with all of them busy it is refused with `429`. From 1 to the maximum. |
+| `SUPERMCP_MCP_MAX_SESSIONS_PER_ORG` | a tenth of `SUPERMCP_MCP_MAX_SESSIONS` | How many one workspace may hold, with the same rule. From 1 to the maximum. |
 | `SUPERMCP_MCP_SESSION_IDLE` | `15m` | How long a session may go without a request before it is closed. Between `1m` and `24h`; anything else fails the boot. |
-| `SUPERMCP_MCP_ELICITATION_TIMEOUT` | `60s` | How long a call held for approval waits for the person behind a client to confirm it, when the server can ask (docs/api.md, "Calls held for approval"). The call's own deadline wins if it is sooner. Between `5s` and `10m`; anything else fails the boot. |
+| `SUPERMCP_MCP_SESSION_MAX_AGE` | `12h` | How long a session may last however busy it is. Between `10m` and `168h`. |
+| `SUPERMCP_MCP_ELICITATION_TIMEOUT` | `45s` | How long a call held for approval waits for the person behind a client to confirm it, when the server can ask (docs/api.md, "Calls held for approval"). It always ends five seconds before the request's own deadline, so the held result is written inside the router's 60 second timeout. Between `5s` and `55s`; anything else fails the boot. |
 
 ### Rate limiting
 

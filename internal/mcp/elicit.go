@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -23,7 +24,8 @@ import (
 // recorded on the request for the approver to read and approves nothing:
 // someone else still has to. Declining withdraws the request. No answer
 // within the time allowed leaves everything as it would have been without
-// the question.
+// the question; so does dismissing it, or submitting it without the
+// confirmation ticked, since neither is a person saying no.
 //
 // The question names the tool and the request and nothing else. The
 // arguments are what the request sealed, and the client's user is not
@@ -32,13 +34,18 @@ import (
 
 // defaultElicitationTimeout is how long a held call waits for an answer
 // when Deps says nothing.
-const defaultElicitationTimeout = time.Minute
+const defaultElicitationTimeout = 45 * time.Second
+
+// answerMargin is kept between the end of the wait and the request's own
+// deadline, so the held result can still be written before the router
+// gives up on the request.
+const answerMargin = 5 * time.Second
 
 // elicitNote bounds the note field the client is offered.
 const elicitNote = governance.MaxAcknowledgement
 
 // withdrawnReason is what a request withdrawn from the client records.
-const withdrawnReason = "Withdrawn from the MCP client: the person asked to confirm the call did not."
+const withdrawnReason = "Withdrawn from the MCP client: the person asked to confirm the call declined."
 
 // Drain stops waiting for answers. The server calls it when it has been
 // told to stop, before the listener drains, so a call waiting on a person
@@ -90,7 +97,8 @@ func (e *Endpoint) confirmHeld(ctx context.Context, req *sdk.CallToolRequest, se
 		return held
 	}
 	confirmed, _ := answer.Content["confirm"].(bool)
-	if answer.Action == "accept" && confirmed {
+	switch {
+	case answer.Action == "accept" && confirmed:
 		note, _ := answer.Content["note"].(string)
 		if _, err := e.Approvals.Acknowledge(ctx, server.OrgID, notice.RequestID, p.ID, note); err != nil {
 			e.debug(ctx, "the confirmation could not be recorded", "request", notice.RequestID, "err", err)
@@ -102,11 +110,14 @@ func (e *Endpoint) confirmHeld(ctx context.Context, req *sdk.CallToolRequest, se
 			Text: textOf(held) + "\n\nThe person you are working for confirmed that they asked for this call, and the approver " +
 				"can see that. It still needs someone else to approve it.",
 		}}}
+	case answer.Action != "decline":
+		// Dismissed, or submitted without confirming: no answer.
+		return held
 	}
 
-	// Declined, dismissed, or accepted without confirming: the person did
-	// not stand behind the call, so it does not wait for anyone.
-	after, err := e.Approvals.Cancel(ctx, server.OrgID, notice.RequestID, p.ID, withdrawnReason)
+	// Declined: the person says they did not ask for the call, so it does
+	// not wait for anyone. A confirmation that got there first stands.
+	after, err := e.Approvals.Withdraw(ctx, server.OrgID, notice.RequestID, p.ID, withdrawnReason)
 	if err != nil {
 		e.debug(ctx, "the request could not be withdrawn", "request", notice.RequestID, "err", err)
 		return held
@@ -117,7 +128,7 @@ func (e *Endpoint) confirmHeld(ctx context.Context, req *sdk.CallToolRequest, se
 	withdrawn := *notice
 	withdrawn.Status, withdrawn.State, withdrawn.RetryWith, withdrawn.Reason = "approval_cancelled", governance.StateCancelled, "", withdrawnReason
 	return &sdk.CallToolResult{IsError: true, StructuredContent: &withdrawn, Content: []sdk.Content{&sdk.TextContent{
-		Text: fmt.Sprintf("Request %s was withdrawn: the person you are working for did not confirm this call when asked. "+
+		Text: fmt.Sprintf("Request %s was withdrawn: the person you are working for declined this call when asked. "+
 			"Nothing ran. Do not repeat the call unless they ask for it again.", notice.RequestID),
 	}}}
 }
@@ -128,6 +139,12 @@ func (e *Endpoint) elicit(ctx context.Context, ss *sdk.ServerSession, notice *go
 	wait := e.ElicitationTimeout
 	if wait <= 0 {
 		wait = defaultElicitationTimeout
+	}
+	if deadline, ok := ctx.Deadline(); ok {
+		wait = min(wait, time.Until(deadline)-answerMargin)
+	}
+	if wait <= 0 {
+		return nil, errors.New("no time left before the request's deadline to ask")
 	}
 	ctx, cancel := context.WithTimeout(ctx, wait)
 	defer cancel()

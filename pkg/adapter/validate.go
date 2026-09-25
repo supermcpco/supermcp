@@ -394,7 +394,17 @@ func (v *validator) validateToolName(loc string, t *Tool) {
 	if !reToolName.MatchString(t.Name) {
 		v.errorAt("name", "tool-name-format", "%s: tool name must be lowercase snake_case", loc)
 	}
+	// The instance's own tools (supermcp_approval_status and the like)
+	// live under this prefix on every server, and would shadow a tool of
+	// the same name.
+	if strings.HasPrefix(t.Name, ReservedToolPrefix) {
+		v.errorAt("name", "tool-name-reserved", "%s: tool names starting %s are reserved for supermcp's own tools", loc, ReservedToolPrefix)
+	}
 }
+
+// ReservedToolPrefix begins the names of the tools supermcp adds to every
+// server. No adapter tool may use it.
+const ReservedToolPrefix = "supermcp_"
 
 func (v *validator) validateToolBody(loc string, t *Tool, envUsed map[string]bool) {
 	if len(t.Description) < 60 {

@@ -457,16 +457,22 @@ transport describes:
   `{"code":-32001,"message":"Session not found; initialize a new one"}`.
   That is the client's signal to initialise again.
 - `DELETE` with the session id ends the session (`204`).
-- When the replica already holds `SUPERMCP_MCP_MAX_SESSIONS` sessions and
-  every one of them has a request in flight, a new `initialize` is `503`
-  with `Retry-After: 1`.
+- A caller is one credential: a session opened with one API key or one
+  OAuth client is unknown to another key or client of the same person.
+- A new `initialize` from a caller, or a workspace, already holding as
+  many sessions as it may, all of them busy, is `429`; from anyone when
+  the replica is full and no session it may close is idle, `503`. Both
+  carry `Retry-After: 1`.
 
 Sessions live on the replica that opened them and are closed when idle
-past `SUPERMCP_MCP_SESSION_IDLE` or when the replica shuts down; with
+past `SUPERMCP_MCP_SESSION_IDLE`, when older than
+`SUPERMCP_MCP_SESSION_MAX_AGE`, or when the replica shuts down; with
 more than one replica, a client has to keep reaching the same one
 (docs/operations.md, "Stateful MCP sessions"). A session does not carry
 permissions: each request is authenticated and its surface worked out as
-on a stateless server, and a call runs the tool as it is at that moment.
+on a stateless server; `tools/list` on the session shows only what that
+request may see, a call runs the tool as it is at that moment, and the
+call is cancelled when its request ends.
 
 ### What happens on each request
 
@@ -575,14 +581,23 @@ never the arguments or anything secret, and offers a form with a
   pending, the person who asked still may not decide it, and the result
   says so and carries `"acknowledged": true`. A request is asked about
   once; the same call repeated is not asked again.
-- **decline, cancel, or accept without `confirm`** withdraws the request,
-  as `POST /api/v1/approvals/{id}/cancel` would, recorded on the audit
+- **decline** withdraws the request, as `POST /api/v1/approvals/{id}/cancel`
+  would, unless a confirmation reached it first; recorded on the audit
   trail as `approval.cancel` with `meta.via` `elicitation`. The result
   says it was withdrawn.
-- **No answer** within `SUPERMCP_MCP_ELICITATION_TIMEOUT` (60 s by
-  default), or before the call's own deadline if that is sooner, or
-  before the replica starts shutting down, leaves the request pending and
-  the result exactly as it would have been without the question.
+- **cancel** (the question dismissed), **accept without `confirm`**, or
+  **no answer** within `SUPERMCP_MCP_ELICITATION_TIMEOUT` (45 s by
+  default, ending at the latest five seconds before the request's own
+  deadline), or before the replica starts shutting down, is no answer:
+  the request stays pending and the result is exactly what it would have
+  been without the question.
+
+The note, like the reason given when a request is withdrawn, is the
+requester's own text. It is stored with control and format characters
+removed (bidirectional overrides, zero-width characters), line breaks
+turned into spaces, and anything the built-in data-loss detectors
+recognise masked, and the approvals screen shows it apart from its own
+text, labelled as the requester's unverified words.
 
 On a stateless server, with a client that did not declare the
 capability, or when the endpoint answers with `application/json`

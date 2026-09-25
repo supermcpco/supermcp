@@ -108,7 +108,7 @@ func TestHeldCallIsConfirmedFromTheClient(t *testing.T) {
 	f := heldFixture(t, harnessOptions{})
 	f.setSessions(t, "stateful")
 	a := &asker{answer: func(context.Context) (*sdk.ElicitResult, error) {
-		return &sdk.ElicitResult{Action: "accept", Content: map[string]any{"confirm": true, "note": "Needed for the quarterly count"}}, nil
+		return &sdk.ElicitResult{Action: "accept", Content: map[string]any{"confirm": true, "note": "Needed for the\u202e quarterly count"}}, nil
 	}}
 	sess := f.connectMCP(t, a.client())
 
@@ -152,9 +152,9 @@ func TestHeldCallIsConfirmedFromTheClient(t *testing.T) {
 	}
 }
 
-// Declining, or dismissing the question, withdraws the request.
+// Declining the question withdraws the request.
 func TestHeldCallDeclinedFromTheClientIsWithdrawn(t *testing.T) {
-	for _, action := range []string{"decline", "cancel"} {
+	for _, action := range []string{"decline"} {
 		t.Run(action, func(t *testing.T) {
 			f := heldFixture(t, harnessOptions{})
 			f.setSessions(t, "stateful")
@@ -199,6 +199,14 @@ func TestHeldCallIsUnchangedWhereNobodyCanBeAsked(t *testing.T) {
 			answer: func(ctx context.Context) (*sdk.ElicitResult, error) {
 				<-ctx.Done()
 				return nil, ctx.Err()
+			}},
+		{name: "a question dismissed", sessions: "stateful", canAsk: true, asked: 1,
+			answer: func(context.Context) (*sdk.ElicitResult, error) {
+				return &sdk.ElicitResult{Action: "cancel"}, nil
+			}},
+		{name: "a form submitted without the confirmation", sessions: "stateful", canAsk: true, asked: 1,
+			answer: func(context.Context) (*sdk.ElicitResult, error) {
+				return &sdk.ElicitResult{Action: "accept", Content: map[string]any{"confirm": false}}, nil
 			}},
 	}
 	for _, c := range cases {

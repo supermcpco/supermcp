@@ -28,8 +28,11 @@ reach for when something is wrong.
 | `SUPERMCP_INSTANCE_ID` | the host name | This replica's name: its spool directory, and the `meta.instance` of the gaps it records. Must be unique among running replicas. The chart sets it to the pod name. |
 | `SUPERMCP_DCR_MODE` | `approval` | Whether an MCP client can register itself: `open`, `approval` or `closed`. |
 | `SUPERMCP_MCP_MAX_SESSIONS` | 5000 | How many MCP sessions one replica holds for servers set to stateful. See "Stateful MCP sessions". |
+| `SUPERMCP_MCP_MAX_SESSIONS_PER_CALLER` | 16 | How many of those one credential may hold. |
+| `SUPERMCP_MCP_MAX_SESSIONS_PER_ORG` | a tenth of the maximum | How many one workspace may hold. |
 | `SUPERMCP_MCP_SESSION_IDLE` | `15m` | How long such a session may go without a request before it is closed. |
-| `SUPERMCP_MCP_ELICITATION_TIMEOUT` | `60s` | How long a call held for approval waits for the person behind a stateful client to confirm it. |
+| `SUPERMCP_MCP_SESSION_MAX_AGE` | `12h` | How long such a session may last, however busy. |
+| `SUPERMCP_MCP_ELICITATION_TIMEOUT` | `45s` | How long a call held for approval waits for the person behind a stateful client to confirm it. |
 
 Rate-limit budgets are written `count/duration`, for example `10/1m`. A
 malformed value fails the boot, because a limit nobody notices is off is
@@ -450,33 +453,56 @@ there: the MCP library keeps no shared store, and none is added here. So:
   the JSON-RPC error `Session not found; initialize a new one`. That is
   the transport's signal to start a new session, and the MCP clients in
   common use do so; what the client loses is the session, not any data.
-- **Limits.** `SUPERMCP_MCP_MAX_SESSIONS` (5000) per replica and
-  `SUPERMCP_MCP_SESSION_IDLE` (15 minutes). A full table closes the
-  session idle longest to make room; a table whose every session has a
-  request in flight refuses the new one with `503`. A session is its
-  caller's and its server's: presented by anyone else, or on another
-  server, it is unknown.
+- **Limits, and who pays for room.** Per replica there are three: the
+  table (`SUPERMCP_MCP_MAX_SESSIONS`, 5000), each caller
+  (`SUPERMCP_MCP_MAX_SESSIONS_PER_CALLER`, 16) and each workspace
+  (`SUPERMCP_MCP_MAX_SESSIONS_PER_ORG`, a tenth of the table). A caller
+  is one credential: one API key, one OAuth client, or one browser
+  session's method. Busy sessions, ones with a request in flight such as
+  a call waiting on a person's answer, count towards every limit and are
+  never closed to make room. A caller at its limit makes room by closing
+  its own session idle longest and nobody else's; with none of its own
+  idle it is refused with `429`. A workspace at its limit is treated the
+  same way, within the workspace. When the whole table is full, a
+  session is closed only if it is the newcomer's own, or belongs to a
+  caller or a workspace holding more than its share (the table divided
+  among those holding places in it); with no such idle session the
+  newcomer is refused with `503`. So one tenant filling a replica closes
+  its own sessions, not anyone else's.
+- **Lifetimes.** A session is closed after `SUPERMCP_MCP_SESSION_IDLE`
+  (15 minutes) without a request, and after `SUPERMCP_MCP_SESSION_MAX_AGE`
+  (12 hours) whatever it is doing; a request on an expired session is
+  answered `404`, and one still running finishes first.
+- **Ownership.** A session is its caller's and its server's. Presented
+  by anyone else, including the same person on another API key or
+  another OAuth client, or on another server, it is unknown.
 - **What a session does not change.** Each request still authenticates,
   and the tools it may see and call are worked out for that request, so a
-  permission taken away or a tool removed applies to a session at once. A
-  tool added after a session opened appears in its `tools/list` only once
-  the client starts a new session.
+  permission taken away or a tool removed applies to a session at once,
+  in `tools/list` as well as to calls. A tool added after a session
+  opened appears in its `tools/list` only once the client starts a new
+  session. Each request's handler is cancelled when the request ends or
+  reaches its deadline (the router's 60 seconds), as on a stateless
+  server.
 
 `supermcp_mcp_sessions` is the number of sessions a replica holds, one
 series per replica. `supermcp_mcp_sessions_closed_total{reason}` counts
 why they ended: `idle`, `capacity` (made room for a new one), `client`
-(the client ended it), `shutdown` (the replica drained) and `gone` (the
-session had already ended, usually an `initialize` that failed). A
+(the client ended it), `shutdown` (the replica drained), `expired` (past
+the maximum age) and `gone` (the session had already ended, usually an
+`initialize` that failed). A
 `capacity` rate that keeps climbing means the limit is too low for the
 traffic or the affinity is not holding and clients keep starting over.
 
 A stateful session is also what lets a call held for approval ask the
 person behind the client to confirm it (docs/api.md, "Calls held for
 approval"). That keeps the call open for up to
-`SUPERMCP_MCP_ELICITATION_TIMEOUT`, one request per question; keep the
-load balancer's and any proxy's read timeout on `/mcp/` above it, or the
-proxy cuts the call and the client sees an error instead of the held
-result.
+`SUPERMCP_MCP_ELICITATION_TIMEOUT` (45 seconds; at most 55, and in any
+case five seconds short of the request's own deadline, so the held
+result is still written before the router's 60 second timeout). Keep the
+load balancer's and any proxy's read timeout on `/mcp/` above 60
+seconds, or the proxy cuts the call and the client sees an error instead
+of the held result.
 
 **On a rollout,** a replica told to stop first stops waiting on any such
 question (the call returns held, as it would have without one), takes no

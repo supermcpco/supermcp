@@ -24,6 +24,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -321,20 +322,26 @@ func (e *Endpoint) serveStateful(w http.ResponseWriter, r *http.Request, s *surf
 		writeRPCError(w, http.StatusBadRequest, -32000, "Bad Request: this server keeps sessions; send initialize first and then the "+sessionHeader+" it answers with")
 		return
 	}
-	if err := e.sessions.reserve(); err != nil {
+	if err := e.sessions.reserve(owner, p.OrgID); err != nil {
 		w.Header().Set("Retry-After", "1")
-		writeRPCError(w, http.StatusServiceUnavailable, -32000, err.Error())
+		status := http.StatusServiceUnavailable
+		if errors.Is(err, errCallerFull) || errors.Is(err, errOrgFull) {
+			status = http.StatusTooManyRequests
+		}
+		writeRPCError(w, status, -32000, err.Error())
 		return
 	}
 	var created string
+	// Deferred, so a panic while initialising cannot leave the place
+	// reserved, or the session marked busy, for ever.
+	defer func() { e.sessions.settle(owner, p.OrgID, created) }()
 	hook := &headerHook{ResponseWriter: w, hook: func(h http.Header, code int) {
 		if id := h.Get(sessionHeader); id != "" && code < 300 {
 			created = id
-			e.sessions.add(id, s.server.ID, owner, s.mcp)
+			e.sessions.add(id, s.server.ID, owner, p.OrgID, s.mcp)
 		}
 	}}
 	e.stateful.ServeHTTP(hook, r)
-	e.sessions.settle(created)
 }
 
 // isInitialize reports whether the request's body is an initialise
@@ -696,32 +703,75 @@ func sortedHeaders(h map[string]string) []string {
 // since must not stay callable on it. The system tools pass whether or
 // not the server lists them; they only ever act on the caller's own
 // requests.
+//
+// tools/list is held to the same names: a stateful session answers it from
+// the server assembled when it opened, which may list a tool the caller
+// has since lost, or that a narrower credential on the same session was
+// never allowed. Tools added since are not added; the client sees them
+// once it opens a new session.
 func hiddenToolGuard(assembled map[string]bool) sdk.Middleware {
 	return func(next sdk.MethodHandler) sdk.MethodHandler {
 		return func(ctx context.Context, method string, req sdk.Request) (sdk.Result, error) {
-			if method == "tools/call" {
-				names := assembled
-				if s, _ := ctx.Value(surfaceKey).(*surface); s != nil && s.names != nil {
-					names = s.names
-				}
+			names, followUp := assembled, true
+			if s, _ := ctx.Value(surfaceKey).(*surface); s != nil && s.names != nil {
+				names, followUp = s.names, s.followUp
+			}
+			switch method {
+			case "tools/call":
 				if r, ok := req.(*sdk.CallToolRequest); ok && !names[r.Params.Name] && !isSystemTool(r.Params.Name) {
 					// Deliberately ambiguous: a client must not learn whether a
 					// tool exists in a workspace it cannot see.
 					return nil, &jsonrpc.Error{Code: -32600, Message: "tool not available"}
 				}
+			case "tools/list":
+				res, err := next(ctx, method, req)
+				if list, ok := res.(*sdk.ListToolsResult); ok && err == nil {
+					list.Tools = visibleOnly(list.Tools, names, followUp)
+				}
+				return res, err
 			}
 			return next(ctx, method, req)
 		}
 	}
 }
 
+// visibleOnly drops the tools outside names. It copies only when it drops
+// something, which on a stateless server it never does.
+func visibleOnly(tools []*sdk.Tool, names map[string]bool, followUp bool) []*sdk.Tool {
+	keep := func(t *sdk.Tool) bool {
+		if isSystemTool(t.Name) {
+			return followUp
+		}
+		return names[t.Name]
+	}
+	for i, t := range tools {
+		if keep(t) {
+			continue
+		}
+		out := append(make([]*sdk.Tool, 0, len(tools)-1), tools[:i]...)
+		for _, t := range tools[i+1:] {
+			if keep(t) {
+				out = append(out, t)
+			}
+		}
+		return out
+	}
+	return tools
+}
+
 // bindRequest runs a stateful session's handlers in the request that
 // carried the message. The SDK runs them in the context of the request
 // that opened the session, which would name that request's caller and
-// surface for as long as the session lasts. The values come from the
-// current request; cancellation, and the values the SDK keeps for itself,
-// stay the session's. A stateless request carries no reference and passes
-// through untouched.
+// surface for as long as the session lasts.
+//
+// Once bound, a handler reads every value from the current request, and
+// from the session only the SDK's own (the id that routes what a handler
+// sends back to the right stream); nothing of the opener's leaks through
+// a key the request happens not to carry. It is cancelled when either
+// the session or the request ends, and carries the request's deadline, so
+// the router's timeout and a client that goes away reach the tool call,
+// the data-loss screen and a question waiting on an answer. A stateless
+// request carries no reference and passes through untouched.
 func (e *Endpoint) bindRequest() sdk.Middleware {
 	return func(next sdk.MethodHandler) sdk.MethodHandler {
 		return func(ctx context.Context, method string, req sdk.Request) (sdk.Result, error) {
@@ -737,33 +787,71 @@ func (e *Endpoint) bindRequest() sdk.Middleware {
 			if !ok {
 				// The request has already been answered: the transport
 				// acknowledges a notification before handling it. Nothing
-				// about a notification needs the caller, and the surface of
-				// the request that opened the session is not this one's.
+				// about a notification needs a caller, so it gets none, and
+				// no surface.
 				if strings.HasPrefix(method, "notifications/") {
-					return next(context.WithValue(ctx, surfaceKey, (*surface)(nil)), method, req)
+					none := context.WithValue(authz.WithPrincipal(context.Background(), nil), surfaceKey, (*surface)(nil))
+					return next(boundContext{Context: ctx, values: none}, method, req) //nolint:contextcheck // ctx's cancellation, and no values but the SDK's
 				}
 				return nil, &jsonrpc.Error{Code: -32600, Message: "the request carrying this message has ended"}
 			}
 			reqCtx, _ := v.(context.Context)
-			return next(requestContext{Context: ctx, values: reqCtx}, method, req) //nolint:contextcheck // derived from ctx: its cancellation, the request's values
-
+			bound, cancel := bindTo(ctx, reqCtx)
+			defer cancel()
+			return next(bound, method, req)
 		}
 	}
 }
 
-// requestContext is a session's context with the values of one request
-// laid over it.
-type requestContext struct {
+// bindTo derives the context a handler runs in from the session's and the
+// request's: done when either is, with the request's deadline, and the
+// request's values.
+func bindTo(session, request context.Context) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithCancelCause(session)
+	stop := context.AfterFunc(request, func() { cancel(context.Cause(request)) })
+	done := func() {
+		stop()
+		cancel(context.Canceled)
+	}
+	if deadline, ok := request.Deadline(); ok {
+		var cancelDeadline context.CancelFunc
+		ctx, cancelDeadline = context.WithDeadline(ctx, deadline)
+		first := done
+		done = func() {
+			cancelDeadline()
+			first()
+		}
+	}
+	return boundContext{Context: ctx, values: request}, done
+}
+
+// boundContext is a handler's context once its request is known: the
+// session's cancellation, the request's values, and of the session's
+// values only the SDK's own.
+type boundContext struct {
 	context.Context
 	values context.Context
 }
 
-// Value reads the request first and the session second.
-func (c requestContext) Value(key any) any {
+// Value reads the request, and the session only for a key the SDK owns.
+func (c boundContext) Value(key any) any {
 	if v := c.values.Value(key); v != nil {
 		return v
 	}
-	return c.Context.Value(key)
+	if sdkKey(key) {
+		return c.Context.Value(key)
+	}
+	return nil
+}
+
+// sdkKey reports whether a context key is one of the MCP SDK's own, which
+// it sets on the session's context and nowhere else.
+func sdkKey(key any) bool {
+	t := reflect.TypeOf(key)
+	for t != nil && t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	return t != nil && strings.HasPrefix(t.PkgPath(), "github.com/modelcontextprotocol/go-sdk/")
 }
 
 // recordMethod notes which JSON-RPC method is being served. The status

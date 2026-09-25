@@ -28,8 +28,12 @@ import (
 // session with.
 const sessionHeader = "Mcp-Session-Id"
 
+// Why a new session was refused. The first two are the caller's or the
+// workspace's own limit (429); the last is the replica's (503).
 var (
-	errSessionsFull     = errors.New("this replica holds as many MCP sessions as it may, and all of them are busy")
+	errCallerFull       = errors.New("you hold as many MCP sessions on this replica as one caller may, and all of them are busy")
+	errOrgFull          = errors.New("this workspace holds as many MCP sessions on this replica as it may, and all of them are busy")
+	errSessionsFull     = errors.New("this replica holds as many MCP sessions as it may, and none it could close is idle")
 	errSessionsDraining = errors.New("this replica is shutting down")
 )
 
@@ -38,87 +42,125 @@ type SessionOptions struct {
 	// Max is how many sessions the endpoint holds at once. Zero means
 	// 5000.
 	Max int
+	// PerCaller is how many one caller (one credential) may hold. Zero
+	// means 16.
+	PerCaller int
+	// PerOrg is how many one workspace may hold. Zero means Max/10, and at
+	// least one.
+	PerOrg int
 	// Idle is how long a session may go without a request. Zero means 15
 	// minutes.
 	Idle time.Duration
+	// MaxAge is how long a session may last however busy it is. Zero
+	// means 12 hours.
+	MaxAge time.Duration
 }
 
 type sessionEntry struct {
 	id       string
 	serverID string
 	owner    string
+	org      string
 	// srv is the assembled server the session was connected to; the SDK
 	// session is found through it when the table has to close one.
 	srv      *sdk.Server
+	created  time.Time
 	lastSeen time.Time
 	// inflight counts the requests on this session that have not yet
-	// returned. A session with one is never idle.
+	// returned. A session with one is never idle, and never closed to
+	// make room.
 	inflight int
 }
 
 // sessionTable is the bookkeeping for stateful sessions.
 //
 // It runs no goroutine of its own while it is empty. The first session
-// arms a timer; each sweep closes what has been idle too long and rearms
-// the timer while anything is left. close stops it.
+// arms a timer; each sweep closes what has been idle or open too long and
+// rearms the timer while anything is left. close stops it.
+//
+// Room is made fairly. A caller at its own limit can only displace its
+// own sessions, and a workspace at its limit only its own; when the
+// replica as a whole is full, only a caller or a workspace holding more
+// than its share of the table loses a session. So one tenant filling the
+// table closes its own sessions, not everybody else's, and a tenant whose
+// sessions are all busy is refused rather than making room elsewhere.
 type sessionTable struct {
-	max     int
-	idle    time.Duration
-	metrics *telemetry.Metrics
-	log     *slog.Logger
-	now     func() time.Time
+	max, perCaller, perOrg int
+	idle, maxAge           time.Duration
+	metrics                *telemetry.Metrics
+	log                    *slog.Logger
+	now                    func() time.Time
 
-	mu       sync.Mutex
-	byID     map[string]*sessionEntry
-	reserved int
-	closed   bool
-	timer    *time.Timer
+	mu   sync.Mutex
+	byID map[string]*sessionEntry
+	// held counts sessions and reservations per owner and per workspace.
+	byOwner, byOrg map[string]int
+	reserved       int
+	closed         bool
+	timer          *time.Timer
 }
 
 func newSessionTable(o SessionOptions, m *telemetry.Metrics, log *slog.Logger) *sessionTable {
 	if o.Max <= 0 {
 		o.Max = 5000
 	}
+	if o.PerCaller <= 0 {
+		o.PerCaller = 16
+	}
+	if o.PerOrg <= 0 {
+		o.PerOrg = max(o.Max/10, 1)
+	}
 	if o.Idle <= 0 {
 		o.Idle = 15 * time.Minute
+	}
+	if o.MaxAge <= 0 {
+		o.MaxAge = 12 * time.Hour
 	}
 	if log == nil {
 		log = slog.New(slog.DiscardHandler)
 	}
-	return &sessionTable{max: o.Max, idle: o.Idle, metrics: m, log: log, now: time.Now, byID: map[string]*sessionEntry{}}
+	return &sessionTable{max: o.Max, perCaller: o.PerCaller, perOrg: o.PerOrg, idle: o.Idle, maxAge: o.MaxAge,
+		metrics: m, log: log, now: time.Now,
+		byID: map[string]*sessionEntry{}, byOwner: map[string]int{}, byOrg: map[string]int{}}
 }
 
-// ownerOf names the caller a session belongs to. It is who is calling,
-// not how: the same person on a refreshed token keeps their session, and
-// the permission check on every call reads the credential of that call.
+// ownerOf names who a session belongs to: the person or account, and the
+// credential they called with. An API key is itself; an OAuth access
+// token is its client, which survives the token being refreshed but not
+// another client of the same person picking the session up. A browser
+// session or anything else is its authentication method.
 func ownerOf(p *authz.Principal) string {
-	return string(p.Kind) + "\x00" + p.ID + "\x00" + p.OrgID
+	cred := "method:" + p.AuthMethod
+	switch {
+	case p.APIKeyID != "":
+		cred = "key:" + p.APIKeyID
+	case p.ClientID != "":
+		cred = "client:" + p.ClientID
+	}
+	return string(p.Kind) + "\x00" + p.ID + "\x00" + p.OrgID + "\x00" + cred
 }
 
-// reserve holds a place for a session about to be initialised. When the
-// table is full it closes the session idle longest to make room; when
-// every session is busy it refuses. The caller settles the reservation
-// once the initialise request has returned.
-func (t *sessionTable) reserve() error {
+// reserve holds a place for a session about to be initialised by owner in
+// org, closing one of the sessions the rules above allow to make room.
+// The caller settles the reservation once the initialise request has
+// returned.
+func (t *sessionTable) reserve(owner, org string) error {
 	t.mu.Lock()
 	if t.closed {
 		t.mu.Unlock()
 		return errSessionsDraining
 	}
-	var victim *sessionEntry
-	if len(t.byID)+t.reserved >= t.max {
-		for _, e := range t.byID {
-			if e.inflight == 0 && (victim == nil || e.lastSeen.Before(victim.lastSeen)) {
-				victim = e
-			}
-		}
-		if victim == nil {
-			t.mu.Unlock()
-			return errSessionsFull
-		}
-		delete(t.byID, victim.id)
+	victim, err := t.room(owner, org)
+	if err != nil {
+		t.mu.Unlock()
+		return err
+	}
+	if victim != nil {
+		t.remove(victim)
 	}
 	t.reserved++
+	t.byOwner[owner]++
+	t.byOrg[org]++
 	n := len(t.byID)
 	t.mu.Unlock()
 	t.metrics.SetMCPSessions(n)
@@ -129,11 +171,74 @@ func (t *sessionTable) reserve() error {
 	return nil
 }
 
+// room picks the session to close so that owner may open one, or says
+// why none may be. Called with t.mu held.
+func (t *sessionTable) room(owner, org string) (*sessionEntry, error) {
+	oldest := func(ok func(e *sessionEntry) bool) *sessionEntry {
+		var v *sessionEntry
+		for _, e := range t.byID {
+			if e.inflight == 0 && ok(e) && (v == nil || e.lastSeen.Before(v.lastSeen)) {
+				v = e
+			}
+		}
+		return v
+	}
+	switch {
+	case t.byOwner[owner] >= t.perCaller:
+		if v := oldest(func(e *sessionEntry) bool { return e.owner == owner }); v != nil {
+			return v, nil
+		}
+		return nil, errCallerFull
+	case t.byOrg[org] >= t.perOrg:
+		if v := oldest(func(e *sessionEntry) bool { return e.org == org }); v != nil {
+			return v, nil
+		}
+		return nil, errOrgFull
+	case len(t.byID)+t.reserved >= t.max:
+		// A share is the table divided among those holding a place in it,
+		// the newcomer included.
+		owners, orgs := len(t.byOwner), len(t.byOrg)
+		if t.byOwner[owner] == 0 {
+			owners++
+		}
+		if t.byOrg[org] == 0 {
+			orgs++
+		}
+		ownerShare, orgShare := t.max/owners, t.max/orgs
+		if v := oldest(func(e *sessionEntry) bool {
+			// A caller may always give up one of its own; anyone else's
+			// only if they hold more than their share.
+			return e.owner == owner || t.byOwner[e.owner] > ownerShare || t.byOrg[e.org] > orgShare
+		}); v != nil {
+			return v, nil
+		}
+		return nil, errSessionsFull
+	}
+	return nil, nil
+}
+
+// remove takes a session out of the table. Called with t.mu held.
+func (t *sessionTable) remove(e *sessionEntry) {
+	delete(t.byID, e.id)
+	t.release(e.owner, e.org)
+}
+
+// release gives back one place held by owner in org. Called with t.mu held.
+func (t *sessionTable) release(owner, org string) {
+	if t.byOwner[owner]--; t.byOwner[owner] <= 0 {
+		delete(t.byOwner, owner)
+	}
+	if t.byOrg[org]--; t.byOrg[org] <= 0 {
+		delete(t.byOrg, org)
+	}
+}
+
 // add records a session the SDK has just created, with its initialise
 // request still in flight. It is called when the response headers carry
 // the new id, before the client can have read them, so the client's next
-// request always finds the session here.
-func (t *sessionTable) add(id, serverID, owner string, srv *sdk.Server) {
+// request always finds the session here. The reservation's place becomes
+// the session's.
+func (t *sessionTable) add(id, serverID, owner, org string, srv *sdk.Server) {
 	t.mu.Lock()
 	if t.closed {
 		t.mu.Unlock()
@@ -142,7 +247,12 @@ func (t *sessionTable) add(id, serverID, owner string, srv *sdk.Server) {
 		closeSession(&sessionEntry{id: id, srv: srv})
 		return
 	}
-	t.byID[id] = &sessionEntry{id: id, serverID: serverID, owner: owner, srv: srv, lastSeen: t.now(), inflight: 1}
+	now := t.now()
+	t.byID[id] = &sessionEntry{id: id, serverID: serverID, owner: owner, org: org, srv: srv,
+		created: now, lastSeen: now, inflight: 1}
+	// The place is the session's now, not the reservation's.
+	t.byOwner[owner]++
+	t.byOrg[org]++
 	if t.timer == nil {
 		t.timer = time.AfterFunc(t.sweepEvery(), t.sweep)
 	}
@@ -153,9 +263,10 @@ func (t *sessionTable) add(id, serverID, owner string, srv *sdk.Server) {
 
 // settle ends a reservation. id is the session it became, or empty when
 // the initialise request did not create one.
-func (t *sessionTable) settle(id string) {
+func (t *sessionTable) settle(owner, org, id string) {
 	t.mu.Lock()
 	t.reserved--
+	t.release(owner, org)
 	t.mu.Unlock()
 	if id != "" {
 		t.end(id)
@@ -163,17 +274,36 @@ func (t *sessionTable) settle(id string) {
 }
 
 // begin marks a request on an existing session. It reports false for a
-// session this table does not hold for this server and this caller, which
-// the endpoint answers as unknown: 404, and the client initialises again.
+// session this table does not hold for this server and this caller, and
+// for one past its maximum age, which it closes; the endpoint answers
+// both as unknown: 404, and the client initialises again.
 func (t *sessionTable) begin(id, serverID, owner string) bool {
 	t.mu.Lock()
-	defer t.mu.Unlock()
 	e := t.byID[id]
 	if e == nil || e.serverID != serverID || e.owner != owner {
+		t.mu.Unlock()
+		return false
+	}
+	now := t.now()
+	if now.Sub(e.created) >= t.maxAge {
+		expired := e.inflight == 0
+		if expired {
+			t.remove(e)
+		}
+		n := len(t.byID)
+		t.mu.Unlock()
+		// A request still running keeps the session until it returns; the
+		// sweep closes it then. This one is refused either way.
+		if expired {
+			t.metrics.SetMCPSessions(n)
+			closeSession(e)
+			t.metrics.ObserveMCPSessionClosed(telemetry.SessionClosedExpired)
+		}
 		return false
 	}
 	e.inflight++
-	e.lastSeen = t.now()
+	e.lastSeen = now
+	t.mu.Unlock()
 	return true
 }
 
@@ -190,8 +320,10 @@ func (t *sessionTable) end(id string) {
 // forget drops a session the SDK has already closed.
 func (t *sessionTable) forget(id, reason string) {
 	t.mu.Lock()
-	_, ok := t.byID[id]
-	delete(t.byID, id)
+	e, ok := t.byID[id]
+	if ok {
+		t.remove(e)
+	}
 	n := len(t.byID)
 	t.mu.Unlock()
 	if ok {
@@ -214,8 +346,8 @@ func (t *sessionTable) sweepEvery() time.Duration {
 	return min(t.idle/4, time.Minute)
 }
 
-// sweep closes the sessions idle past the limit and forgets the ones the
-// SDK has already closed. It runs on the timer's goroutine and rearms the
+// sweep closes the sessions idle past the limit or open past the maximum
+// age, and forgets the ones the SDK has already closed. It runs on the timer's goroutine and rearms the
 // timer while there is anything left to watch.
 func (t *sessionTable) sweep() {
 	defer func() {
@@ -242,15 +374,18 @@ func (t *sessionTable) sweep() {
 			live[e.srv] = ids
 		}
 	}
-	var idle []*sessionEntry
+	var idle, expired []*sessionEntry
 	gone := 0
 	for id, e := range t.byID {
 		switch {
 		case !live[e.srv][id]:
-			delete(t.byID, id)
+			t.remove(e)
 			gone++
+		case e.inflight == 0 && now.Sub(e.created) >= t.maxAge:
+			t.remove(e)
+			expired = append(expired, e)
 		case e.inflight == 0 && now.Sub(e.lastSeen) >= t.idle:
-			delete(t.byID, id)
+			t.remove(e)
 			idle = append(idle, e)
 		}
 	}
@@ -266,6 +401,10 @@ func (t *sessionTable) sweep() {
 	for _, e := range idle {
 		closeSession(e)
 		t.metrics.ObserveMCPSessionClosed(telemetry.SessionClosedIdle)
+	}
+	for _, e := range expired {
+		closeSession(e)
+		t.metrics.ObserveMCPSessionClosed(telemetry.SessionClosedExpired)
 	}
 	for range gone {
 		t.metrics.ObserveMCPSessionClosed(telemetry.SessionClosedGone)
@@ -286,6 +425,7 @@ func (t *sessionTable) close() int {
 		all = append(all, e)
 	}
 	t.byID = map[string]*sessionEntry{}
+	t.byOwner, t.byOrg = map[string]int{}, map[string]int{}
 	t.mu.Unlock()
 
 	t.metrics.SetMCPSessions(0)

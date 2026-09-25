@@ -209,9 +209,12 @@ previous release neither read nor write the column.
 Nothing changes until someone sets a server to stateful. Before doing so
 with more than one replica, set up sticky routing (docs/operations.md,
 "Stateful MCP sessions"); the chart's values carry commented examples
-under `service` and `ingress.annotations`. Two settings bound the
-sessions a replica keeps, `SUPERMCP_MCP_MAX_SESSIONS` (5000) and
-`SUPERMCP_MCP_SESSION_IDLE` (15m); an invalid value fails the boot. New
+under `service` and `ingress.annotations`. Five settings bound the
+sessions a replica keeps: `SUPERMCP_MCP_MAX_SESSIONS` (5000),
+`SUPERMCP_MCP_MAX_SESSIONS_PER_CALLER` (16),
+`SUPERMCP_MCP_MAX_SESSIONS_PER_ORG` (a tenth of the maximum),
+`SUPERMCP_MCP_SESSION_IDLE` (15m) and `SUPERMCP_MCP_SESSION_MAX_AGE`
+(12h); an invalid value fails the boot. New
 series: `supermcp_mcp_sessions` and
 `supermcp_mcp_sessions_closed_total{reason}`.
 
@@ -222,9 +225,19 @@ only. On a stateful server whose client can be asked, a call held for
 approval asks the person behind the client to confirm it; their answer
 is recorded there, or withdraws the request. It never approves. A pod of
 the previous release reads approval requests without the new columns and
-never asks. One more setting, `SUPERMCP_MCP_ELICITATION_TIMEOUT` (60s),
-bounds the wait; a proxy in front of `/mcp/` needs a read timeout above
-it.
+never asks. One more setting, `SUPERMCP_MCP_ELICITATION_TIMEOUT` (45s,
+at most 55s), bounds the wait; a proxy in front of `/mcp/` needs a read
+timeout above the router's 60 seconds.
+
+A reason given when withdrawing a request, over the API or from a
+client, is now stored with control and format characters removed and
+anything the data-loss detectors recognise masked, as the confirmation
+note is.
+
+Tool names starting `supermcp_` are refused on create, rename and import
+(`tool-name-reserved`). An installed tool already named that way keeps
+working until it is next edited, but is shadowed on the MCP endpoint if
+its name is one of the two below.
 
 The server object in the API gains `sessions`, and
 `PATCH /api/v1/servers/{id}` accepts it. Approval requests gain

@@ -103,11 +103,14 @@ const (
 
 // Principal is the authenticated caller, set in the request context.
 type Principal struct {
-	Kind       PrincipalKind
-	ID         string // user or service account id
-	OrgID      string
-	SessionID  string
-	APIKeyID   string
+	Kind      PrincipalKind
+	ID        string // user or service account id
+	OrgID     string
+	SessionID string
+	APIKeyID  string
+	// ClientID is the OAuth client an access token was issued to; empty
+	// for every other kind of credential.
+	ClientID   string
 	ServerID   string   // audience-bound server for MCP tokens/keys; "" = org-wide
 	Scopes     []string // MCP tokens and API keys only
 	MFA        bool

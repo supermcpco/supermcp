@@ -203,7 +203,7 @@ tools:
 
 | Field | Meaning |
 |---|---|
-| `name` | Lower-case snake_case, unique within the adapter. It *should* start with the slug with hyphens replaced by underscores (`nominatim_`); not doing so is a warning, because tool names collide across a catalogue of thousands. `supermcp_approval_status` and `supermcp_approval_cancel` are the instance's own tools, present on every server (docs/api.md, "Following up a held call"); an adapter tool with either name is never called. |
+| `name` | Lower-case snake_case, unique within the adapter. It *should* start with the slug with hyphens replaced by underscores (`nominatim_`); not doing so is a warning, because tool names collide across a catalogue of thousands. Names starting `supermcp_` are reserved for the instance's own tools, such as `supermcp_approval_status` (docs/api.md, "Following up a held call"), and refused (`tool-name-reserved`), on import and on every create or rename. |
 | `description` | What the model reads to decide whether to call it. Fewer than 60 characters is a warning. |
 | `input` | A JSON Schema object. Required. |
 | `output` | A JSON Schema object. When present, the result is also returned as MCP structured content. |
@@ -437,6 +437,7 @@ fail. Warnings fail only under `--strict`, which is what CI runs.
 | `healthcheck-empty`, `healthcheck-tool` | error | A healthcheck that names a tool that does not exist never runs. |
 | `healthcheck-present` | warning | Without one there is no cheap way to tell whether a connector's credentials still work. |
 | `tools-empty`, `tool-name-format`, `tool-name-unique` | error | Tool names are the model's whole vocabulary. |
+| `tool-name-reserved` | error | Names starting `supermcp_` belong to the tools the instance adds to every server, which would shadow an adapter tool of the same name. |
 | `tool-name-prefix` | warning | Unprefixed names collide across the catalogue. |
 | `tool-name-unique-catalog` | warning | Sandbox and production variants of one API share names deliberately, and a server never mounts both. |
 | `description-min-60` | warning | A model choosing between forty tools has only the descriptions. |
