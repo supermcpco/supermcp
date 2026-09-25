@@ -163,6 +163,10 @@ function changedFields(diff: { before?: Record<string, unknown>; after?: Record<
     "credentials",
     "holders",
     "builtIn",
+    // A custom detector's: who saved it last is the revision's own
+    // author, and its policy name follows from its name.
+    "updatedBy",
+    "detector",
   ]);
   return [...new Set([...Object.keys(diff.before ?? {}), ...Object.keys(diff.after ?? {})])].filter(
     (field) => !internal.has(field),
@@ -179,6 +183,11 @@ function fieldLabel(field: string): string {
     connectorIds: "Connectors it offers",
     definition: "What the tool expects",
     description: "Description",
+    detectors: "Detectors it runs",
+    flags: "Case (i ignores it)",
+    mustMatch: "Samples it must match",
+    mustNotMatch: "Samples it must not match",
+    pattern: "Pattern",
     enabled: "Offered to clients",
     instructions: "Instructions",
     name: "Name",
