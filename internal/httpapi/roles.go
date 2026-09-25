@@ -217,7 +217,7 @@ func (d Deps) roleRoutes(api huma.API) {
 		Path: "/api/v1/roles", Summary: "Create a role of your own",
 		Tags: []string{"roles"}, Security: sessionSecurity, DefaultStatus: http.StatusCreated},
 		func(ctx context.Context, in *createRoleInput) (*roleOutput, error) {
-			p, err := d.require(ctx, authz.RolesManage, authz.Resource{})
+			p, err := d.requireFresh(ctx, authz.RolesManage, authz.Resource{})
 			if err != nil {
 				return nil, err
 			}
@@ -235,7 +235,7 @@ func (d Deps) roleRoutes(api huma.API) {
 		Path: "/api/v1/roles/{id}", Summary: "Change what a role allows",
 		Tags: []string{"roles"}, Security: sessionSecurity},
 		func(ctx context.Context, in *updateRoleInput) (*roleOutput, error) {
-			p, err := d.require(ctx, authz.RolesManage, authz.Resource{})
+			p, err := d.requireFresh(ctx, authz.RolesManage, authz.Resource{})
 			if err != nil {
 				return nil, err
 			}
@@ -255,7 +255,7 @@ func (d Deps) roleRoutes(api huma.API) {
 		func(ctx context.Context, in *struct {
 			ID string `path:"id"`
 		}) (*struct{}, error) {
-			p, err := d.require(ctx, authz.RolesManage, authz.Resource{})
+			p, err := d.requireFresh(ctx, authz.RolesManage, authz.Resource{})
 			if err != nil {
 				return nil, err
 			}
@@ -307,7 +307,7 @@ func (d Deps) roleRoutes(api huma.API) {
 		Path: "/api/v1/roles/{id}/bindings", Summary: "Give someone a role",
 		Tags: []string{"roles"}, Security: sessionSecurity, DefaultStatus: http.StatusCreated},
 		func(ctx context.Context, in *createBindingInput) (*bindingOutput, error) {
-			p, err := d.require(ctx, authz.RolesManage, authz.Resource{})
+			p, err := d.requireFresh(ctx, authz.RolesManage, authz.Resource{})
 			if err != nil {
 				return nil, err
 			}
@@ -328,7 +328,7 @@ func (d Deps) roleRoutes(api huma.API) {
 		Path: "/api/v1/roles/{id}/bindings/{bindingId}", Summary: "Take a role away from someone",
 		Tags: []string{"roles"}, Security: sessionSecurity, DefaultStatus: http.StatusNoContent},
 		func(ctx context.Context, in *deleteBindingInput) (*struct{}, error) {
-			p, err := d.require(ctx, authz.RolesManage, authz.Resource{})
+			p, err := d.requireFresh(ctx, authz.RolesManage, authz.Resource{})
 			if err != nil {
 				return nil, err
 			}

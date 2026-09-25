@@ -144,6 +144,7 @@ func New(d Deps) (http.Handler, huma.API) {
 	d.keyRoutes(api)
 	d.invocationRoutes(api)
 	d.securityRoutes(api)
+	d.reauthRoutes(api)
 	d.ssoRoutes(api)
 	d.auditRoutes(api)
 	d.revisionRoutes(api)

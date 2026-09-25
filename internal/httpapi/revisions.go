@@ -324,6 +324,10 @@ func (d Deps) roleRestoreRoute(api huma.API) {
 			if err != nil {
 				return nil, err
 			}
+			// Restoring a role changes what it allows, like an edit does.
+			if err := d.checkFresh(ctx, p, authz.RolesManage, authz.Resource{}); err != nil {
+				return nil, err
+			}
 			role, before, err := d.updateRole(ctx, p, in.ID, roleWriteBody{
 				Name:        *snapString(snapshot, "name"),
 				Description: *snapString(snapshot, "description"),

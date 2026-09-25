@@ -31,6 +31,16 @@ func (d Deps) securityRoutes(api huma.API) {
 			if !ok || p.AuthMethod != "session" {
 				return nil, huma.Error401Unauthorized("sign in again to change your password")
 			}
+			// A password session proves itself here with the current
+			// password. A single sign-on session has nothing to prove it
+			// with, and the account may have no password at all, so
+			// setting one from a stale session would hand whoever holds
+			// the cookie a way in that outlives it.
+			if p.SignIn.Method != "password" {
+				if err := d.checkFresh(ctx, p, "", authz.Resource{OrgID: p.OrgID}); err != nil {
+					return nil, err
+				}
+			}
 			if err := d.Identity.ChangePassword(ctx, p.ID, p.OrgID, in.Body.CurrentPassword, in.Body.NewPassword); err != nil {
 				d.emit(ctx, audit.Event{Category: audit.CategoryAuth, Action: "password.change",
 					Outcome: audit.Failure, Meta: map[string]any{"reason": err.Error()}})
@@ -69,7 +79,7 @@ func (d Deps) securityRoutes(api huma.API) {
 		Path: "/api/v1/org/password-policy", Summary: "Set the organisation's password policy",
 		Tags: []string{"identity"}, Security: sessionSecurity},
 		func(ctx context.Context, in *struct{ Body identity.PasswordPolicy }) (*struct{ Body identity.PasswordPolicy }, error) {
-			p, err := d.require(ctx, authz.OrgSettingsManage, authz.Resource{})
+			p, err := d.requireFresh(ctx, authz.OrgSettingsManage, authz.Resource{})
 			if err != nil {
 				return nil, err
 			}
@@ -184,7 +194,7 @@ func (d Deps) serviceAccountRoutes(api huma.API) {
 		func(ctx context.Context, in *struct{ Body serviceAccountInput }) (*struct {
 			Body identity.ServiceAccount
 		}, error) {
-			p, err := d.require(ctx, authz.ServiceAccounts, authz.Resource{})
+			p, err := d.requireFresh(ctx, authz.ServiceAccounts, authz.Resource{})
 			if err != nil {
 				return nil, err
 			}
@@ -211,7 +221,7 @@ func (d Deps) serviceAccountRoutes(api huma.API) {
 				Secret string `json:"secret"`
 			}
 		}, error) {
-			p, err := d.require(ctx, authz.ServiceAccounts, authz.Resource{})
+			p, err := d.requireFresh(ctx, authz.ServiceAccounts, authz.Resource{})
 			if err != nil {
 				return nil, err
 			}
@@ -244,7 +254,7 @@ func (d Deps) serviceAccountRoutes(api huma.API) {
 				Disabled bool `json:"disabled"`
 			}
 		}, error) {
-			p, err := d.require(ctx, authz.ServiceAccounts, authz.Resource{})
+			p, err := d.requireFresh(ctx, authz.ServiceAccounts, authz.Resource{})
 			if err != nil {
 				return nil, err
 			}
@@ -269,7 +279,7 @@ func (d Deps) serviceAccountRoutes(api huma.API) {
 		func(ctx context.Context, in *struct {
 			ID string `path:"id"`
 		}) (*struct{}, error) {
-			p, err := d.require(ctx, authz.ServiceAccounts, authz.Resource{})
+			p, err := d.requireFresh(ctx, authz.ServiceAccounts, authz.Resource{})
 			if err != nil {
 				return nil, err
 			}

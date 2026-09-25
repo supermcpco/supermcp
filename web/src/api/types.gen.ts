@@ -1159,6 +1159,29 @@ export type ProbeIdpRequest = {
     issuer: string;
 };
 
+export type ReauthOutputBody = {
+    /**
+     * A URL to the JSON Schema for this object.
+     */
+    readonly $schema?: string;
+    /**
+     * When this session last proved who is using it
+     */
+    authenticatedAt: string;
+    /**
+     * Until when sensitive operations are allowed without signing in again
+     */
+    freshUntil: string;
+};
+
+export type ReauthenticateRequest = {
+    /**
+     * A URL to the JSON Schema for this object.
+     */
+    readonly $schema?: string;
+    password: string;
+};
+
 export type Record = {
     action: string;
     actorDisplay?: string;
@@ -1576,6 +1599,7 @@ export type SessionBody = {
     passwordExpired?: boolean;
     permissions?: Array<string> | null;
     registrationOpen?: boolean;
+    signIn?: SignInDto;
     user?: UserDto;
 };
 
@@ -1603,6 +1627,33 @@ export type SetServiceAccountDisabledResponse = {
      */
     readonly $schema?: string;
     disabled: boolean;
+};
+
+export type SignInDto = {
+    /**
+     * When the session last proved who is using it
+     */
+    authenticatedAt: string;
+    /**
+     * Until when sensitive operations are allowed without signing in again
+     */
+    freshUntil: string;
+    /**
+     * How the session signed in
+     */
+    method: 'password' | 'sso' | 'saml';
+    /**
+     * The single sign-on provider, for sso and saml
+     */
+    providerId?: string;
+    /**
+     * The provider's name, to put on the button that signs in again
+     */
+    providerName?: string;
+    /**
+     * Where to send the browser to sign in again through the provider; append &next= to come back. Empty for a password session, which confirms its password with POST /api/v1/auth/reauth.
+     */
+    reauthUrl?: string;
 };
 
 export type SignInOption = {
@@ -2580,6 +2631,21 @@ export type ProbeIdpRequestWritable = {
     issuer: string;
 };
 
+export type ReauthOutputBodyWritable = {
+    /**
+     * When this session last proved who is using it
+     */
+    authenticatedAt: string;
+    /**
+     * Until when sensitive operations are allowed without signing in again
+     */
+    freshUntil: string;
+};
+
+export type ReauthenticateRequestWritable = {
+    password: string;
+};
+
 export type RegisterInputBodyWritable = {
     email: string;
     name?: string;
@@ -2836,6 +2902,7 @@ export type SessionBodyWritable = {
     passwordExpired?: boolean;
     permissions?: Array<string> | null;
     registrationOpen?: boolean;
+    signIn?: SignInDto;
     user?: UserDto;
 };
 
@@ -3795,6 +3862,31 @@ export type ChangePasswordResponses = {
 };
 
 export type ChangePasswordResponse2 = ChangePasswordResponses[keyof ChangePasswordResponses];
+
+export type ReauthenticateData = {
+    body: ReauthenticateRequestWritable;
+    path?: never;
+    query?: never;
+    url: '/api/v1/auth/reauth';
+};
+
+export type ReauthenticateErrors = {
+    /**
+     * Error
+     */
+    default: ErrorModel;
+};
+
+export type ReauthenticateError = ReauthenticateErrors[keyof ReauthenticateErrors];
+
+export type ReauthenticateResponses = {
+    /**
+     * OK
+     */
+    200: ReauthOutputBody;
+};
+
+export type ReauthenticateResponse = ReauthenticateResponses[keyof ReauthenticateResponses];
 
 export type RegisterData = {
     body: RegisterInputBodyWritable;

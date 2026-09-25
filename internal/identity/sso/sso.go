@@ -370,7 +370,11 @@ func (s *Service) load(ctx context.Context, id string) (*Provider, error) {
 // --- sign-in ---------------------------------------------------------------
 
 // Begin starts a sign-in and returns the URL to send the browser to.
-func (s *Service) Begin(ctx context.Context, idpID, redirectAfter, binding string) (string, error) {
+// forceLogin asks the provider to authenticate the person again rather
+// than answer from a sign-in it already holds, which is what a
+// re-authentication is for (prompt=login; a provider that does not know
+// the parameter ignores it).
+func (s *Service) Begin(ctx context.Context, idpID, redirectAfter, binding string, forceLogin bool) (string, error) {
 	p, err := s.load(ctx, idpID)
 	if err != nil {
 		return "", err
@@ -403,6 +407,9 @@ func (s *Service) Begin(ctx context.Context, idpID, redirectAfter, binding strin
 		// PKCE is not required of a confidential client, and is free to add.
 		q.Set("code_challenge", base64.RawURLEncoding.EncodeToString(challenge[:]))
 		q.Set("code_challenge_method", "S256")
+	}
+	if forceLogin {
+		q.Set("prompt", "login")
 	}
 	sep := "?"
 	if strings.Contains(p.AuthorizationEndpoint, "?") {

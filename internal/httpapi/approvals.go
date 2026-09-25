@@ -247,7 +247,7 @@ func (d Deps) approvalPolicyRoutes(api huma.API) {
 		Path: "/api/v1/approval-policies", Summary: "Add a rule", Tags: []string{"approvals"},
 		Security: sessionSecurity, DefaultStatus: http.StatusCreated},
 		func(ctx context.Context, in *approvalPolicyCreateInput) (*approvalPolicyOutput, error) {
-			p, err := d.require(ctx, authz.OrgSettingsManage, authz.Resource{})
+			p, err := d.requireFresh(ctx, authz.OrgSettingsManage, authz.Resource{})
 			if err != nil {
 				return nil, err
 			}
@@ -270,7 +270,7 @@ func (d Deps) approvalPolicyRoutes(api huma.API) {
 		Path: "/api/v1/approval-policies/{id}", Summary: "Replace a rule", Tags: []string{"approvals"},
 		Security: sessionSecurity},
 		func(ctx context.Context, in *approvalPolicyUpdateInput) (*approvalPolicyOutput, error) {
-			p, err := d.require(ctx, authz.OrgSettingsManage, authz.Resource{})
+			p, err := d.requireFresh(ctx, authz.OrgSettingsManage, authz.Resource{})
 			if err != nil {
 				return nil, err
 			}
@@ -295,7 +295,7 @@ func (d Deps) approvalPolicyRoutes(api huma.API) {
 		Path: "/api/v1/approval-policies/{id}", Summary: "Remove a rule", Tags: []string{"approvals"},
 		Security: sessionSecurity, DefaultStatus: http.StatusNoContent},
 		func(ctx context.Context, in *approvalIDInput) (*struct{}, error) {
-			p, err := d.require(ctx, authz.OrgSettingsManage, authz.Resource{})
+			p, err := d.requireFresh(ctx, authz.OrgSettingsManage, authz.Resource{})
 			if err != nil {
 				return nil, err
 			}

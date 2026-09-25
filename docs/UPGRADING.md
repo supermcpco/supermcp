@@ -41,7 +41,65 @@ revoked role or a changed data-loss policy apply on every replica at
 once; see "Access changes reach every replica at once" below. Migration
 00021 adds invites; see "Colleagues can be invited" below. Migration 00022
 adds an index to `audit_events`; see "The audit export reads by workspace
-and sequence" below.
+and sequence" below. Migration 00024 records when a session last signed
+in; see "Sensitive actions ask for a recent sign-in" below.
+
+### Sensitive actions ask for a recent sign-in
+
+A browser session now has to have signed in, or confirmed its password,
+within the last five minutes to create, rotate or revoke credentials, to
+change roles or who holds them, or to change the security, single
+sign-on, data-loss, approval and audit settings. An older session gets
+`403` with the code `reauth_required`. The interface asks for the
+password, or sends a single sign-on user back through their provider,
+and then repeats the action. `docs/api.md` ("Recent sign-in") lists the
+operations.
+
+API keys, OAuth access tokens and service accounts are not affected:
+nobody signs them in, so there is nobody to ask.
+
+What it needs from you:
+
+- **Nothing for migration 00024 in most cases.** It adds two columns to
+  `sessions`: `authenticated_at` (not null, default `now()`) and
+  `auth_provider_id` (nullable). It also adds three functions. Adding the
+  columns changes only the catalogue: the default is stored once, not
+  written into every row. The migration then sets `authenticated_at` to
+  `created_at` for existing sessions. That update takes row locks, not a
+  table lock, and runs outside a transaction so that sign-ins continue.
+  On a table with many sessions, a request touching a session row can
+  wait for the update to finish, usually under a second. If the migration
+  is interrupted, run `supermcp migrate` again; every statement can be
+  repeated safely.
+- **Rollout order does not matter.** An older replica still running
+  during the roll ignores the new columns, and the default fills them for
+  the sessions it creates.
+- **Sessions that exist at upgrade time count as old.** They signed in
+  when they were created, so the first sensitive action after the upgrade
+  asks the person to confirm who they are. Nobody is signed out.
+- **A new setting, `SUPERMCP_AUTH_FRESH_WINDOW`** (default `5m`, allowed
+  `1m` to `24h`). Like the session lifetimes, it applies to the whole
+  instance by design. A value that does not parse, or is outside that
+  range, stops the server from starting.
+- **Scripts that drive the API with a session cookie** and do these
+  operations need to call `POST /api/v1/auth/reauth` first if the session
+  is older than the window. Such scripts would be better off with an API
+  key.
+- **Single sign-on re-authentication asks the provider to sign the
+  person in again** (`prompt=login` for OpenID Connect, `ForceAuthn` for
+  SAML). A provider that ignores these parameters may answer from its own
+  session without asking. This is the case for GitHub, which does not
+  support `prompt=login`.
+- **The re-authentication endpoint uses the sign-in lockout and rate
+  limit.** Wrong passwords count against the same `login_lockouts`
+  counters as the sign-in form, and requests draw on the
+  `SUPERMCP_RATELIMIT_SIGNIN` budget.
+
+New audit actions: `session.reauth` (success and failure). A refusal is
+recorded as `access.denied` with `meta.reason = "reauth_required"`. A
+single sign-on re-authentication is recorded as `session.create` with
+`meta.reauth = true`, and the session it replaces is ended with the
+reason `replaced by re-authentication`.
 
 ### Colleagues can be invited
 

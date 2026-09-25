@@ -158,7 +158,7 @@ func (d Deps) dlpRoutes(api huma.API) {
 		Path: "/api/v1/dlp/policies", Summary: "Add a data-loss prevention policy",
 		Tags: []string{"dlp"}, Security: sessionSecurity, DefaultStatus: http.StatusCreated},
 		func(ctx context.Context, in *dlpPolicyCreateInput) (*dlpPolicyOutput, error) {
-			p, err := d.require(ctx, authz.DLPManage, authz.Resource{})
+			p, err := d.requireFresh(ctx, authz.DLPManage, authz.Resource{})
 			if err != nil {
 				return nil, err
 			}
@@ -180,7 +180,7 @@ func (d Deps) dlpRoutes(api huma.API) {
 		Path: "/api/v1/dlp/policies/{id}", Summary: "Change a data-loss prevention policy",
 		Tags: []string{"dlp"}, Security: sessionSecurity},
 		func(ctx context.Context, in *dlpPolicyUpdateInput) (*dlpPolicyOutput, error) {
-			p, err := d.require(ctx, authz.DLPManage, authz.Resource{})
+			p, err := d.requireFresh(ctx, authz.DLPManage, authz.Resource{})
 			if err != nil {
 				return nil, err
 			}
@@ -207,7 +207,7 @@ func (d Deps) dlpRoutes(api huma.API) {
 		Path: "/api/v1/dlp/policies/{id}", Summary: "Remove a data-loss prevention policy",
 		Tags: []string{"dlp"}, Security: sessionSecurity, DefaultStatus: http.StatusNoContent},
 		func(ctx context.Context, in *dlpPolicyGetInput) (*struct{}, error) {
-			p, err := d.require(ctx, authz.DLPManage, authz.Resource{})
+			p, err := d.requireFresh(ctx, authz.DLPManage, authz.Resource{})
 			if err != nil {
 				return nil, err
 			}

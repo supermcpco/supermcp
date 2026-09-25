@@ -91,7 +91,7 @@ func (d Deps) memberRoutes(api huma.API) {
 		Path: "/api/v1/org/members/{userId}", Summary: "Change a member's role, or deactivate or reactivate them",
 		Tags: []string{"members"}, Security: sessionSecurity},
 		func(ctx context.Context, in *updateMemberInput) (*memberOutput, error) {
-			p, err := d.require(ctx, authz.OrgMembersManage, authz.Resource{})
+			p, err := d.requireFresh(ctx, authz.OrgMembersManage, authz.Resource{})
 			if err != nil {
 				return nil, err
 			}
@@ -109,7 +109,7 @@ func (d Deps) memberRoutes(api huma.API) {
 		Path: "/api/v1/org/members/{userId}", Summary: "Remove a member from the organisation",
 		Tags: []string{"members"}, Security: sessionSecurity, DefaultStatus: http.StatusNoContent},
 		func(ctx context.Context, in *removeMemberInput) (*struct{}, error) {
-			p, err := d.require(ctx, authz.OrgMembersManage, authz.Resource{})
+			p, err := d.requireFresh(ctx, authz.OrgMembersManage, authz.Resource{})
 			if err != nil {
 				return nil, err
 			}

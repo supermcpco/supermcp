@@ -30,12 +30,14 @@ func (d Deps) ssoStart(w http.ResponseWriter, r *http.Request) {
 		d.ssoFailed(w, r, err)
 		return
 	}
-	url, err := d.SSO.Begin(r.Context(), chi.URLParam(r, "id"), r.URL.Query().Get("next"), binding)
+	reauth := r.URL.Query().Get("reauth") == "1"
+	url, err := d.SSO.Begin(r.Context(), chi.URLParam(r, "id"), r.URL.Query().Get("next"), binding, reauth)
 	if err != nil {
 		d.ssoFailed(w, r, err)
 		return
 	}
 	w.Header().Add("Set-Cookie", d.flowCookie(ssoFlowCookie, binding, int(ssoFlowTTL.Seconds()), false))
+	d.reauthStart(w, r, false)
 	//nolint:gosec // the URL comes from the provider's own metadata
 	http.Redirect(w, r, url, http.StatusFound)
 }
@@ -53,6 +55,7 @@ func (d Deps) ssoCallback(w http.ResponseWriter, r *http.Request) {
 	res, err := d.SSO.Callback(r.Context(), q.Get("state"), q.Get("code"), binding)
 	// The sign-in is over either way, so the cookie goes whatever happened.
 	w.Header().Add("Set-Cookie", d.flowCookie(ssoFlowCookie, "", 0, false))
+	replaces := d.reauthFinish(w, r, false)
 	if err != nil {
 		d.ssoFailed(w, r, err)
 		return
@@ -63,10 +66,13 @@ func (d Deps) ssoCallback(w http.ResponseWriter, r *http.Request) {
 		d.ssoFailed(w, r, err)
 		return
 	}
+	meta := map[string]any{"method": "sso", "provider": res.ProviderName, "groups": res.Groups}
+	if d.retireReplaced(r.Context(), replaces, res.UserID) {
+		meta["reauth"] = true
+	}
 	d.emit(r.Context(), audit.Event{OrgID: res.OrgID, Category: audit.CategoryAuth, Action: "session.create",
 		Outcome: audit.Success, ActorKind: "user", ActorID: res.UserID, ActorDisplay: res.Email,
-		SessionID: sess.ID, IP: ip, UserAgent: r.UserAgent(),
-		Meta: map[string]any{"method": "sso", "provider": res.ProviderName, "groups": res.Groups}})
+		SessionID: sess.ID, IP: ip, UserAgent: r.UserAgent(), Meta: meta})
 	// The provider verified the person; the session records that, so a
 	// policy can require a factor we did not issue ourselves.
 	if err := d.Identity.MarkVerified(r.Context(), sess.ID); err != nil {
@@ -225,7 +231,7 @@ func (d Deps) ssoRoutes(api huma.API) {
 			if err := d.ssoUnavailable(); err != nil {
 				return nil, err
 			}
-			p, err := d.require(ctx, authz.IdpManage, authz.Resource{})
+			p, err := d.requireFresh(ctx, authz.IdpManage, authz.Resource{})
 			if err != nil {
 				return nil, err
 			}
@@ -247,7 +253,7 @@ func (d Deps) ssoRoutes(api huma.API) {
 			if err := d.ssoUnavailable(); err != nil {
 				return nil, err
 			}
-			p, err := d.require(ctx, authz.IdpManage, authz.Resource{})
+			p, err := d.requireFresh(ctx, authz.IdpManage, authz.Resource{})
 			if err != nil {
 				return nil, err
 			}
@@ -268,7 +274,7 @@ func (d Deps) ssoRoutes(api huma.API) {
 			if err := d.ssoUnavailable(); err != nil {
 				return nil, err
 			}
-			p, err := d.require(ctx, authz.IdpManage, authz.Resource{})
+			p, err := d.requireFresh(ctx, authz.IdpManage, authz.Resource{})
 			if err != nil {
 				return nil, err
 			}
