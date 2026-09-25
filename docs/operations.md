@@ -165,9 +165,17 @@ left it for autovacuum.
 
 The `audit-partition-maint` job runs hourly, on one replica at a time
 under the same lock as the other sweeps, and creates the current month and
-the three after it where they are missing. Creating a month does not stop
-appends. `supermcp_audit_partition_months_ahead` is how many months ahead
-exist; it is 3 in a healthy instance. If the job stops, nothing is lost:
+the three after it where they are missing, and once a day analyzes
+`audit_events` (autovacuum analyzes each month but never the table as a
+whole, and the planner needs both; it takes tens of seconds on a large
+trail and blocks no reads or writes). Creating a month does not stop appends to the other
+months. It does lock `audit_events_default` while it checks that table
+holds nothing for the new month, so for that moment a query that cannot
+rule the default partition out (a read not bounded by time, an append
+that belongs there) waits too; with the default table empty that is a
+moment, and the job gives up after three seconds of waiting for any lock
+and tries again the next hour. `supermcp_audit_partition_months_ahead` is
+how many months ahead exist; it is 3 in a healthy instance. If the job stops, nothing is lost:
 events for a month with no table land in `audit_events_default`, and the
 job moves them into the month's table when it creates it. But a month
 that is not a table of its own cannot be dropped whole, and a large
@@ -182,13 +190,19 @@ FROM audit_partition_bounds('audit_events');
 SELECT count(*) FROM audit_events_default;   -- normally 0
 ```
 
-Dropping a month needs `audit_events` to itself for a moment. The cut
-waits at most three seconds for that; if a long `audit verify`, an export
-or a report is reading the table, the whole cut is rolled back, the
-sweep logs `background sweep failed` with `job=audit-retention` and says
-the table was busy, and the next hour tries again. Appends wait while
-the cut waits, so for up to those three seconds, and then for the drop
-itself, which is milliseconds.
+Dropping a month needs `audit_events` to itself for a moment. Everything
+that reads a whole month (whether it can go, how many events it holds)
+is done before that, while appends and reads carry on; holding the table
+the cut only checks two indexes and detaches and drops the months. It
+waits at most three seconds for the table; if a long `audit verify`, an
+export or a report is reading it, the whole cut is rolled back, the sweep
+logs `background sweep failed` with `job=audit-retention` and says the
+table was busy, and the next hour tries again. Appends wait while the cut
+waits, so for up to those three seconds, and then for the checks and the
+drop, which take milliseconds whatever the size of the month. A cut also
+refuses, and is tried again an hour later, if a legal hold was placed on
+an event below it, or an event written into a month it was dropping,
+while it ran.
 
 Never drop a month by hand. Retention records where it cut, so `audit
 verify` can tell a lawful cut from a deletion; a month dropped any other
@@ -595,15 +609,17 @@ Each is a symptom rather than a cause.
   `SELECT id, organization_id, consecutive_failures, last_error FROM
   audit_exporters WHERE enabled ORDER BY consecutive_failures DESC` finds
   it across all of them.
-- **Audit partitions running out.** `audit_events` has no table for next
-  month: the `audit-partition-maint` job has not run successfully for
-  weeks (it keeps three months ahead, and this waits an hour,
+- **Audit partitions running out.** `audit_events` is partitioned less
+  than two months ahead, or no replica reports how far: the
+  `audit-partition-maint` job has missed a month boundary and not caught
+  up (it keeps three months ahead, and this waits an hour,
   `metrics.prometheusRule.for.partitions`). Nothing is refused and
-  nothing is lost; events for a month without a table go to
-  `audit_events_default`. Find the reason in the log line
+  nothing is lost; once the months run out, events for a month without a
+  table go to `audit_events_default`. If the metric is missing rather
+  than low, check that the replicas are being scraped at all. Find the reason in the log line
   `background sweep failed` with `job=audit-partition-maint`: usually
-  `lock timeout` (something held `audit_events`, such as an index build
-  or a long transaction; it retries hourly), or a permission error if
+  `lock timeout` (something held `audit_events` or `audit_events_default`,
+  such as an index build or a long transaction; it retries hourly), or a permission error if
   `SUPERMCP_MAINT_DATABASE_URL` no longer names the role that owns the
   table. Once it is fixed the next run creates the missing months and
   moves their events out of the default table; to not wait the hour, run

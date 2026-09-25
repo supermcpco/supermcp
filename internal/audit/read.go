@@ -216,7 +216,8 @@ type checkpoint struct {
 // digest and its place in the chain, and is counted rather than failed.
 //
 // Rows removed by retention are expected, and are bridged by a
-// retention_cut anchor recording what the last removed row hashed to. A
+// retention_cut anchor recording what the last removed row hashed to: the
+// newest one below the first row walked, with no row between them. A
 // month retention dropped as a partition is part of the same cut and is
 // bridged by the same anchor; a partition dropped any other way is a gap
 // like any other deletion.
@@ -231,21 +232,26 @@ type checkpoint struct {
 func (r *Reader) Verify(ctx context.Context, fromSeq, toSeq int64) (*VerifyResult, error) {
 	res := &VerifyResult{Valid: true}
 	err := r.DB.Bypass(ctx, "audit-verify", func(tx pgx.Tx) error {
-		cuts := map[int64][]byte{}
-		crows, err := tx.Query(ctx, `SELECT seq, hash FROM audit_anchors WHERE kind = 'retention_cut'`)
-		if err != nil {
+		// What bridges the first row to whatever retention removed before
+		// it: the newest retention cut below it, as long as no row lies
+		// between the two. Usually the cut is the row just before, but a
+		// sequence number can be used up without a row (an append the
+		// database refused), so it need not be.
+		var bridgeSeq int64
+		var bridgeHash []byte
+		err := tx.QueryRow(ctx, `
+			WITH first AS (
+				SELECT min(seq) AS seq FROM audit_events WHERE ($1 = 0 OR seq >= $1) AND ($2 = 0 OR seq <= $2)
+			), cut AS (
+				SELECT a.seq, a.hash FROM audit_anchors a, first f
+				WHERE a.kind = 'retention_cut' AND a.seq < f.seq ORDER BY a.seq DESC LIMIT 1
+			)
+			SELECT c.seq, c.hash FROM cut c, first f
+			WHERE NOT EXISTS (SELECT 1 FROM audit_events e WHERE e.seq > c.seq AND e.seq < f.seq)`,
+			fromSeq, toSeq).Scan(&bridgeSeq, &bridgeHash)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return err
 		}
-		for crows.Next() {
-			var seq int64
-			var h []byte
-			if err := crows.Scan(&seq, &h); err != nil {
-				crows.Close()
-				return err
-			}
-			cuts[seq] = h
-		}
-		crows.Close()
 
 		checkpoints := map[int64]checkpoint{}
 		var lastCheckpoint int64
@@ -300,7 +306,14 @@ func (r *Reader) Verify(ctx context.Context, fromSeq, toSeq int64) (*VerifyResul
 				// becomes the first simply claims a predecessor nobody can
 				// check. Either it is the genesis row, or a retention cut
 				// anchor records what the removed predecessor hashed to.
-				h, ok := cuts[seq-1]
+				// An anchor right before the row must match it. One further
+				// back, past unused numbers, is only taken when it does:
+				// otherwise it bridges nothing and the row is judged as if
+				// there were no cut, as it always was.
+				h, ok := bridgeHash, bridgeSeq != 0
+				if ok && bridgeSeq != seq-1 && !bytes.Equal(h, prevHash) {
+					ok = false
+				}
 				switch {
 				case ok && !bytes.Equal(h, prevHash):
 					res.Valid, res.BrokenAt = false, seq
@@ -313,7 +326,7 @@ func (r *Reader) Verify(ctx context.Context, fromSeq, toSeq int64) (*VerifyResul
 					return nil
 				}
 				if ok {
-					res.RetentionCut = seq - 1
+					res.RetentionCut = bridgeSeq
 				}
 				prev = prevHash
 				res.FirstSeq = seq

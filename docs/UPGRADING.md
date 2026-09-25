@@ -283,16 +283,26 @@ The migration, resumable from its second step on:
 1. Creates `audit_events_new`, partitioned, with a month for every month
    from the oldest event to three months ahead, and
    `audit_events_copy_progress`.
-2. Copies every event in sequence order, 50,000 per transaction,
+2. Refuses to go on while the application is connected (below), then
+   copies every event in sequence order, 50,000 per transaction,
    recording the last one copied.
-3. Builds the primary key, the unique key and the six indexes on the copy,
-   `audit_events_search_idx` among them.
-4. In one transaction: takes `audit_events` under `ACCESS EXCLUSIVE`,
-   copies anything written since step 2, carries the sequence across,
-   renames the old table to `audit_events_old` and the copy to
-   `audit_events`. The old table keeps its rows and is no longer readable
-   by the application role. On a new installation it is empty and is
-   dropped.
+3. Builds the primary key, the unique key and the seven indexes on the
+   copy, `audit_events_search_idx` among them, with `maintenance_work_mem`
+   raised to 256MB for the purpose unless the role already has more (set
+   more on the role in `SUPERMCP_MAINT_DATABASE_URL` for a large trail:
+   `ALTER ROLE ... SET maintenance_work_mem = '1GB'`).
+4. In one transaction: checks again that the application is not
+   connected, takes `audit_events` under `ACCESS EXCLUSIVE` (waiting at
+   most 30 seconds for it), copies anything written since step 2, brings
+   the rows it had already copied up to date with the old table (below),
+   carries the sequence across, and renames the old table to
+   `audit_events_old` and the copy to `audit_events`. The old table keeps
+   its rows and is no longer readable by the application role. On a new
+   installation it is empty and is dropped.
+5. `VACUUM (ANALYZE) audit_events`, so the planner has statistics for
+   the new table from the start. Autovacuum never analyzes a partitioned
+   table itself, only its months; the new partition job does that from
+   here on.
 
 Every column, value, sequence number and hash is copied as it was, so the
 hash chain, the anchors and `supermcp audit verify` carry on across the
@@ -303,16 +313,20 @@ Two things about the table's shape change, because a partitioned table
 can only enforce uniqueness over keys that include the month: the primary
 key is `(seq, ts)` instead of `(seq)`, and `id` is unique per `(id, ts)`.
 `seq` still comes from one sequence and nothing looks an event up by `id`.
+One index is new, `audit_events_legal_hold_idx` on `seq` for held events
+only: retention asks for the lowest held event every hour, and until now
+read the whole trail to answer.
 
 **What it costs.** On a laptop, one million synthetic events (a 449 MB
-table with 393 MB of indexes) took 80 to 125 seconds end to end: about
-5 seconds to copy, 5 to build the keys and the five btree indexes, and
-70 for the search index, which dominates as it did in 00027; the swap
-took 17 milliseconds. Budget in proportion to your trail and your disks.
+table with 393 MB of indexes) took about 105 seconds end to end: 5
+seconds to copy, 5 to build the keys and the btree indexes, 66 for the
+search index, which dominates as it did in 00027, 5.5 for the swap, and
+26 for the closing `VACUUM (ANALYZE)`. Budget in proportion to your trail
+and your disks.
 
 - **Disk: two copies.** Until you drop `audit_events_old` the database
   holds the trail twice; the copy of that million events took 755 MB. The
-  migration also wrote 789 MB of WAL (`wal_level = replica`), which
+  migration also wrote 724 MB of WAL (`wal_level = replica`), which
   replicas and WAL archiving have to take. Check free space first:
 
   ```sql
@@ -326,8 +340,10 @@ took 17 milliseconds. Budget in proportion to your trail and your disks.
   `SUPERMCP_MAINT_DATABASE_URL` must allow for the search index build,
   the longest single statement.
 - **The lock.** The swap holds `ACCESS EXCLUSIVE` on `audit_events` for
-  as long as copying the tail and renaming take. With nothing writing
-  there is no tail, and it is milliseconds.
+  as long as copying the tail, bringing the copied rows up to date and
+  renaming take: one pass over both tables, 5.5 seconds for that million
+  events. The replicas are stopped by then, so nothing waits on it but
+  the upgrade.
 
 **Why every replica has to be stopped.** Pods of the previous release
 keep serving while the Helm pre-upgrade hook runs. Their queries would
@@ -337,7 +353,26 @@ SQL. It is about the copy: an update a running replica makes to an event
 that has already been copied does not reach the copy. That is a scrub by
 the retention sweep, a legal hold placed through the API, or a person's
 name pseudonymised by `supermcp dsar erase`, and a lost legal hold lets a
-later cut delete what it was protecting. So:
+later cut delete what it was protecting, and a lost pseudonymisation
+brings a person's name back.
+
+Two things stand in the way of that. The migration **refuses to copy
+while the application is connected**: at the start of the copy and again
+at the swap, it looks in `pg_stat_activity` for any client session in the
+database, other than its own (`application_name` `supermcp-migrate`), whose
+role is a member of `supermcp_app` or that is listening for cache
+invalidations, and stops with an error that lists them
+(`audit_events cannot be copied while the application is connected to this
+database: pid ... (role ..., application supermcp-app, idle)`). A `psql`
+session of yours in that database counts too; close it. Nothing is lost
+by the refusal: rerun once they are gone, and the copy continues where it
+stopped. A new installation, with no events, is not checked. And **the
+swap brings the copied rows up to date**: holding the lock, it copies
+`diff`, `payload`, `scrubbed_at`, `legal_hold`, `actor_display` and
+`target_display` again from the old table wherever they differ, and
+removes copied events a cut removed from the old table meanwhile, so a
+change that slipped past the check still arrives. The price is one pass
+over both tables under the lock (see the cost above). So:
 
 1. Upgrade to the last release of the current major version first, so
    that every earlier migration has run.
@@ -393,24 +428,37 @@ answering one.
 the current month and the three after it, hourly, on one replica at a
 time. `supermcp_audit_partition_months_ahead` reports how many months
 ahead exist (3 when healthy), the dashboard shows it, and the chart's
-`SupermcpAuditPartitionsRunningOut` fires when fewer than one month is
-ahead for `metrics.prometheusRule.for.partitions` (default `1h`). Nothing
+`SupermcpAuditPartitionsRunningOut` fires when fewer than two months are
+ahead, or no replica reports the metric, for
+`metrics.prometheusRule.for.partitions` (default `1h`). The job also
+analyzes `audit_events` once a day, which autovacuum never does for a
+partitioned table; over that million events it took about 25 seconds,
+most of it computing the search index's expression for the sampled rows,
+and it blocks no reads or writes. Nothing
 is refused when the months run out: events go to `audit_events_default`
 and are moved into their month when it is created. "Audit partitions
 running out" in `docs/operations.md` says what to do.
 
 **Retention now takes the table for a moment** to drop a month, waiting
-at most three seconds; appends wait during that time. If a long reader
+at most three seconds; appends wait during that time. Everything that
+reads a whole month happens before, while the table is in use as normal;
+holding it, the cut only checks two indexes and drops. If a long reader
 (an `audit verify` over the whole trail, a large export, a report) holds
 the table, that hour's cut is skipped and logged, and the next one tries
-again.
+again. A cut also stops, and tries again an hour later, if a legal hold
+is placed on an event below it, or an event lands in a month it is
+dropping, while it runs.
 
 **`audit verify` reports the retention cut** it starts after: the text
 output says `starts after the retention cut at sequence N`, and the JSON
 and `GET /api/v1/audit/verify` carry `retentionCut`. A month dropped by
-hand rather than by retention is reported as removed rows.
+hand rather than by retention is reported as removed rows. It also no
+longer reports a gap when the first event after a cut is not numbered
+straight after it: a sequence number is used up without an event when the
+database refuses an append, and the cut is accepted if no event lies
+between it and the first one kept.
 
-**Migrating down** (to 00029) rebuilds one plain table from the
+**Migrating down** (to 00032) rebuilds one plain table from the
 partitioned one, with its original keys and indexes: the same cost as the
 way up, with the replicas stopped for the same reason, and not resumable
 (a failure rolls it back). What retention dropped since the upgrade does

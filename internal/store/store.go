@@ -98,6 +98,12 @@ func (s *Store) Close() {
 	s.App.Close()
 }
 
+// MigrateApplicationName is the application_name of the sessions that run
+// migrations. Migration 00033 refuses to copy audit_events while any other
+// session of the application is connected, and this is how it tells the
+// migrator's own sessions apart.
+const MigrateApplicationName = "supermcp-migrate"
+
 // migrateLockPoll is how often a waiting migrator asks for the lock again.
 const migrateLockPoll = 500 * time.Millisecond
 
@@ -130,7 +136,27 @@ func (s *Store) MigrateOrWait(ctx context.Context) error {
 }
 
 func (s *Store) migrate(ctx context.Context, wait, afterOthers bool) error {
-	conn, err := s.Maint.Acquire(ctx)
+	// Everything the migration does goes through a pool of its own, named
+	// MigrateApplicationName, and this store's idle connections carry the
+	// same name until it is done: while it runs, every session of this
+	// process is recognisably the migrator's.
+	if err := s.nameIdle(ctx, "SET application_name = '"+MigrateApplicationName+"'"); err != nil {
+		return fmt.Errorf("migrate: name this process's sessions: %w", err)
+	}
+	defer func() { //nolint:contextcheck // must run however ctx ended
+		c, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_ = s.nameIdle(c, "RESET application_name")
+	}()
+	cfg := s.Maint.Config()
+	cfg.ConnConfig.RuntimeParams["application_name"] = MigrateApplicationName
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
+	if err != nil {
+		return fmt.Errorf("migrate pool: %w", err)
+	}
+	defer pool.Close()
+
+	conn, err := pool.Acquire(ctx)
 	if err != nil {
 		return err
 	}
@@ -148,7 +174,7 @@ func (s *Store) migrate(ctx context.Context, wait, afterOthers bool) error {
 		_, _ = conn.Exec(unlock, "SELECT pg_advisory_unlock($1)", MigrateLockID)
 	}()
 
-	db := stdlib.OpenDBFromPool(s.Maint)
+	db := stdlib.OpenDBFromPool(pool)
 	defer func() { _ = db.Close() }()
 
 	sub, err := fs.Sub(migrationsFS, "migrations")
@@ -179,6 +205,21 @@ func (s *Store) migrate(ctx context.Context, wait, afterOthers bool) error {
 	}
 	if err != nil {
 		return fmt.Errorf("migrate: %w", err)
+	}
+	return nil
+}
+
+// nameIdle runs a SET or RESET of application_name on every idle
+// connection of both pools.
+func (s *Store) nameIdle(ctx context.Context, stmt string) error {
+	for _, pool := range []*pgxpool.Pool{s.App, s.Maint} {
+		for _, conn := range pool.AcquireAllIdle(ctx) {
+			_, err := conn.Exec(ctx, stmt)
+			conn.Release()
+			if err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }

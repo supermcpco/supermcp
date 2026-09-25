@@ -84,17 +84,18 @@ spec:
             description: "The oldest undelivered event is over fifteen minutes old. Nothing is lost, delivery resumes from the cursor, but the receiver is behind. The destination's lastError says why; audit_exporters.last_error has it for every workspace."
 
         # Every replica measures it from the catalog, so they agree; max
-        # keeps a replica that has not measured yet from firing it. The
-        # job keeps three months ahead, so below one it has been failing
-        # for weeks. Nothing is refused when it runs out (events land in
-        # the default partition), which is why this is a warning.
+        # keeps a replica that has not measured yet from firing it, and
+        # absent catches a deployment where none reports it at all. The
+        # job keeps three months ahead, so below two it has missed a month
+        # boundary and not caught up. Nothing is refused when it runs out
+        # (events land in the default partition), so this is a warning.
         - alert: SupermcpAuditPartitionsRunningOut
-          expr: max(supermcp_audit_partition_months_ahead) < 1
+          expr: max(supermcp_audit_partition_months_ahead) < 2 or absent(supermcp_audit_partition_months_ahead)
           for: {{ .Values.metrics.prometheusRule.for.partitions }}
           labels: { severity: warning }
           annotations:
-            summary: "audit_events has no partition for next month"
-            description: "The audit-partition-maint job has not created the months ahead. Events are still recorded, in audit_events_default, but retention cannot drop those months whole. The log of whichever replica ran it has 'background sweep failed' with job=audit-partition-maint and the reason."
+            summary: "audit_events is partitioned less than two months ahead"
+            description: "The audit-partition-maint job has not created the months ahead. Events are still recorded, and once the months run out they land in audit_events_default, where retention cannot drop them a month at a time. The log of whichever replica ran it has 'background sweep failed' with job=audit-partition-maint and the reason."
 
         - alert: SupermcpDBConnPoolSaturated
           expr: |
