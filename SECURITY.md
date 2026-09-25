@@ -104,7 +104,8 @@ Out of scope:
   control expectations to the mechanism that meets each, with the
   partial ones marked as partial.
 - Every pull request and every push to `main` runs `govulncheck`,
-  `gosec` and `gitleaks` in CI.
+  `gosec` and `gitleaks` in CI, and CodeQL analyses the Go code and the
+  web UI on every pull request, every push to `main` and once a week.
 - Releases are signed. cosign signs the checksums, the image and the
   chart keylessly from the release workflow; each archive ships an SBOM;
   SLSA provenance is attached to the release. The release notes carry

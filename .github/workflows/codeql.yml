@@ -1,0 +1,82 @@
+name: codeql
+
+# CodeQL analyses the Go server and the web UI and reports to code
+# scanning. It is its own workflow so that its runtime does not lengthen
+# the jobs in ci.yml that gate a pull request; it does not block a merge
+# by itself. The weekly run picks up new queries against unchanged code.
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**/*.md"
+      - "adapters/**/cassettes/**"
+      - "pkg/adapter/v1/testdata/corpus/**"
+      - "web/src/api/**"
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - "**/*.md"
+      - "adapters/**/cassettes/**"
+      - "pkg/adapter/v1/testdata/corpus/**"
+      - "web/src/api/**"
+  schedule:
+    - cron: "17 4 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  GOFLAGS: -mod=readonly
+  GOPROXY: https://proxy.golang.org,direct
+  GOTOOLCHAIN: local
+
+jobs:
+  analyze:
+    name: analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: go
+            build-mode: autobuild
+          - language: javascript-typescript
+            build-mode: none
+    steps:
+      - uses: actions/checkout@v4
+      # The runner's preinstalled Go is older than the one go.mod names,
+      # and GOTOOLCHAIN=local stops autobuild from fetching another, so the
+      # extractor sees the same toolchain as ci.yml.
+      - uses: actions/setup-go@v5
+        if: matrix.language == 'go'
+        with: { go-version-file: go.mod, cache: true }
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+          queries: security-and-quality
+          # Recorded upstream responses, the vendored v1 corpus and the
+          # generated API client are data or generated code, not code
+          # anyone here writes. Excluding paths affects the
+          # javascript-typescript analysis only; Go sees what it compiles.
+          config: |
+            paths-ignore:
+              - adapters/**/cassettes/**
+              - pkg/adapter/v1/testdata/corpus/**
+              - web/src/api/**
+              - web/node_modules/**
+              - "**/*.md"
+      - uses: github/codeql-action/autobuild@v3
+        if: matrix.build-mode == 'autobuild'
+      - uses: github/codeql-action/analyze@v3
+        with:
+          category: /language:${{ matrix.language }}
