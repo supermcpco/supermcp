@@ -614,3 +614,50 @@ func TestApprovalsAreInvisibleToAnotherOrganisation(t *testing.T) {
 		t.Fatalf("another organisation saw %d rules", len(policies))
 	}
 }
+
+// A requester confirming their own request is recorded beside it, and
+// changes nothing about who may decide it: it is not an approval.
+func TestAcknowledgementIsARecordNotADecision(t *testing.T) {
+	t.Parallel()
+	f := newApprovalFixture(t)
+	ctx := t.Context()
+	f.policy(ctx, t, governance.ApprovalPolicy{Name: "destructive", Trigger: governance.TriggerDestructive})
+	r := f.raise(ctx, t, f.call(map[string]any{"amount": 12}))
+
+	if _, err := f.svc.Acknowledge(ctx, f.orgID, r.ID, bob, "not mine"); !errors.Is(err, governance.ErrNotRequester) {
+		t.Fatalf("bob confirmed alice's request: %v", err)
+	}
+	long := strings.Repeat("é", governance.MaxAcknowledgement+20)
+	got, err := f.svc.Acknowledge(ctx, f.orgID, r.ID, alice, "  "+long+"  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != governance.StatePending || got.AcknowledgedAt == nil {
+		t.Fatalf("after confirming: state %s, acknowledged %v; want pending and a time", got.State, got.AcknowledgedAt)
+	}
+	if n := len([]rune(got.Acknowledgement)); n != governance.MaxAcknowledgement {
+		t.Errorf("the note kept %d characters, want %d", n, governance.MaxAcknowledgement)
+	}
+	// The first confirmation stands.
+	again, err := f.svc.Acknowledge(ctx, f.orgID, r.ID, alice, "second thoughts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.Acknowledgement != got.Acknowledgement || !again.AcknowledgedAt.Equal(*got.AcknowledgedAt) {
+		t.Errorf("a second confirmation replaced the first: %q", again.Acknowledgement)
+	}
+	// The asker still cannot decide it; someone else still can.
+	if _, err := f.svc.Decide(ctx, f.orgID, r.ID, governance.Decision{Approve: true, ActorID: alice}); !errors.Is(err, governance.ErrSelfDecision) {
+		t.Fatalf("alice approved her own confirmed request: %v", err)
+	}
+	decided, err := f.svc.Decide(ctx, f.orgID, r.ID, governance.Decision{Approve: true, ActorID: bob})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decided.Acknowledgement != got.Acknowledgement {
+		t.Errorf("the decision lost the confirmation: %q", decided.Acknowledgement)
+	}
+	if _, err := f.svc.Acknowledge(ctx, f.orgID, r.ID, alice, ""); !errors.Is(err, governance.ErrNotPending) {
+		t.Errorf("confirming a decided request: %v", err)
+	}
+}

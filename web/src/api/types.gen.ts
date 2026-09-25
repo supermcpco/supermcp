@@ -142,6 +142,14 @@ export type ApprovalRequest = {
      * A URL to the JSON Schema for this object.
      */
     readonly $schema?: string;
+    /**
+     * When the person who asked confirmed, from their MCP client, that they meant the call. It is not an approval
+     */
+    acknowledgedAt?: string;
+    /**
+     * The note they added for the approver when they confirmed
+     */
+    acknowledgement?: string;
     args?: {
         [key: string]: unknown;
     };
@@ -2374,6 +2382,14 @@ export type ApprovalRefusalInputBodyWritable = {
 };
 
 export type ApprovalRequestWritable = {
+    /**
+     * When the person who asked confirmed, from their MCP client, that they meant the call. It is not an approval
+     */
+    acknowledgedAt?: string;
+    /**
+     * The note they added for the approver when they confirmed
+     */
+    acknowledgement?: string;
     args?: {
         [key: string]: unknown;
     };

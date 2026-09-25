@@ -122,7 +122,12 @@ var (
 	ErrNotRequester     = errors.New("only the person who asked for a request may withdraw it")
 	ErrTooManyPending   = errors.New("too many requests are already waiting for this tool")
 	ErrInvalidPolicy    = errors.New("this approval policy is not usable as written")
+	ErrNotPending       = errors.New("this request is no longer waiting for an answer")
 )
+
+// MaxAcknowledgement bounds the note a requester adds when they confirm.
+// It is read by an approver, not stored for its own sake.
+const MaxAcknowledgement = 500
 
 // ApprovalCondition compares one argument of the call.
 type ApprovalCondition struct {
@@ -176,6 +181,8 @@ type ApprovalRequest struct {
 	CancelledAt      *time.Time     `json:"cancelledAt,omitempty"`
 	ConsumedAt       *time.Time     `json:"consumedAt,omitempty"`
 	Reason           string         `json:"reason,omitempty"`
+	AcknowledgedAt   *time.Time     `json:"acknowledgedAt,omitempty" doc:"When the person who asked confirmed, from their MCP client, that they meant the call. It is not an approval"`
+	Acknowledgement  string         `json:"acknowledgement,omitempty" doc:"The note they added for the approver when they confirmed"`
 	Args             map[string]any `json:"args,omitempty"`
 }
 
@@ -222,6 +229,9 @@ type Notice struct {
 	ExpiresAt      time.Time `json:"expiresAt"`
 	Reason         string    `json:"reason,omitempty"`
 	RetryWith      string    `json:"retryWith,omitempty"`
+	// Acknowledged is set when the person behind the client confirmed the
+	// call when asked. It is not an approval.
+	Acknowledged bool `json:"acknowledged,omitempty"`
 }
 
 // Decision is one person's answer.
@@ -478,6 +488,53 @@ func (a *Approvals) Cancel(ctx context.Context, orgID, id, actorID, reason strin
 	})
 	if err != nil {
 		return nil, err
+	}
+	return out, nil
+}
+
+// Acknowledge records that the person who asked for a request confirmed
+// it, with the note they left for the approver. It does not approve
+// anything: the request stays pending, and only someone else can decide
+// it. Only the asker may, and only once, while the request is waiting.
+func (a *Approvals) Acknowledge(ctx context.Context, orgID, id, actorID, note string) (*ApprovalRequest, error) {
+	if actorID == "" {
+		return nil, errors.New("confirming a request needs to name who did it")
+	}
+	note = strings.TrimSpace(note)
+	if r := []rune(note); len(r) > MaxAcknowledgement {
+		note = string(r[:MaxAcknowledgement])
+	}
+	var out *ApprovalRequest
+	wrote := false
+	err := a.DB.Tx(tenant.WithOrg(ctx, orgID), func(tx pgx.Tx) error {
+		var err error
+		out, err = scanRequest(tx.QueryRow(ctx, `UPDATE approval_requests
+			SET acknowledged_at = now(), acknowledgement = $3
+			WHERE id = $1 AND requested_by = $2 AND state = 'pending' AND expires_at > now() AND acknowledged_at IS NULL
+			RETURNING `+requestColumns, id, actorID, note), nil)
+		if errors.Is(err, pgx.ErrNoRows) {
+			current, ferr := a.read(ctx, tx, id)
+			switch {
+			case ferr != nil:
+				return ferr
+			case current.RequestedBy != actorID:
+				return ErrNotRequester
+			case current.State == StatePending:
+				// Already confirmed: the first confirmation stands.
+				out = current
+				return nil
+			default:
+				return ErrNotPending
+			}
+		}
+		wrote = err == nil
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	if wrote {
+		a.emit(ctx, out, "approval.acknowledge", audit.Success, map[string]any{"withNote": note != ""})
 	}
 	return out, nil
 }
@@ -854,7 +911,7 @@ const effectiveState = `CASE WHEN state = 'pending' AND expires_at <= now() THEN
 
 const requestColumns = `id, organization_id, COALESCE(policy_id,''), policy_name, server_id, connector_id, tool_id, tool_name,
 	requested_by, requester_kind, requester_display, ` + effectiveState + `, created_at, expires_at, ttl_seconds,
-	COALESCE(decided_by,''), decided_at, cancelled_at, consumed_at, reason`
+	COALESCE(decided_by,''), decided_at, cancelled_at, consumed_at, reason, acknowledged_at, acknowledgement`
 
 const policyColumns = `id, name, scope_kind, scope_id, trigger_kind, tool_name, conditions, effect,
 	ttl_seconds, enabled, COALESCE(created_by,''), created_at, updated_at`
@@ -1351,7 +1408,7 @@ func scanRequest(row pgx.Row, sealed *[]byte) (*ApprovalRequest, error) {
 	var state string
 	dest := []any{&r.ID, &r.OrgID, &r.PolicyID, &r.PolicyName, &r.ServerID, &r.ConnectorID, &r.ToolID, &r.ToolName,
 		&r.RequestedBy, &r.RequesterKind, &r.RequesterDisplay, &state, &r.CreatedAt, &r.ExpiresAt, &r.TTL,
-		&r.DecidedBy, &r.DecidedAt, &r.CancelledAt, &r.ConsumedAt, &r.Reason}
+		&r.DecidedBy, &r.DecidedAt, &r.CancelledAt, &r.ConsumedAt, &r.Reason, &r.AcknowledgedAt, &r.Acknowledgement}
 	if sealed != nil {
 		dest = append(dest, sealed)
 	}

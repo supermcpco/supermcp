@@ -20,6 +20,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -84,6 +85,9 @@ type harnessOptions struct {
 	log *slog.Logger
 	// catalog replaces the embedded adapter catalog.
 	catalog *catalog.Catalog
+	// elicitTimeout bounds how long a held call waits for a client's
+	// answer; zero is the endpoint's default.
+	elicitTimeout time.Duration
 }
 
 func start(t *testing.T) *harness {
@@ -157,7 +161,9 @@ func startWith(t *testing.T, opts harnessOptions) *harness {
 	oauth := mcpauth.NewOAuth(db, keyring, "http://127.0.0.1", mcpauth.DCROpen, newID)
 	oauth.Accounts = ids
 	oauth.Sessions = ids
-	endpoint := mcpendpoint.New(mcpendpoint.Deps{Servers: servers, Authz: az, Executor: exec, Log: log, Version: "test"})
+	endpoint := mcpendpoint.New(mcpendpoint.Deps{Servers: servers, Authz: az, Executor: exec, Log: log, Version: "test",
+		Approvals: approvals, Audit: auditor, ElicitationTimeout: opts.elicitTimeout})
+	t.Cleanup(endpoint.Close)
 
 	cat := opts.catalog
 	if cat == nil {

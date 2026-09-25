@@ -221,7 +221,8 @@ func build(ctx context.Context, cfg *config.Config, log *slog.Logger, st *store.
 	endpoint := mcpendpoint.New(mcpendpoint.Deps{Servers: servers, Authz: az, Executor: exec, Log: log,
 		Version: cfg.Version, JSONResponse: cfg.MCPJSONResponse, PublicURL: cfg.PublicURL.String(),
 		Metrics: metrics, Tracer: tracer,
-		Sessions: mcpendpoint.SessionOptions{Max: cfg.MCP.MaxSessions, Idle: cfg.MCP.SessionIdle}})
+		Sessions:  mcpendpoint.SessionOptions{Max: cfg.MCP.MaxSessions, Idle: cfg.MCP.SessionIdle},
+		Approvals: approvals, Audit: auditor, ElicitationTimeout: cfg.MCP.ElicitationTimeout})
 
 	// SAML shares the guarded client with the OIDC path: an identity
 	// provider's metadata URL comes from whoever configured it.

@@ -29,6 +29,7 @@ reach for when something is wrong.
 | `SUPERMCP_DCR_MODE` | `approval` | Whether an MCP client can register itself: `open`, `approval` or `closed`. |
 | `SUPERMCP_MCP_MAX_SESSIONS` | 5000 | How many MCP sessions one replica holds for servers set to stateful. See "Stateful MCP sessions". |
 | `SUPERMCP_MCP_SESSION_IDLE` | `15m` | How long such a session may go without a request before it is closed. |
+| `SUPERMCP_MCP_ELICITATION_TIMEOUT` | `60s` | How long a call held for approval waits for the person behind a stateful client to confirm it. |
 
 Rate-limit budgets are written `count/duration`, for example `10/1m`. A
 malformed value fails the boot, because a limit nobody notices is off is
@@ -469,8 +470,18 @@ session had already ended, usually an `initialize` that failed). A
 `capacity` rate that keeps climbing means the limit is too low for the
 traffic or the affinity is not holding and clients keep starting over.
 
-**On a rollout,** a replica told to stop takes no new requests, lets the
-ones in flight finish within `SUPERMCP_SHUTDOWN_TIMEOUT`, then closes
+A stateful session is also what lets a call held for approval ask the
+person behind the client to confirm it (docs/api.md, "Calls held for
+approval"). That keeps the call open for up to
+`SUPERMCP_MCP_ELICITATION_TIMEOUT`, one request per question; keep the
+load balancer's and any proxy's read timeout on `/mcp/` above it, or the
+proxy cuts the call and the client sees an error instead of the held
+result.
+
+**On a rollout,** a replica told to stop first stops waiting on any such
+question (the call returns held, as it would have without one), takes no
+new requests, lets the ones in flight finish within
+`SUPERMCP_SHUTDOWN_TIMEOUT`, then closes
 every session it holds (`reason="shutdown"`). Each of those clients is
 routed to another replica on its next request, is answered `404`, and
 initialises again. Scaling down does the same to the sessions on the

@@ -35,9 +35,11 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/supermcpco/supermcp/internal/audit"
 	"github.com/supermcpco/supermcp/internal/authz"
 	"github.com/supermcpco/supermcp/internal/connector"
 	"github.com/supermcpco/supermcp/internal/engine"
+	"github.com/supermcpco/supermcp/internal/governance"
 	"github.com/supermcpco/supermcp/internal/invoke"
 	"github.com/supermcpco/supermcp/internal/mcpserver"
 	"github.com/supermcpco/supermcp/internal/reqid"
@@ -66,6 +68,16 @@ type Deps struct {
 	JSONResponse bool
 	// Sessions bounds the sessions kept for servers set to stateful.
 	Sessions SessionOptions
+	// Approvals is where the answer goes when the person behind a client
+	// is asked about a call held for approval (elicit.go). Nil asks
+	// nothing.
+	Approvals *governance.Approvals
+	// Audit records a request withdrawn from a client. Nil records
+	// nothing.
+	Audit audit.Sink
+	// ElicitationTimeout bounds how long a held call waits for that
+	// answer. Zero means one minute.
+	ElicitationTimeout time.Duration
 }
 
 // Endpoint is the MCP HTTP handler.
@@ -81,6 +93,10 @@ type Endpoint struct {
 	// handlers run in the context of the request that opened the session;
 	// this is how they reach the one that carried the message instead.
 	requests sync.Map
+	// draining is closed when the server starts to stop; a call waiting
+	// on a person's answer stops waiting.
+	draining  chan struct{}
+	drainOnce sync.Once
 
 	// built holds the assembled MCP servers, keyed by the server, its
 	// version and the caller. Assembling one means handing every tool's
@@ -153,7 +169,7 @@ const requestRefHeader = "X-Supermcp-Request-Ref"
 
 // New builds the endpoint.
 func New(d Deps) *Endpoint {
-	e := &Endpoint{Deps: d, sessions: newSessionTable(d.Sessions, d.Metrics, d.Log)}
+	e := &Endpoint{Deps: d, sessions: newSessionTable(d.Sessions, d.Metrics, d.Log), draining: make(chan struct{})}
 	e.stateless = sdk.NewStreamableHTTPHandler(e.getServer, &sdk.StreamableHTTPOptions{
 		Stateless:                    true,
 		JSONResponse:                 d.JSONResponse,
@@ -593,7 +609,11 @@ func (e *Endpoint) handlerFor(server *mcpserver.Server, assembled visibleTool) s
 		if err != nil {
 			return nil, err
 		}
-		return &sdk.CallToolResult{Content: out.Content, StructuredContent: out.Structured, IsError: out.IsError}, nil
+		result := &sdk.CallToolResult{Content: out.Content, StructuredContent: out.Structured, IsError: out.IsError}
+		if notice, ok := out.Structured.(*governance.Notice); ok {
+			result = e.confirmHeld(ctx, req, server, p, notice, result)
+		}
+		return result, nil
 	}
 }
 

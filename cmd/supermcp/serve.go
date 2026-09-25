@@ -106,6 +106,11 @@ func serveCmd(args []string) error {
 	case <-ctx.Done():
 	}
 	log.Info("shutting down", "timeout", cfg.ShutdownTimeout)
+	// A tool call waiting on a person's answer would otherwise hold the
+	// drain for as long as the wait allows; it returns held instead.
+	if deps.MCP != nil {
+		deps.MCP.Drain()
+	}
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
 	defer cancel()
 	if admin != nil {
