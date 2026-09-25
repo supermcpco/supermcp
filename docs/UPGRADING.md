@@ -43,7 +43,7 @@ once; see "Access changes reach every replica at once" below. Migration
 adds an index to `audit_events`; see "The audit export reads by workspace
 and sequence" below. Migration 00024 records when a session last signed
 in; see "Sensitive actions ask for a recent sign-in" below. Migration
-00026 replaces an index on `tool_invocations` for the new usage
+00025 replaces an index on `tool_invocations` for the new usage
 analytics; see "Usage analytics read an index of their own" below.
 
 ### Sensitive actions ask for a recent sign-in
@@ -200,7 +200,7 @@ What that means for you:
 The new analytics screen and `GET /api/v1/analytics/usage` count a
 workspace's tool calls, errors and latency over up to 90 days. With the
 index that was there, a large workspace's window was read from the whole
-table. Migration 00026 replaces `tool_invocations_org_time_idx` with
+table. Migration 00025 replaces `tool_invocations_org_time_idx` with
 `tool_invocations_org_time_cover_idx`: the same key,
 `(organization_id, created_at DESC)`, plus the status, timing, tool,
 connector and server columns, so the analytics read the index alone. The
@@ -228,6 +228,10 @@ means for you:
 - **Rollout order does not matter.** Replicas of the previous version
   read the new index as they read the old one, and the analytics endpoint
   answers without the index, only more slowly.
+- **The migration carries the `-- supermcp:breaking` marker** because
+  `scripts/check-migrations.sh` refuses any `DROP INDEX` of an index it
+  did not create; it cannot tell that the replacement has the same key.
+  It is the marker, not the migration, that is conservative.
 - **The analytics stay index-only as long as autovacuum keeps up** on
   `tool_invocations`. It is an append-only table, which autovacuum visits
   after inserts on Postgres 13 and later; if you have turned autovacuum
