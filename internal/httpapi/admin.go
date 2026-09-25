@@ -465,12 +465,14 @@ func (d Deps) connectorRoutes(api huma.API) {
 
 // connectorDTO is the wire shape. Transport and auth are plain objects:
 // the domain types wrap YAML nodes, which no JSON Schema generator can
-// describe, and the UI only ever reads them.
+// describe, and the UI only ever reads them. Both go through
+// connector.RedactConfig, so this shape is safe for a response and for
+// the audit diff alike.
 type connectorDTO struct {
 	ID           string         `json:"id"`
 	Name         string         `json:"name"`
-	Transport    map[string]any `json:"transport"`
-	Auth         map[string]any `json:"auth"`
+	Transport    map[string]any `json:"transport" doc:"How the connector reaches its upstream. Passwords in URLs and connection strings read ***"`
+	Auth         map[string]any `json:"auth" doc:"How the connector signs in. Secret values, such as passwords, tokens and client secrets, read ***; the stored values are unchanged"`
 	Instructions string         `json:"instructions,omitempty"`
 	CatalogSlug  string         `json:"catalogSlug,omitempty"`
 	CatalogHash  string         `json:"catalogHash,omitempty"`
@@ -493,9 +495,19 @@ func connectorToDTO(c *connector.Connector) connectorDTO {
 	if d.Credentials == nil {
 		d.Credentials = []connector.CredentialInfo{}
 	}
-	d.Transport = toMap(c.Transport)
-	d.Auth = toMap(c.Auth)
+	d.Transport = redactedMap(c.Transport)
+	d.Auth = redactedMap(c.Auth)
 	return d
+}
+
+// redactedMap is a connector's auth or transport as a plain object, with
+// its secrets redacted.
+func redactedMap(v any) map[string]any {
+	m, _ := connector.RedactConfig(toMap(v)).(map[string]any)
+	if m == nil {
+		return map[string]any{}
+	}
+	return m
 }
 
 func toMap(v any) map[string]any {

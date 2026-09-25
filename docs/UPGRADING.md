@@ -48,6 +48,36 @@ analytics; see "Usage analytics read an index of their own" below. Migration
 00026 lets disabling a service account refuse the tokens it already
 holds; see "Disabling a service account cuts it off" below.
 
+### Connector secrets read `***`
+
+A connector's `auth` and `transport` are meant to hold only
+`{{env.*}}` references. Some held literal values instead: a refresh
+token a provider rotated, a key from an imported document, or a password
+in a DSN or base URL. The API returned those values as they were stored,
+and the audit trail recorded them too. Now these places show every
+secret value as `***`:
+
+- the connector responses
+- the `connector.install`, `connector.import`, `connector.update` and
+  `connector.delete` audit diffs
+- the re-sync preview's `notApplied`
+- a connector's revision history
+
+These values count as secrets:
+
+- passwords, tokens and client secrets
+- API key values
+- `Authorization`-like headers
+- the password inside a URL or connection string
+
+What is stored does not change. Restoring a revision still puts the real
+values back.
+
+What it needs from you: nothing, unless a script reads a secret out of a
+connector response. It now gets `***`. No endpoint accepts `auth` or
+`transport` from a client, so nothing can write `***` back. Audit events
+written before the upgrade keep what they recorded.
+
 ### Disabling a service account cuts it off
 
 Disabling a service account used to stop only new tokens from its

@@ -299,6 +299,9 @@ export type ConnectorDto = {
      * A URL to the JSON Schema for this object.
      */
     readonly $schema?: string;
+    /**
+     * How the connector signs in. Secret values, such as passwords, tokens and client secrets, read ***; the stored values are unchanged
+     */
     auth: {
         [key: string]: unknown;
     };
@@ -316,6 +319,9 @@ export type ConnectorDto = {
     name: string;
     readOnly: boolean;
     toolCount: number;
+    /**
+     * How the connector reaches its upstream. Passwords in URLs and connection strings read ***
+     */
     transport: {
         [key: string]: unknown;
     };
@@ -1305,7 +1311,7 @@ export type ResyncFieldDto = {
      */
     after: string;
     /**
-     * The current value: text for instructions, JSON for transport and auth
+     * The current value: text for instructions, JSON for transport and auth with secret values shown as ***
      */
     before: string;
     field: 'instructions' | 'transport' | 'auth';
@@ -1352,7 +1358,7 @@ export type RevisionDto = {
     kind: 'connector' | 'tool' | 'server' | 'role';
     revision: number;
     /**
-     * The entity as it stood after this change; only on a single revision
+     * The entity as it stood after this change; only on a single revision. A connector's secret auth and transport values read ***
      */
     snapshot?: {
         [key: string]: unknown;
@@ -2205,6 +2211,9 @@ export type ConnectorAuthStartWritable = {
 };
 
 export type ConnectorDtoWritable = {
+    /**
+     * How the connector signs in. Secret values, such as passwords, tokens and client secrets, read ***; the stored values are unchanged
+     */
     auth: {
         [key: string]: unknown;
     };
@@ -2222,6 +2231,9 @@ export type ConnectorDtoWritable = {
     name: string;
     readOnly: boolean;
     toolCount: number;
+    /**
+     * How the connector reaches its upstream. Passwords in URLs and connection strings read ***
+     */
     transport: {
         [key: string]: unknown;
     };
@@ -2835,7 +2847,7 @@ export type RevisionDtoWritable = {
     kind: 'connector' | 'tool' | 'server' | 'role';
     revision: number;
     /**
-     * The entity as it stood after this change; only on a single revision
+     * The entity as it stood after this change; only on a single revision. A connector's secret auth and transport values read ***
      */
     snapshot?: {
         [key: string]: unknown;
