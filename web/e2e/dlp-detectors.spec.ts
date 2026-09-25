@@ -70,6 +70,13 @@ test("a custom detector is tried, saved, added to a rule, and refuses a call tha
   await expect(detector.getByText("custom:contract_id", { exact: true })).toBeVisible();
   await expectAccessible(page);
 
+  // The list does not carry the samples; the editor reads them on its own.
+  await expect(detector.getByText("2 samples it must match, 2 it must not")).toBeVisible();
+  await detector.getByRole("button", { name: "Change contract_id" }).click();
+  const editor = page.getByRole("form", { name: "Change contract_id" });
+  await expect(editor.getByLabel("Samples it must match, one per line")).toHaveValue(`${contractId}\nsee ${contractId}.`);
+  await editor.getByRole("button", { name: "Cancel" }).click();
+
   // Its history already holds the version just saved.
   await detector.getByRole("button", { name: "History of contract_id" }).click();
   await expect(page.getByRole("region", { name: "History of contract_id" }).getByText("Version 1")).toBeVisible();
