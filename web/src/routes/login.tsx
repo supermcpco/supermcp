@@ -1,10 +1,11 @@
 import { useState } from "react";
-import { createFileRoute, useNavigate, useSearch } from "@tanstack/react-router";
+import { createFileRoute, useRouter, useSearch } from "@tanstack/react-router";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Button, Input, Text } from "@cloudflare/kumo";
 import { listSsoProvidersOptions, loginMutation, registerMutation } from "../api/@tanstack/react-query.gen";
 import { message } from "../lib/errors";
 import { useRefreshSession, useSession } from "../lib/session";
+import { safeNext } from "../lib/members";
 
 export const Route = createFileRoute("/login")({
   component: Login,
@@ -25,7 +26,7 @@ const ssoErrors: Record<string, string> = {
 };
 
 function Login() {
-  const navigate = useNavigate();
+  const router = useRouter();
   const search = useSearch({ from: "/login" });
   const providers = useQuery({ ...listSsoProvidersOptions(), retry: false });
   const refresh = useRefreshSession();
@@ -41,9 +42,11 @@ function Login() {
   const [orgName, setOrgName] = useState("");
   const [error, setError] = useState<string | null>(null);
 
+  // `next` brings somebody back to where they were sent from, such as an
+  // invitation they have to sign in to accept. Only paths on this site.
   const onDone = async () => {
     await refresh();
-    await navigate({ to: "/" });
+    router.history.push(safeNext(search.next));
   };
   const signIn = useMutation({ ...loginMutation(), onSuccess: onDone, onError: (e) => setError(message(e)) });
   const signUp = useMutation({ ...registerMutation(), onSuccess: onDone, onError: (e) => setError(message(e)) });
