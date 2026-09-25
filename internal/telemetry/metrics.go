@@ -61,15 +61,21 @@ const (
 	BreakerOpen     BreakerState = 2
 )
 
-// Master key operations and the providers that perform them. Both are
-// closed sets, like ErrorClass: anything else is recorded as OtherLabel,
-// so supermcp_kek_operations_total never has more than eighteen series.
+// Master key operations, the providers that perform them, and the role
+// of the key that did. All three are closed sets, like ErrorClass:
+// anything else is recorded as OtherLabel, so
+// supermcp_kek_operations_total never has more than 54 series.
 const (
 	KEKWrap   = "wrap"
 	KEKUnwrap = "unwrap"
 
 	KEKProviderLocal  = "local"
 	KEKProviderAWSKMS = "awskms"
+
+	// KEKKeyActive is the key that seals; KEKKeyPrevious one named in
+	// SUPERMCP_KEK_PREVIOUS, which only opens.
+	KEKKeyActive   = "active"
+	KEKKeyPrevious = "previous"
 )
 
 // Audit export destination kinds, mirroring the audit package's own. A
@@ -235,8 +241,8 @@ func NewMetrics(opts MetricsOptions) *Metrics {
 		kekOperations: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace: Namespace,
 			Name:      "kek_operations_total",
-			Help:      "Master key wraps and unwraps by provider and outcome. Unwrapped data keys are cached, so this counts cache misses, not decryptions.",
-		}, []string{"provider", "op", "outcome"}),
+			Help:      "Master key wraps and unwraps by provider, key role (active or previous) and outcome. Unwrapped data keys are cached, so this counts cache misses, not decryptions.",
+		}, []string{"provider", "key", "op", "outcome"}),
 
 		auditExportLag: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Namespace: Namespace,
@@ -415,10 +421,11 @@ func (m *Metrics) SetRateLimitDegraded(degraded bool) {
 }
 
 // ObserveKEK records one master key operation. provider is the KEK's
-// provider (local or awskms), op is KEKWrap or KEKUnwrap. A caller that
-// gave up on the call should not report it: a cancelled request says
-// nothing about whether the key service is reachable.
-func (m *Metrics) ObserveKEK(provider, op string, err error) {
+// provider (local or awskms), key is KEKKeyActive or KEKKeyPrevious, op
+// is KEKWrap or KEKUnwrap. A caller that gave up on the call should not
+// report it: a cancelled request says nothing about whether the key
+// service is reachable.
+func (m *Metrics) ObserveKEK(provider, key, op string, err error) {
 	if m == nil {
 		return
 	}
@@ -426,7 +433,8 @@ func (m *Metrics) ObserveKEK(provider, op string, err error) {
 	if err != nil {
 		outcome = "error"
 	}
-	m.kekOperations.WithLabelValues(oneOf(provider, KEKProviderLocal, KEKProviderAWSKMS), oneOf(op, KEKWrap, KEKUnwrap), outcome).Inc()
+	m.kekOperations.WithLabelValues(oneOf(provider, KEKProviderLocal, KEKProviderAWSKMS),
+		oneOf(key, KEKKeyActive, KEKKeyPrevious), oneOf(op, KEKWrap, KEKUnwrap), outcome).Inc()
 }
 
 // SetAuditExportLag records, per destination kind, how long the oldest

@@ -13,7 +13,7 @@ type kekCalls struct {
 	n  map[string]int
 }
 
-func (c *kekCalls) observe(provider, op string, err error) {
+func (c *kekCalls) observe(provider, _, op string, err error) {
 	outcome := "ok"
 	if err != nil {
 		outcome = "error"
@@ -41,7 +41,7 @@ func TestObservedCountsKMSTrafficNotDecryptions(t *testing.T) {
 	ctx := context.Background()
 	fake := newFakeKMS()
 	var calls kekCalls
-	kek := Observed(testKMS(t, fake, AWSKMSConfig{}), calls.observe)
+	kek := Observed(testKMS(t, fake, AWSKMSConfig{}), KeyActive, calls.observe)
 	if kek.Ref() == "" || ProviderOf(kek.Ref()) != ProviderAWSKMS {
 		t.Fatalf("the observed key's reference %q no longer names its provider", kek.Ref())
 	}
@@ -106,7 +106,7 @@ func (s stubKEK) Unwrap(ctx context.Context, _ []byte) ([]byte, error) {
 func TestObservedIgnoresCallersThatGaveUp(t *testing.T) {
 	t.Parallel()
 	var calls kekCalls
-	kek := Observed(stubKEK{ref: "awskms:eu-west-1/alias/x", err: errKMSDown}, calls.observe)
+	kek := Observed(stubKEK{ref: "awskms:eu-west-1/alias/x", err: errKMSDown}, KeyActive, calls.observe)
 
 	cancelled, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -141,14 +141,14 @@ func TestProviderOf(t *testing.T) {
 
 func TestObservedPassesNilThrough(t *testing.T) {
 	t.Parallel()
-	if Observed(nil, func(string, string, error) {}) != nil {
+	if Observed(nil, KeyActive, func(string, string, string, error) {}) != nil {
 		t.Error("observing no key produced a key")
 	}
 	k, err := NewLocal("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=", "test")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if Observed(k, nil) != KEK(k) {
+	if Observed(k, KeyActive, nil) != KEK(k) {
 		t.Error("with no observer the key should be returned as it is")
 	}
 }

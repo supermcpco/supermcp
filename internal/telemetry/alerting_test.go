@@ -20,26 +20,30 @@ func TestKEKOperationsCountByOutcome(t *testing.T) {
 	reg := prometheus.NewRegistry()
 	m := telemetry.NewMetrics(telemetry.MetricsOptions{Registry: reg})
 
-	m.ObserveKEK(telemetry.KEKProviderAWSKMS, telemetry.KEKUnwrap, nil)
-	m.ObserveKEK(telemetry.KEKProviderAWSKMS, telemetry.KEKUnwrap, errors.New("kms: connection refused"))
-	m.ObserveKEK(telemetry.KEKProviderAWSKMS, telemetry.KEKUnwrap, errors.New("kms: connection refused"))
-	m.ObserveKEK(telemetry.KEKProviderAWSKMS, telemetry.KEKWrap, nil)
-	m.ObserveKEK(telemetry.KEKProviderLocal, telemetry.KEKWrap, nil)
+	m.ObserveKEK(telemetry.KEKProviderAWSKMS, telemetry.KEKKeyActive, telemetry.KEKUnwrap, nil)
+	m.ObserveKEK(telemetry.KEKProviderAWSKMS, telemetry.KEKKeyActive, telemetry.KEKUnwrap, errors.New("kms: connection refused"))
+	m.ObserveKEK(telemetry.KEKProviderAWSKMS, telemetry.KEKKeyActive, telemetry.KEKUnwrap, errors.New("kms: connection refused"))
+	m.ObserveKEK(telemetry.KEKProviderAWSKMS, telemetry.KEKKeyActive, telemetry.KEKWrap, nil)
+	m.ObserveKEK(telemetry.KEKProviderLocal, telemetry.KEKKeyActive, telemetry.KEKWrap, nil)
+	// During a move both keys are awskms; the role is what tells the old
+	// key failing apart from the new one.
+	m.ObserveKEK(telemetry.KEKProviderAWSKMS, telemetry.KEKKeyPrevious, telemetry.KEKUnwrap, errors.New("AccessDeniedException"))
 
 	tests := []struct {
-		provider, op, outcome string
-		want                  float64
+		provider, key, op, outcome string
+		want                       float64
 	}{
-		{"awskms", "unwrap", "ok", 1},
-		{"awskms", "unwrap", "error", 2},
-		{"awskms", "wrap", "ok", 1},
-		{"local", "wrap", "ok", 1},
+		{"awskms", "active", "unwrap", "ok", 1},
+		{"awskms", "active", "unwrap", "error", 2},
+		{"awskms", "active", "wrap", "ok", 1},
+		{"local", "active", "wrap", "ok", 1},
+		{"awskms", "previous", "unwrap", "error", 1},
 	}
 	for _, tc := range tests {
 		got := value(t, reg, "supermcp_kek_operations_total",
-			map[string]string{"provider": tc.provider, "op": tc.op, "outcome": tc.outcome})
+			map[string]string{"provider": tc.provider, "key": tc.key, "op": tc.op, "outcome": tc.outcome})
 		if got != tc.want {
-			t.Errorf("kek_operations_total{%s,%s,%s} = %v, want %v", tc.provider, tc.op, tc.outcome, got, tc.want)
+			t.Errorf("kek_operations_total{%s,%s,%s,%s} = %v, want %v", tc.provider, tc.key, tc.op, tc.outcome, got, tc.want)
 		}
 	}
 }
@@ -49,20 +53,23 @@ func TestKEKOperationsCardinalityIsFixed(t *testing.T) {
 	reg := prometheus.NewRegistry()
 	m := telemetry.NewMetrics(telemetry.MetricsOptions{Registry: reg})
 
-	// Every provider and op a caller could invent, each with both outcomes.
+	// Every provider, role and op a caller could invent, each with both
+	// outcomes.
 	for _, provider := range []string{"awskms", "local", "gcpkms", "", "awskms:eu-west-1/alias/x"} {
-		for _, op := range []string{"wrap", "unwrap", "rewrap", ""} {
-			m.ObserveKEK(provider, op, nil)
-			m.ObserveKEK(provider, op, errors.New("x"))
+		for _, key := range []string{"active", "previous", "awskms:eu-west-1/alias/old", ""} {
+			for _, op := range []string{"wrap", "unwrap", "rewrap", ""} {
+				m.ObserveKEK(provider, key, op, nil)
+				m.ObserveKEK(provider, key, op, errors.New("x"))
+			}
 		}
 	}
-	// provider local|awskms|other, op wrap|unwrap|other, outcome ok|error.
-	if got, limit := seriesCount(t, reg, "supermcp_kek_operations_total"), 3*3*2; got > limit {
+	// provider, key and op each three values with other, outcome ok|error.
+	if got, limit := seriesCount(t, reg, "supermcp_kek_operations_total"), 3*3*3*2; got > limit {
 		t.Errorf("kek_operations_total has %d series, want at most %d", got, limit)
 	}
 	if got := value(t, reg, "supermcp_kek_operations_total",
-		map[string]string{"provider": "other", "op": "other", "outcome": "error"}); got != 6 {
-		t.Errorf("unknown providers and ops recorded %v errors under other/other, want 6", got)
+		map[string]string{"provider": "other", "key": "other", "op": "other", "outcome": "error"}); got != 12 {
+		t.Errorf("unknown providers, keys and ops recorded %v errors under other/other/other, want 12", got)
 	}
 }
 

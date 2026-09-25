@@ -267,7 +267,7 @@ func TestNilMetricsRecordsNothing(t *testing.T) {
 	m.SetAuditQueueDepth(1)
 	m.SetAuditDroppedTotal(1)
 	m.SetRateLimitDegraded(true)
-	m.ObserveKEK(telemetry.KEKProviderAWSKMS, telemetry.KEKUnwrap, errors.New("down"))
+	m.ObserveKEK(telemetry.KEKProviderAWSKMS, telemetry.KEKKeyActive, telemetry.KEKUnwrap, errors.New("down"))
 	m.SetAuditExportLag(map[string]time.Duration{telemetry.ExportKindWebhook: time.Hour})
 	m.WatchDBPool(telemetry.PoolApp, func() telemetry.DBPoolStats { return telemetry.DBPoolStats{} })
 	if m.Registry() != nil {
