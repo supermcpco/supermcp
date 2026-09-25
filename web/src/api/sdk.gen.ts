@@ -427,6 +427,8 @@ export const logout = <ThrowOnError extends boolean = false>(options?: Options<L
 
 /**
  * Change your own password
+ *
+ * Verifies the current password, then sets the new one and ends every other session. A wrong current password counts toward the same lockout as sign-in; once the account is locked the request is refused with 429 until the lockout expires.
  */
 export const changePassword = <ThrowOnError extends boolean = false>(options: Options<ChangePasswordData, ThrowOnError>) => (options.client ?? client).post<ChangePasswordResponses, ChangePasswordErrors, ThrowOnError>({
     security: [{

@@ -80,10 +80,16 @@ func (s *Service) SetPolicy(ctx context.Context, orgID string, p PasswordPolicy)
 
 // ChangePassword replaces a user's own password after verifying the
 // current one.
-func (s *Service) ChangePassword(ctx context.Context, userID, orgID, current, next string) error {
+//
+// A wrong current password counts against the same lockout as the sign-in
+// form, keyed by the account's address and the client address ip, so a
+// stolen session is no better a place to guess the password from than the
+// sign-in page.
+func (s *Service) ChangePassword(ctx context.Context, userID, orgID, current, next, ip string) error {
+	var email string
 	var stored *string
 	err := s.DB.Pre(ctx, func(tx pgx.Tx) error {
-		return tx.QueryRow(ctx, `SELECT password_hash FROM auth_user_by_id($1)`, userID).Scan(&stored)
+		return tx.QueryRow(ctx, `SELECT email, password_hash FROM auth_user_by_id($1)`, userID).Scan(&email, &stored)
 	})
 	if err != nil {
 		return err
@@ -95,13 +101,21 @@ func (s *Service) ChangePassword(ctx context.Context, userID, orgID, current, ne
 	// An account created through single sign-on has no password; setting
 	// one is allowed, and there is nothing to verify first.
 	if hash != "" {
+		userKey, ipKey := "user:"+email, "ip:"+ip
+		if locked, err := s.locked(ctx, userKey, ipKey); err != nil {
+			return err
+		} else if locked {
+			return ErrLocked
+		}
 		ok, _, err := VerifyPassword(hash, current)
 		if err != nil {
 			return err
 		}
 		if !ok {
+			s.failed(ctx, userKey, ipKey)
 			return ErrWrongPassword
 		}
+		s.clear(ctx, userKey, ipKey)
 	}
 	return s.SetPassword(ctx, userID, orgID, next)
 }

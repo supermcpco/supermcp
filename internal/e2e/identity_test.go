@@ -564,6 +564,47 @@ func TestPasswordPolicy(t *testing.T) {
 	}
 }
 
+// TestPasswordChangeLockout shows the change-password form is no easier
+// to guess the current password through than the sign-in form: wrong
+// current passwords count toward the same lockout, then even the right one
+// is refused, and so is signing in.
+func TestPasswordChangeLockout(t *testing.T) {
+	h := start(t)
+	admin := h.register(t, "E2E password change lockout")
+	h.clearLockouts(t, admin.User.Email)
+	change := func(current string) int {
+		return h.do(t, http.MethodPost, "/api/v1/auth/password", map[string]any{
+			"currentPassword": current, "newPassword": "Stapler Ocean Drift 77",
+		}, nil)
+	}
+
+	// One wrong guess counts; the right password clears it as a sign-in does.
+	if code := change("wrong"); code != http.StatusBadRequest {
+		t.Fatalf("a wrong current password: %d, want 400", code)
+	}
+	if failures := lockoutFailures(t, h, "user:"+admin.User.Email); failures != 1 {
+		t.Fatalf("a wrong current password left %d failures on the account, want 1", failures)
+	}
+	if code := h.do(t, http.MethodPost, "/api/v1/auth/reauth", map[string]any{"password": e2ePassword}, nil); code != http.StatusOK {
+		t.Fatalf("re-authenticating: %d", code)
+	}
+
+	threshold := h.deps.Identity.Cfg.LockoutThreshold
+	for i := 0; i < threshold; i++ {
+		if code := change("wrong"); code != http.StatusBadRequest {
+			t.Fatalf("attempt %d: %d, want 400", i, code)
+		}
+	}
+	if code := change(e2ePassword); code != http.StatusTooManyRequests {
+		t.Fatalf("the right current password after %d wrong ones: %d, want 429", threshold, code)
+	}
+	anon := h.anonymous()
+	if code := anon.do(t, http.MethodPost, "/api/v1/auth/login",
+		map[string]any{"email": admin.User.Email, "password": e2ePassword}, nil); code != http.StatusTooManyRequests {
+		t.Fatalf("signing in after the change form locked the account: %d, want 429", code)
+	}
+}
+
 // TestPasswordMaxAge checks that a password past the workspace's maximum
 // age can change itself, read the session and sign out, and do nothing
 // else until it is changed.
