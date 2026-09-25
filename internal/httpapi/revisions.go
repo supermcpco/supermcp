@@ -62,6 +62,8 @@ var (
 	// already see.
 	dlpRevisions = revisionKind{kind: governance.KindDLPPolicy, path: "dlp/policies", op: "dlp-policies",
 		tag: "dlp", read: authz.ConnectorsRead, edit: authz.DLPManage}
+	dlpDetectorRevisions = revisionKind{kind: governance.KindDLPDetector, path: "dlp/detectors", op: "dlp-detectors",
+		tag: "dlp", read: authz.ConnectorsRead, edit: authz.DLPManage}
 	approvalPolicyRevisions = revisionKind{kind: governance.KindApprovalPolicy, path: "approval-policies",
 		op: "approval-policies", tag: "approvals", read: authz.ApprovalsDecide, edit: authz.OrgSettingsManage}
 	idpRevisions = revisionKind{kind: governance.KindIdentityProvider, path: "idps", op: "idps",
@@ -70,7 +72,7 @@ var (
 		tag: "identity", read: authz.IdpManage, edit: authz.IdpManage}
 
 	revisionKinds = []revisionKind{connectorRevisions, toolRevisions, serverRevisions, roleRevisions,
-		dlpRevisions, approvalPolicyRevisions, idpRevisions, samlRevisions}
+		dlpRevisions, dlpDetectorRevisions, approvalPolicyRevisions, idpRevisions, samlRevisions}
 )
 
 // A role applies across the whole organisation rather than to one server
@@ -92,7 +94,7 @@ func (k revisionKind) resource(id string) authz.Resource {
 
 type revisionDTO struct {
 	ID           string         `json:"id"`
-	Kind         string         `json:"kind" enum:"connector,tool,server,role,dlp_policy,approval_policy,identity_provider,saml_provider"`
+	Kind         string         `json:"kind" enum:"connector,tool,server,role,dlp_policy,approval_policy,identity_provider,saml_provider,dlp_detector"`
 	EntityID     string         `json:"entityId"`
 	Revision     int            `json:"revision"`
 	Action       string         `json:"action" enum:"create,update,delete"`
@@ -157,6 +159,8 @@ func (k revisionKind) noun() string {
 	switch k.kind {
 	case governance.KindDLPPolicy:
 		return "data-loss prevention policy"
+	case governance.KindDLPDetector:
+		return "custom data-loss detector"
 	case governance.KindApprovalPolicy:
 		return "approval policy"
 	case governance.KindIdentityProvider:

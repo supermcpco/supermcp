@@ -368,7 +368,8 @@ the other replicas for those thirty seconds, so the database tells every
 replica when either changes.
 
 **How it works.** Triggers on `roles`, `role_bindings`,
-`tool_access_rules` and `dlp_policies` (migration 00020) send a Postgres
+`tool_access_rules` and `dlp_policies` (migration 00020), and on
+`dlp_detectors` (migration 00031), send a Postgres
 notification on the `supermcp_cache` channel naming the cache and the
 workspace: `authz:<organization id>` or `dlp:<organization id>`, or
 `authz:*` for a built-in role, which every workspace shares. Because they

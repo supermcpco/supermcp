@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -63,7 +64,9 @@ type ScanPolicy struct {
 	ConnectorID string `json:"connectorId,omitempty"`
 	ToolID      string `json:"toolId,omitempty"`
 	Scan        Stage  `json:"scan" enum:"arguments,result,both"`
-	// Detectors names which built-ins run. Empty means all of them.
+	// Detectors names which detectors run: built-in names, and the
+	// organisation's own as custom:<name>. Empty means every built-in;
+	// a custom detector runs only where a policy names it.
 	Detectors []string  `json:"detectors" nullable:"false"`
 	Action    Action    `json:"action" enum:"allow,mask,refuse"`
 	Enabled   bool      `json:"enabled"`
@@ -91,9 +94,15 @@ type Policies struct {
 	// "local"), for the invalidation counter.
 	OnInvalidate func(source string)
 
-	// mu guards cache, gen and orgGen.
+	// mu guards cache, gen, orgGen and compiled.
 	mu    sync.Mutex
 	cache map[string]cacheEntry
+	// compiled holds each organisation's compiled custom detectors, keyed
+	// by id@version. It outlives an invalidation, so a notification about
+	// one detector does not recompile the others; a load replaces the
+	// organisation's map with the detectors it read, so an edited or
+	// deleted detector's old program goes with it.
+	compiled map[string]map[string]Detector
 	// gen counts full flushes and orgGen each organisation's
 	// invalidations, so a read that was in flight when one landed does not
 	// put back what it dropped. A full flush empties orgGen.
@@ -114,6 +123,10 @@ type Recorder interface {
 // RevisionKind is what the revision history calls a policy.
 const RevisionKind = "dlp_policy"
 
+// DetectorRevisionKind is what the revision history calls a custom
+// detector.
+const DetectorRevisionKind = "dlp_detector"
+
 // The actions a revision records.
 const (
 	revisionCreate = "create"
@@ -123,7 +136,10 @@ const (
 
 type cacheEntry struct {
 	list []ScanPolicy
-	at   time.Time
+	// custom is the organisation's enabled custom detectors, compiled,
+	// by the name a policy uses for them.
+	custom map[string]Detector
+	at     time.Time
 }
 
 // Screened is the outcome of running a policy over one half of a call.
@@ -160,7 +176,8 @@ func NewPolicies(db *tenant.DB, newID func() string) *Policies {
 	if newID == nil {
 		newID = newUUID
 	}
-	return &Policies{DB: db, NewID: newID, cache: map[string]cacheEntry{}, orgGen: map[string]uint64{}, now: time.Now}
+	return &Policies{DB: db, NewID: newID, cache: map[string]cacheEntry{}, orgGen: map[string]uint64{},
+		compiled: map[string]map[string]Detector{}, now: time.Now}
 }
 
 // Select returns the policy that governs a call, from a list already read.
@@ -207,6 +224,14 @@ func (p ScanPolicy) Validate() error {
 		return fmt.Errorf("%w: a tool-scoped policy must name the tool's connector too", ErrInvalid)
 	}
 	for _, name := range p.Detectors {
+		if slug, ok := IsCustom(name); ok {
+			// Whether the organisation has it is a question for the
+			// database, asked inside the writing transaction.
+			if !ValidSlug(slug) {
+				return fmt.Errorf("%w: no detector called %s", ErrInvalid, name)
+			}
+			continue
+		}
 		if _, ok := byName[name]; !ok {
 			return fmt.Errorf("%w: no detector called %s", ErrInvalid, name)
 		}
@@ -220,19 +245,33 @@ func (p ScanPolicy) Validate() error {
 // Covers reports whether the policy applies to one half of a call.
 func (p ScanPolicy) Covers(s Stage) bool { return p.Scan == StageBoth || p.Scan == s }
 
-// Options turns the stored names into the detectors to run.
+// Options turns the stored names into the built-in detectors to run. A
+// custom name is left out; OptionsWith resolves those.
 func (p ScanPolicy) Options(root string) Options {
-	opt := Options{MaxBytes: p.MaxBytes, Root: root}
+	opt, _ := p.OptionsWith(root, nil)
+	return opt
+}
+
+// OptionsWith turns the stored names into the detectors to run, looking
+// custom names up in custom (the organisation's enabled detectors, from
+// Policies.Custom). ok is false when the policy names detectors and none
+// of them can run — every one it names is a custom detector since
+// disabled — and then nothing should be scanned at all: an empty list in
+// Options means every built-in, which is not what the policy says.
+func (p ScanPolicy) OptionsWith(root string, custom map[string]Detector) (opt Options, ok bool) {
+	opt = Options{MaxBytes: p.MaxBytes, Root: root}
 	if len(p.Detectors) == 0 {
-		return opt
+		return opt, true
 	}
 	opt.Detectors = make([]Detector, 0, len(p.Detectors))
 	for _, name := range p.Detectors {
-		if d, ok := byName[name]; ok {
+		if d, found := byName[name]; found {
+			opt.Detectors = append(opt.Detectors, d)
+		} else if d, found := custom[name]; found {
 			opt.Detectors = append(opt.Detectors, d)
 		}
 	}
-	return opt
+	return opt, len(opt.Detectors) > 0
 }
 
 // Resolve returns the policy governing one call. The error is reported
@@ -243,19 +282,38 @@ func (p *Policies) Resolve(ctx context.Context, orgID, connectorID, toolID strin
 	if p == nil || orgID == "" {
 		return ScanPolicy{}, false, nil
 	}
+	e, err := p.entry(ctx, orgID)
+	if err != nil {
+		return ScanPolicy{}, false, err
+	}
+	got, found := Select(e.list, connectorID, toolID)
+	return got, found, nil
+}
+
+// Custom returns the organisation's enabled custom detectors by the name a
+// policy uses for them, from the same cache the tool-call path reads.
+func (p *Policies) Custom(ctx context.Context, orgID string) (map[string]Detector, error) {
+	if p == nil || orgID == "" {
+		return nil, nil
+	}
+	e, err := p.entry(ctx, orgID)
+	if err != nil {
+		return nil, err
+	}
+	return e.custom, nil
+}
+
+// entry is the organisation's cached policies and detectors, read again
+// when they are missing or stale.
+func (p *Policies) entry(ctx context.Context, orgID string) (cacheEntry, error) {
 	p.mu.Lock()
 	e, ok := p.cache[orgID]
 	fresh := ok && p.now().Sub(e.at) < policyTTL
 	p.mu.Unlock()
-	if !fresh {
-		list, err := p.List(ctx, orgID)
-		if err != nil {
-			return ScanPolicy{}, false, err
-		}
-		e = cacheEntry{list: list, at: p.now()}
+	if fresh {
+		return e, nil
 	}
-	got, found := Select(e.list, connectorID, toolID)
-	return got, found, nil
+	return p.load(ctx, orgID)
 }
 
 // Screen is the tool-call path in one call: find the rule that governs
@@ -277,8 +335,16 @@ func (p *Policies) Screen(ctx context.Context, orgID, connectorID, toolID string
 	if !found || !rule.Covers(stage) {
 		return out, nil
 	}
+	custom, err := p.Custom(ctx, orgID)
+	if err != nil {
+		return out, err
+	}
 	out.Applied, out.ScanPolicy = true, rule
-	value, res, err := Apply(v, rule.Action, rule.Options("$."+string(stage)))
+	opt, run := rule.OptionsWith("$."+string(stage), custom)
+	if !run {
+		return out, nil
+	}
+	value, res, err := Apply(v, rule.Action, opt)
 	out.Result = res
 	if err != nil {
 		return out, err
@@ -287,40 +353,97 @@ func (p *Policies) Screen(ctx context.Context, orgID, connectorID, toolID string
 	return out, nil
 }
 
-// List returns every policy in the organisation, newest scope first, and
+// List returns every policy in the organisation, oldest first, and
 // refreshes the cache.
 func (p *Policies) List(ctx context.Context, orgID string) ([]ScanPolicy, error) {
-	out := []ScanPolicy{}
+	e, err := p.load(ctx, orgID)
+	if err != nil {
+		return nil, err
+	}
+	return e.list, nil
+}
+
+// policyColumns is what every read of a policy selects, in the order
+// scanPolicy reads it.
+const policyColumns = `id, organization_id, name, COALESCE(connector_id,''), COALESCE(tool_id,''),
+	scan, detectors, action, enabled, max_bytes, COALESCE(created_by,''), created_at, updated_at`
+
+func scanPolicy(row pgx.CollectableRow) (ScanPolicy, error) {
+	var v ScanPolicy
+	err := row.Scan(&v.ID, &v.OrgID, &v.Name, &v.ConnectorID, &v.ToolID, &v.Scan, &v.Detectors,
+		&v.Action, &v.Enabled, &v.MaxBytes, &v.CreatedBy, &v.CreatedAt, &v.UpdatedAt)
+	return v, err
+}
+
+// load reads the organisation's policies and enabled custom detectors in
+// one round trip, compiles the detectors it has not compiled at their
+// current version, and refreshes the cache.
+func (p *Policies) load(ctx context.Context, orgID string) (cacheEntry, error) {
 	p.mu.Lock()
 	gen, orgGen := p.gen, p.orgGen[orgID]
+	prev := p.compiled[orgID]
 	p.mu.Unlock()
+
+	var list []ScanPolicy
+	var stored []CustomDetector
 	err := p.DB.Tx(tenant.WithOrg(ctx, orgID), func(tx pgx.Tx) error {
-		rows, err := tx.Query(ctx, `SELECT id, organization_id, name, COALESCE(connector_id,''), COALESCE(tool_id,''),
-			scan, detectors, action, enabled, max_bytes, COALESCE(created_by,''), created_at, updated_at
-			FROM dlp_policies WHERE organization_id = $1 ORDER BY created_at`, orgID)
-		if err != nil {
-			return err
+		batch := &pgx.Batch{}
+		batch.Queue(`SELECT `+policyColumns+` FROM dlp_policies WHERE organization_id = $1 ORDER BY created_at`, orgID)
+		batch.Queue(`SELECT id, name, pattern, flags, version FROM dlp_detectors
+			WHERE organization_id = $1 AND enabled`, orgID)
+		br := tx.SendBatch(ctx, batch)
+		rows, err := br.Query()
+		if err == nil {
+			list, err = pgx.CollectRows(rows, scanPolicy)
 		}
-		defer rows.Close()
-		for rows.Next() {
-			var v ScanPolicy
-			if err := rows.Scan(&v.ID, &v.OrgID, &v.Name, &v.ConnectorID, &v.ToolID, &v.Scan, &v.Detectors,
-				&v.Action, &v.Enabled, &v.MaxBytes, &v.CreatedBy, &v.CreatedAt, &v.UpdatedAt); err != nil {
-				return err
-			}
-			out = append(out, v)
+		if err == nil {
+			rows, err = br.Query()
 		}
-		return rows.Err()
+		if err == nil {
+			stored, err = pgx.CollectRows(rows, func(row pgx.CollectableRow) (CustomDetector, error) {
+				var c CustomDetector
+				err := row.Scan(&c.ID, &c.Name, &c.Pattern, &c.Flags, &c.Version)
+				return c, err
+			})
+		}
+		return errors.Join(err, br.Close())
 	})
 	if err != nil {
-		return nil, fmt.Errorf("read dlp policies: %w", err)
+		return cacheEntry{}, fmt.Errorf("read dlp policies: %w", err)
 	}
+	if list == nil {
+		list = []ScanPolicy{}
+	}
+
+	// Compiled outside the lock: a pattern is at most 512 bytes and cheap
+	// to compile, but the lock is on the tool-call path.
+	compiled := make(map[string]Detector, len(stored))
+	custom := make(map[string]Detector, len(stored))
+	for _, c := range stored {
+		key := c.ID + "@" + strconv.FormatInt(c.Version, 10)
+		d, ok := prev[key]
+		if !ok {
+			// Every stored pattern passed this same check when it was
+			// saved, so a failure here means the rules changed under it.
+			// The error reaches the call site, which decides what an
+			// unreadable policy means, rather than the detector quietly
+			// dropping out of the policies that name it.
+			if d, err = NewCustom(c); err != nil {
+				return cacheEntry{}, fmt.Errorf("custom detector %s: %w", c.Name, err)
+			}
+		}
+		compiled[key] = d
+		custom[c.Ref()] = d
+	}
+
+	e := cacheEntry{list: list, custom: custom, at: p.now()}
 	p.mu.Lock()
 	if p.gen == gen && p.orgGen[orgID] == orgGen {
-		p.cache[orgID] = cacheEntry{list: out, at: p.now()}
+		p.cache[orgID] = e
+		p.compiled[orgID] = compiled
 	}
 	p.mu.Unlock()
-	return out, nil
+	return e, nil
 }
 
 // Get returns one policy.
@@ -349,6 +472,9 @@ func (p *Policies) Create(ctx context.Context, orgID string, v ScanPolicy) (Scan
 	}
 	err := p.DB.Tx(tenant.WithOrg(ctx, orgID), func(tx pgx.Tx) error {
 		if err := scopeExists(ctx, tx, v); err != nil {
+			return err
+		}
+		if err := customExist(ctx, tx, v.Detectors); err != nil {
 			return err
 		}
 		if err := insertPolicy(ctx, tx, &v); err != nil {
@@ -380,6 +506,9 @@ func (p *Policies) Update(ctx context.Context, orgID, id string, v ScanPolicy, a
 			return err
 		}
 		if err := scopeExists(ctx, tx, v); err != nil {
+			return err
+		}
+		if err := customExist(ctx, tx, v.Detectors); err != nil {
 			return err
 		}
 		if err := updatePolicy(ctx, tx, &v); err != nil {
@@ -422,6 +551,9 @@ func (p *Policies) Restore(ctx context.Context, orgID, id string, v ScanPolicy, 
 			if err := scopeExists(ctx, tx, v); err != nil {
 				return err
 			}
+			if err := customExist(ctx, tx, v.Detectors); err != nil {
+				return err
+			}
 			if err := insertPolicy(ctx, tx, &v); err != nil {
 				return err
 			}
@@ -430,6 +562,9 @@ func (p *Policies) Restore(ctx context.Context, orgID, id string, v ScanPolicy, 
 			return err
 		}
 		if err := scopeExists(ctx, tx, v); err != nil {
+			return err
+		}
+		if err := customExist(ctx, tx, v.Detectors); err != nil {
 			return err
 		}
 		if err := updatePolicy(ctx, tx, &v); err != nil {
@@ -477,12 +612,12 @@ func (p *Policies) Delete(ctx context.Context, orgID, id, actorID string) error 
 // lockPolicy reads a policy inside the writing transaction and holds its
 // row, so the before a revision records is the one the write replaced.
 func lockPolicy(ctx context.Context, tx pgx.Tx, orgID, id string) (ScanPolicy, error) {
-	var v ScanPolicy
-	err := tx.QueryRow(ctx, `SELECT id, organization_id, name, COALESCE(connector_id,''), COALESCE(tool_id,''),
-		scan, detectors, action, enabled, max_bytes, COALESCE(created_by,''), created_at, updated_at
-		FROM dlp_policies WHERE organization_id = $1 AND id = $2 FOR UPDATE`, orgID, id).
-		Scan(&v.ID, &v.OrgID, &v.Name, &v.ConnectorID, &v.ToolID, &v.Scan, &v.Detectors,
-			&v.Action, &v.Enabled, &v.MaxBytes, &v.CreatedBy, &v.CreatedAt, &v.UpdatedAt)
+	rows, err := tx.Query(ctx, `SELECT `+policyColumns+`
+		FROM dlp_policies WHERE organization_id = $1 AND id = $2 FOR UPDATE`, orgID, id)
+	if err != nil {
+		return ScanPolicy{}, err
+	}
+	v, err := pgx.CollectExactlyOneRow(rows, scanPolicy)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ScanPolicy{}, ErrNotFound
 	}
@@ -630,6 +765,38 @@ func scopeExists(ctx context.Context, tx pgx.Tx, v ScanPolicy) error {
 	return nil
 }
 
+// customExist checks that every custom detector a policy names is one of
+// this organisation's, under row-level security like scopeExists. The
+// rows are locked FOR SHARE until the policy's transaction ends, so a
+// delete of one of them waits for it and then sees the policy that now
+// names it, rather than both committing and leaving a policy that names
+// nothing.
+func customExist(ctx context.Context, tx pgx.Tx, names []string) error {
+	var want []string
+	for _, n := range names {
+		if slug, ok := IsCustom(n); ok && !slices.Contains(want, slug) {
+			want = append(want, slug)
+		}
+	}
+	if len(want) == 0 {
+		return nil
+	}
+	rows, err := tx.Query(ctx, `SELECT name FROM dlp_detectors WHERE name = ANY($1) FOR SHARE`, want)
+	if err != nil {
+		return err
+	}
+	have, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return err
+	}
+	for _, slug := range want {
+		if !slices.Contains(have, slug) {
+			return fmt.Errorf("%w: no detector called %s%s in this organisation", ErrInvalid, CustomPrefix, slug)
+		}
+	}
+	return nil
+}
+
 // scopeConflict turns the unique index into something an administrator can
 // act on: the scope already has a rule, and a scope has exactly one.
 func scopeConflict(err error) error {
@@ -701,6 +868,8 @@ func (p *Policies) InvalidateAll() {
 	clear(p.orgGen)
 	p.gen++
 	p.mu.Unlock()
+	// compiled is kept: it is keyed by version, so nothing in it can be
+	// stale, and the next load of each organisation prunes it.
 }
 
 func newUUID() string {

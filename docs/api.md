@@ -169,7 +169,7 @@ The guarded operations:
 | Role holders | `POST /api/v1/roles/{id}/bindings`, `DELETE /api/v1/roles/{id}/bindings/{bindingId}`, `PATCH /api/v1/org/members/{userId}`, `DELETE /api/v1/org/members/{userId}`, `POST /api/v1/org/invites` |
 | Single sign-on | `POST /api/v1/idps`, `PUT` and `DELETE /api/v1/idps/{id}`, `POST /api/v1/idps/{id}/revisions/{revision}/restore`, `POST /api/v1/saml-providers`, `PUT` and `DELETE /api/v1/saml-providers/{id}`, `POST /api/v1/saml-providers/{id}/rotate-key`, `POST /api/v1/saml-providers/{id}/revisions/{revision}/restore` |
 | Security settings | `PUT /api/v1/org/password-policy`, `POST /api/v1/auth/password` from a single sign-on session |
-| Data-loss and approval rules | `POST /api/v1/dlp/policies`, `PUT` and `DELETE /api/v1/dlp/policies/{id}`, `POST /api/v1/dlp/policies/{id}/revisions/{revision}/restore`, `POST /api/v1/approval-policies`, `PUT` and `DELETE /api/v1/approval-policies/{id}`, `POST /api/v1/approval-policies/{id}/revisions/{revision}/restore` |
+| Data-loss and approval rules | `POST /api/v1/dlp/policies`, `PUT` and `DELETE /api/v1/dlp/policies/{id}`, `POST /api/v1/dlp/policies/{id}/revisions/{revision}/restore`, `POST /api/v1/dlp/detectors`, `PATCH` and `DELETE /api/v1/dlp/detectors/{id}`, `POST /api/v1/dlp/detectors/{id}/revisions/{revision}/restore`, `POST /api/v1/approval-policies`, `PUT` and `DELETE /api/v1/approval-policies/{id}`, `POST /api/v1/approval-policies/{id}/revisions/{revision}/restore` |
 | Audit trail | `PUT /api/v1/audit/policy`, `PUT /api/v1/audit/retention`, `POST` and `DELETE /api/v1/audit/legal-hold`, `POST /api/v1/audit/exporters`, `DELETE /api/v1/audit/exporters/{id}` |
 
 The master key and data keys have no HTTP endpoints. Rotating them is a
@@ -700,6 +700,103 @@ refused. A write that goes through moves the version by one.
 `connectors-resync` checks the same version, through the same lock, but
 answers a mismatch with its own code, `resync_stale`.
 
+## Data-loss prevention
+
+A data-loss policy screens what a tool call carries: the arguments on
+the way out, the result on the way back, or both. It runs a set of
+detectors and either records what they find (`allow`), masks it
+(`mask`), or refuses the call (`refuse`). One policy applies per scope
+(the organisation, a connector, or a tool), the narrowest winning.
+
+| Route | Needs |
+|---|---|
+| `GET /api/v1/dlp/policies`, `GET /api/v1/dlp/policies/{id}` | `connectors:read` |
+| `POST /api/v1/dlp/policies`, `PUT` and `DELETE /api/v1/dlp/policies/{id}` | `dlp:manage`, recent sign-in |
+| `POST /api/v1/dlp/preview` | `dlp:manage` |
+| `GET /api/v1/dlp/detectors`, `GET /api/v1/dlp/detectors/{id}` | `connectors:read` |
+| `POST /api/v1/dlp/detectors`, `PATCH` and `DELETE /api/v1/dlp/detectors/{id}` | `dlp:manage`, recent sign-in |
+| `POST /api/v1/dlp/detectors/test` | `dlp:manage` |
+
+### Detectors
+
+`GET /api/v1/dlp/detectors` lists the built-in detectors under
+`detectors` (name, kind, what each matches and what it deliberately
+does not) and the organisation's own under `custom`. A policy's
+`detectors` names the ones it runs: a built-in by its name
+(`payment_card`), a custom detector as `custom:<name>`
+(`custom:contract_id`, which is the custom detector's `detector` field).
+An empty list runs every built-in and no custom detector; a custom
+detector runs only where a policy names it. A policy naming a custom
+detector the organisation does not have is `400`. A custom detector that
+is switched off is skipped by the policies that name it; a policy whose
+only detectors are switched off scans nothing, rather than falling back
+to every built-in.
+
+### Custom detectors
+
+A custom detector is a regular expression for an identifier only the
+organisation knows: a customer number, a contract id.
+
+| Field | |
+|---|---|
+| `name` | 2 to 63 characters: lower-case letters, digits, `-` and `_`, starting with a letter or digit. Unique in the organisation. Policies refer to it by name, so it cannot change after the detector is created. |
+| `description` | Up to 500 characters. |
+| `pattern` | [RE2 syntax](https://github.com/google/re2/wiki/Syntax), as Go's `regexp` reads it. |
+| `flags` | `""`, or `"i"` to ignore case. |
+| `mustMatch`, `mustNotMatch` | Up to 20 samples each, up to 1024 bytes each. |
+| `enabled` | Defaults to `true`. |
+| `version` | Starts at 1 and moves by one on every change. |
+
+A pattern is refused with `422` when it is shorter than 3 bytes or
+longer than 512; when it does not compile (RE2 has no lookarounds and no
+backreferences, which is also why its cost is linear in the text and a
+pattern cannot backtrack catastrophically); when it can match an empty
+string (`CN-\d*|`, `(?:CN)?`, a pattern of anchors alone); or when it
+compiles to a program too large to run on every tool call (large
+repetition counts such as `[a-z]{1000}`). Each sample in `mustMatch` must
+contain a match and none in `mustNotMatch` may; these are checked on
+every save, including an edit that changes only the pattern. The `422`
+names what failed in `errors[].location`: `body.pattern`, `body.flags`,
+`body.name`, or the sample by position, such as `body.mustMatch[1]`. The
+message names a sample by its position and never quotes it. An
+organisation holds at most 50 custom detectors.
+
+Samples are stored as written and appear in the history and in the
+audit trail's diffs. Use made-up values.
+
+A custom detector scans within the same byte budget as the built-ins
+(the policy's `maxBytes`, 64 KiB by default). Its findings name it
+(`detector` is `custom:<name>`, `rule` is `pattern`, `confidence` is
+`high`) and carry the field path and a count, never the text it
+matched. A mask replaces a match with `<redacted:custom:<name>>`, and a
+refusal names the detector.
+
+- `POST /api/v1/dlp/detectors` creates one (`201`); a name the
+  organisation already uses is `409` with `name_taken` at `body.name`.
+- `PATCH /api/v1/dlp/detectors/{id}` changes the fields it carries and
+  leaves the rest. `expectedVersion` is required; a stale one is `409`
+  with `version_conflict` at `body.expectedVersion` and the version
+  stored now at `version`, as a tool edit's is. A `name` other than the
+  current one is `422`.
+- `DELETE /api/v1/dlp/detectors/{id}` is `409` while policies name the
+  detector: `in_use` at `query.force`, then one entry per policy at
+  `references.dlpPolicies`, with its name as `message` and its id as
+  `value`. With `?force=true` the detector is removed from those policies
+  in the same transaction, each change recorded in the policy's history
+  and audited as `dlp.policy.update`; a policy left naming no detector is
+  also switched off.
+- `POST /api/v1/dlp/detectors/test` takes `{pattern, flags, samples}`
+  (up to 40 samples) and answers, per sample, `matched` and the byte
+  offsets of each match (`start` inclusive, `end` exclusive, at most 20,
+  with `more` when there were more). It applies the rules a save applies
+  to the pattern and writes nothing; the samples are never quoted back.
+
+Changes are audited as `dlp.detector.create`, `dlp.detector.update` and
+`dlp.detector.delete`. Each replica caches an organisation's compiled
+detectors beside its policies; a change reaches every replica on commit
+through the same notification a policy change sends
+(`docs/operations.md`, "Cache invalidation").
+
 ## Audit search
 
 `GET /api/v1/audit` (`audit:read`) and `GET /api/v1/audit/export`
@@ -973,8 +1070,8 @@ actor and the role in `meta`.
 
 ## Revisions
 
-Connectors, tools, MCP servers, roles, data-loss policies, approval
-policies and sign-in providers keep a history. Every create, update and
+Connectors, tools, MCP servers, roles, data-loss policies and
+detectors, approval policies and sign-in providers keep a history. Every create, update and
 delete writes a revision in the same transaction as the change: the
 entity as it stood afterwards (for a delete, as it stood before), the
 diff, who made it and when. A delete keeps the history. An entity that
@@ -990,6 +1087,7 @@ Each kind has the same three routes under its own path:
 | `server` | `/api/v1/servers/{id}` | `servers:read` | |
 | `role` | `/api/v1/roles/{id}` | `roles:read` | |
 | `dlp_policy` | `/api/v1/dlp/policies/{id}` | `connectors:read` | `dlp:manage` |
+| `dlp_detector` | `/api/v1/dlp/detectors/{id}` | `connectors:read` | `dlp:manage` |
 | `approval_policy` | `/api/v1/approval-policies/{id}` | `approvals:decide` | `org:settings:manage` |
 | `identity_provider` | `/api/v1/idps/{id}` | `idp:manage` | `idp:manage` |
 | `saml_provider` | `/api/v1/saml-providers/{id}` | `idp:manage` | `idp:manage` |
@@ -1022,6 +1120,12 @@ What each kind puts back:
   since gone (the connector or tool was deleted, which also deletes its
   policies without a revision) is `400`, as is a scope that another rule
   now holds.
+- **Custom data-loss detector.** Every setting but the name, which is how
+  policies refer to it and never changes. The pattern and its samples are
+  checked again as a save checks them, so a version that would no longer
+  pass is `422`. A deleted detector is recreated under its old id and
+  name; the policies a forced delete took it out of stay as they are, and
+  each has its own history to restore from.
 - **Approval policy.** Every setting. Rules are read on every tool call,
   not cached, so the next call is governed by the restored rule. A deleted
   rule is recreated under its old id. Requests it raised before the delete

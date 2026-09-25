@@ -2,7 +2,7 @@
 
 import type { Client, Options as Options2, TDataShape } from './client';
 import { client } from './client.gen';
-import type { AnalyticsUsageData, AnalyticsUsageErrors, AnalyticsUsageResponses, ApprovalPoliciesCreateData, ApprovalPoliciesCreateErrors, ApprovalPoliciesCreateResponses, ApprovalPoliciesDeleteData, ApprovalPoliciesDeleteErrors, ApprovalPoliciesDeleteResponses, ApprovalPoliciesListData, ApprovalPoliciesListErrors, ApprovalPoliciesListResponses, ApprovalPoliciesRevisionsGetData, ApprovalPoliciesRevisionsGetErrors, ApprovalPoliciesRevisionsGetResponses, ApprovalPoliciesRevisionsListData, ApprovalPoliciesRevisionsListErrors, ApprovalPoliciesRevisionsListResponses, ApprovalPoliciesRevisionsRestoreData, ApprovalPoliciesRevisionsRestoreErrors, ApprovalPoliciesRevisionsRestoreResponses, ApprovalPoliciesUpdateData, ApprovalPoliciesUpdateErrors, ApprovalPoliciesUpdateResponses, ApprovalsApproveData, ApprovalsApproveErrors, ApprovalsApproveResponses, ApprovalsCancelData, ApprovalsCancelErrors, ApprovalsCancelResponses, ApprovalsGetData, ApprovalsGetErrors, ApprovalsGetResponses, ApprovalsListData, ApprovalsListErrors, ApprovalsListResponses, ApprovalsRejectData, ApprovalsRejectErrors, ApprovalsRejectResponses, AuditExportData, AuditExportErrors, AuditExportersCreateData, AuditExportersCreateErrors, AuditExportersCreateResponses, AuditExportersDeleteData, AuditExportersDeleteErrors, AuditExportersDeleteResponses, AuditExportersListData, AuditExportersListErrors, AuditExportersListResponses, AuditExportResponses, AuditGetPolicyData, AuditGetPolicyErrors, AuditGetPolicyResponses, AuditGetRetentionData, AuditGetRetentionErrors, AuditGetRetentionResponses, AuditLegalHoldData, AuditLegalHoldErrors, AuditLegalHoldReleaseData, AuditLegalHoldReleaseErrors, AuditLegalHoldReleaseResponses, AuditLegalHoldResponses, AuditListData, AuditListErrors, AuditListResponses, AuditSetPolicyData, AuditSetPolicyErrors, AuditSetPolicyResponses, AuditSetRetentionData, AuditSetRetentionErrors, AuditSetRetentionResponses, AuditVerifyData, AuditVerifyErrors, AuditVerifyResponses, BlobGetData, BlobGetErrors, BlobGetResponses, CatalogGetData, CatalogGetErrors, CatalogGetResponses, CatalogGetYamlData, CatalogGetYamlErrors, CatalogGetYamlResponses, CatalogListData, CatalogListErrors, CatalogListResponses, ChangePasswordData, ChangePasswordErrors, ChangePasswordResponses, ConnectorsCredentialsData, ConnectorsCredentialsErrors, ConnectorsCredentialsResponses, ConnectorsDeleteData, ConnectorsDeleteErrors, ConnectorsDeleteResponses, ConnectorsGetData, ConnectorsGetErrors, ConnectorsGetResponses, ConnectorsImportData, ConnectorsImportErrors, ConnectorsImportResponses, ConnectorsInstallData, ConnectorsInstallErrors, ConnectorsInstallResponses, ConnectorsListData, ConnectorsListErrors, ConnectorsListResponses, ConnectorsOauthAuthorizeData, ConnectorsOauthAuthorizeErrors, ConnectorsOauthAuthorizeResponses, ConnectorsOauthRedirectUriData, ConnectorsOauthRedirectUriErrors, ConnectorsOauthRedirectUriResponses, ConnectorsResyncData, ConnectorsResyncErrors, ConnectorsResyncPreviewData, ConnectorsResyncPreviewErrors, ConnectorsResyncPreviewResponses, ConnectorsResyncResponses, ConnectorsRevisionsGetData, ConnectorsRevisionsGetErrors, ConnectorsRevisionsGetResponses, ConnectorsRevisionsListData, ConnectorsRevisionsListErrors, ConnectorsRevisionsListResponses, ConnectorsRevisionsRestoreData, ConnectorsRevisionsRestoreErrors, ConnectorsRevisionsRestoreResponses, ConnectorsToolsData, ConnectorsToolsErrors, ConnectorsToolsResponses, ConnectorsUpdateData, ConnectorsUpdateErrors, ConnectorsUpdateResponses, CreateIdpData, CreateIdpErrors, CreateIdpResponses, CreateRoleBindingData, CreateRoleBindingErrors, CreateRoleBindingResponses, CreateRoleData, CreateRoleErrors, CreateRoleResponses, CreateSamlProviderData, CreateSamlProviderErrors, CreateSamlProviderResponses, CreateServiceAccountData, CreateServiceAccountErrors, CreateServiceAccountResponses, DeleteIdpData, DeleteIdpErrors, DeleteIdpResponses, DeleteRoleBindingData, DeleteRoleBindingErrors, DeleteRoleBindingResponses, DeleteRoleData, DeleteRoleErrors, DeleteRoleResponses, DeleteSamlProviderData, DeleteSamlProviderErrors, DeleteSamlProviderResponses, DeleteServiceAccountData, DeleteServiceAccountErrors, DeleteServiceAccountResponses, DlpDetectorsData, DlpDetectorsErrors, DlpDetectorsResponses, DlpPoliciesListData, DlpPoliciesListErrors, DlpPoliciesListResponses, DlpPoliciesRevisionsGetData, DlpPoliciesRevisionsGetErrors, DlpPoliciesRevisionsGetResponses, DlpPoliciesRevisionsListData, DlpPoliciesRevisionsListErrors, DlpPoliciesRevisionsListResponses, DlpPoliciesRevisionsRestoreData, DlpPoliciesRevisionsRestoreErrors, DlpPoliciesRevisionsRestoreResponses, DlpPolicyCreateData, DlpPolicyCreateErrors, DlpPolicyCreateResponses, DlpPolicyDeleteData, DlpPolicyDeleteErrors, DlpPolicyDeleteResponses, DlpPolicyGetData, DlpPolicyGetErrors, DlpPolicyGetResponses, DlpPolicyUpdateData, DlpPolicyUpdateErrors, DlpPolicyUpdateResponses, DlpPreviewData, DlpPreviewErrors, DlpPreviewResponses, GetPasswordPolicyData, GetPasswordPolicyErrors, GetPasswordPolicyResponses, IdpsRevisionsGetData, IdpsRevisionsGetErrors, IdpsRevisionsGetResponses, IdpsRevisionsListData, IdpsRevisionsListErrors, IdpsRevisionsListResponses, IdpsRevisionsRestoreData, IdpsRevisionsRestoreErrors, IdpsRevisionsRestoreResponses, InviteAcceptData, InviteAcceptErrors, InviteAcceptResponses, InviteLookupData, InviteLookupErrors, InviteLookupResponses, InvitesCreateData, InvitesCreateErrors, InvitesCreateResponses, InvitesListData, InvitesListErrors, InvitesListResponses, InvitesRevokeData, InvitesRevokeErrors, InvitesRevokeResponses, InvocationsListData, InvocationsListErrors, InvocationsListResponses, KeysCreateData, KeysCreateErrors, KeysCreateResponses, KeysListData, KeysListErrors, KeysListResponses, KeysRevokeData, KeysRevokeErrors, KeysRevokeResponses, KeysRotateData, KeysRotateErrors, KeysRotateResponses, ListIdpsData, ListIdpsErrors, ListIdpsResponses, ListPermissionsData, ListPermissionsErrors, ListPermissionsResponses, ListRoleBindingsData, ListRoleBindingsErrors, ListRoleBindingsResponses, ListRolesData, ListRolesErrors, ListRolesResponses, ListSamlProvidersData, ListSamlProvidersErrors, ListSamlProvidersResponses, ListSamlSignInData, ListSamlSignInErrors, ListSamlSignInResponses, ListServiceAccountsData, ListServiceAccountsErrors, ListServiceAccountsResponses, ListSessionsData, ListSessionsErrors, ListSessionsResponses, ListSsoProvidersData, ListSsoProvidersErrors, ListSsoProvidersResponses, LoginData, LoginErrors, LoginResponses, LogoutData, LogoutErrors, LogoutResponses, MembersListData, MembersListErrors, MembersListResponses, MembersRemoveData, MembersRemoveErrors, MembersRemoveResponses, MembersUpdateData, MembersUpdateErrors, MembersUpdateResponses, PreviewRoleData, PreviewRoleErrors, PreviewRoleResponses, ProbeIdpData, ProbeIdpErrors, ProbeIdpResponses, ProbeSamlMetadataData, ProbeSamlMetadataErrors, ProbeSamlMetadataResponses, ReauthenticateData, ReauthenticateErrors, ReauthenticateResponses, RegisterData, RegisterErrors, RegisterResponses, RevokeSessionData, RevokeSessionErrors, RevokeSessionResponses, RolesRevisionsGetData, RolesRevisionsGetErrors, RolesRevisionsGetResponses, RolesRevisionsListData, RolesRevisionsListErrors, RolesRevisionsListResponses, RolesRevisionsRestoreData, RolesRevisionsRestoreErrors, RolesRevisionsRestoreResponses, RotateSamlKeyData, RotateSamlKeyErrors, RotateSamlKeyResponses, RotateServiceAccountSecretData, RotateServiceAccountSecretErrors, RotateServiceAccountSecretResponses, SamlProvidersRevisionsGetData, SamlProvidersRevisionsGetErrors, SamlProvidersRevisionsGetResponses, SamlProvidersRevisionsListData, SamlProvidersRevisionsListErrors, SamlProvidersRevisionsListResponses, SamlProvidersRevisionsRestoreData, SamlProvidersRevisionsRestoreErrors, SamlProvidersRevisionsRestoreResponses, ServersCreateData, ServersCreateErrors, ServersCreateResponses, ServersDeleteData, ServersDeleteErrors, ServersDeleteResponses, ServersGetData, ServersGetErrors, ServersGetResponses, ServersListData, ServersListErrors, ServersListResponses, ServersRevisionsGetData, ServersRevisionsGetErrors, ServersRevisionsGetResponses, ServersRevisionsListData, ServersRevisionsListErrors, ServersRevisionsListResponses, ServersRevisionsRestoreData, ServersRevisionsRestoreErrors, ServersRevisionsRestoreResponses, ServersUpdateData, ServersUpdateErrors, ServersUpdateResponses, SessionData, SessionErrors, SessionResponses, SetPasswordPolicyData, SetPasswordPolicyErrors, SetPasswordPolicyResponses, SetServiceAccountDisabledData, SetServiceAccountDisabledErrors, SetServiceAccountDisabledResponses, SwitchOrgData, SwitchOrgErrors, SwitchOrgResponses, ToolsCreateData, ToolsCreateErrors, ToolsCreateResponses, ToolsDeleteData, ToolsDeleteErrors, ToolsDeleteResponses, ToolsDraftDryRunData, ToolsDraftDryRunErrors, ToolsDraftDryRunResponses, ToolsDryRunData, ToolsDryRunErrors, ToolsDryRunResponses, ToolsEnableData, ToolsEnableErrors, ToolsEnableResponses, ToolsGetData, ToolsGetErrors, ToolsGetResponses, ToolsReferencesData, ToolsReferencesErrors, ToolsReferencesResponses, ToolsRevisionsGetData, ToolsRevisionsGetErrors, ToolsRevisionsGetResponses, ToolsRevisionsListData, ToolsRevisionsListErrors, ToolsRevisionsListResponses, ToolsRevisionsRestoreData, ToolsRevisionsRestoreErrors, ToolsRevisionsRestoreResponses, ToolsUpdateData, ToolsUpdateErrors, ToolsUpdateResponses, UpdateIdpData, UpdateIdpErrors, UpdateIdpMfaData, UpdateIdpMfaErrors, UpdateIdpMfaResponses, UpdateIdpResponses, UpdateRoleData, UpdateRoleErrors, UpdateRoleResponses, UpdateSamlProviderData, UpdateSamlProviderErrors, UpdateSamlProviderResponses } from './types.gen';
+import type { AnalyticsUsageData, AnalyticsUsageErrors, AnalyticsUsageResponses, ApprovalPoliciesCreateData, ApprovalPoliciesCreateErrors, ApprovalPoliciesCreateResponses, ApprovalPoliciesDeleteData, ApprovalPoliciesDeleteErrors, ApprovalPoliciesDeleteResponses, ApprovalPoliciesListData, ApprovalPoliciesListErrors, ApprovalPoliciesListResponses, ApprovalPoliciesRevisionsGetData, ApprovalPoliciesRevisionsGetErrors, ApprovalPoliciesRevisionsGetResponses, ApprovalPoliciesRevisionsListData, ApprovalPoliciesRevisionsListErrors, ApprovalPoliciesRevisionsListResponses, ApprovalPoliciesRevisionsRestoreData, ApprovalPoliciesRevisionsRestoreErrors, ApprovalPoliciesRevisionsRestoreResponses, ApprovalPoliciesUpdateData, ApprovalPoliciesUpdateErrors, ApprovalPoliciesUpdateResponses, ApprovalsApproveData, ApprovalsApproveErrors, ApprovalsApproveResponses, ApprovalsCancelData, ApprovalsCancelErrors, ApprovalsCancelResponses, ApprovalsGetData, ApprovalsGetErrors, ApprovalsGetResponses, ApprovalsListData, ApprovalsListErrors, ApprovalsListResponses, ApprovalsRejectData, ApprovalsRejectErrors, ApprovalsRejectResponses, AuditExportData, AuditExportErrors, AuditExportersCreateData, AuditExportersCreateErrors, AuditExportersCreateResponses, AuditExportersDeleteData, AuditExportersDeleteErrors, AuditExportersDeleteResponses, AuditExportersListData, AuditExportersListErrors, AuditExportersListResponses, AuditExportResponses, AuditGetPolicyData, AuditGetPolicyErrors, AuditGetPolicyResponses, AuditGetRetentionData, AuditGetRetentionErrors, AuditGetRetentionResponses, AuditLegalHoldData, AuditLegalHoldErrors, AuditLegalHoldReleaseData, AuditLegalHoldReleaseErrors, AuditLegalHoldReleaseResponses, AuditLegalHoldResponses, AuditListData, AuditListErrors, AuditListResponses, AuditSetPolicyData, AuditSetPolicyErrors, AuditSetPolicyResponses, AuditSetRetentionData, AuditSetRetentionErrors, AuditSetRetentionResponses, AuditVerifyData, AuditVerifyErrors, AuditVerifyResponses, BlobGetData, BlobGetErrors, BlobGetResponses, CatalogGetData, CatalogGetErrors, CatalogGetResponses, CatalogGetYamlData, CatalogGetYamlErrors, CatalogGetYamlResponses, CatalogListData, CatalogListErrors, CatalogListResponses, ChangePasswordData, ChangePasswordErrors, ChangePasswordResponses, ConnectorsCredentialsData, ConnectorsCredentialsErrors, ConnectorsCredentialsResponses, ConnectorsDeleteData, ConnectorsDeleteErrors, ConnectorsDeleteResponses, ConnectorsGetData, ConnectorsGetErrors, ConnectorsGetResponses, ConnectorsImportData, ConnectorsImportErrors, ConnectorsImportResponses, ConnectorsInstallData, ConnectorsInstallErrors, ConnectorsInstallResponses, ConnectorsListData, ConnectorsListErrors, ConnectorsListResponses, ConnectorsOauthAuthorizeData, ConnectorsOauthAuthorizeErrors, ConnectorsOauthAuthorizeResponses, ConnectorsOauthRedirectUriData, ConnectorsOauthRedirectUriErrors, ConnectorsOauthRedirectUriResponses, ConnectorsResyncData, ConnectorsResyncErrors, ConnectorsResyncPreviewData, ConnectorsResyncPreviewErrors, ConnectorsResyncPreviewResponses, ConnectorsResyncResponses, ConnectorsRevisionsGetData, ConnectorsRevisionsGetErrors, ConnectorsRevisionsGetResponses, ConnectorsRevisionsListData, ConnectorsRevisionsListErrors, ConnectorsRevisionsListResponses, ConnectorsRevisionsRestoreData, ConnectorsRevisionsRestoreErrors, ConnectorsRevisionsRestoreResponses, ConnectorsToolsData, ConnectorsToolsErrors, ConnectorsToolsResponses, ConnectorsUpdateData, ConnectorsUpdateErrors, ConnectorsUpdateResponses, CreateIdpData, CreateIdpErrors, CreateIdpResponses, CreateRoleBindingData, CreateRoleBindingErrors, CreateRoleBindingResponses, CreateRoleData, CreateRoleErrors, CreateRoleResponses, CreateSamlProviderData, CreateSamlProviderErrors, CreateSamlProviderResponses, CreateServiceAccountData, CreateServiceAccountErrors, CreateServiceAccountResponses, DeleteIdpData, DeleteIdpErrors, DeleteIdpResponses, DeleteRoleBindingData, DeleteRoleBindingErrors, DeleteRoleBindingResponses, DeleteRoleData, DeleteRoleErrors, DeleteRoleResponses, DeleteSamlProviderData, DeleteSamlProviderErrors, DeleteSamlProviderResponses, DeleteServiceAccountData, DeleteServiceAccountErrors, DeleteServiceAccountResponses, DlpDetectorCreateData, DlpDetectorCreateErrors, DlpDetectorCreateResponses, DlpDetectorDeleteData, DlpDetectorDeleteErrors, DlpDetectorDeleteResponses, DlpDetectorGetData, DlpDetectorGetErrors, DlpDetectorGetResponses, DlpDetectorsData, DlpDetectorsErrors, DlpDetectorsResponses, DlpDetectorsRevisionsGetData, DlpDetectorsRevisionsGetErrors, DlpDetectorsRevisionsGetResponses, DlpDetectorsRevisionsListData, DlpDetectorsRevisionsListErrors, DlpDetectorsRevisionsListResponses, DlpDetectorsRevisionsRestoreData, DlpDetectorsRevisionsRestoreErrors, DlpDetectorsRevisionsRestoreResponses, DlpDetectorTestData, DlpDetectorTestErrors, DlpDetectorTestResponses, DlpDetectorUpdateData, DlpDetectorUpdateErrors, DlpDetectorUpdateResponses, DlpPoliciesListData, DlpPoliciesListErrors, DlpPoliciesListResponses, DlpPoliciesRevisionsGetData, DlpPoliciesRevisionsGetErrors, DlpPoliciesRevisionsGetResponses, DlpPoliciesRevisionsListData, DlpPoliciesRevisionsListErrors, DlpPoliciesRevisionsListResponses, DlpPoliciesRevisionsRestoreData, DlpPoliciesRevisionsRestoreErrors, DlpPoliciesRevisionsRestoreResponses, DlpPolicyCreateData, DlpPolicyCreateErrors, DlpPolicyCreateResponses, DlpPolicyDeleteData, DlpPolicyDeleteErrors, DlpPolicyDeleteResponses, DlpPolicyGetData, DlpPolicyGetErrors, DlpPolicyGetResponses, DlpPolicyUpdateData, DlpPolicyUpdateErrors, DlpPolicyUpdateResponses, DlpPreviewData, DlpPreviewErrors, DlpPreviewResponses, GetPasswordPolicyData, GetPasswordPolicyErrors, GetPasswordPolicyResponses, IdpsRevisionsGetData, IdpsRevisionsGetErrors, IdpsRevisionsGetResponses, IdpsRevisionsListData, IdpsRevisionsListErrors, IdpsRevisionsListResponses, IdpsRevisionsRestoreData, IdpsRevisionsRestoreErrors, IdpsRevisionsRestoreResponses, InviteAcceptData, InviteAcceptErrors, InviteAcceptResponses, InviteLookupData, InviteLookupErrors, InviteLookupResponses, InvitesCreateData, InvitesCreateErrors, InvitesCreateResponses, InvitesListData, InvitesListErrors, InvitesListResponses, InvitesRevokeData, InvitesRevokeErrors, InvitesRevokeResponses, InvocationsListData, InvocationsListErrors, InvocationsListResponses, KeysCreateData, KeysCreateErrors, KeysCreateResponses, KeysListData, KeysListErrors, KeysListResponses, KeysRevokeData, KeysRevokeErrors, KeysRevokeResponses, KeysRotateData, KeysRotateErrors, KeysRotateResponses, ListIdpsData, ListIdpsErrors, ListIdpsResponses, ListPermissionsData, ListPermissionsErrors, ListPermissionsResponses, ListRoleBindingsData, ListRoleBindingsErrors, ListRoleBindingsResponses, ListRolesData, ListRolesErrors, ListRolesResponses, ListSamlProvidersData, ListSamlProvidersErrors, ListSamlProvidersResponses, ListSamlSignInData, ListSamlSignInErrors, ListSamlSignInResponses, ListServiceAccountsData, ListServiceAccountsErrors, ListServiceAccountsResponses, ListSessionsData, ListSessionsErrors, ListSessionsResponses, ListSsoProvidersData, ListSsoProvidersErrors, ListSsoProvidersResponses, LoginData, LoginErrors, LoginResponses, LogoutData, LogoutErrors, LogoutResponses, MembersListData, MembersListErrors, MembersListResponses, MembersRemoveData, MembersRemoveErrors, MembersRemoveResponses, MembersUpdateData, MembersUpdateErrors, MembersUpdateResponses, PreviewRoleData, PreviewRoleErrors, PreviewRoleResponses, ProbeIdpData, ProbeIdpErrors, ProbeIdpResponses, ProbeSamlMetadataData, ProbeSamlMetadataErrors, ProbeSamlMetadataResponses, ReauthenticateData, ReauthenticateErrors, ReauthenticateResponses, RegisterData, RegisterErrors, RegisterResponses, RevokeSessionData, RevokeSessionErrors, RevokeSessionResponses, RolesRevisionsGetData, RolesRevisionsGetErrors, RolesRevisionsGetResponses, RolesRevisionsListData, RolesRevisionsListErrors, RolesRevisionsListResponses, RolesRevisionsRestoreData, RolesRevisionsRestoreErrors, RolesRevisionsRestoreResponses, RotateSamlKeyData, RotateSamlKeyErrors, RotateSamlKeyResponses, RotateServiceAccountSecretData, RotateServiceAccountSecretErrors, RotateServiceAccountSecretResponses, SamlProvidersRevisionsGetData, SamlProvidersRevisionsGetErrors, SamlProvidersRevisionsGetResponses, SamlProvidersRevisionsListData, SamlProvidersRevisionsListErrors, SamlProvidersRevisionsListResponses, SamlProvidersRevisionsRestoreData, SamlProvidersRevisionsRestoreErrors, SamlProvidersRevisionsRestoreResponses, ServersCreateData, ServersCreateErrors, ServersCreateResponses, ServersDeleteData, ServersDeleteErrors, ServersDeleteResponses, ServersGetData, ServersGetErrors, ServersGetResponses, ServersListData, ServersListErrors, ServersListResponses, ServersRevisionsGetData, ServersRevisionsGetErrors, ServersRevisionsGetResponses, ServersRevisionsListData, ServersRevisionsListErrors, ServersRevisionsListResponses, ServersRevisionsRestoreData, ServersRevisionsRestoreErrors, ServersRevisionsRestoreResponses, ServersUpdateData, ServersUpdateErrors, ServersUpdateResponses, SessionData, SessionErrors, SessionResponses, SetPasswordPolicyData, SetPasswordPolicyErrors, SetPasswordPolicyResponses, SetServiceAccountDisabledData, SetServiceAccountDisabledErrors, SetServiceAccountDisabledResponses, SwitchOrgData, SwitchOrgErrors, SwitchOrgResponses, ToolsCreateData, ToolsCreateErrors, ToolsCreateResponses, ToolsDeleteData, ToolsDeleteErrors, ToolsDeleteResponses, ToolsDraftDryRunData, ToolsDraftDryRunErrors, ToolsDraftDryRunResponses, ToolsDryRunData, ToolsDryRunErrors, ToolsDryRunResponses, ToolsEnableData, ToolsEnableErrors, ToolsEnableResponses, ToolsGetData, ToolsGetErrors, ToolsGetResponses, ToolsReferencesData, ToolsReferencesErrors, ToolsReferencesResponses, ToolsRevisionsGetData, ToolsRevisionsGetErrors, ToolsRevisionsGetResponses, ToolsRevisionsListData, ToolsRevisionsListErrors, ToolsRevisionsListResponses, ToolsRevisionsRestoreData, ToolsRevisionsRestoreErrors, ToolsRevisionsRestoreResponses, ToolsUpdateData, ToolsUpdateErrors, ToolsUpdateResponses, UpdateIdpData, UpdateIdpErrors, UpdateIdpMfaData, UpdateIdpMfaErrors, UpdateIdpMfaResponses, UpdateIdpResponses, UpdateRoleData, UpdateRoleErrors, UpdateRoleResponses, UpdateSamlProviderData, UpdateSamlProviderErrors, UpdateSamlProviderResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean> = Options2<TData, ThrowOnError> & {
     /**
@@ -870,7 +870,7 @@ export const toolsDryRun = <ThrowOnError extends boolean = false>(options: Optio
 });
 
 /**
- * List the built-in detectors, and what each one lets through
+ * List the built-in detectors, what each one lets through, and the organisation's own
  */
 export const dlpDetectors = <ThrowOnError extends boolean = false>(options?: Options<DlpDetectorsData, ThrowOnError>) => (options?.client ?? client).get<DlpDetectorsResponses, DlpDetectorsErrors, ThrowOnError>({
     security: [{
@@ -879,6 +879,132 @@ export const dlpDetectors = <ThrowOnError extends boolean = false>(options?: Opt
             type: 'apiKey'
         }],
     url: '/api/v1/dlp/detectors',
+    ...options
+});
+
+/**
+ * Add a detector of the organisation's own
+ *
+ * The pattern is compiled and every sample checked before anything is stored; a failing sample is a 422 whose error location names it (body.mustMatch[2]).
+ */
+export const dlpDetectorCreate = <ThrowOnError extends boolean = false>(options: Options<DlpDetectorCreateData, ThrowOnError>) => (options.client ?? client).post<DlpDetectorCreateResponses, DlpDetectorCreateErrors, ThrowOnError>({
+    security: [{
+            in: 'cookie',
+            name: '__Host-sm_sess',
+            type: 'apiKey'
+        }],
+    url: '/api/v1/dlp/detectors',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Try a pattern on samples before saving it
+ *
+ * Applies the rules a save applies to the pattern and reports, per sample, whether it matched and at which byte offsets. The samples are never quoted back.
+ */
+export const dlpDetectorTest = <ThrowOnError extends boolean = false>(options: Options<DlpDetectorTestData, ThrowOnError>) => (options.client ?? client).post<DlpDetectorTestResponses, DlpDetectorTestErrors, ThrowOnError>({
+    security: [{
+            in: 'cookie',
+            name: '__Host-sm_sess',
+            type: 'apiKey'
+        }],
+    url: '/api/v1/dlp/detectors/test',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Remove one of the organisation's own detectors
+ *
+ * Refused with a 409 naming the policies that use the detector, unless force is set; then it is taken out of those policies in the same transaction, and a policy left with no detector is switched off rather than falling back to every built-in.
+ */
+export const dlpDetectorDelete = <ThrowOnError extends boolean = false>(options: Options<DlpDetectorDeleteData, ThrowOnError>) => (options.client ?? client).delete<DlpDetectorDeleteResponses, DlpDetectorDeleteErrors, ThrowOnError>({
+    security: [{
+            in: 'cookie',
+            name: '__Host-sm_sess',
+            type: 'apiKey'
+        }],
+    url: '/api/v1/dlp/detectors/{id}',
+    ...options
+});
+
+/**
+ * Read one of the organisation's own detectors
+ */
+export const dlpDetectorGet = <ThrowOnError extends boolean = false>(options: Options<DlpDetectorGetData, ThrowOnError>) => (options.client ?? client).get<DlpDetectorGetResponses, DlpDetectorGetErrors, ThrowOnError>({
+    security: [{
+            in: 'cookie',
+            name: '__Host-sm_sess',
+            type: 'apiKey'
+        }],
+    url: '/api/v1/dlp/detectors/{id}',
+    ...options
+});
+
+/**
+ * Change one of the organisation's own detectors
+ *
+ * Fields left out keep their value. The detector is validated again as it would be stored, samples included. expectedVersion is required; a mismatch is a 409 carrying the version stored now.
+ */
+export const dlpDetectorUpdate = <ThrowOnError extends boolean = false>(options: Options<DlpDetectorUpdateData, ThrowOnError>) => (options.client ?? client).patch<DlpDetectorUpdateResponses, DlpDetectorUpdateErrors, ThrowOnError>({
+    security: [{
+            in: 'cookie',
+            name: '__Host-sm_sess',
+            type: 'apiKey'
+        }],
+    url: '/api/v1/dlp/detectors/{id}',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * List the revisions of one custom data-loss detector
+ */
+export const dlpDetectorsRevisionsList = <ThrowOnError extends boolean = false>(options: Options<DlpDetectorsRevisionsListData, ThrowOnError>) => (options.client ?? client).get<DlpDetectorsRevisionsListResponses, DlpDetectorsRevisionsListErrors, ThrowOnError>({
+    security: [{
+            in: 'cookie',
+            name: '__Host-sm_sess',
+            type: 'apiKey'
+        }],
+    url: '/api/v1/dlp/detectors/{id}/revisions',
+    ...options
+});
+
+/**
+ * Read one revision of a custom data-loss detector
+ */
+export const dlpDetectorsRevisionsGet = <ThrowOnError extends boolean = false>(options: Options<DlpDetectorsRevisionsGetData, ThrowOnError>) => (options.client ?? client).get<DlpDetectorsRevisionsGetResponses, DlpDetectorsRevisionsGetErrors, ThrowOnError>({
+    security: [{
+            in: 'cookie',
+            name: '__Host-sm_sess',
+            type: 'apiKey'
+        }],
+    url: '/api/v1/dlp/detectors/{id}/revisions/{revision}',
+    ...options
+});
+
+/**
+ * Put a custom data-loss detector back the way an earlier revision found it
+ *
+ * Needs revisions:rollback and dlp:manage, and a browser session must have signed in within the fresh-auth window. A deleted detector is recreated under its old id and name; the samples are checked again.
+ */
+export const dlpDetectorsRevisionsRestore = <ThrowOnError extends boolean = false>(options: Options<DlpDetectorsRevisionsRestoreData, ThrowOnError>) => (options.client ?? client).post<DlpDetectorsRevisionsRestoreResponses, DlpDetectorsRevisionsRestoreErrors, ThrowOnError>({
+    security: [{
+            in: 'cookie',
+            name: '__Host-sm_sess',
+            type: 'apiKey'
+        }],
+    url: '/api/v1/dlp/detectors/{id}/revisions/{revision}/restore',
     ...options
 });
 

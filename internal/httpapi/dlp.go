@@ -34,7 +34,7 @@ type dlpPolicyBody struct {
 	ConnectorID string   `json:"connectorId,omitempty" doc:"Narrow the rule to one connector; empty covers the organisation"`
 	ToolID      string   `json:"toolId,omitempty" doc:"Narrow the rule to one tool; needs connectorId as well"`
 	Scan        string   `json:"scan" enum:"arguments,result,both" default:"both" doc:"Which half of a tool call to read"`
-	Detectors   []string `json:"detectors,omitempty" doc:"Which detectors run; empty means all of them"`
+	Detectors   []string `json:"detectors,omitempty" doc:"Which detectors run: built-in names, and custom:<name> for the organisation's own; empty means every built-in"`
 	Action      string   `json:"action" enum:"allow,mask,refuse" doc:"Record what was found, mask it, or refuse the call"`
 	Enabled     bool     `json:"enabled" default:"true"`
 	MaxBytes    int      `json:"maxBytes,omitempty" minimum:"0" maximum:"4194304" doc:"How much of a value to read; zero takes the built-in cap"`
@@ -65,14 +65,18 @@ type dlpPolicyGetInput struct {
 
 type dlpDetectorOutput struct {
 	Body struct {
-		Detectors []dlp.DetectorInfo `json:"detectors" nullable:"false"`
+		Detectors []dlp.DetectorInfo `json:"detectors" nullable:"false" doc:"The built-in detectors"`
+		// Custom is the organisation's own, which a policy names as
+		// custom:<name>. It is empty when data-loss prevention is not
+		// configured.
+		Custom []dlp.CustomDetector `json:"custom" nullable:"false" doc:"The organisation's own detectors; a policy names one by its detector field, custom:<name>"`
 	}
 }
 
 type dlpPreviewInput struct {
 	Body struct {
 		Sample    string   `json:"sample" maxLength:"262144" doc:"Text to run the detectors over"`
-		Detectors []string `json:"detectors,omitempty" doc:"Which detectors run; empty means all of them"`
+		Detectors []string `json:"detectors,omitempty" doc:"Which detectors run, custom:<name> for the organisation's own; empty means every built-in"`
 		Action    string   `json:"action" enum:"allow,mask,refuse" default:"mask" doc:"What the policy would do"`
 	}
 }
@@ -108,16 +112,26 @@ func (d Deps) dlpRoutes(api huma.API) {
 	}
 
 	huma.Register(api, huma.Operation{OperationID: "dlp-detectors", Method: http.MethodGet,
-		Path: "/api/v1/dlp/detectors", Summary: "List the built-in detectors, and what each one lets through",
-		Tags: []string{"dlp"}, Security: sessionSecurity},
+		Path:    "/api/v1/dlp/detectors",
+		Summary: "List the built-in detectors, what each one lets through, and the organisation's own",
+		Tags:    []string{"dlp"}, Security: sessionSecurity},
 		func(ctx context.Context, _ *struct{}) (*dlpDetectorOutput, error) {
-			if _, err := d.require(ctx, authz.ConnectorsRead, authz.Resource{}); err != nil {
+			p, err := d.require(ctx, authz.ConnectorsRead, authz.Resource{})
+			if err != nil {
 				return nil, err
 			}
 			out := &dlpDetectorOutput{}
 			out.Body.Detectors = dlp.Catalogue()
+			out.Body.Custom = []dlp.CustomDetector{}
+			if policies != nil {
+				if out.Body.Custom, err = policies.ListDetectors(ctx, p.OrgID); err != nil {
+					return nil, err
+				}
+			}
 			return out, nil
 		})
+
+	d.dlpDetectorRoutes(api, policies)
 
 	huma.Register(api, huma.Operation{OperationID: "dlp-policies-list", Method: http.MethodGet,
 		Path: "/api/v1/dlp/policies", Summary: "List the data-loss prevention policies",
@@ -268,7 +282,8 @@ func (d Deps) dlpRoutes(api huma.API) {
 		Path: "/api/v1/dlp/preview", Summary: "Run the detectors over a sample to see what a policy would catch",
 		Tags: []string{"dlp"}, Security: sessionSecurity},
 		func(ctx context.Context, in *dlpPreviewInput) (*dlpPreviewOutput, error) {
-			if _, err := d.require(ctx, authz.DLPManage, authz.Resource{}); err != nil {
+			p, err := d.require(ctx, authz.DLPManage, authz.Resource{})
+			if err != nil {
 				return nil, err
 			}
 			rule := dlp.ScanPolicy{Name: "preview", Scan: dlp.StageBoth, Detectors: in.Body.Detectors,
@@ -276,7 +291,17 @@ func (d Deps) dlpRoutes(api huma.API) {
 			if err := rule.Validate(); err != nil {
 				return nil, dlpErr(err)
 			}
-			masked, res, refused := dlp.Apply(in.Body.Sample, rule.Action, rule.Options("$"))
+			// The organisation's own detectors come from the reader the
+			// tool-call path uses, so the preview runs what a call would.
+			custom, err := policies.Custom(ctx, p.OrgID)
+			if err != nil {
+				return nil, err
+			}
+			opt, run := rule.OptionsWith("$", custom)
+			if !run {
+				return nil, huma.Error400BadRequest("none of these detectors exists or is enabled")
+			}
+			masked, res, refused := dlp.Apply(in.Body.Sample, rule.Action, opt)
 			out := &dlpPreviewOutput{}
 			out.Body.Findings = res.Findings
 			if out.Body.Findings == nil {
@@ -296,11 +321,36 @@ func (d Deps) dlpRoutes(api huma.API) {
 
 // dlpErr maps the package's errors to the status a caller can act on.
 func dlpErr(err error) error {
+	var bad *dlp.DetectorError
+	var stale *dlp.VersionConflictError
+	var inUse *dlp.InUseError
 	switch {
-	case errors.Is(err, dlp.ErrNotFound):
+	case errors.Is(err, dlp.ErrNotFound), errors.Is(err, dlp.ErrDetectorNotFound):
 		return huma.Error404NotFound(err.Error())
 	case errors.Is(err, dlp.ErrInvalid):
 		return huma.Error400BadRequest(err.Error())
+	case errors.As(err, &bad):
+		// The field is the request's, so the screen can put the reason
+		// beside the input or the sample that caused it.
+		return huma.Error422UnprocessableEntity(bad.Reason,
+			&huma.ErrorDetail{Location: "body." + bad.Field, Message: bad.Reason})
+	case errors.Is(err, dlp.ErrDetectorNameTaken):
+		return huma.Error409Conflict(err.Error(),
+			&huma.ErrorDetail{Location: "body.name", Message: err.Error(), Value: conflictNameTaken})
+	case errors.As(err, &stale):
+		// The shape a tool, connector or server conflict has.
+		return huma.Error409Conflict(err.Error(),
+			&huma.ErrorDetail{Location: "body.expectedVersion", Message: err.Error(), Value: conflictVersion},
+			&huma.ErrorDetail{Location: "version", Message: "the version stored now", Value: stale.Current})
+	case errors.As(err, &inUse):
+		// One detail per policy, message its name and value its id, so
+		// the screen can list them and offer the forced delete without
+		// asking again.
+		details := []error{&huma.ErrorDetail{Location: "query.force", Message: dlp.ErrDetectorInUse.Error(), Value: conflictInUse}}
+		for _, ref := range inUse.Policies {
+			details = append(details, &huma.ErrorDetail{Location: "references.dlpPolicies", Message: ref.Name, Value: ref.ID})
+		}
+		return huma.Error409Conflict(err.Error(), details...)
 	}
 	return err
 }

@@ -426,6 +426,30 @@ export type CredentialInfo = {
     set: boolean;
 };
 
+export type CustomDetector = {
+    /**
+     * A URL to the JSON Schema for this object.
+     */
+    readonly $schema?: string;
+    createdAt: string;
+    createdBy?: string;
+    description: string;
+    detector: string;
+    enabled: boolean;
+    flags: '' | 'i';
+    id: string;
+    mustMatch: Array<string>;
+    mustNotMatch: Array<string>;
+    name: string;
+    pattern: string;
+    updatedAt: string;
+    updatedBy?: string;
+    /**
+     * Send back as expectedVersion when updating
+     */
+    version: number;
+};
+
 export type DetectorInfo = {
     excludes: string;
     kind: string;
@@ -442,12 +466,96 @@ export type Diff = {
     };
 };
 
+export type DlpDetectorCreateInputBody = {
+    /**
+     * A URL to the JSON Schema for this object.
+     */
+    readonly $schema?: string;
+    description?: string;
+    enabled?: boolean;
+    /**
+     * i for case-insensitive
+     */
+    flags?: '' | 'i';
+    /**
+     * Samples, at most 1024 bytes each, that must each contain a match
+     */
+    mustMatch?: Array<string> | null;
+    /**
+     * Samples, at most 1024 bytes each, that must contain none
+     */
+    mustNotMatch?: Array<string> | null;
+    /**
+     * Lower-case letters, digits, - and _; policies name the detector custom:<name>, and it never changes
+     */
+    name: string;
+    /**
+     * RE2 regular expression, 3 to 512 bytes, that cannot match the empty string
+     */
+    pattern: string;
+};
+
 export type DlpDetectorOutputBody = {
     /**
      * A URL to the JSON Schema for this object.
      */
     readonly $schema?: string;
+    /**
+     * The organisation's own detectors; a policy names one by its detector field, custom:<name>
+     */
+    custom: Array<CustomDetector>;
+    /**
+     * The built-in detectors
+     */
     detectors: Array<DetectorInfo>;
+};
+
+export type DlpDetectorTestInputBody = {
+    /**
+     * A URL to the JSON Schema for this object.
+     */
+    readonly $schema?: string;
+    flags?: '' | 'i';
+    pattern: string;
+    /**
+     * At most 1024 bytes each; 40, so an editor can try both of a detector's lists at once
+     */
+    samples: Array<string> | null;
+};
+
+export type DlpDetectorTestOutputBody = {
+    /**
+     * A URL to the JSON Schema for this object.
+     */
+    readonly $schema?: string;
+    samples: Array<SampleResult>;
+};
+
+export type DlpDetectorUpdateInputBody = {
+    /**
+     * A URL to the JSON Schema for this object.
+     */
+    readonly $schema?: string;
+    description?: string;
+    enabled?: boolean;
+    /**
+     * The version that was read. A mismatch is a 409
+     */
+    expectedVersion: number;
+    flags?: '' | 'i';
+    /**
+     * Replaces the list when present; [] clears it
+     */
+    mustMatch?: Array<string> | null;
+    /**
+     * Replaces the list when present; [] clears it
+     */
+    mustNotMatch?: Array<string> | null;
+    /**
+     * Cannot change; sent only unchanged
+     */
+    name?: string;
+    pattern?: string;
 };
 
 export type DlpPolicyBody = {
@@ -464,7 +572,7 @@ export type DlpPolicyBody = {
      */
     connectorId?: string;
     /**
-     * Which detectors run; empty means all of them
+     * Which detectors run: built-in names, and custom:<name> for the organisation's own; empty means every built-in
      */
     detectors?: Array<string> | null;
     enabled: boolean;
@@ -504,7 +612,7 @@ export type DlpPreviewInputBody = {
      */
     action: 'allow' | 'mask' | 'refuse';
     /**
-     * Which detectors run; empty means all of them
+     * Which detectors run, custom:<name> for the organisation's own; empty means every built-in
      */
     detectors?: Array<string> | null;
     /**
@@ -1428,7 +1536,7 @@ export type RevisionDto = {
     diff?: Diff;
     entityId: string;
     id: string;
-    kind: 'connector' | 'tool' | 'server' | 'role' | 'dlp_policy' | 'approval_policy' | 'identity_provider' | 'saml_provider';
+    kind: 'connector' | 'tool' | 'server' | 'role' | 'dlp_policy' | 'approval_policy' | 'identity_provider' | 'saml_provider' | 'dlp_detector';
     revision: number;
     /**
      * The entity as it stood after this change; only on a single revision. A connector's secret auth and transport values read ***
@@ -1606,6 +1714,19 @@ export type SamlSignInBody = {
     providers: Array<SignInOption> | null;
 };
 
+export type SampleResult = {
+    /**
+     * Position of the sample in the request, from zero
+     */
+    index: number;
+    matched: boolean;
+    /**
+     * Byte offsets of each match, at most 20
+     */
+    matches: Array<Span>;
+    more?: boolean;
+};
+
 export type ScanPolicy = {
     /**
      * A URL to the JSON Schema for this object.
@@ -1779,6 +1900,11 @@ export type SignInOption = {
     id: string;
     name: string;
     organization: string;
+};
+
+export type Span = {
+    end: number;
+    start: number;
 };
 
 export type SwitchOrgRequest = {
@@ -2423,8 +2549,96 @@ export type CreateInviteOutputBodyWritable = {
     url: string;
 };
 
+export type CustomDetectorWritable = {
+    createdAt: string;
+    createdBy?: string;
+    description: string;
+    detector: string;
+    enabled: boolean;
+    flags: '' | 'i';
+    id: string;
+    mustMatch: Array<string>;
+    mustNotMatch: Array<string>;
+    name: string;
+    pattern: string;
+    updatedAt: string;
+    updatedBy?: string;
+    /**
+     * Send back as expectedVersion when updating
+     */
+    version: number;
+};
+
+export type DlpDetectorCreateInputBodyWritable = {
+    description?: string;
+    enabled?: boolean;
+    /**
+     * i for case-insensitive
+     */
+    flags?: '' | 'i';
+    /**
+     * Samples, at most 1024 bytes each, that must each contain a match
+     */
+    mustMatch?: Array<string> | null;
+    /**
+     * Samples, at most 1024 bytes each, that must contain none
+     */
+    mustNotMatch?: Array<string> | null;
+    /**
+     * Lower-case letters, digits, - and _; policies name the detector custom:<name>, and it never changes
+     */
+    name: string;
+    /**
+     * RE2 regular expression, 3 to 512 bytes, that cannot match the empty string
+     */
+    pattern: string;
+};
+
 export type DlpDetectorOutputBodyWritable = {
+    /**
+     * The organisation's own detectors; a policy names one by its detector field, custom:<name>
+     */
+    custom: Array<CustomDetectorWritable>;
+    /**
+     * The built-in detectors
+     */
     detectors: Array<DetectorInfo>;
+};
+
+export type DlpDetectorTestInputBodyWritable = {
+    flags?: '' | 'i';
+    pattern: string;
+    /**
+     * At most 1024 bytes each; 40, so an editor can try both of a detector's lists at once
+     */
+    samples: Array<string> | null;
+};
+
+export type DlpDetectorTestOutputBodyWritable = {
+    samples: Array<SampleResult>;
+};
+
+export type DlpDetectorUpdateInputBodyWritable = {
+    description?: string;
+    enabled?: boolean;
+    /**
+     * The version that was read. A mismatch is a 409
+     */
+    expectedVersion: number;
+    flags?: '' | 'i';
+    /**
+     * Replaces the list when present; [] clears it
+     */
+    mustMatch?: Array<string> | null;
+    /**
+     * Replaces the list when present; [] clears it
+     */
+    mustNotMatch?: Array<string> | null;
+    /**
+     * Cannot change; sent only unchanged
+     */
+    name?: string;
+    pattern?: string;
 };
 
 export type DlpPolicyBodyWritable = {
@@ -2437,7 +2651,7 @@ export type DlpPolicyBodyWritable = {
      */
     connectorId?: string;
     /**
-     * Which detectors run; empty means all of them
+     * Which detectors run: built-in names, and custom:<name> for the organisation's own; empty means every built-in
      */
     detectors?: Array<string> | null;
     enabled: boolean;
@@ -2469,7 +2683,7 @@ export type DlpPreviewInputBodyWritable = {
      */
     action: 'allow' | 'mask' | 'refuse';
     /**
-     * Which detectors run; empty means all of them
+     * Which detectors run, custom:<name> for the organisation's own; empty means every built-in
      */
     detectors?: Array<string> | null;
     /**
@@ -3025,7 +3239,7 @@ export type RevisionDtoWritable = {
     diff?: Diff;
     entityId: string;
     id: string;
-    kind: 'connector' | 'tool' | 'server' | 'role' | 'dlp_policy' | 'approval_policy' | 'identity_provider' | 'saml_provider';
+    kind: 'connector' | 'tool' | 'server' | 'role' | 'dlp_policy' | 'approval_policy' | 'identity_provider' | 'saml_provider' | 'dlp_detector';
     revision: number;
     /**
      * The entity as it stood after this change; only on a single revision. A connector's secret auth and transport values read ***
@@ -5226,6 +5440,231 @@ export type DlpDetectorsResponses = {
 };
 
 export type DlpDetectorsResponse = DlpDetectorsResponses[keyof DlpDetectorsResponses];
+
+export type DlpDetectorCreateData = {
+    body: DlpDetectorCreateInputBodyWritable;
+    path?: never;
+    query?: never;
+    url: '/api/v1/dlp/detectors';
+};
+
+export type DlpDetectorCreateErrors = {
+    /**
+     * Error
+     */
+    default: ErrorModel;
+};
+
+export type DlpDetectorCreateError = DlpDetectorCreateErrors[keyof DlpDetectorCreateErrors];
+
+export type DlpDetectorCreateResponses = {
+    /**
+     * Created
+     */
+    201: CustomDetector;
+};
+
+export type DlpDetectorCreateResponse = DlpDetectorCreateResponses[keyof DlpDetectorCreateResponses];
+
+export type DlpDetectorTestData = {
+    body: DlpDetectorTestInputBodyWritable;
+    path?: never;
+    query?: never;
+    url: '/api/v1/dlp/detectors/test';
+};
+
+export type DlpDetectorTestErrors = {
+    /**
+     * Error
+     */
+    default: ErrorModel;
+};
+
+export type DlpDetectorTestError = DlpDetectorTestErrors[keyof DlpDetectorTestErrors];
+
+export type DlpDetectorTestResponses = {
+    /**
+     * OK
+     */
+    200: DlpDetectorTestOutputBody;
+};
+
+export type DlpDetectorTestResponse = DlpDetectorTestResponses[keyof DlpDetectorTestResponses];
+
+export type DlpDetectorDeleteData = {
+    body?: never;
+    path: {
+        id: string;
+    };
+    query?: {
+        /**
+         * Take the detector out of every policy that names it, in the same transaction, instead of refusing
+         */
+        force?: boolean;
+    };
+    url: '/api/v1/dlp/detectors/{id}';
+};
+
+export type DlpDetectorDeleteErrors = {
+    /**
+     * Error
+     */
+    default: ErrorModel;
+};
+
+export type DlpDetectorDeleteError = DlpDetectorDeleteErrors[keyof DlpDetectorDeleteErrors];
+
+export type DlpDetectorDeleteResponses = {
+    /**
+     * No Content
+     */
+    204: void;
+};
+
+export type DlpDetectorDeleteResponse = DlpDetectorDeleteResponses[keyof DlpDetectorDeleteResponses];
+
+export type DlpDetectorGetData = {
+    body?: never;
+    path: {
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/dlp/detectors/{id}';
+};
+
+export type DlpDetectorGetErrors = {
+    /**
+     * Error
+     */
+    default: ErrorModel;
+};
+
+export type DlpDetectorGetError = DlpDetectorGetErrors[keyof DlpDetectorGetErrors];
+
+export type DlpDetectorGetResponses = {
+    /**
+     * OK
+     */
+    200: CustomDetector;
+};
+
+export type DlpDetectorGetResponse = DlpDetectorGetResponses[keyof DlpDetectorGetResponses];
+
+export type DlpDetectorUpdateData = {
+    body: DlpDetectorUpdateInputBodyWritable;
+    path: {
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/dlp/detectors/{id}';
+};
+
+export type DlpDetectorUpdateErrors = {
+    /**
+     * Error
+     */
+    default: ErrorModel;
+};
+
+export type DlpDetectorUpdateError = DlpDetectorUpdateErrors[keyof DlpDetectorUpdateErrors];
+
+export type DlpDetectorUpdateResponses = {
+    /**
+     * OK
+     */
+    200: CustomDetector;
+};
+
+export type DlpDetectorUpdateResponse = DlpDetectorUpdateResponses[keyof DlpDetectorUpdateResponses];
+
+export type DlpDetectorsRevisionsListData = {
+    body?: never;
+    path: {
+        id: string;
+    };
+    query?: {
+        /**
+         * Continue below this revision number, taken from the previous page's nextBefore
+         */
+        before?: number;
+        limit?: number;
+    };
+    url: '/api/v1/dlp/detectors/{id}/revisions';
+};
+
+export type DlpDetectorsRevisionsListErrors = {
+    /**
+     * Error
+     */
+    default: ErrorModel;
+};
+
+export type DlpDetectorsRevisionsListError = DlpDetectorsRevisionsListErrors[keyof DlpDetectorsRevisionsListErrors];
+
+export type DlpDetectorsRevisionsListResponses = {
+    /**
+     * OK
+     */
+    200: RevisionListOutputBody;
+};
+
+export type DlpDetectorsRevisionsListResponse = DlpDetectorsRevisionsListResponses[keyof DlpDetectorsRevisionsListResponses];
+
+export type DlpDetectorsRevisionsGetData = {
+    body?: never;
+    path: {
+        id: string;
+        revision: number;
+    };
+    query?: never;
+    url: '/api/v1/dlp/detectors/{id}/revisions/{revision}';
+};
+
+export type DlpDetectorsRevisionsGetErrors = {
+    /**
+     * Error
+     */
+    default: ErrorModel;
+};
+
+export type DlpDetectorsRevisionsGetError = DlpDetectorsRevisionsGetErrors[keyof DlpDetectorsRevisionsGetErrors];
+
+export type DlpDetectorsRevisionsGetResponses = {
+    /**
+     * OK
+     */
+    200: RevisionDto;
+};
+
+export type DlpDetectorsRevisionsGetResponse = DlpDetectorsRevisionsGetResponses[keyof DlpDetectorsRevisionsGetResponses];
+
+export type DlpDetectorsRevisionsRestoreData = {
+    body?: never;
+    path: {
+        id: string;
+        revision: number;
+    };
+    query?: never;
+    url: '/api/v1/dlp/detectors/{id}/revisions/{revision}/restore';
+};
+
+export type DlpDetectorsRevisionsRestoreErrors = {
+    /**
+     * Error
+     */
+    default: ErrorModel;
+};
+
+export type DlpDetectorsRevisionsRestoreError = DlpDetectorsRevisionsRestoreErrors[keyof DlpDetectorsRevisionsRestoreErrors];
+
+export type DlpDetectorsRevisionsRestoreResponses = {
+    /**
+     * OK
+     */
+    200: CustomDetector;
+};
+
+export type DlpDetectorsRevisionsRestoreResponse = DlpDetectorsRevisionsRestoreResponses[keyof DlpDetectorsRevisionsRestoreResponses];
 
 export type DlpPoliciesListData = {
     body?: never;

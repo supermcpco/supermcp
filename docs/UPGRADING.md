@@ -54,6 +54,7 @@ holds; see "Disabling a service account cuts it off" below. The chart can mount 
 Migration 00027 adds a search index to `audit_events`; see "The audit
 trail can be searched" below. Migration 00028 lets the history keep data-loss policies, approval policies and sign-in providers; see "Policies and sign-in providers have a history" below.
 Migration 00030 stops counting every OpenID Connect sign-in as a second factor; see "OpenID Connect sign-ins count a second factor only by a rule" below.
+Migration 00031 adds workspace data-loss detectors; see "Workspaces can write their own data-loss detectors" below.
 
 ### OpenID Connect sign-ins count a second factor only by a rule
 
@@ -142,6 +143,43 @@ rule and every session's methods. The previous release reads whether a
 session was verified as it is stored: sessions this release opened keep
 what it judged, and OpenID Connect sessions from before the upgrade
 count as verified again.
+
+
+### Workspaces can write their own data-loss detectors
+
+A workspace can add detectors of its own, regular expressions for
+identifiers the built-ins cannot know (customer numbers, contract ids),
+and a data-loss policy names one as `custom:<name>` beside the built-ins
+(`docs/api.md`, "Data-loss prevention"). The settings screen has a
+Detectors tab for them.
+
+Migration 00031:
+
+- creates `dlp_detectors`, with row-level security forced like the other
+  workspace tables and a trigger that sends `dlp:<organization id>` on
+  the `supermcp_cache` channel, as `dlp_policies` does. A new table takes
+  no lock on anything a tool call reads.
+- drops and re-adds the check constraint on `revisions.entity_kind` with
+  one kind more, `dlp_detector`, as 00028 did: an exclusive lock on
+  `revisions` while Postgres checks the existing rows. Configuration
+  changes wait for it; tool calls do not. It is quick unless the history
+  is very large.
+
+No rollout order matters. A replica of the previous release neither
+reads nor writes the new table, and the constraint's list is a superset.
+During the roll, a policy that names a custom detector is screened with
+it only on new replicas. An old replica does not know the name and skips
+it, and where a policy names nothing but custom detectors it runs every
+built-in instead, as it does for an empty list. Create custom detectors,
+and the policies that use them, once the roll is done.
+
+What changes for callers of the API:
+
+- `GET /api/v1/dlp/detectors` answers with a further list, `custom`,
+  beside `detectors`, which is unchanged.
+- A policy's `detectors` accepts `custom:<name>`. A name the workspace
+  does not have is `400`, as an unknown built-in is.
+- `POST /api/v1/dlp/preview` runs the workspace's detectors too.
 
 ### The audit trail can be searched
 
