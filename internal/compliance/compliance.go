@@ -22,6 +22,7 @@
 package compliance
 
 import (
+	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -54,22 +55,45 @@ func (d Deps) now() time.Time {
 	return d.Now.UTC()
 }
 
-// Digest is how a value appears when the value itself must not. Two
+// DigestKeySetting is the site_settings row that keys every digest a
+// report prints. Migration 00034 creates it; a report refuses to run
+// without it rather than fall back to an unkeyed hash.
+const DigestKeySetting = "compliance.digest_key"
+
+// A Digester is how a value appears when the value itself must not. Two
 // different values give two different digests, so a reader can compare
-// two instances, or confirm that a key was replaced, without being handed
-// either secret.
+// two runs of a report, or confirm that a key was replaced, without being
+// handed either secret.
 //
-// A digest is not a safe way to publish a value drawn from a short list:
-// anyone can digest the whole list and look the answer up. It is used
-// here only for key material, passwords inside connection strings and
-// values an operator supplied as secret, never for a setting whose
-// possible values could be enumerated.
-func Digest(s string) string {
+// The digest is an HMAC under a secret that only this instance holds, so
+// a reader of the report cannot digest a word list and look a password
+// up. That also means digests from two instances are not comparable: the
+// same password on two instances gives two different digests. It is used
+// only for key material, passwords inside connection strings and values
+// an operator supplied as secret, never for a setting whose possible
+// values could be enumerated.
+type Digester struct {
+	key []byte
+}
+
+// NewDigester makes a Digester from the instance's digest key. An empty
+// key is refused: a report must never quietly print unkeyed hashes.
+func NewDigester(key []byte) (Digester, error) {
+	if len(key) == 0 {
+		return Digester{}, fmt.Errorf("%s is empty: run supermcp migrate", DigestKeySetting)
+	}
+	return Digester{key: key}, nil
+}
+
+// Digest returns the keyed digest of s, or "" for an empty s, so that an
+// absent setting reads as absent rather than as a secret.
+func (d Digester) Digest(s string) string {
 	if s == "" {
 		return ""
 	}
-	sum := sha256.Sum256([]byte(s))
-	return "sha256:" + hex.EncodeToString(sum[:8])
+	mac := hmac.New(sha256.New, d.key)
+	mac.Write([]byte(s))
+	return "hmac:" + hex.EncodeToString(mac.Sum(nil)[:8])
 }
 
 // RedactURL keeps everything about a connection string that decides
@@ -77,7 +101,7 @@ func Digest(s string) string {
 // particular whether the connection is encrypted — and replaces only the
 // password with a digest. An assessor needs to see `sslmode=disable`; the
 // password tells them nothing they should have.
-func RedactURL(raw string) string {
+func (d Digester) RedactURL(raw string) string {
 	if raw == "" {
 		return ""
 	}
@@ -86,16 +110,16 @@ func RedactURL(raw string) string {
 		// A string that does not parse may still be a credential, so it is
 		// digested whole rather than printed in the hope that it is not.
 		if err != nil {
-			return Digest(raw)
+			return d.Digest(raw)
 		}
 		return raw
 	}
 	if pw, ok := u.User.Password(); ok {
-		u.User = url.UserPassword(u.User.Username(), Digest(pw))
+		u.User = url.UserPassword(u.User.Username(), d.Digest(pw))
 	}
 	// url.URL re-escapes the digest's colon, which makes two instances with
 	// the same password look different depending on the encoder. Undo it.
-	return strings.ReplaceAll(u.String(), "sha256%3A", "sha256:")
+	return strings.ReplaceAll(u.String(), "hmac%3A", "hmac:")
 }
 
 // looksSecret reports whether a setting's name says its value must not be

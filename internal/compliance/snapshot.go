@@ -2,6 +2,7 @@ package compliance
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"sort"
@@ -111,15 +112,15 @@ var known = map[string]bool{
 func ConfigSnapshot(ctx context.Context, d Deps, opts SnapshotOptions) (*Snapshot, error) {
 	s := &Snapshot{
 		GeneratedAt: d.now(),
-		Effective:   effectiveSettings(opts.Cfg),
-		Environment: environment(opts.Environ),
+		Effective:   []Setting{},
+		Environment: []Setting{},
 		Site:        []Setting{},
 		Workspaces:  []OrgSettings{},
 		Counts:      []Count{},
 		Limits: []string{
-			"A digest is not a safe way to publish a value that could be guessed from a short list. Only key material, " +
-				"the passwords inside connection strings, and values whose setting name says they are secret are digested here; " +
-				"everything else is printed as it is.",
+			"A digest is keyed with a secret held by this instance, so it can be compared between runs of this report but not " +
+				"with a digest from another instance. Only key material, the passwords inside connection strings, and values " +
+				"whose setting name says they are secret are digested here; everything else is printed as it is.",
 			"This is the configuration of the process that ran the command. A gateway replica started with a different " +
 				"environment is a different configuration, and nothing here would show it.",
 			"Settings held per workspace are listed as rows, without interpretation: this report does not know which keys a " +
@@ -127,14 +128,19 @@ func ConfigSnapshot(ctx context.Context, d Deps, opts SnapshotOptions) (*Snapsho
 		},
 	}
 	if err := d.DB.Bypass(ctx, "compliance:config-snapshot describes the instance and every workspace's settings", func(tx pgx.Tx) error {
-		var err error
+		dg, err := readDigester(ctx, tx)
+		if err != nil {
+			return err
+		}
+		s.Effective = effectiveSettings(dg, opts.Cfg)
+		s.Environment = environment(dg, opts.Environ)
 		if s.Instance, err = readInstance(ctx, tx, opts.Cfg); err != nil {
 			return fmt.Errorf("read instance: %w", err)
 		}
-		if s.Site, err = readSiteSettings(ctx, tx); err != nil {
+		if s.Site, err = readSiteSettings(ctx, tx, dg); err != nil {
 			return fmt.Errorf("read site settings: %w", err)
 		}
-		if s.Workspaces, err = readOrgSettings(ctx, tx); err != nil {
+		if s.Workspaces, err = readOrgSettings(ctx, tx, dg); err != nil {
 			return fmt.Errorf("read workspace settings: %w", err)
 		}
 		if s.Counts, err = readCounts(ctx, tx); err != nil {
@@ -151,7 +157,7 @@ func ConfigSnapshot(ctx context.Context, d Deps, opts SnapshotOptions) (*Snapsho
 // variables it read them from. Two instances configured differently but
 // resolving the same are the same instance as far as behaviour goes, and
 // this is the section that shows it.
-func effectiveSettings(cfg *config.Config) []Setting {
+func effectiveSettings(dg Digester, cfg *config.Config) []Setting {
 	if cfg == nil {
 		return []Setting{}
 	}
@@ -165,10 +171,10 @@ func effectiveSettings(cfg *config.Config) []Setting {
 		set("listen", cfg.Listen),
 		set("adminListen", orNone(cfg.AdminListen)),
 		set("publicURL", public),
-		{Name: "databaseURL", Value: RedactURL(cfg.DatabaseURL), Source: "effective", Redacted: true,
+		{Name: "databaseURL", Value: dg.RedactURL(cfg.DatabaseURL), Source: "effective", Redacted: true,
 			Note: "the password is a digest; the host, database and parameters are as given, because whether the connection is encrypted is part of the configuration"},
-		{Name: "maintDatabaseURL", Value: RedactURL(cfg.MaintDatabaseURL), Source: "effective", Redacted: true},
-		{Name: "redisURL", Value: orNone(RedactURL(cfg.RedisURL)), Source: "effective", Redacted: cfg.RedisURL != "",
+		{Name: "maintDatabaseURL", Value: dg.RedactURL(cfg.MaintDatabaseURL), Source: "effective", Redacted: true},
+		{Name: "redisURL", Value: orNone(dg.RedactURL(cfg.RedisURL)), Source: "effective", Redacted: cfg.RedisURL != "",
 			Note: redisNote(cfg.RedisURL)},
 		set("logLevel", cfg.LogLevel),
 		set("logFormat", cfg.LogFormat),
@@ -251,7 +257,7 @@ func redisNote(url string) string {
 // environment reports what an operator set. Every value is redacted on
 // the strength of its name, because this section is the one most likely
 // to be pasted into a ticket.
-func environment(environ []string) []Setting {
+func environment(dg Digester, environ []string) []Setting {
 	if environ == nil {
 		environ = os.Environ()
 	}
@@ -267,9 +273,9 @@ func environment(environ []string) []Setting {
 		s := Setting{Name: name, Value: value, Source: "set"}
 		switch {
 		case looksSecret(name):
-			s.Value, s.Redacted = Digest(value), true
+			s.Value, s.Redacted = dg.Digest(value), true
 		case strings.HasSuffix(name, "_URL") && strings.Contains(value, "@"):
-			s.Value, s.Redacted = RedactURL(value), true
+			s.Value, s.Redacted = dg.RedactURL(value), true
 		}
 		if !known[name] {
 			s.Note = "this binary does not read this variable; it is set and has no effect"
@@ -298,7 +304,22 @@ func readInstance(ctx context.Context, tx pgx.Tx, cfg *config.Config) (Instance,
 	return inst, nil
 }
 
-func readSiteSettings(ctx context.Context, tx pgx.Tx) ([]Setting, error) {
+// readDigester reads the key that migration 00034 wrote. The report
+// refuses to run without it: an unkeyed digest of a password is a
+// password to anyone with a word list.
+func readDigester(ctx context.Context, tx pgx.Tx) (Digester, error) {
+	var key string
+	err := tx.QueryRow(ctx, `SELECT value #>> '{}' FROM site_settings WHERE key = $1`, DigestKeySetting).Scan(&key)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return NewDigester(nil)
+	}
+	if err != nil {
+		return Digester{}, fmt.Errorf("read %s: %w", DigestKeySetting, err)
+	}
+	return NewDigester([]byte(key))
+}
+
+func readSiteSettings(ctx context.Context, tx pgx.Tx, dg Digester) ([]Setting, error) {
 	rows, err := tx.Query(ctx, `SELECT key, value::text FROM site_settings ORDER BY key`)
 	if err != nil {
 		return nil, err
@@ -310,12 +331,18 @@ func readSiteSettings(ctx context.Context, tx pgx.Tx) ([]Setting, error) {
 		if err := rows.Scan(&key, &value); err != nil {
 			return nil, err
 		}
-		out = append(out, storedSetting(key, value))
+		if key == DigestKeySetting {
+			// The key that makes every other digest safe is not a
+			// setting anyone reads, and its digest under itself says
+			// nothing.
+			continue
+		}
+		out = append(out, storedSetting(dg, key, value))
 	}
 	return out, rows.Err()
 }
 
-func readOrgSettings(ctx context.Context, tx pgx.Tx) ([]OrgSettings, error) {
+func readOrgSettings(ctx context.Context, tx pgx.Tx, dg Digester) ([]OrgSettings, error) {
 	rows, err := tx.Query(ctx, `
 SELECT o.id, o.slug, s.key, s.value::text
 FROM organizations o LEFT JOIN org_settings s ON s.organization_id = o.id
@@ -338,15 +365,15 @@ ORDER BY o.slug, s.key`)
 			continue
 		}
 		cur := &out[len(out)-1]
-		cur.Settings = append(cur.Settings, storedSetting(*key, *value))
+		cur.Settings = append(cur.Settings, storedSetting(dg, *key, *value))
 	}
 	return out, rows.Err()
 }
 
-func storedSetting(key, value string) Setting {
+func storedSetting(dg Digester, key, value string) Setting {
 	s := Setting{Name: key, Value: value, Source: "database"}
 	if looksSecret(key) {
-		s.Value, s.Redacted = Digest(value), true
+		s.Value, s.Redacted = dg.Digest(value), true
 	}
 	return s
 }

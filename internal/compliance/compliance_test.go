@@ -13,22 +13,44 @@ import (
 	"github.com/supermcpco/supermcp/internal/authz"
 )
 
+func testDigester(t *testing.T, key string) Digester {
+	t.Helper()
+	d, err := NewDigester([]byte(key))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return d
+}
+
 func TestDigestHidesTheValueAndDistinguishesTwo(t *testing.T) {
-	a, b := Digest("hunter2"), Digest("hunter3")
+	d := testDigester(t, "instance-key")
+	a, b := d.Digest("hunter2"), d.Digest("hunter3")
 	switch {
 	case strings.Contains(a, "hunter"):
 		t.Fatalf("the digest %q contains the value it is meant to replace", a)
 	case a == b:
 		t.Fatalf("two different values digested the same (%q), so a reader could not tell a rotation happened", a)
-	case Digest("hunter2") != a:
+	case d.Digest("hunter2") != a:
 		t.Fatal("the same value digested differently twice, so two runs of a report could not be compared")
-	case Digest("") != "":
-		t.Fatalf("an empty value digested to %q; an absent setting should read as absent, not as a secret", Digest(""))
+	case d.Digest("") != "":
+		t.Fatalf("an empty value digested to %q; an absent setting should read as absent, not as a secret", d.Digest(""))
+	}
+}
+
+func TestDigestIsKeyedSoAWordListCannotLookItUp(t *testing.T) {
+	a := testDigester(t, "instance-a").Digest("hunter2")
+	b := testDigester(t, "instance-b").Digest("hunter2")
+	if a == b {
+		t.Fatalf("two instances digested the same password to the same value (%q), so the digest is a plain hash a word list can look up", a)
+	}
+	if _, err := NewDigester(nil); err == nil {
+		t.Fatal("an empty key was accepted, so a report could quietly print unkeyed hashes")
 	}
 }
 
 func TestRedactURLKeepsWhatDecidesBehaviour(t *testing.T) {
-	got := RedactURL("postgres://supermcp:s3cret@db.internal:5432/supermcp?sslmode=disable")
+	d := testDigester(t, "instance-key")
+	got := d.RedactURL("postgres://supermcp:s3cret@db.internal:5432/supermcp?sslmode=disable")
 	switch {
 	case strings.Contains(got, "s3cret"):
 		t.Fatalf("the password survived redaction: %q", got)
@@ -36,13 +58,13 @@ func TestRedactURLKeepsWhatDecidesBehaviour(t *testing.T) {
 		t.Fatalf("whether the connection is encrypted was redacted away, which is the one thing an assessor needs: %q", got)
 	case !strings.Contains(got, "db.internal:5432"):
 		t.Fatalf("the host was redacted away: %q", got)
-	case !strings.Contains(got, "sha256:"):
-		t.Fatalf("the password was removed rather than digested, so two instances cannot be compared: %q", got)
+	case !strings.Contains(got, "hmac:"):
+		t.Fatalf("the password was removed rather than digested, so two runs cannot be compared: %q", got)
 	}
 	// A string with no credentials is not a secret and is left alone.
 	plain := "redis://localhost:6379"
-	if RedactURL(plain) != plain {
-		t.Fatalf("a URL with no password was altered: %q", RedactURL(plain))
+	if d.RedactURL(plain) != plain {
+		t.Fatalf("a URL with no password was altered: %q", d.RedactURL(plain))
 	}
 }
 

@@ -62,6 +62,10 @@ Migration 00033 is **breaking**: it rebuilds `audit_events` as a table
 partitioned by month, needs a major version and a maintenance window with
 every replica stopped, and must be read before upgrading; see "The audit
 trail is partitioned by month (migration 00033)" below.
+Migration 00034 adds one `site_settings` row, `compliance.digest_key`,
+and needs nothing from you: the compliance reports key every digest they
+print with it, so a password's digest can no longer be looked up from a
+word list. Digests in reports made before and after the upgrade differ.
 
 ### OpenID Connect sign-ins count a second factor only by a rule
 
