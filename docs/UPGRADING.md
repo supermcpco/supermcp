@@ -14,6 +14,31 @@ under "Tools can be edited" below. Two catalogue adapters that could not
 authenticate are removed. Migration 00020 adds triggers that make a
 revoked role or a changed data-loss policy apply on every replica at
 once; see "Access changes reach every replica at once" below.
+Migration 00021 adds an index to `audit_events`; see "The audit export
+reads by workspace and sequence" below.
+
+### The audit export reads by workspace and sequence
+
+The audit export sweep and the export-lag metric read one workspace's
+events after a cursor. No index covered that, so on a large trail a
+caught-up exporter walked every other workspace's newer events on each
+sweep. Migration 00021 adds `audit_events_org_seq_idx` on
+`(organization_id, seq)`.
+
+It is built with `CREATE INDEX CONCURRENTLY`, so `audit_events` keeps
+taking writes during the build and nothing needs a maintenance window.
+What that means for you:
+
+- **The migration takes longer than the others** on a large trail: it
+  reads the table twice. A million events takes about a second; budget
+  in proportion. If the role on `SUPERMCP_MAINT_DATABASE_URL` has a
+  `statement_timeout`, it must allow for that.
+- **The build waits for transactions already open on `audit_events`**
+  to finish before it starts. A session left idle in a transaction
+  holds it up; `pg_stat_activity` shows the migration waiting.
+- **If the build fails or is cancelled**, Postgres leaves an invalid
+  index behind and the migration is not recorded. Run
+  `supermcp migrate` again: it drops the leftover and rebuilds.
 
 ### Access changes reach every replica at once
 
