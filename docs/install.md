@@ -402,6 +402,16 @@ role in the new workspace.
 After this, add people through single sign-on or SCIM (see
 `docs/api.md`) rather than leaving open registration on.
 
+To invite colleagues without an identity provider, go to Settings →
+Members, enter an address and pick a role. The server sends no email.
+It shows a link once, and you send it yourself. The link works for 7
+days by default, or up to 30. Whoever opens it either signs in with an
+account for that address or creates one with a password. Invites work
+with `SUPERMCP_OPEN_REGISTRATION=off`, and each one lets in only the
+invited address, only into your workspace, and only once. Links include
+`SUPERMCP_PUBLIC_URL`, so set it to the address people use to reach the
+server.
+
 ### 3. Install an adapter
 
 255 adapters are compiled into the binary. Browse them at
