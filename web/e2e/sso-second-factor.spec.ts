@@ -36,11 +36,22 @@ test("an administrator sets which answers from a provider count as a second fact
   await expect(page.getByText("Second factor: acr phr, urn:okta:loa:2fa:any")).toBeVisible();
   await expect(rule).toHaveCount(0);
 
-  // No rule at all is allowed, and the screen says what it means.
+  // No rule at all is allowed, and the screen says what it means. Saving
+  // it changes the rule only: a colleague turning the provider off while
+  // the editor is open is not undone.
   await page.getByRole("button", { name: "Edit the second-factor rule of Company Okta" }).click();
+  const origin = new URL(page.url()).origin;
+  const listed = await (await page.request.get("/api/v1/idps")).json();
+  const okta = listed.providers.find((p: { name: string }) => p.name === "Company Okta");
+  const off = await page.request.put(`/api/v1/idps/${okta.id}`, {
+    headers: { Origin: origin },
+    data: { name: "Company Okta", preset: "okta", issuer: okta.issuer, clientId: okta.clientId, enabled: false },
+  });
+  expect(off.status()).toBe(200);
   await rule.getByLabel("Second factor: acr values that count").fill("");
   await rule.getByRole("button", { name: "Save second-factor rule" }).click();
   await expect(page.getByText("Second factor: no rule, so no sign-in counts as one")).toBeVisible();
+  await expect(page.getByText("off", { exact: true })).toBeVisible();
 
   // The rule is part of the provider's history.
   await page.getByRole("button", { name: "History of Company Okta" }).click();
