@@ -33,9 +33,6 @@ var (
 	// ErrNoSuchRole refuses a role the organisation cannot use: unknown,
 	// or another organisation's own.
 	ErrNoSuchRole = errors.New("no such role")
-
-	// errNotImplemented marks a signature whose body is not written yet.
-	errNotImplemented = errors.New("not implemented")
 )
 
 // MemberStatus values.
@@ -182,7 +179,7 @@ func (s *Service) SetMemberStatus(ctx context.Context, orgID, actorID, userID st
 				return err
 			}
 		} else {
-			if err := keepOwner(ctx, tx, orgID, userID, func() error {
+			if err := KeepOwner(ctx, tx, orgID, userID, func() error {
 				_, err := tx.Exec(ctx, `UPDATE organization_members SET deactivated_at = now()
 					WHERE organization_id = $1 AND user_id = $2`, orgID, userID)
 				return err
@@ -230,7 +227,7 @@ func (s *Service) SetMemberRole(ctx context.Context, orgID, actorID, userID, rol
 			after = before
 			return nil
 		}
-		if err := keepOwner(ctx, tx, orgID, userID, func() error {
+		if err := KeepOwner(ctx, tx, orgID, userID, func() error {
 			if _, err := tx.Exec(ctx, `DELETE FROM role_bindings
 				WHERE organization_id = $1 AND principal_kind = 'user' AND principal_id = $2
 				  AND scope_kind = 'org' AND source = 'manual'`, orgID, userID); err != nil {
@@ -268,7 +265,7 @@ func (s *Service) RemoveMember(ctx context.Context, orgID, actorID, userID strin
 		if before.ScimManaged {
 			return ErrScimManaged
 		}
-		if err := keepOwner(ctx, tx, orgID, userID, func() error {
+		if err := KeepOwner(ctx, tx, orgID, userID, func() error {
 			if _, err := tx.Exec(ctx, `DELETE FROM role_bindings
 				WHERE organization_id = $1 AND principal_kind = 'user' AND principal_id = $2`, orgID, userID); err != nil {
 				return err
@@ -330,12 +327,8 @@ func readMember(ctx context.Context, tx pgx.Tx, orgID, userID string) (Member, e
 }
 
 // lockMember takes the organisation's row lock and reads the member.
-// Every membership change in an organisation queues behind it, so two
-// administrators each removing one of the last two owners cannot both
-// see the other one still there.
 func lockMember(ctx context.Context, tx pgx.Tx, orgID, userID string) (Member, error) {
-	var one int
-	err := tx.QueryRow(ctx, `SELECT 1 FROM organizations WHERE id = $1 FOR UPDATE`, orgID).Scan(&one)
+	err := LockOrganization(ctx, tx, orgID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Member{}, ErrNotMember
 	}
@@ -345,14 +338,35 @@ func lockMember(ctx context.Context, tx pgx.Tx, orgID, userID string) (Member, e
 	return readMember(ctx, tx, orgID, userID)
 }
 
-// keepOwner runs change and refuses it if it left the organisation with
-// no active owner. It only asks when userID was an active owner to begin
+// LockOrganization takes the organisation's row lock inside tx, which must
+// be a tenant transaction for orgID. Every change that can take away an
+// owner (a member's status or role, their removal, a role binding deleted
+// through the roles API) queues behind it, so two administrators each
+// removing one of the last two owners cannot both see the other one still
+// there. It returns an error wrapping pgx.ErrNoRows when the organisation
+// does not exist.
+func LockOrganization(ctx context.Context, tx pgx.Tx, orgID string) error {
+	var one int
+	if err := tx.QueryRow(ctx, `SELECT 1 FROM organizations WHERE id = $1 FOR UPDATE`, orgID).Scan(&one); err != nil {
+		return fmt.Errorf("lock organisation: %w", err)
+	}
+	return nil
+}
+
+// KeepOwner runs change inside tx and refuses it with ErrLastOwner if it
+// left the organisation with no active owner: a member who is not
+// deactivated and holds the owner role organisation-wide through an
+// unexpired binding. It only asks when userID was such an owner to begin
 // with, so an organisation that somehow has none can still be repaired.
-func keepOwner(ctx context.Context, tx pgx.Tx, orgID, userID string, change func() error) error {
+//
+// The caller must hold LockOrganization for orgID in the same transaction;
+// without it two concurrent changes can each leave the other's owner as
+// the last one and both commit.
+func KeepOwner(ctx context.Context, tx pgx.Tx, orgID, userID string, change func() error) error {
 	var wasOwner bool
 	if err := tx.QueryRow(ctx, activeOwnersSelect+`
 SELECT EXISTS (SELECT 1 FROM owners WHERE principal_id = $2)`, orgID, userID).Scan(&wasOwner); err != nil {
-		return err
+		return fmt.Errorf("read owners: %w", err)
 	}
 	if err := change(); err != nil {
 		return err
@@ -363,7 +377,7 @@ SELECT EXISTS (SELECT 1 FROM owners WHERE principal_id = $2)`, orgID, userID).Sc
 	var owners int
 	if err := tx.QueryRow(ctx, activeOwnersSelect+`
 SELECT count(DISTINCT principal_id) FROM owners`, orgID).Scan(&owners); err != nil {
-		return err
+		return fmt.Errorf("count owners: %w", err)
 	}
 	if owners == 0 {
 		return ErrLastOwner
