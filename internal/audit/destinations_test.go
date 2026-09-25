@@ -474,6 +474,16 @@ func TestDestinationHidesSecrets(t *testing.T) {
 	if got := ep.Destination(); strings.Contains(got, "hunter2") {
 		t.Fatalf("destination = %q, and a password in a URL is still a password", got)
 	}
+	// A token in the query or in the path is as much a credential.
+	for in, want := range map[string]string{
+		"https://siem.example/hec?token=abc123def456":                                       "https://siem.example/hec?***",                             // gitleaks:allow
+		"https://hooks.slack.com/services/T0AAAAAAA/B0BBBBBBB/xoxAbCdEfGhIjKlMnOpQrStUv":    "https://hooks.slack.com/services/T0AAAAAAA/B0BBBBBBB/***", // gitleaks:allow
+		"https://discord.com/api/webhooks/123456789012345678/Ab3dEfGhIjKlMnOpQrStUvWxYz012": "https://discord.com/api/webhooks/123456789012345678/***",
+	} {
+		if got := (Endpoint{Kind: KindWebhook, URL: in}).Destination(); got != want {
+			t.Errorf("destination of %s = %q, want %q", in, got, want)
+		}
+	}
 	syslog := Endpoint{Kind: KindSyslog, Host: "siem.example", Port: 6514, TLS: true}
 	if got := syslog.Destination(); got != "syslog+tls://siem.example:6514" {
 		t.Fatalf("destination = %q", got)
