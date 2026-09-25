@@ -14,7 +14,7 @@ reach for when something is wrong.
 | `SUPERMCP_KEK_PROVIDER` | `local` | `local` reads the master key from the environment; `awskms` leaves it in a key service and never in the pod. |
 | `ENCRYPTION_KEK` | none for `local` | 32 bytes, base64. A wrong length fails the boot rather than encrypting with a key nobody meant. |
 | `ENCRYPTION_KEK_FILE` | empty | The local master key read from a file, which wins over `ENCRYPTION_KEK`. The key is recorded under the file's path, so moving the file is a rotation, not a rename. The file may be readable by its owner and group and nobody else. Chart: `encryption.local.file`. |
-| `SUPERMCP_KEK_PREVIOUS` | empty | Old master keys that may decrypt and never seal, for the length of a rotation: base64, or `<reference>|<base64>` for a key that came from a file. Chart: `encryption.previous`. |
+| `SUPERMCP_KEK_PREVIOUS` | empty | Old master keys that may decrypt and never seal, for the length of a rotation: base64, `<reference>|<base64>` for a key that came from a file, or `awskms:<key>[@<region>][#<deployment>]` for a KMS key. Chart: `encryption.previous`. |
 | `SUPERMCP_REDIS_URL` | empty | Shared rate-limit budgets. Without it each replica keeps its own, divided by `SUPERMCP_EXPECTED_REPLICAS`. |
 | `SUPERMCP_EXPECTED_REPLICAS` | 1 | Only used when Redis is absent. Set it to the replica count or the cluster together allows several times the intended ceiling. |
 | `SUPERMCP_ADMIN_LISTEN` | empty | Where `/metrics` is served. Empty means the exposition is off; it must never share the public listener. |
@@ -244,6 +244,42 @@ Moving from `local` to `awskms` is the same shape: in step 3 set
 `encryption.provider=awskms` and the `encryption.awskms` values instead
 of the file, keep `encryption.previous` pointing at the local key, and
 leave it there until step 4's `keys verify` passes.
+
+### From one KMS key to another
+
+AWS automatic key rotation keeps the key id and needs none of this. This
+is for a move to a different key: a new CMK, a key in another account,
+or a single-Region key in another region. The entry form is described in
+"Moving to another KMS key" in `docs/install.md`.
+
+1. Create the new key and give the pods' role `kms:Encrypt` and
+   `kms:Decrypt` on it. Keep `kms:Decrypt` on the old key. Do not point
+   the old key's alias at the new key; give the new key its own alias.
+2. `supermcp keys verify` with the current settings. It must exit zero.
+3. Deploy every replica with the new key in `SUPERMCP_KMS_KEY_ID` and the
+   old key in `SUPERMCP_KEK_PREVIOUS`, spelled as `SUPERMCP_KMS_KEY_ID`
+   spelled it:
+
+   ```
+   SUPERMCP_KMS_KEY_ID=alias/supermcp-2026
+   SUPERMCP_KEK_PREVIOUS=awskms:alias/supermcp
+   ```
+
+   Add `@<region>` if the old key is in another region than the new one.
+   Leave `SUPERMCP_KMS_DEPLOYMENT` as it was. If you change it in the
+   same deploy, write the old value after `#` in the entry.
+4. `supermcp keys rotate-kek`, then `supermcp keys verify`. verify lists
+   each scope's data keys and the reference they are under, and ends with
+   `N of N data keys are under the active key` once nothing is left on
+   the old key.
+5. Deploy again without `SUPERMCP_KEK_PREVIOUS`. Remove the old key's
+   grant from the pods' role, but do not schedule the old key for
+   deletion while a backup that needs it exists: a dump taken before
+   step 4 has data keys wrapped by it.
+
+On the chart, put the entry in the Secret `encryption.previous` names
+(`--from-literal=SUPERMCP_KEK_PREVIOUS=awskms:alias/supermcp`) and set
+`encryption.awskms.keyId` to the new key in step 3.
 
 ## Rotating a data key
 

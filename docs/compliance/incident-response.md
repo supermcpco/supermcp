@@ -131,8 +131,9 @@ Keep the exposed key only in the escrow, because your own backups still need it.
 With the chart, a local key's replacement needs a second reference, which means
 `ENCRYPTION_KEK_FILE`, and the chart cannot mount one today. Moving to `awskms`,
 with the local key in `SUPERMCP_KEK_PREVIOUS`, is the rotation the chart supports.
-With `awskms`, restrict the key policy first. Only a local key can be named in
-`SUPERMCP_KEK_PREVIOUS`.
+With `awskms`, restrict the key policy first. To move to a new KMS key, name the
+exposed one in `SUPERMCP_KEK_PREVIOUS` as `awskms:<key>`; see "From one KMS key to
+another" in `docs/operations.md`.
 
 ### Replace the token signing key
 

@@ -159,12 +159,27 @@ them the same way. New data keys are wrapped under the new region's reference.
 **A dump taken before a master key rotation** carries data keys wrapped by the key
 you rotated away from. Name that key in `SUPERMCP_KEK_PREVIOUS`, which may decrypt
 and never seals. A bare base64 value takes the reference
-`local:env:ENCRYPTION_KEK`. For any other reference, write `<reference>|<base64>`.
+`local:env:ENCRYPTION_KEK`. For any other local reference, write
+`<reference>|<base64>`. For a KMS key, write `awskms:` and the key as
+`SUPERMCP_KMS_KEY_ID` named it, or paste the reference from `data_keys`:
+`awskms:alias/supermcp`, `awskms:eu-central-1/alias/supermcp`, or `awskms:<ARN>`.
 Then run `supermcp keys rotate-kek`, `keys verify` again, and remove the old key.
-`SUPERMCP_KEK_PREVIOUS` accepts only local keys: data keys wrapped by a KMS key
-other than the configured one (or its replica in another region) open only by
-pointing the instance at that key. That includes a key an alias pointed at before
-it was moved.
+
+**A restore after a move from one KMS key to another** needs the old key until
+`rotate-kek` runs on the restored database. A dump taken before the move, or during
+it before `rotate-kek` finished, holds data keys under the old key's reference, and
+`keys verify` lists them as not under the active key. Keep `kms:Decrypt` on the old
+key and do not schedule it for deletion while such a dump exists. For the restore:
+
+- Set the new key as active and name the old one in `SUPERMCP_KEK_PREVIOUS`, with
+  `@<region>` if it is in another region.
+- The old key's data keys were wrapped with the `SUPERMCP_KMS_DEPLOYMENT` of that
+  time. If that differs from the current value, write it after `#` in the entry
+  (`awskms:alias/supermcp#prod-2025`), or write `#` alone if it was unset.
+- An alias names whatever it points at now. If the old key's alias has been moved or
+  deleted, name the old key by its id or ARN instead.
+- Run `keys rotate-kek` and `keys verify`. When verify reports every data key under
+  the active key, the restored database no longer needs the entry.
 
 Keep every master key for as long as you keep a backup sealed under it. Data keys
 retired by `keys rotate-dek` are never deleted, so an old dump still needs the key
