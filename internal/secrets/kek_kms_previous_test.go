@@ -140,6 +140,23 @@ func TestPreviousKMSEntries(t *testing.T) {
 			env: kmsEnv("alias/new", "prod", "awskms:arn:aws:s3:::bucket"), wantErrs: "not a KMS key"},
 		{name: "one key named twice",
 			env: kmsEnv("alias/new", "prod", "awskms:alias/old,awskms:eu-central-1/alias/old"), wantErrs: "twice"},
+		{name: "a region after the deployment",
+			env: kmsEnv("alias/new", "prod", "awskms:alias/old#prod@us-east-1"), wantErrs: "write @<region> before #<deployment>"},
+		{name: "a misspelt region after @",
+			env: kmsEnv("alias/new", "prod", "awskms:alias/old@eu-central1"), wantErrs: "not an AWS region"},
+		{name: "an availability zone for a region",
+			env: kmsEnv("alias/new", "prod", "awskms:alias/old@eu-central-1a"), wantErrs: "not an AWS region"},
+		{name: "a misspelt region in a pasted reference",
+			env: kmsEnv("alias/new", "prod", "awskms:eucentral-1/alias/old"), wantErrs: "not an AWS region"},
+		{name: "a misspelt region in an ARN",
+			env:      kmsEnv("alias/new", "prod", "awskms:arn:aws:kms:EU-central-1:111122223333:key/11111111-1111-1111-1111-111111111111"),
+			wantErrs: "not an AWS region"},
+		{name: "a misspelt region inherited from the settings",
+			env: map[string]string{
+				envLocalKEK: b64Key(1), envKMSRegion: "eu_central_1",
+				envKEKPrevious: "awskms:alias/old",
+			},
+			wantErrs: "not an AWS region"},
 		{name: "no region anywhere",
 			env:      map[string]string{envLocalKEK: b64Key(1), envKEKPrevious: "awskms:alias/old"},
 			wantErrs: "@<region>"},
@@ -342,8 +359,12 @@ func TestRotateKEKBetweenKMSKeys(t *testing.T) {
 	}
 	forged := *keys[0]
 	forged.KEKRef = old.Active.Ref()
-	if err := openAndDiscard(ctx, old.Active, forged.Wrapped); err == nil || !strings.Contains(err.Error(), "IncorrectKeyException") {
+	err = openAndDiscard(ctx, old.Active, forged.Wrapped)
+	if err == nil || !strings.Contains(err.Error(), "IncorrectKeyException") {
 		t.Fatalf("the old key opened a data key the new one wrapped: %v", err)
+	}
+	if !errors.Is(err, ErrKeyRefused) || errors.Is(err, ErrKeyServiceUnavailable) {
+		t.Fatalf("a wrong key is %v, want ErrKeyRefused and not unavailable", err)
 	}
 }
 
@@ -410,5 +431,50 @@ func TestKEKSetCheckReportsHolder(t *testing.T) {
 	cancel()
 	if _, err := (&KEKSet{Active: us}).Check(cancelled, keys); !errors.Is(err, context.Canceled) {
 		t.Errorf("check on a cancelled context = %v", err)
+	}
+}
+
+// A KMS entry never carries key material, but an operator can still paste
+// one after a "|" by mistake. The boot error that refuses it goes to pod
+// logs, so it names the entry without the material.
+func TestPreviousKMSEntryErrorOmitsMaterial(t *testing.T) {
+	t.Parallel()
+	material := b64Key(7)
+	for _, entry := range []string{
+		"awskms:alias/old|" + material,
+		"awskms:alias/old@eu-central1|" + material,
+		"awskms:alias/old#prod|" + material,
+	} {
+		_, err := kekFromEnv(context.Background(), envMap(kmsEnv("alias/new", "prod", entry)),
+			func(r string) KMSClient { return newFakeKMS().in(r) })
+		if err == nil {
+			t.Fatalf("%s: accepted", entry)
+		}
+		if msg := err.Error(); strings.Contains(msg, material) || strings.Contains(msg, "|") {
+			t.Fatalf("the error for an entry with key material quotes it: %s", msg)
+		}
+	}
+}
+
+// A previous entry that names its region opens its own reference and no
+// other: the alias rule that lets a key open a same-named alias's data
+// keys in another region does not apply to it.
+func TestPreviousKMSPinnedRegionSkipsCrossRegion(t *testing.T) {
+	t.Parallel()
+	f := moveKMS()
+	elsewhere := "awskms:eu-west-2/alias/old"
+
+	pinned := setFrom(t, f, kmsEnv("alias/new", "prod", "awskms:alias/old@us-east-1"))
+	if k, ok := pinned.Find(elsewhere); ok {
+		t.Fatalf("a region-pinned previous key took %s as %s", elsewhere, k.Ref())
+	}
+	if _, ok := pinned.Find("awskms:us-east-1/alias/old"); !ok {
+		t.Fatal("a region-pinned previous key no longer opens its own reference")
+	}
+
+	// Without a region the entry behaves like the active key does.
+	loose := setFrom(t, f, kmsEnv("alias/new", "prod", "awskms:alias/old"))
+	if _, ok := loose.Find(elsewhere); !ok {
+		t.Fatalf("an unpinned previous key does not take %s", elsewhere)
 	}
 }

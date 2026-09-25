@@ -16,6 +16,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -323,7 +324,11 @@ func previousKEKs(ctx context.Context, get func(string) string, clients kmsClien
 			}
 			k, err = previousKMS(ctx, entry, *kms, clients)
 			if err != nil {
-				return nil, fmt.Errorf("%s entry %d (%s): %w", envKEKPrevious, i+1, entry, err)
+				// Only the text before a separator is quoted: an entry
+				// that wrongly carries key material after "|" must not
+				// put it in a boot error, which ends up in pod logs.
+				label, _, _ := strings.Cut(entry, previousSeparator)
+				return nil, fmt.Errorf("%s entry %d (%s): %w", envKEKPrevious, i+1, strings.TrimSpace(label), err)
 			}
 		} else {
 			ref, material := "env:"+envLocalKEK, entry
@@ -363,15 +368,33 @@ func previousKMS(ctx context.Context, entry string, s kmsSettings, clients kmsCl
 	if region == "" {
 		return nil, fmt.Errorf("%w: add @<region> to the entry, or set %s", ErrKMSConfig, envKMSRegion)
 	}
+	// A misspelt region builds a client for an endpoint that does not
+	// exist, and the data keys under this entry would fail on first use
+	// instead of at start-up.
+	if !awsRegion.MatchString(region) {
+		return nil, fmt.Errorf("%w: %q is not an AWS region, want one such as eu-central-1", ErrKMSConfig, region)
+	}
 	deployment := s.deployment
 	if e.deploymentSet {
 		deployment = e.deployment
 	}
-	return NewAWSKMSFromConfig(ctx, AWSKMSConfig{
+	k, err := NewAWSKMSFromConfig(ctx, AWSKMSConfig{
 		KeyID: e.keyID, Region: region, Deployment: deployment,
 		Timeout: s.timeout, Client: clients.forRegion(region),
 	})
+	if err != nil {
+		return nil, err
+	}
+	// An entry that names its region names one key in one place. Letting
+	// it also stand in for a same-named key elsewhere would send blobs to
+	// a key the operator never mentioned.
+	k.pinned = e.region != ""
+	return k, nil
 }
+
+// awsRegion is the shape of an AWS region name: eu-central-1,
+// us-gov-west-1, cn-north-1. It checks spelling, not existence.
+var awsRegion = regexp.MustCompile(`^[a-z]{2}(-[a-z]+)+-\d+$`)
 
 // kmsEntry is one "awskms:" entry of SUPERMCP_KEK_PREVIOUS taken apart.
 type kmsEntry struct {
@@ -404,6 +427,12 @@ func parseKMSEntry(entry string) (kmsEntry, error) {
 		return e, errors.New("a KMS entry carries no key material; write awskms:<key>[@<region>]")
 	}
 	if before, after, ok := strings.Cut(rest, "#"); ok {
+		// "@" after "#" would otherwise become part of the deployment
+		// and the key would silently use the active region; a
+		// deployment name has no business holding one anyway.
+		if strings.Contains(after, "@") {
+			return e, errors.New("the deployment after # contains @; write @<region> before #<deployment>")
+		}
 		rest, e.deployment, e.deploymentSet = before, strings.TrimSpace(after), true
 	}
 	if before, after, ok := strings.Cut(rest, "@"); ok {
