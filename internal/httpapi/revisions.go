@@ -351,7 +351,7 @@ type versionedRestoreInput struct {
 	ID       string `path:"id"`
 	Revision int    `path:"revision" minimum:"1"`
 	Body     *struct {
-		ExpectedVersion int64 `json:"expectedVersion,omitempty" doc:"The version that was read. A mismatch is a 409. Optional for now; a later release requires it"`
+		ExpectedVersion int64 `json:"expectedVersion,omitempty" minimum:"0" doc:"The version that was read. A mismatch is a 409. Optional for now; a later release requires it"`
 	}
 }
 

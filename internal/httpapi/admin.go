@@ -327,7 +327,7 @@ func (d Deps) connectorRoutes(api huma.API) {
 			ID   string `path:"id"`
 			Body struct {
 				Credentials     map[string]string `json:"credentials"`
-				ExpectedVersion int64             `json:"expectedVersion,omitempty" doc:"The connector version that was read. A mismatch is a 409. Optional for now; a later release requires it"`
+				ExpectedVersion int64             `json:"expectedVersion,omitempty" minimum:"0" doc:"The connector version that was read. A mismatch is a 409. Optional for now; a later release requires it"`
 			}
 		}) (*struct{ Body connectorDTO }, error) {
 			p, err := d.requireFresh(ctx, authz.ConnectorsAuth, authz.Resource{ConnectorID: in.ID})
@@ -366,7 +366,7 @@ func (d Deps) connectorRoutes(api huma.API) {
 				Enabled      *bool   `json:"enabled,omitempty"`
 				// ExpectedVersion is optional for one release, then required
 				// as it is on a tool update.
-				ExpectedVersion int64 `json:"expectedVersion,omitempty" doc:"The connector version that was read. A mismatch is a 409. Optional for now; a later release requires it"`
+				ExpectedVersion int64 `json:"expectedVersion,omitempty" minimum:"0" doc:"The connector version that was read. A mismatch is a 409. Optional for now; a later release requires it"`
 			}
 		}) (*struct{ Body connectorDTO }, error) {
 			p, err := d.require(ctx, authz.ConnectorsUpdate, authz.Resource{ConnectorID: in.ID})
@@ -601,7 +601,7 @@ func (d Deps) serverRoutes(api huma.API) {
 				ConnectorIDs *[]string `json:"connectorIds,omitempty"`
 				// ExpectedVersion is optional for one release, then required
 				// as it is on a tool update.
-				ExpectedVersion int64 `json:"expectedVersion,omitempty" doc:"The server version that was read. A mismatch is a 409. Optional for now; a later release requires it"`
+				ExpectedVersion int64 `json:"expectedVersion,omitempty" minimum:"0" doc:"The server version that was read. A mismatch is a 409. Optional for now; a later release requires it"`
 			}
 		}) (*struct{ Body *mcpserver.Server }, error) {
 			r := authz.Resource{ServerID: in.ID}

@@ -636,12 +636,14 @@ it is on `tools-update`; send it now. A restore takes it in an optional
 body, `{"expectedVersion": N}`.
 
 A connector's version moves on every change to it, including a change
-to one of its tools, its credentials or a catalogue re-sync, and a
-server's moves when one of its connectors' tools changes, because the
-version is what the served tool list is cached under. A write read
-before any of those is refused. A write that goes through moves the
-version by one. `connectors-resync` checks the same version, through the
-same lock, but answers a mismatch with its own code, `resync_stale`.
+to one of its tools, its credentials or a catalogue re-sync. The server
+raises it too when an upstream rotates the connector's refresh token and
+when the connector's OAuth sign-in completes. A server's version moves
+when one of its connectors changes, because the version is what the
+served tool list is cached under. A write read before any of those is
+refused. A write that goes through moves the version by one.
+`connectors-resync` checks the same version, through the same lock, but
+answers a mismatch with its own code, `resync_stale`.
 
 ## Audit retention
 
