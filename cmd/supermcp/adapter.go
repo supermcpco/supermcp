@@ -199,6 +199,16 @@ func adapterIndex(args []string) error {
 	if err != nil {
 		return err
 	}
+	// The index being replaced holds each slug's earlier hashes. Re-sync
+	// only moves a connector forward along that history, so it must
+	// survive regeneration.
+	if *out != "" {
+		prev, err := readIndex(*out)
+		if err != nil {
+			return err
+		}
+		adapter.CarryHistory(prev, idx)
+	}
 	b, _ := json.MarshalIndent(idx, "", "  ")
 	b = append(b, '\n')
 	if *out == "" {
@@ -206,6 +216,22 @@ func adapterIndex(args []string) error {
 		return nil
 	}
 	return os.WriteFile(*out, b, 0o644)
+}
+
+// readIndex reads an index file, or returns nil when there is none yet.
+func readIndex(path string) (*adapter.Index, error) {
+	raw, err := os.ReadFile(path) //nolint:gosec // a path the operator named on the command line
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var idx adapter.Index
+	if err := json.Unmarshal(raw, &idx); err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	return &idx, nil
 }
 
 // explainMissingRoot answers the question somebody asks when they run
