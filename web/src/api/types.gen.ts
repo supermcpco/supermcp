@@ -3689,6 +3689,10 @@ export type AuditListData = {
         targetId?: string;
         outcome?: 'success' | 'failure' | 'denied';
         /**
+         * Free text in web-search syntax: words, "quoted phrases", or, -word. Searches the action, actor, target and the string values of meta; never diff or payload. Blank means no search; text with no words in it, such as !!!, matches nothing
+         */
+        q?: string;
+        /**
          * Only events at or after this RFC3339 time
          */
         from?: string;
@@ -3744,6 +3748,10 @@ export type AuditExportData = {
          */
         targetId?: string;
         outcome?: 'success' | 'failure' | 'denied';
+        /**
+         * Free text in web-search syntax: words, "quoted phrases", or, -word. Searches the action, actor, target and the string values of meta; never diff or payload. Blank means no search; text with no words in it, such as !!!, matches nothing
+         */
+        q?: string;
         /**
          * Only events at or after this RFC3339 time
          */

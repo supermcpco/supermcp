@@ -47,6 +47,58 @@ in; see "Sensitive actions ask for a recent sign-in" below. Migration
 analytics; see "Usage analytics read an index of their own" below. Migration
 00026 lets disabling a service account refuse the tokens it already
 holds; see "Disabling a service account cuts it off" below. The chart can mount the master key as a file; see "The chart can mount the master key as a file" below.
+Migration 00027 adds a search index to `audit_events`; see "The audit
+trail can be searched" below.
+
+### The audit trail can be searched
+
+The audit list and export take `q`, a free-text search over each event's
+action, actor, target and the string values of its `meta`, never its
+`diff` or `payload` (docs/api.md, "Audit search"); the audit screen has a
+search box. Migration 00027 adds what it reads: a function,
+`audit_search_document`, and a GIN index over it,
+`audit_events_search_idx`. It adds no column, so nothing about the rows
+changes: the hash chain, `supermcp audit verify`, retention, scrubbing
+and legal holds work on them as before.
+
+The index is built with `CREATE INDEX CONCURRENTLY`, so `audit_events`
+keeps taking writes and nothing needs a maintenance window. What that
+means for you:
+
+- **The build is slow for its size.** Every event's text is parsed into
+  words, twice, so it takes far longer than 00022's index did. A million
+  events (260 MB of rows, 570 MB with the other indexes) took about 70
+  seconds on a laptop and made an index of about 100 MB; budget time and
+  disk in proportion. With
+  the Helm chart the migration runs as a pre-upgrade hook, which
+  `helm upgrade` waits for only as long as its `--timeout` (5 minutes by
+  default): raise it for a large trail. Any deadline on your own
+  migration job, the startup probe of a replica that migrates on start,
+  and a `statement_timeout` or `lock_timeout` on the role in
+  `SUPERMCP_MAINT_DATABASE_URL` must allow for it too; a pod killed
+  mid-build leaves an invalid index behind.
+- **Look for old snapshots before you start.** A concurrent build waits,
+  in two phases, for every transaction in the *whole database* that holds
+  a snapshot older than the step, not only for those that touch
+  `audit_events`. A running `pg_dump`, a long report, or a session left
+  idle in a transaction anywhere holds it up. The query in "Usage
+  analytics read an index of their own" above shows them, before you
+  start and while the migration waits.
+- **Other replicas wait for it.** The migration holds the migration
+  advisory lock from start to finish, so a replica starting meanwhile
+  with `SUPERMCP_MIGRATE_ON_START` blocks until it is done.
+- **Each event costs a little more to write** once the index is there:
+  about 50 microseconds of database time per event in the same test, on
+  top of about 80 without it. The audit writer batches events, so a
+  request does not wait for it.
+- **If the build fails or is cancelled**, Postgres leaves an invalid
+  index behind and the migration is not recorded. Run `supermcp migrate`
+  again: it drops the leftover and builds it again from the start.
+- **Rollout order does not matter.** Replicas of the previous version
+  never read the index and write to it without knowing; the new version
+  answers a search whichever replica took the write.
+- **Migrating down** drops the index and the function; searches then
+  fail, so roll the application back first.
 
 ### The chart can mount the master key as a file
 

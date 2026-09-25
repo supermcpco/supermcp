@@ -9,3 +9,7 @@ func WithRetry(o Options, attempts int, base time.Duration) Options {
 	o.retryBase = base
 	return o
 }
+
+// SearchDocument is the expression a search matches, for the test that
+// checks the index migration 00027 builds is the one the list reads.
+const SearchDocument = searchDocument

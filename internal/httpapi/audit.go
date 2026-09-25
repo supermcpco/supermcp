@@ -36,6 +36,7 @@ type AuditFilter struct {
 	ActorID  string    `query:"actorId" doc:"Who acted"`
 	TargetID string    `query:"targetId" doc:"What was acted on"`
 	Outcome  string    `query:"outcome" enum:"success,failure,denied"`
+	Q        string    `query:"q" maxLength:"200" doc:"Free text in web-search syntax: words, \"quoted phrases\", or, -word. Searches the action, actor, target and the string values of meta; never diff or payload. Blank means no search; text with no words in it, such as !!!, matches nothing"`
 	From     time.Time `query:"from" doc:"Only events at or after this RFC3339 time"`
 	To       time.Time `query:"to" doc:"Only events at or before this RFC3339 time"`
 }
@@ -93,7 +94,7 @@ type auditRetentionInput struct {
 // A zero time means the caller did not ask for that bound.
 func (f AuditFilter) query(orgID string) audit.Query {
 	q := audit.Query{OrgID: orgID, Category: f.Category, Action: f.Action,
-		ActorID: f.ActorID, TargetID: f.TargetID, Outcome: f.Outcome}
+		ActorID: f.ActorID, TargetID: f.TargetID, Outcome: f.Outcome, Search: f.Q}
 	if !f.From.IsZero() {
 		from := f.From
 		q.From = &from
@@ -187,7 +188,7 @@ func (d Deps) auditRoutes(api huma.API) {
 			// export that fails half way still happened.
 			d.emit(ctx, audit.Event{Category: audit.CategoryAdmin, Action: "audit.exported", Outcome: audit.Success,
 				TargetKind: "organization", TargetID: p.OrgID,
-				Meta: map[string]any{"format": "ndjson", "category": in.Category, "action": in.Action}})
+				Meta: map[string]any{"format": "ndjson", "category": in.Category, "action": in.Action, "q": in.Q}})
 
 			log, orgID := d.Log, p.OrgID
 			reader := d.AuditReader

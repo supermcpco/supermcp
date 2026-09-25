@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -45,6 +46,10 @@ type Query struct {
 	ActorID  string
 	TargetID string
 	Outcome  string
+	// Search is free text in websearch syntax (websearch_to_tsquery):
+	// words, "quoted phrases", or, and -excluded. Blank means no search.
+	// Text that holds no word at all, such as "!!!", matches nothing.
+	Search   string
 	From     *time.Time
 	To       *time.Time
 	AfterSeq int64
@@ -60,27 +65,51 @@ type Reader struct {
 	VerifyAnchor func(ctx context.Context, hash []byte, signature string) error
 }
 
+// listWhere is the list's filters, without the search.
+const listWhere = `SELECT seq, id, ts, category, action, outcome, actor_kind, COALESCE(actor_id,''), actor_display,
+	COALESCE(target_kind,''), COALESCE(target_id,''), target_display, host(ip), diff, payload, meta, hash
+	FROM audit_events
+	WHERE organization_id = $1
+	  AND ($2 = '' OR category = $2)
+	  AND ($3 = '' OR action = $3)
+	  AND ($4 = '' OR actor_id = $4)
+	  AND ($5 = '' OR target_id = $5)
+	  AND ($6 = '' OR outcome = $6)
+	  AND ($7::timestamptz IS NULL OR ts >= $7)
+	  AND ($8::timestamptz IS NULL OR ts <= $8)
+	  AND ($9 = 0 OR seq < $9)`
+
+const listOrder = `
+	ORDER BY seq DESC LIMIT $10`
+
+// searchDocument is what a search matches against. It has to be written
+// exactly as audit_events_search_idx is (migration 00027), or the planner
+// does not recognise the index and reads the whole organisation's stream.
+const searchDocument = `audit_search_document(action, actor_id, actor_display, target_kind, target_id, target_display, meta)`
+
+const (
+	listSQL       = listWhere + listOrder
+	listSearchSQL = listWhere + `
+	  AND ` + searchDocument + ` @@ websearch_to_tsquery('simple', $11)` + listOrder
+)
+
 // List returns matching events, newest first.
 func (r *Reader) List(ctx context.Context, q Query) ([]Record, error) {
 	if q.Limit <= 0 || q.Limit > 500 {
 		q.Limit = 100
 	}
+	sql := listSQL
+	args := []any{q.OrgID, q.Category, q.Action, q.ActorID, q.TargetID, q.Outcome, q.From, q.To, q.AfterSeq, q.Limit}
+	if search := strings.TrimSpace(q.Search); search != "" {
+		// A separate statement rather than "$11 = '' OR ...": a prepared
+		// statement's generic plan cannot use the index through an OR on a
+		// parameter.
+		sql = listSearchSQL
+		args = append(args, search)
+	}
 	out := []Record{}
 	err := r.DB.Tx(tenant.WithOrg(ctx, q.OrgID), func(tx pgx.Tx) error {
-		rows, err := tx.Query(ctx, `SELECT seq, id, ts, category, action, outcome, actor_kind, COALESCE(actor_id,''), actor_display,
-			COALESCE(target_kind,''), COALESCE(target_id,''), target_display, host(ip), diff, payload, meta, hash
-			FROM audit_events
-			WHERE organization_id = $1
-			  AND ($2 = '' OR category = $2)
-			  AND ($3 = '' OR action = $3)
-			  AND ($4 = '' OR actor_id = $4)
-			  AND ($5 = '' OR target_id = $5)
-			  AND ($6 = '' OR outcome = $6)
-			  AND ($7::timestamptz IS NULL OR ts >= $7)
-			  AND ($8::timestamptz IS NULL OR ts <= $8)
-			  AND ($9 = 0 OR seq < $9)
-			ORDER BY seq DESC LIMIT $10`,
-			q.OrgID, q.Category, q.Action, q.ActorID, q.TargetID, q.Outcome, q.From, q.To, q.AfterSeq, q.Limit)
+		rows, err := tx.Query(ctx, sql, args...)
 		if err != nil {
 			return err
 		}
