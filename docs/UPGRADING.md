@@ -14,7 +14,7 @@ under "Tools can be edited" below. Two catalogue adapters that could not
 authenticate are removed. Migration 00020 adds triggers that make a
 revoked role or a changed data-loss policy apply on every replica at
 once; see "Access changes reach every replica at once" below.
-Migration 00021 adds an index to `audit_events`; see "The audit export
+Migration 00022 adds an index to `audit_events`; see "The audit export
 reads by workspace and sequence" below.
 
 ### The audit export reads by workspace and sequence
@@ -22,7 +22,7 @@ reads by workspace and sequence" below.
 The audit export sweep and the export-lag metric read one workspace's
 events after a cursor. No index covered that, so on a large trail a
 caught-up exporter walked every other workspace's newer events on each
-sweep. Migration 00021 adds `audit_events_org_seq_idx` on
+sweep. Migration 00022 adds `audit_events_org_seq_idx` on
 `(organization_id, seq)`.
 
 It is built with `CREATE INDEX CONCURRENTLY`, so `audit_events` keeps
