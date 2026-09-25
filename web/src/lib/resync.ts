@@ -28,6 +28,16 @@ export function resyncSummary(r: ResyncDto): string {
   if (r.update.length) parts.push(`${count(r.update.length, "tool", "tools")} updated`);
   if (r.remove.length) parts.push(`${count(r.remove.length, "tool", "tools")} removed`);
   if (r.fields.length) parts.push(`${count(r.fields.length, "setting", "settings")} replaced`);
+  if (r.relabel.length) parts.push(`${count(r.relabel.length, "tool", "tools")} marked as the catalog's`);
   if (r.skipped.length) parts.push(`${count(r.skipped.length, "tool", "tools")} left alone`);
   return parts.length ? parts.join(", ") : "no tool or setting changed";
+}
+
+/** What a setting re-sync leaves alone would need, said to the operator. */
+export function notAppliedNote(fields: string[]): string {
+  const names = fields.map((f) => fieldLabel[f as keyof typeof fieldLabel]?.toLowerCase() ?? f).join(" and ");
+  return (
+    `The catalog's ${names} differ from this connector's. Re-sync never changes these, because the connector may ` +
+    `point at your own host and its credentials would follow. Change them by hand if the catalog's are what you want.`
+  );
 }

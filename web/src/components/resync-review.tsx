@@ -10,7 +10,7 @@ import {
 import { SideBySideDiff } from "./diff";
 import { Loading } from "../lib/ui";
 import { message, status } from "../lib/errors";
-import { fieldLabel, resyncSummary, skipReason } from "../lib/resync";
+import { fieldLabel, notAppliedNote, resyncSummary, skipReason } from "../lib/resync";
 import { invalidateTool } from "../lib/tool-api";
 
 /**
@@ -59,8 +59,9 @@ export function ResyncReview({
         Re-sync with the catalog
       </Text>
       <Text>
-        Re-syncing brings this connector&rsquo;s settings and its catalog tools up to the adapter this server carries.
-        Tools someone edited by hand and tools made here are left as they are. Credentials are not touched.
+        Re-syncing brings this connector&rsquo;s instructions and its catalog tools up to the adapter this server
+        carries. Tools someone edited by hand and tools made here are left as they are. The transport, authentication
+        and credentials are never touched.
       </Text>
       {preview.isPending && <Loading />}
       {preview.error && (
@@ -90,6 +91,7 @@ export function ResyncReview({
               </ul>
             </div>
           )}
+          <ToolGroup title="Marked as the catalog's" tools={plan.relabel} />
           {plan.fields.map((f) => (
             <div key={f.field} className="grid gap-1">
               <Text as="h3" bold>
@@ -98,6 +100,22 @@ export function ResyncReview({
               <SideBySideDiff label={fieldLabel[f.field]} before={f.before} after={f.after} />
             </div>
           ))}
+          {plan.notApplied.length > 0 && (
+            <div className="grid gap-2">
+              <Text as="h3" bold>
+                Settings not applied ({plan.notApplied.length})
+              </Text>
+              <Text>{notAppliedNote(plan.notApplied.map((f) => f.field))}</Text>
+              {plan.notApplied.map((f) => (
+                <SideBySideDiff
+                  key={f.field}
+                  label={`${fieldLabel[f.field]}, this connector's and the catalog's`}
+                  before={f.before}
+                  after={f.after}
+                />
+              ))}
+            </div>
+          )}
           {plan.missingCredentials.length > 0 && (
             <Text>
               The adapter now needs {plan.missingCredentials.length === 1 ? "a credential" : "credentials"} this

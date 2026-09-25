@@ -5,33 +5,40 @@ import { sql } from "./db";
 // carries a newer version of its adapter. A newer adapter only arrives
 // with an upgrade of the binary, which a browser test cannot perform, so
 // the older install is made by hand below: its catalog hash and one tool's
-// text are put back to what an older binary would have written. That is
-// the one step here the product cannot do to itself; everything else is
-// done through the screens.
+// text are put back to what v1.2.0 would have written. That is the one
+// step here the product cannot do to itself; everything else is done
+// through the screens.
+//
+// Ghost is the adapter whose v1.2.0 hash the catalog's history records.
+// Re-sync only moves a connector forward along that history, so a made-up
+// hash would read as a newer catalog and be refused.
 
-const staleTool = "bundesbank_get_exchange_rates";
-const editedTool = "bundesbank_get_bund_yields";
+const ghostV120 = "3c1810cf8960";
+const staleTool = "ghost_list_posts";
+const editedTool = "ghost_get_post";
 
 test("an outdated catalog connector is badged, previewed and re-synced", async ({ page, workspace }) => {
   expect(workspace.email).toBeTruthy();
-  await page.goto("/catalog/bundesbank");
+  await page.goto("/catalog/ghost");
+  await page.getByLabel("GHOST_ADMIN_API_URL").fill("https://ghost.example.test");
+  await page.getByLabel("GHOST_ADMIN_JWT").fill("not-a-real-token");
   await page.getByRole("button", { name: "Install" }).click();
   await expect(page).toHaveURL(/\/connectors/);
   const connectors = await (await page.request.get("/api/v1/connectors")).json();
   const connectorId = connectors[0].id as string;
-  await expect(page.getByText("Deutsche Bundesbank Statistics")).toBeVisible();
+  await expect(page.getByText("Ghost", { exact: true })).toBeVisible();
   await expect(page.getByText("catalog update available")).toHaveCount(0);
 
   // Someone edits one catalog tool by hand; re-sync must leave it alone.
   await page.goto(`/connectors/${connectorId}/tools`);
   await page.getByRole("link", { name: `Edit ${editedTool}` }).click();
   await expect(page.getByRole("heading", { name: editedTool })).toBeVisible();
-  await page.getByRole("textbox", { name: "Description", exact: true }).fill("Bund yields, as this workspace describes them.");
+  await page.getByRole("textbox", { name: "Description", exact: true }).fill("One post, as this workspace describes it.");
   await page.getByRole("button", { name: "Save changes" }).click();
   await expect(page.getByRole("status").getByText(/^Saved/)).toBeVisible();
 
   // What an older binary would have left behind.
-  sql(`UPDATE connectors SET catalog_hash = 'older' WHERE id = $1`, connectorId);
+  sql(`UPDATE connectors SET catalog_hash = $2 WHERE id = $1`, connectorId, ghostV120);
   sql(
     `UPDATE tools SET definition = jsonb_set(definition, '{description}', '"The older description."')
      WHERE connector_id = $1 AND name = $2`,
@@ -40,7 +47,7 @@ test("an outdated catalog connector is badged, previewed and re-synced", async (
   );
 
   await page.goto("/connectors");
-  const row = page.getByRole("listitem").filter({ hasText: "Deutsche Bundesbank Statistics" });
+  const row = page.getByRole("listitem").filter({ hasText: "Ghost" });
   await expect(row.getByText("catalog update available")).toBeVisible();
   await row.getByRole("link", { name: "Tools" }).click();
 
@@ -66,10 +73,10 @@ test("an outdated catalog connector is badged, previewed and re-synced", async (
   const tools = await (await page.request.get(`/api/v1/connectors/${connectorId}/tools`)).json();
   const byName = new Map<string, { description: string }>(tools.map((t: { name: string; description: string }) => [t.name, t]));
   expect(byName.get(staleTool)?.description).not.toBe("The older description.");
-  expect(byName.get(editedTool)?.description).toBe("Bund yields, as this workspace describes them.");
+  expect(byName.get(editedTool)?.description).toBe("One post, as this workspace describes it.");
 
   await page.goto("/connectors");
   await expect(page.getByRole("heading", { name: "Connectors" })).toBeVisible();
-  await expect(page.getByText("Deutsche Bundesbank Statistics")).toBeVisible();
+  await expect(page.getByText("Ghost", { exact: true })).toBeVisible();
   await expect(page.getByText("catalog update available")).toHaveCount(0);
 });
