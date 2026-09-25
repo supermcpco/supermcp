@@ -4,6 +4,7 @@ import { logoutMutation } from "../api/@tanstack/react-query.gen";
 import type { QueryClient } from "@tanstack/react-query";
 import { Text } from "@cloudflare/kumo";
 import {
+  ChartLine,
   ClipboardText,
   FileArrowUp,
   Key,
@@ -40,6 +41,7 @@ const nav = [
   { to: "/servers", label: "MCP servers", icon: Stack },
   { to: "/api-keys", label: "API keys", icon: Key },
   { to: "/tool-calls", label: "Tool calls", icon: ListChecks },
+  { to: "/analytics", label: "Analytics", icon: ChartLine },
   { to: "/approvals", label: "Approvals", icon: SealCheck },
   { to: "/status", label: "Status", icon: Pulse },
 ] as const;
