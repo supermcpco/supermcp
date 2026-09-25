@@ -947,10 +947,12 @@ permission. As noted above, the key must also carry the `mcp:org` scope,
 or the scope ceiling refuses it.
 
 Setting a user `active: false`, through `PUT` or through a `PATCH` on
-the `active` attribute, revokes that person's sessions, API keys and
-refresh tokens in that workspace and marks the membership deactivated. A
-deactivated account stops working immediately rather than at the next
-token expiry.
+the `active` attribute, and a `DELETE` of the user, mark the membership
+deactivated and revoke the person's API keys and refresh tokens in that
+workspace and their sessions in every workspace: a person who belongs to
+several workspaces is signed out of all of them and signs in again to
+reach the others. A deactivated account stops working immediately rather
+than at the next token expiry.
 
 SCIM does not assign roles. Group membership from an identity provider
 maps to roles through single sign-on instead: bind a role to a principal
@@ -962,6 +964,7 @@ alone — the provider owns what it granted and nothing else.
 ## Versioning
 
 The admin API is at `/api/v1`. The schema policy is expand-only across
-one minor version: `scripts/check-migrations.sh` blocks a `DROP`,
-`RENAME` or `NOT NULL` without an explicit marker and a section in
-`docs/UPGRADING.md`.
+one minor version: `scripts/check-migrations.sh`, run in CI, refuses a
+migration whose Up section drops, renames, retypes or makes a column
+`NOT NULL` unless it carries a `-- supermcp:breaking` line and
+`docs/UPGRADING.md` names it.
