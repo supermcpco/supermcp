@@ -382,7 +382,11 @@ keys and clients, rotating keys, holding and exporting the audit trail,
 and scaling to zero.
 
 **Migrations will not apply.** They take an advisory lock, so a second
-process waits rather than racing. A migration numbered below the current
+process waits rather than racing; it logs `another migrator holds the
+migration lock; waiting for it to finish` and polls. A `serve` replica
+with `SUPERMCP_MIGRATE_ON_START` that waited and still finds migrations
+pending exits with an error naming the other migrator: its logs say why
+it stopped. A migration numbered below the current
 version is refused; that means two branches added migrations at once and
 one needs renumbering.
 

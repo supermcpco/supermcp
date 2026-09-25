@@ -288,7 +288,7 @@ which are also accepted under the prefix.
 | `SUPERMCP_LOG_FORMAT` | `json` | `json` or `text`. Anything else fails the boot. |
 | `SUPERMCP_SHUTDOWN_TIMEOUT` | `20s` | How long a graceful shutdown waits for in-flight requests. |
 | `SUPERMCP_DEV` | off | Relaxes the public-URL check, serves the API documentation page at `/api/docs`, and allows the SSRF guard to reach loopback. Never in production. |
-| `SUPERMCP_MIGRATE_ON_START` | off | Runs migrations from `serve`. Single-replica deployments only; the binary logs a warning when it is set. |
+| `SUPERMCP_MIGRATE_ON_START` | off | Runs migrations from `serve`. Single-replica deployments only; the binary logs a warning when it is set. A replica that finds another process migrating waits for it and does not migrate after it: if migrations are still pending when the other finishes, the replica exits with an error and the next start, or `supermcp migrate`, applies them. |
 
 ### Access
 
@@ -391,7 +391,10 @@ supermcp migrate --status   # prints the applied version and the one the binary 
 ```
 
 Migrations take a Postgres advisory lock, so a second process waits
-rather than racing. `--wait-lock=false` fails fast instead.
+rather than racing. It asks for the lock again every half second rather
+than blocking on it, and holds nothing while it waits, so it cannot hold
+up a migration that builds an index concurrently. `--wait-lock=false`
+fails fast instead.
 
 ### 2. Create the first workspace
 
