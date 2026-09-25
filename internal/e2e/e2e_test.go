@@ -69,14 +69,31 @@ type harness struct {
 	db         *tenant.DB
 }
 
+// harnessOptions replace parts of the stack start builds. The zero value
+// is the ordinary stack.
+type harnessOptions struct {
+	// kek replaces the local master key.
+	kek secrets.KEK
+	// log receives the server's log; nil discards it.
+	log *slog.Logger
+}
+
 func start(t *testing.T) *harness {
+	t.Helper()
+	return startWith(t, harnessOptions{})
+}
+
+func startWith(t *testing.T, opts harnessOptions) *harness {
 	t.Helper()
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
 		t.Skip("DATABASE_URL not set")
 	}
 	ctx := context.Background()
-	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	log := opts.log
+	if log == nil {
+		log = slog.New(slog.NewTextHandler(io.Discard, nil))
+	}
 
 	mst, err := store.Open(ctx, dsn, dsn, log, store.Options{})
 	if err != nil {
@@ -94,9 +111,13 @@ func start(t *testing.T) *harness {
 	t.Cleanup(st.Close)
 
 	db := &tenant.DB{App: st.App, Maint: st.Maint, Log: log}
-	kek, err := secrets.NewLocal(base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{7}, 32)), "test")
-	if err != nil {
-		t.Fatal(err)
+	kek := opts.kek
+	if kek == nil {
+		local, err := secrets.NewLocal(base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{7}, 32)), "test")
+		if err != nil {
+			t.Fatal(err)
+		}
+		kek = local
 	}
 	sealer := secrets.New(kek, &store.KeyStore{DB: db})
 	dialer := ssrf.NewDialer(&ssrf.Policy{AllowLoopback: true}) // the fake upstream is on loopback

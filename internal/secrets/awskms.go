@@ -4,11 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
+	"net/http"
 	"strings"
 	"time"
 
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/kms"
+	"github.com/aws/smithy-go"
+	smithyhttp "github.com/aws/smithy-go/transport/http"
 )
 
 // kmsPlaintextLimit is the largest plaintext KMS Encrypt accepts. A data
@@ -24,6 +28,18 @@ const defaultKMSTimeout = 10 * time.Second
 
 // ErrKMSConfig reports a KEK that cannot be built from the given settings.
 var ErrKMSConfig = errors.New("aws kms configuration is incomplete")
+
+// ErrKeyServiceUnavailable marks a key service call that failed because
+// the service could not be reached or could not answer: the connection
+// failed, the call timed out, the service was throttling, or it answered
+// with a server-side fault. The same call can succeed later. It is
+// wrapped alongside the provider's own error, so both stay reachable with
+// errors.Is and errors.As.
+//
+// A refusal is not this: a ciphertext the service rejects, a key policy
+// that denies the call, a disabled key. Those are configuration or data
+// problems, and retrying changes nothing.
+var ErrKeyServiceUnavailable = errors.New("key service unavailable")
 
 // KMSClient is the part of the KMS API this package uses. It is declared
 // here, at the consumer, so tests can supply a fake and so no AWS type
@@ -140,15 +156,15 @@ func (a *AWSKMS) Wrap(ctx context.Context, dek []byte) ([]byte, error) {
 	case len(dek) > kmsPlaintextLimit:
 		return nil, fmt.Errorf("data key is %d bytes, over the kms plaintext limit of %d", len(dek), kmsPlaintextLimit)
 	}
-	ctx, cancel := context.WithTimeout(ctx, a.timeout)
+	callCtx, cancel := context.WithTimeout(ctx, a.timeout)
 	defer cancel()
-	out, err := a.client.Encrypt(ctx, &kms.EncryptInput{
+	out, err := a.client.Encrypt(callCtx, &kms.EncryptInput{
 		KeyId:             &a.keyID,
 		Plaintext:         dek,
 		EncryptionContext: a.encryptionContext(),
 	})
 	if err != nil {
-		return nil, fmt.Errorf("kms encrypt with %s: %w", a.ref, err)
+		return nil, a.callErr(ctx, "encrypt", err)
 	}
 	if len(out.CiphertextBlob) == 0 {
 		return nil, fmt.Errorf("kms encrypt with %s returned an empty ciphertext", a.ref)
@@ -161,9 +177,9 @@ func (a *AWSKMS) Unwrap(ctx context.Context, wrapped []byte) ([]byte, error) {
 	if len(wrapped) == 0 {
 		return nil, ErrMalformed
 	}
-	ctx, cancel := context.WithTimeout(ctx, a.timeout)
+	callCtx, cancel := context.WithTimeout(ctx, a.timeout)
 	defer cancel()
-	out, err := a.client.Decrypt(ctx, &kms.DecryptInput{
+	out, err := a.client.Decrypt(callCtx, &kms.DecryptInput{
 		CiphertextBlob: wrapped,
 		// Naming the key is not optional here. Without KeyId, KMS takes the
 		// key from metadata inside the blob, so anyone who can write to
@@ -174,7 +190,7 @@ func (a *AWSKMS) Unwrap(ctx context.Context, wrapped []byte) ([]byte, error) {
 		EncryptionContext: a.encryptionContext(),
 	})
 	if err != nil {
-		return nil, fmt.Errorf("kms decrypt with %s: %w", a.ref, err)
+		return nil, a.callErr(ctx, "decrypt", err)
 	}
 	if len(out.Plaintext) == 0 {
 		return nil, fmt.Errorf("kms decrypt with %s returned an empty plaintext", a.ref)
@@ -200,6 +216,57 @@ func (a *AWSKMS) Verify(ctx context.Context) error {
 		return fmt.Errorf("kms key %s does not round-trip", a.ref)
 	}
 	return nil
+}
+
+// callErr wraps a failed KMS call, adding ErrKeyServiceUnavailable when
+// the service was out of reach. ctx is the caller's context, not the one
+// bounded by a.timeout: once the caller has given up, the failure says
+// nothing about the service.
+func (a *AWSKMS) callErr(ctx context.Context, op string, err error) error {
+	if ctx.Err() == nil && kmsUnavailable(err) {
+		return fmt.Errorf("kms %s with %s: %w: %w", op, a.ref, ErrKeyServiceUnavailable, err)
+	}
+	return fmt.Errorf("kms %s with %s: %w", op, a.ref, err)
+}
+
+// kmsUnavailable reports whether err is KMS, or the way to it, failing
+// rather than refusing. The AWS SDK wraps a transport failure in a
+// RequestSendError and a service answer in a ResponseError around an
+// APIError, and its retryer keeps the last attempt's chain intact, so
+// errors.As finds each however many attempts came before.
+func kmsUnavailable(err error) bool {
+	// The per-call timeout; callErr has ruled out the caller's own.
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var sendErr *smithyhttp.RequestSendError
+	if errors.As(err, &sendErr) {
+		return true
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		return true
+	}
+	var respErr *smithyhttp.ResponseError
+	if errors.As(err, &respErr) {
+		code := respErr.HTTPStatusCode()
+		if code >= http.StatusInternalServerError || code == http.StatusTooManyRequests {
+			return true
+		}
+	}
+	var apiErr smithy.APIError
+	if errors.As(err, &apiErr) {
+		switch apiErr.ErrorCode() {
+		case "ThrottlingException", "DependencyTimeoutException", "KMSInternalException",
+			"InternalFailure", "ServiceUnavailable", "RequestTimeout":
+			return true
+		}
+		// KMSInvalidStateException, AccessDeniedException and
+		// InvalidCiphertextException are client faults, so a disabled key,
+		// a denying policy or a rejected blob stays a refusal.
+		return apiErr.ErrorFault() == smithy.FaultServer
+	}
+	return false
 }
 
 // encryptionContext is the additional authenticated data KMS binds into

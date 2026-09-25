@@ -19,6 +19,7 @@ import (
 	"github.com/supermcpco/supermcp/internal/identity"
 	"github.com/supermcpco/supermcp/internal/mcpauth"
 	"github.com/supermcpco/supermcp/internal/mcpserver"
+	"github.com/supermcpco/supermcp/internal/secrets"
 	"github.com/supermcpco/supermcp/internal/tenant"
 	"github.com/supermcpco/supermcp/pkg/adapter"
 )
@@ -805,6 +806,9 @@ func (d Deps) require(ctx context.Context, perm authz.Permission, r authz.Resour
 // humaErr maps a service error to an HTTP error. Unmapped errors become
 // 500s, whose detail huma hides; the router logs them instead.
 func humaErr(err error) error {
+	if errors.Is(err, secrets.ErrKeyServiceUnavailable) {
+		return newKeyServiceError(err)
+	}
 	if errors.Is(err, connector.ErrNotFound) || errors.Is(err, mcpserver.ErrNotFound) ||
 		errors.Is(err, connector.ErrToolNotFound) || errors.Is(err, mcpauth.ErrKeyNotFound) {
 		return huma.Error404NotFound(err.Error())
