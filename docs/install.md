@@ -400,7 +400,7 @@ After this, add people through single sign-on or SCIM (see
 
 ### 3. Install an adapter
 
-257 adapters are compiled into the binary. Browse them at
+255 adapters are compiled into the binary. Browse them at
 `GET /api/v1/catalog`, or in the interface under the catalog screen.
 
 ```bash

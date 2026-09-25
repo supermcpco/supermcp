@@ -4,7 +4,7 @@ An adapter is one YAML file that describes an upstream system and the
 tools it offers. Installing an adapter creates a connector in a
 workspace; the connector's tools are what an AI client sees over MCP.
 
-257 adapters ship compiled into the binary. This document is about
+255 adapters ship compiled into the binary. This document is about
 writing another one, whether to contribute it or to keep it in your own
 tree.
 
@@ -127,7 +127,7 @@ silently ignoring half its configuration.
 | `basic` | `username` or `password` | Both empty is an error; one empty is not, because "API key as username, empty password" is a real pattern. |
 | `query` | `params` (non-empty) | Credentials as query parameters. |
 | `oauth2` | `grant`, `tokenUrl`, `clientId` | `grant` is `client_credentials`, `refresh_token` or `authorization_code`. `refresh_token` also needs `refreshToken`; `authorization_code` also needs `authorizationUrl`. `clientAuth` is `basic` or `body`. |
-| `login` | `request.url`, `tokenSource`, `inject` | For upstreams with a bespoke sign-in call. `tokenSource.from` is `body` (needs `jsonPath`) or `setCookie` (needs `cookieName`). `preprocess` handles bcrypt with a fetched salt. |
+| `login` | `request.url`, `tokenSource`, `inject` | For upstreams with a bespoke sign-in call. `tokenSource.from` is `body` (needs `jsonPath`) or `setCookie` (needs `cookieName`). `preprocess` (bcrypt with a fetched salt) is accepted by the schema and the validator; no implementation ships, and a login that declares it fails. |
 | `hmac` | `secret`, `stringToSign`, `signatureHeader` | `algorithm` is `sha256` (default), `sha1` or `sha512`. `encoding` is `hex` or `base64`. |
 | `database` | `username` or `password` | Credentials for a database transport. `domain` for NTLM. |
 | `oauth1`, `wsSecurity`, `mtls` | see the schema | **Accepted by the schema and the validator; no implementation ships.** A call using one of these fails. |

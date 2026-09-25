@@ -10,7 +10,8 @@ Migration 00018 adds `tool_blobs` and needs nothing from you. Two fixes
 change what people see, and two change what is on the audit trail and at
 rest. Tools can now be created, edited and deleted, which brings
 migration 00019 and a handful of changes to existing behaviour, listed
-under "Tools can be edited" below.
+under "Tools can be edited" below. Two catalogue adapters that could not
+authenticate are removed.
 
 ### Four more alerts, and the metrics behind them
 
@@ -193,6 +194,18 @@ schema, the shipped adapters and the catalogue index. Strict validation
 rejects unknown metadata keys, so an adapter of your own that copied the
 field fails `supermcp adapter validate --strict` until the line is
 deleted. Nothing else about the adapter changes.
+
+### Two catalogue adapters are gone
+
+`immobilienscout24` needs OAuth 1.0a and `sorare` a login that hashes
+the password with a fetched bcrypt salt. Neither is implemented, so
+neither connector could authenticate, and both are out of the catalogue
+now: 255 adapters instead of 257. Installing either by slug answers 404.
+
+A connector already installed from one of them is untouched. Nothing
+looks its catalogue entry up again after install, so its rows, tools and
+credentials stay as they were, and a call through it fails at
+authentication exactly as it did before. Delete it when convenient.
 
 ## 1.1.0
 
