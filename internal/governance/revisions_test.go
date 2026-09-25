@@ -344,3 +344,72 @@ func numbers(list []governance.Revision) []int {
 	}
 	return out
 }
+
+// The history shows who made each change: the name recorded with it, the
+// member's name or address when the caller gave none, and, for a row
+// recorded before names were kept, the member looked up when it is read.
+func TestActorIsShownByName(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	ctx := t.Context()
+	named, bare, outsider := f.orgID+"_named", f.orgID+"_bare", f.orgID+"_out"
+	seed := func(q string, args ...any) {
+		t.Helper()
+		if err := f.db.Bypass(ctx, "test seed", func(tx pgx.Tx) error {
+			_, err := tx.Exec(ctx, q, args...)
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	seed(`INSERT INTO users (id, email, name) VALUES ($1, $1 || '@rev.test', 'Ada Lovelace'), ($2, $2 || '@rev.test', ''), ($3, $3 || '@rev.test', 'Not A Member')`,
+		named, bare, outsider)
+	seed(`INSERT INTO organization_members (user_id, organization_id) VALUES ($1, $3), ($2, $3)`, named, bare, f.orgID)
+	t.Cleanup(func() {
+		_ = f.db.Bypass(context.Background(), "test cleanup", func(tx pgx.Tx) error {
+			_, err := tx.Exec(context.Background(), `DELETE FROM users WHERE id = ANY($1)`, []string{named, bare, outsider})
+			return err
+		})
+	})
+
+	for _, r := range []governance.Revision{
+		{ActorID: named},
+		{ActorID: bare},
+		{ActorID: outsider},
+		{ActorID: named, ActorDisplay: "Given by the caller"},
+		{},
+		{ActorID: named},
+	} {
+		r.Kind, r.EntityID, r.Action, r.Entity = governance.KindConnector, "c1", governance.ActionUpdate, map[string]any{"name": "x"}
+		f.mustRecord(t, r)
+	}
+	// Revision 1 as a row written before the name was kept, by somebody
+	// who has since changed it.
+	seed(`UPDATE revisions SET actor_display = '' WHERE organization_id = $1 AND entity_id = 'c1' AND revision = 1`, f.orgID)
+	seed(`UPDATE users SET name = 'Ada King' WHERE id = $1`, named)
+
+	list, err := f.svc.List(ctx, f.orgID, governance.KindConnector, "c1", 0, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[int]string{}
+	for _, r := range list {
+		got[r.Number] = r.ActorDisplay
+	}
+	want := map[int]string{
+		1: "Ada King",         // looked up when read
+		2: bare + "@rev.test", // no name, so the address
+		3: "",                 // not a member: not shown
+		4: "Given by the caller",
+		5: "",             // no actor at all
+		6: "Ada Lovelace", // kept as it was when recorded
+	}
+	for n, w := range want {
+		if got[n] != w {
+			t.Errorf("revision %d shown as %q, want %q", n, got[n], w)
+		}
+	}
+	if r, err := f.svc.Get(ctx, f.orgID, governance.KindConnector, "c1", 1); err != nil || r.ActorDisplay != "Ada King" {
+		t.Errorf("get revision 1: %q, %v", r.ActorDisplay, err)
+	}
+}
