@@ -12,6 +12,7 @@ import (
 	"github.com/supermcpco/supermcp/internal/audit"
 	"github.com/supermcpco/supermcp/internal/authz"
 	"github.com/supermcpco/supermcp/internal/identity/saml"
+	"github.com/supermcpco/supermcp/internal/reqid"
 )
 
 // samlAPI is the shared wiring plus the SAML service. The service is
@@ -130,7 +131,7 @@ func (s samlAPI) failed(w http.ResponseWriter, r *http.Request, err error) {
 	reason := samlReason(err)
 	recorded := reason
 	if reason == samlFailed {
-		recorded = internalMessage(id)
+		recorded = reqid.Message(id)
 	}
 	ip, _ := r.Context().Value(ipKey).(string)
 	s.emit(r.Context(), audit.Event{Category: audit.CategoryAuth, Action: "session.create", Outcome: audit.Failure,

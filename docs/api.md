@@ -1065,8 +1065,9 @@ Every response, on every route (the admin API, SCIM, MCP, OAuth, the
 health checks), carries an `X-Request-Id` header. The server chooses
 the id; one a client sends is not reused. A `500` says nothing about
 its cause, because the cause is often a database or upstream error that
-names a host, a connection string or a query. Its body is always this
-shape, with no `errors`:
+names a host, a connection string or a query. On the admin API, and for
+any request that panics, the body is always this shape, with no
+`errors`:
 
 ```json
 {
@@ -1076,19 +1077,33 @@ shape, with no `errors`:
 }
 ```
 
-The id in `detail` is the one in `X-Request-Id`. Quote it when reporting
-the failure: the server logs the cause once, as `request failed`, with
-the same id in `req_id`. The audit trail records such a failure the
-same way: `meta.error` (or `meta.reason`, for sign-in events) is the
-generic message and `meta.requestId` the id. A failure the API answers
-itself (any `4xx`, or a `503`) keeps its message in the response, and
-the audit event records a stable code in `meta.error` (the code in
-`errors[].value` where the response has one, such as `last_owner`,
-otherwise the status in words, such as `not_found`), with the message in
-`meta.message`. Failed tool calls are the exception: their audit event
-keeps the upstream's error text, after credentials and anything the
-payload policy masks are removed from it, because that is how an
-administrator learns why their connector failed.
+The other surfaces carry the same sentence in their own error shape:
+SCIM in `detail` of its error schema, the MCP endpoint in the JSON-RPC
+error's `message`, and the OAuth endpoints as `error: "server_error"`
+with the sentence in `error_description`. A request that runs past the
+60-second limit answers `504` with an empty body.
+
+The id in the sentence is the one in `X-Request-Id`. Quote it when
+reporting the failure: the server logs the cause once with the same id
+in `req_id` (`request failed`, `request panicked`, `scim request
+failed`, `mcp request failed` or `oauth request failed`). The audit
+trail records such a failure the same way: `meta.error` (or
+`meta.reason`, for sign-in events) is the generic message and
+`meta.requestId` the id. A failure the API answers itself (any `4xx`,
+or a `503`) keeps its message in the response, and the audit event
+records a stable code in `meta.error` (the code in `errors[].value`
+where the response has one, such as `last_owner`, otherwise the status
+in words, such as `not_found`), with the message, cut to 200
+characters, in `meta.message`. Changes whose refusals quote what was
+sent (importing, installing or updating a connector, creating or
+updating a tool, a data-loss or approval policy, or an identity
+provider) record the code only. Failed tool calls are the exception:
+their audit event keeps the upstream's error text, after credentials
+and anything the payload policy masks are removed from it, because that
+is how an administrator learns why their connector failed.
+
+`/readyz` answers `database unavailable` or `schema not ready` and
+nothing more; the pod's log says why.
 
 | Status | Means |
 |---|---|

@@ -8,6 +8,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 
 	"github.com/supermcpco/supermcp/internal/audit"
 	"github.com/supermcpco/supermcp/internal/authz"
@@ -71,10 +72,10 @@ func (d Deps) ssoCallback(w http.ResponseWriter, r *http.Request) {
 // can act on, and logs the detail. A provider's message may name an
 // internal address, so it does not go in the URL.
 func (d Deps) ssoFailed(w http.ResponseWriter, r *http.Request, err error) {
-	d.Log.Warn("single sign-on failed", "err", err, "path", r.URL.Path)
+	d.Log.Warn("single sign-on failed", "err", err, "path", r.URL.Path, "req_id", middleware.GetReqID(r.Context()))
 	ip, _ := r.Context().Value(ipKey).(string)
 	d.emit(r.Context(), audit.Event{Category: audit.CategoryAuth, Action: "session.create", Outcome: audit.Failure,
-		IP: ip, UserAgent: r.UserAgent(), Meta: map[string]any{"method": "sso", "reason": err.Error()}})
+		IP: ip, UserAgent: r.UserAgent(), Meta: errorMeta(r.Context(), map[string]any{"method": "sso"}, "reason", err)})
 	reason := "sso_failed"
 	switch {
 	case errors.Is(err, sso.ErrDomainRefused):

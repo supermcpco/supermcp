@@ -367,7 +367,11 @@ func (d Deps) draftDryRun(ctx context.Context, in *toolDraftInput) (*toolDraftOu
 	case errors.Is(err, engine.ErrUnsupported):
 		out.Body.PreviewError = "a preview is not available for " + string(c.Transport.Type) + " tools"
 	case err != nil:
-		out.Body.PreviewError = "the request could not be rendered: " + err.Error()
+		msg, ok := renderRefusal(err)
+		if !ok {
+			return nil, humaErr(err)
+		}
+		out.Body.PreviewError = msg
 	default:
 		out.Body.Preview = preview
 	}

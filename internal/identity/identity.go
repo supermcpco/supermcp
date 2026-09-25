@@ -28,6 +28,9 @@ var (
 	ErrRegistrationClosed = errors.New("registration is closed")
 	ErrEmailTaken         = errors.New("an account with this email already exists")
 	ErrSessionInvalid     = errors.New("session is invalid or expired")
+	// ErrNotInOrganization is SwitchOrg's refusal: the person does not
+	// belong to the organisation they asked for, or it does not exist.
+	ErrNotInOrganization = errors.New("you are not a member of that organisation")
 )
 
 // Config tunes the service.
@@ -456,7 +459,7 @@ func (s *Service) SwitchOrg(ctx context.Context, sess *Session, orgID string) er
 			})
 		}
 	}
-	return fmt.Errorf("not a member of organisation %s", orgID)
+	return ErrNotInOrganization
 }
 
 // RevokeSession ends a session and the refresh tokens it granted, and

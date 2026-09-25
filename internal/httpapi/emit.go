@@ -12,6 +12,7 @@ import (
 	"github.com/supermcpco/supermcp/internal/audit"
 	"github.com/supermcpco/supermcp/internal/authz"
 	"github.com/supermcpco/supermcp/internal/mcpauth"
+	"github.com/supermcpco/supermcp/internal/reqid"
 )
 
 // Every handler that changes something, and every sign-in attempt, records
@@ -54,17 +55,42 @@ func (d Deps) admin(ctx context.Context, action, targetKind, targetID, display s
 
 // adminFailed records an attempt that did not take effect. A rejected
 // change is as interesting as an accepted one when reconstructing what
-// someone tried to do. What it says about err is errorMeta's.
+// someone tried to do. What it says about err is errorMeta's, less the
+// message for an action whose refusals quote what the caller sent.
 func (d Deps) adminFailed(ctx context.Context, action, targetKind, targetID string, err error) {
 	if err == nil {
 		return
 	}
+	meta := errorMeta(ctx, nil, "error", err)
+	if quotesInput(action) {
+		delete(meta, "message")
+	}
 	d.emit(ctx, audit.Event{
 		Category: audit.CategoryAdmin, Action: action, Outcome: audit.Failure,
-		TargetKind: targetKind, TargetID: targetID,
-		Meta: errorMeta(ctx, nil, "error", err),
+		TargetKind: targetKind, TargetID: targetID, Meta: meta,
 	})
 }
+
+// quotesInput reports whether an action's refusals can quote the body the
+// caller sent: an imported document, a tool definition, a pattern, a
+// policy, identity provider metadata. The caller saw that message in the
+// response; the audit trail, which outlives it and is exported, keeps
+// only the code.
+func quotesInput(action string) bool {
+	switch action {
+	case "connector.import", "connector.install", "connector.update",
+		"tool.create", "tool.update",
+		"dlp.policy.create", "dlp.policy.update",
+		"approval.policy.create", "approval.policy.update",
+		"saml.create", "saml.update", "idp.create", "idp.update":
+		return true
+	}
+	return false
+}
+
+// maxAuditMessage bounds meta.message. A message the API words itself is
+// a sentence; anything longer is quoting something.
+const maxAuditMessage = 200
 
 // errorMeta adds to meta what an audit event may say about err, and
 // returns it. The audit trail is hash-chained, readable by workspace
@@ -74,8 +100,9 @@ func (d Deps) adminFailed(ctx context.Context, action, targetKind, targetID stri
 //
 //   - An error the API answers with a status of its own (a 4xx, or a
 //     503 for something unavailable) is recorded under key as a stable
-//     code, with the message the caller was given under "message".
-//   - Anything else is recorded under key as internalMessage, the text
+//     code, with the message the caller was given under "message", cut
+//     to maxAuditMessage characters.
+//   - Anything else is recorded under key as reqid.Message, the text
 //     the caller got. The error itself is in the log under the same
 //     request id, written once by whoever answered the request.
 //
@@ -87,9 +114,12 @@ func errorMeta(ctx context.Context, meta map[string]any, key string, err error) 
 	id := middleware.GetReqID(ctx)
 	if code, msg, ok := errorCode(err); ok {
 		meta[key] = code
+		if r := []rune(msg); len(r) > maxAuditMessage {
+			msg = string(r[:maxAuditMessage]) + "…"
+		}
 		meta["message"] = msg
 	} else {
-		meta[key] = internalMessage(id)
+		meta[key] = reqid.Message(id)
 	}
 	if id != "" {
 		meta["requestId"] = id

@@ -178,7 +178,7 @@ func (d Deps) registerRoutes(api huma.API) {
 		Summary: "Switch the active organisation", Tags: []string{"auth"}},
 		func(ctx context.Context, in *struct {
 			Body struct {
-				OrganizationID string `json:"organizationId"`
+				OrganizationID string `json:"organizationId" minLength:"1" maxLength:"64" pattern:"^[A-Za-z0-9_-]+$"`
 			}
 		}) (*sessionOutput, error) {
 			p, ok := authz.From(ctx)
@@ -190,10 +190,10 @@ func (d Deps) registerRoutes(api huma.API) {
 				return nil, humaErr(err)
 			}
 			if err := d.Identity.SwitchOrg(ctx, sess, in.Body.OrganizationID); err != nil {
-				refused := huma.Error403Forbidden(err.Error())
-				d.emit(ctx, audit.Event{Category: audit.CategoryAuth, Action: "session.switch_org", Outcome: audit.Denied,
-					TargetKind: "organization", TargetID: in.Body.OrganizationID, Meta: errorMeta(ctx, nil, "reason", refused)})
-				return nil, refused
+				outcome, answer := switchOrgAnswer(err)
+				d.emit(ctx, audit.Event{Category: audit.CategoryAuth, Action: "session.switch_org", Outcome: outcome,
+					TargetKind: "organization", TargetID: in.Body.OrganizationID, Meta: errorMeta(ctx, nil, "reason", answer)})
+				return nil, answer
 			}
 			d.emit(ctx, audit.Event{OrgID: in.Body.OrganizationID, Category: audit.CategoryAuth,
 				Action: "session.switch_org", Outcome: audit.Success,
@@ -840,6 +840,17 @@ type invocationDTO struct {
 	CreatedAt  time.Time `json:"createdAt"`
 }
 
+// switchOrgAnswer is the audit outcome and the answer for a failed
+// organisation switch. Only a membership refusal is a 403, with a fixed
+// message; anything else is a lookup that failed, returned as it is so
+// the router answers a 500 and logs it.
+func switchOrgAnswer(err error) (outcome string, answer error) {
+	if errors.Is(err, identity.ErrNotInOrganization) {
+		return audit.Denied, huma.Error403Forbidden(identity.ErrNotInOrganization.Error())
+	}
+	return audit.Failure, err
+}
+
 // --- helpers ---------------------------------------------------------------
 
 var sessionSecurity = []map[string][]string{{"session": {}}}
@@ -867,7 +878,7 @@ func (d Deps) require(ctx context.Context, perm authz.Permission, r authz.Resour
 
 // humaErr maps a service error to an HTTP error. An unmapped error is
 // returned as it is; huma makes it a 500, and hideInternalErrors replaces
-// the body with internalMessage and logs the error with the request id.
+// the body with reqid.Message and logs the error with the request id.
 func humaErr(err error) error {
 	if errors.Is(err, secrets.ErrKeyServiceUnavailable) {
 		return newKeyServiceError(err)

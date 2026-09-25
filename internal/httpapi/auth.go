@@ -227,7 +227,7 @@ func itoa(n int) string {
 // errStatus maps service errors to HTTP statuses and the message the
 // client may see. An error it does not know is a 500 with no message:
 // its text can name a host, a DSN or a query, so the caller answers with
-// internalMessage and the text goes to the log.
+// reqid.Message and the text goes to the log.
 func errStatus(err error) (int, string) {
 	switch {
 	case err == nil:

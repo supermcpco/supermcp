@@ -513,8 +513,10 @@ error class.
 **A client reports a 500.** The response says only "something went
 wrong; the request id is …", with the same id in `X-Request-Id`, and the
 audit event (if the request was a change) carries it as `meta.requestId`.
-Search the log for that id in `req_id`: the `request failed` line (`scim
-request failed` for SCIM) has the underlying error in `err`.
+Search the log for that id in `req_id`: the `request failed` line has
+the underlying error in `err` (`request panicked`, `scim request failed`,
+`mcp request failed` and `oauth request failed` for the other paths).
+A `/readyz` that answers 503 logs `not ready: …` with the cause.
 
 **Single sign-on stops working.** The provider's signing keys rotate, and
 they are cached for ten minutes. If a sign-in fails immediately after a
