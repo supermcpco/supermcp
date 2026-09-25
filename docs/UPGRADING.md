@@ -210,21 +210,46 @@ Both the build and the drop use `CONCURRENTLY`, so `tool_invocations`
 keeps taking writes and nothing needs a maintenance window. What that
 means for you:
 
-- **The migration takes longer than the others** on a large table: it
-  reads the table twice. Four million calls (a 3 GB table) took about a
-  minute on a laptop; budget in proportion. If the role on
-  `SUPERMCP_MAINT_DATABASE_URL` has a `statement_timeout`, it must allow
-  for that.
-- **The index is larger than the one it replaces,** about 90 bytes a call
-  against 55. Every tool call still writes to the same number of indexes.
-- **The build waits for transactions already open on `tool_invocations`**
-  to finish before it starts, and the drop of the old index waits again.
-  A session left idle in a transaction holds it up; `pg_stat_activity`
-  shows the migration waiting.
-- **If the build fails or is cancelled**, Postgres leaves an invalid
+- **Look for old snapshots before you start.** A concurrent build or drop
+  waits, in two phases, for every transaction in the *whole database*
+  that holds a snapshot older than the step, not only for those that
+  touch `tool_invocations`. A running `pg_dump`, a long report, or a
+  session left idle in a transaction anywhere holds it up. Check first:
+
+  ```sql
+  SELECT pid, state, xact_start, backend_xmin, left(query, 60)
+  FROM pg_stat_activity
+  WHERE backend_xmin IS NOT NULL AND pid <> pg_backend_pid()
+  ORDER BY xact_start;
+  ```
+
+  Anything old in that list, wait for or end it. During the migration
+  the same query shows what it is waiting behind.
+- **Other replicas wait for it.** The migration holds the migration
+  advisory lock from start to finish, so a replica starting meanwhile
+  with `SUPERMCP_MIGRATE_ON_START` blocks until it is done.
+- **Size the timeouts to the table.** It reads `tool_invocations` twice.
+  Four million calls (a 3 GB table) took about a minute on a laptop;
+  budget in proportion. With the Helm chart the migration runs as a
+  pre-upgrade hook, which `helm upgrade` waits for only as long as its
+  `--timeout` (5 minutes by default): raise it for a large table. Any
+  deadline you put on your own migration job, and the startup probe of a
+  replica that migrates on start, must allow for it too: a pod killed
+  mid-build leaves an invalid index behind. If the
+  role on `SUPERMCP_MAINT_DATABASE_URL` has a `statement_timeout` or a
+  `lock_timeout`, both must allow for it as well; a `lock_timeout` that
+  is too short fails the waits described above.
+- **The index is wider than the one it replaces,** by six fixed-size
+  columns and ids. It does not include the tool name, which is unbounded
+  text. Every tool call still writes to the same number of indexes.
+- **If the migration fails or is cancelled**, Postgres leaves an invalid
   index behind and the migration is not recorded. Run `supermcp migrate`
   again: it drops the leftover and rebuilds. The old index is dropped
-  last, so the tool-call list keeps an index throughout.
+  last, so the tool-call list keeps an index throughout. A rerun always
+  starts by dropping the new index, so if the failure was at the very
+  last step (dropping the old index), the rerun builds the finished
+  index again from scratch; budget the same time as the first attempt.
+  Postgres cannot make that drop conditional inside a migration.
 - **Rollout order does not matter.** Replicas of the previous version
   read the new index as they read the old one, and the analytics endpoint
   answers without the index, only more slowly.
@@ -237,6 +262,12 @@ means for you:
   after inserts on Postgres 13 and later; if you have turned autovacuum
   off for it, the queries still answer but read the table for recent
   calls.
+
+The analytics endpoint draws on a rate-limit budget of its own,
+`SUPERMCP_RATELIMIT_ANALYTICS` (default `30/1m` per caller), instead of
+the general API budget. Each replica also runs at most two analytics
+queries per workspace at once, refusing a third with 429, and reuses an
+answer for 60 seconds.
 
 ### Access changes reach every replica at once
 

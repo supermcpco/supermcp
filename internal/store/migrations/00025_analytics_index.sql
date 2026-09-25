@@ -21,6 +21,12 @@
 -- replaces the old index rather than joining it, which keeps the number of
 -- indexes every tool call writes to where it was.
 --
+-- tool_name is left out on purpose. It is unbounded text, and a btree
+-- entry past about 2.7 kB is refused, which here would refuse the insert
+-- that records the call. Every included column is fixed-size or an id.
+-- The analytics name a tool by looking up its id in tools, and read
+-- tool_name from the invocation row only for a tool that has been deleted.
+--
 -- CONCURRENTLY so neither build nor drop blocks writes to tool_invocations,
 -- which every tool call appends to. That cannot run inside a transaction,
 -- hence NO TRANSACTION above.
@@ -30,10 +36,15 @@
 -- first makes a rerun rebuild it instead of seeing the name and skipping.
 -- The old index is dropped only after the new one is built, so a rerun
 -- from any point still has one of the two.
+--
+-- The first DROP cannot be made conditional on pg_index.indisvalid: DROP
+-- INDEX CONCURRENTLY cannot run inside a DO block or function. So a rerun
+-- after a failure at the last statement drops the finished index and
+-- builds it again. docs/UPGRADING.md says so.
 DROP INDEX CONCURRENTLY IF EXISTS tool_invocations_org_time_cover_idx;
 CREATE INDEX CONCURRENTLY IF NOT EXISTS tool_invocations_org_time_cover_idx
     ON tool_invocations (organization_id, created_at DESC)
-    INCLUDE (status, duration_ms, upstream_ms, tool_id, tool_name, connector_id, server_id);
+    INCLUDE (status, duration_ms, upstream_ms, tool_id, connector_id, server_id);
 DROP INDEX CONCURRENTLY IF EXISTS tool_invocations_org_time_idx;
 
 -- +goose Down
