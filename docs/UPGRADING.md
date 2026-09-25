@@ -42,7 +42,9 @@ once; see "Access changes reach every replica at once" below. Migration
 00021 adds invites; see "Colleagues can be invited" below. Migration 00022
 adds an index to `audit_events`; see "The audit export reads by workspace
 and sequence" below. Migration 00024 records when a session last signed
-in; see "Sensitive actions ask for a recent sign-in" below.
+in; see "Sensitive actions ask for a recent sign-in" below. Migration
+00026 replaces an index on `tool_invocations` for the new usage
+analytics; see "Usage analytics read an index of their own" below.
 
 ### Sensitive actions ask for a recent sign-in
 
@@ -192,6 +194,45 @@ What that means for you:
 - **If the build fails or is cancelled**, Postgres leaves an invalid
   index behind and the migration is not recorded. Run
   `supermcp migrate` again: it drops the leftover and rebuilds.
+
+### Usage analytics read an index of their own
+
+The new analytics screen and `GET /api/v1/analytics/usage` count a
+workspace's tool calls, errors and latency over up to 90 days. With the
+index that was there, a large workspace's window was read from the whole
+table. Migration 00026 replaces `tool_invocations_org_time_idx` with
+`tool_invocations_org_time_cover_idx`: the same key,
+`(organization_id, created_at DESC)`, plus the status, timing, tool,
+connector and server columns, so the analytics read the index alone. The
+tool-call list uses the new index the way it used the old one.
+
+Both the build and the drop use `CONCURRENTLY`, so `tool_invocations`
+keeps taking writes and nothing needs a maintenance window. What that
+means for you:
+
+- **The migration takes longer than the others** on a large table: it
+  reads the table twice. Four million calls (a 3 GB table) took about a
+  minute on a laptop; budget in proportion. If the role on
+  `SUPERMCP_MAINT_DATABASE_URL` has a `statement_timeout`, it must allow
+  for that.
+- **The index is larger than the one it replaces,** about 90 bytes a call
+  against 55. Every tool call still writes to the same number of indexes.
+- **The build waits for transactions already open on `tool_invocations`**
+  to finish before it starts, and the drop of the old index waits again.
+  A session left idle in a transaction holds it up; `pg_stat_activity`
+  shows the migration waiting.
+- **If the build fails or is cancelled**, Postgres leaves an invalid
+  index behind and the migration is not recorded. Run `supermcp migrate`
+  again: it drops the leftover and rebuilds. The old index is dropped
+  last, so the tool-call list keeps an index throughout.
+- **Rollout order does not matter.** Replicas of the previous version
+  read the new index as they read the old one, and the analytics endpoint
+  answers without the index, only more slowly.
+- **The analytics stay index-only as long as autovacuum keeps up** on
+  `tool_invocations`. It is an append-only table, which autovacuum visits
+  after inserts on Postgres 13 and later; if you have turned autovacuum
+  off for it, the queries still answer but read the table for recent
+  calls.
 
 ### Access changes reach every replica at once
 
