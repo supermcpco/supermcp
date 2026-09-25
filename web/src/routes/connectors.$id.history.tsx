@@ -2,11 +2,9 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button, Text } from "@cloudflare/kumo";
 import { ArrowLeft } from "@phosphor-icons/react";
+import { connectorsGet, connectorsRevisionsList } from "../api";
 import {
-  connectorsGetOptions,
-  connectorsGetQueryKey,
   connectorsListQueryKey,
-  connectorsRevisionsListOptions,
   connectorsRevisionsListQueryKey,
   connectorsRevisionsRestoreMutation,
 } from "../api/@tanstack/react-query.gen";
@@ -24,22 +22,31 @@ function History() {
   const { id } = Route.useParams();
   const { signedIn, can, loading } = useSession();
   const qc = useQueryClient();
-  const revisions = useQuery({ ...connectorsRevisionsListOptions({ path: { id } }), enabled: signedIn, retry: false });
-  // The connector itself is read for its version: a restore says which
-  // one it was looking at, and is refused if somebody has moved it on.
-  const connector = useQuery({ ...connectorsGetOptions({ path: { id } }), enabled: signedIn, retry: false });
+  // The history and the connector's version are one read, the version
+  // first: a restore says which version it was looking at, and one read
+  // after the list could name a change the list does not show yet.
+  const history = useQuery({
+    queryKey: ["connector-history", id],
+    enabled: signedIn,
+    retry: false,
+    queryFn: async ({ signal }) => {
+      const { data: connector } = await connectorsGet({ path: { id }, signal, throwOnError: true });
+      const { data: list } = await connectorsRevisionsList({ path: { id }, signal, throwOnError: true });
+      return { version: connector.version, revisions: list.revisions };
+    },
+  });
 
   const restore = useMutation({
     ...connectorsRevisionsRestoreMutation(),
     onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["connector-history", id] });
       await qc.invalidateQueries({ queryKey: connectorsRevisionsListQueryKey({ path: { id } }) });
-      await qc.invalidateQueries({ queryKey: connectorsGetQueryKey({ path: { id } }) });
       await qc.invalidateQueries({ queryKey: connectorsListQueryKey() });
     },
   });
   const conflict = restore.error ? isVersionConflict(restore.error) : false;
   const reload = async () => {
-    await Promise.all([connector.refetch(), revisions.refetch()]);
+    await history.refetch();
     restore.reset();
   };
 
@@ -82,15 +89,15 @@ function History() {
 
       {/* Until the history has arrived there is nothing to say about it,
           and "no changes recorded yet" would be saying something. */}
-      {revisions.isPending ? (
+      {history.isPending ? (
         <Loading />
       ) : (
         <RevisionList
-          revisions={revisions.data?.revisions ?? []}
+          revisions={history.data?.revisions ?? []}
           canRestore={can("revisions:rollback")}
-          restoring={restore.isPending || !connector.data}
+          restoring={restore.isPending || !history.data}
           onRestore={(revision) =>
-            restore.mutate({ path: { id, revision }, body: { expectedVersion: connector.data?.version } })
+            restore.mutate({ path: { id, revision }, body: { expectedVersion: history.data?.version } })
           }
           empty="No changes recorded yet."
         />
