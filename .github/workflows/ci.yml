@@ -275,10 +275,17 @@ jobs:
       - uses: actions/checkout@v4
       - uses: azure/setup-helm@v4
       - run: helm lint charts/supermcp
+      - name: template assertions
+        run: scripts/chart_test.sh
       - name: kubeconform
         run: |
           curl -sSL https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz | tar xz
           for v in 1.29.0 1.31.0; do
             helm template supermcp charts/supermcp --set publicUrl=https://mcp.example.com --set database.existingSecret=db --set encryption.local.existingSecret=kek \
+              | ./kubeconform -strict -kubernetes-version $v -summary -ignore-missing-schemas
+            # The master key as a file, with a previous key: the volume and
+            # mount only exist in this render.
+            helm template supermcp charts/supermcp --set publicUrl=https://mcp.example.com --set database.existingSecret=db \
+              --set encryption.local.file.secretName=kek --set encryption.previous.secretName=kek-previous \
               | ./kubeconform -strict -kubernetes-version $v -summary -ignore-missing-schemas
           done

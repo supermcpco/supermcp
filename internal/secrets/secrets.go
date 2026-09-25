@@ -331,6 +331,10 @@ type Local struct {
 	ref string
 }
 
+// keyFileForbidden is the permission bits a key file may not carry:
+// anything for other users, and group write or execute.
+const keyFileForbidden os.FileMode = 0o037
+
 // LocalFromEnv reads ENCRYPTION_KEK (base64, 32 bytes) or ENCRYPTION_KEK_FILE.
 func LocalFromEnv(get func(string) string) (*Local, error) {
 	if p := get("ENCRYPTION_KEK_FILE"); p != "" {
@@ -338,8 +342,15 @@ func LocalFromEnv(get func(string) string) (*Local, error) {
 		if err != nil {
 			return nil, err
 		}
-		if st.Mode().Perm()&0o077 != 0 {
-			return nil, fmt.Errorf("%s must not be group/world readable (mode %o)", p, st.Mode().Perm())
+		// Group read is allowed and nothing else is. Kubernetes gives a
+		// Secret volume's files to the pod's fsGroup and adds group read
+		// whatever defaultMode says, so a key mounted into a non-root pod
+		// is always 0440; refusing that would make the file form
+		// unusable on the platform most installations run on. What stays
+		// refused is the mistake the check exists for: a key any local
+		// user can read, or one a group can overwrite.
+		if st.Mode().Perm()&keyFileForbidden != 0 {
+			return nil, fmt.Errorf("%s must not be world-readable or group-writable (mode %o); chmod 0400 or 0440", p, st.Mode().Perm())
 		}
 		b, err := os.ReadFile(p)
 		if err != nil {

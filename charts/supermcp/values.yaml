@@ -55,6 +55,30 @@ encryption:
   local:
     existingSecret: ""     # key ENCRYPTION_KEK, 32 bytes base64
     key: ENCRYPTION_KEK
+    # The master key as a file rather than an environment variable. Set
+    # secretName and the key is mounted read-only at
+    # /etc/supermcp/kek/<key> with ENCRYPTION_KEK_FILE pointing at it,
+    # and existingSecret above is ignored. A local rotation needs this:
+    # the key is recorded under its path, so the incoming key must arrive
+    # under a Secret key name the outgoing one never had (see
+    # docs/operations.md, "Rotating the master key"). For the same reason,
+    # never rename the key of a running installation except as part of a
+    # rotation: pods would boot and then fail to open every stored
+    # credential. Keep podSecurityContext.fsGroup set; it is what lets the
+    # non-root process read the file. Needs a binary newer than 1.2.0,
+    # which refuses the 0440 mode Kubernetes gives the file.
+    file:
+      secretName: ""
+      key: ENCRYPTION_KEK
+  # Keys that may decrypt and never seal, for the length of a rotation:
+  # SUPERMCP_KEK_PREVIOUS, read from an existing Secret. The value is a
+  # comma-separated list of the old key's base64, or
+  # <reference>|<base64> for a key that was loaded from a file, e.g.
+  # file:/etc/supermcp/kek/ENCRYPTION_KEK|<base64>. Applies to either
+  # provider. Empty renders nothing.
+  previous:
+    secretName: ""
+    key: SUPERMCP_KEK_PREVIOUS
   awskms:
     keyId: ""              # key id, alias or ARN
     region: ""             # defaults to the pod's own region

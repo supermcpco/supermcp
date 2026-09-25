@@ -82,11 +82,16 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 - name: SUPERMCP_KEK_PROVIDER
   value: {{ .Values.encryption.provider | quote }}
 {{- if eq .Values.encryption.provider "local" }}
+{{- if .Values.encryption.local.file.secretName }}
+- name: ENCRYPTION_KEK_FILE
+  value: {{ include "supermcp.kekFilePath" . | quote }}
+{{- else }}
 - name: ENCRYPTION_KEK
   valueFrom:
     secretKeyRef:
-      name: {{ required "encryption.local.existingSecret is required for the local provider" .Values.encryption.local.existingSecret }}
+      name: {{ required "encryption.local.existingSecret (or encryption.local.file.secretName) is required for the local provider" .Values.encryption.local.existingSecret }}
       key: {{ .Values.encryption.local.key }}
+{{- end }}
 {{- else if eq .Values.encryption.provider "awskms" }}
 - name: SUPERMCP_KMS_KEY_ID
   value: {{ required "encryption.awskms.keyId is required (a key id, alias or ARN)" .Values.encryption.awskms.keyId | quote }}
@@ -101,7 +106,51 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- else }}
 {{- fail (printf "encryption.provider %q is not implemented; use local or awskms" .Values.encryption.provider) }}
 {{- end }}
+{{- with .Values.encryption.previous.secretName }}
+- name: SUPERMCP_KEK_PREVIOUS
+  valueFrom:
+    secretKeyRef:
+      name: {{ . }}
+      key: {{ required "encryption.previous.key is required when encryption.previous.secretName is set" $.Values.encryption.previous.key }}
+{{- end }}
 {{- with .Values.extraEnv }}
 {{ toYaml . }}
+{{- end }}
+{{- end -}}
+
+
+{{/*
+The master key file. A fixed directory, and the file named after the
+Secret key: the path is the key's reference in data_keys.kek_ref, so a
+rotation gives the incoming key a new name and with it a new reference.
+*/}}
+{{- define "supermcp.kekFileEnabled" -}}
+{{- if and (eq .Values.encryption.provider "local") .Values.encryption.local.file.secretName }}true{{ end -}}
+{{- end -}}
+
+{{- define "supermcp.kekFilePath" -}}
+/etc/supermcp/kek/{{ required "encryption.local.file.key is required when encryption.local.file.secretName is set" .Values.encryption.local.file.key }}
+{{- end -}}
+
+{{/* Mount for the server and the migrate job; empty without a key file. */}}
+{{- define "supermcp.kekVolumeMount" -}}
+{{- if include "supermcp.kekFileEnabled" . }}
+- name: kek
+  mountPath: /etc/supermcp/kek
+  readOnly: true
+{{- end }}
+{{- end -}}
+
+{{- define "supermcp.kekVolume" -}}
+{{- if include "supermcp.kekFileEnabled" . }}
+# 0400 is asked for; with an fsGroup Kubernetes makes it 0440, which the
+# binary accepts and nothing wider.
+- name: kek
+  secret:
+    secretName: {{ .Values.encryption.local.file.secretName }}
+    defaultMode: 0400
+    items:
+      - key: {{ .Values.encryption.local.file.key }}
+        path: {{ .Values.encryption.local.file.key }}
 {{- end }}
 {{- end -}}

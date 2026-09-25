@@ -13,6 +13,8 @@ reach for when something is wrong.
 | `SUPERMCP_PUBLIC_URL` | none, required | The address clients reach. It appears in token audiences, the single sign-on redirect and the MCP endpoints, so changing it invalidates tokens that named the old one. Must be https unless it points at loopback. |
 | `SUPERMCP_KEK_PROVIDER` | `local` | `local` reads the master key from the environment; `awskms` leaves it in a key service and never in the pod. |
 | `ENCRYPTION_KEK` | none for `local` | 32 bytes, base64. A wrong length fails the boot rather than encrypting with a key nobody meant. |
+| `ENCRYPTION_KEK_FILE` | empty | The local master key read from a file, which wins over `ENCRYPTION_KEK`. The key is recorded under the file's path, so moving the file is a rotation, not a rename. The file may be readable by its owner and group and nobody else. Chart: `encryption.local.file`. |
+| `SUPERMCP_KEK_PREVIOUS` | empty | Old master keys that may decrypt and never seal, for the length of a rotation: base64, or `<reference>|<base64>` for a key that came from a file. Chart: `encryption.previous`. |
 | `SUPERMCP_REDIS_URL` | empty | Shared rate-limit budgets. Without it each replica keeps its own, divided by `SUPERMCP_EXPECTED_REPLICAS`. |
 | `SUPERMCP_EXPECTED_REPLICAS` | 1 | Only used when Redis is absent. Set it to the replica count or the cluster together allows several times the intended ceiling. |
 | `SUPERMCP_ADMIN_LISTEN` | empty | Where `/metrics` is served. Empty means the exposition is off; it must never share the public listener. |
@@ -94,6 +96,85 @@ steps are taken in this order.
 
 Keep the old key for as long as you keep backups. A restored dump still
 carries keys wrapped by it.
+
+### On the Helm chart
+
+The chart reads the active key from `encryption.local.existingSecret` as
+`ENCRYPTION_KEK`, or from `encryption.local.file` as a file mounted at
+`/etc/supermcp/kek/<key>`, and the previous key from
+`encryption.previous`. Every key is recorded under a reference, and the
+two keys in a local rotation need different ones: `env:ENCRYPTION_KEK`
+for the environment form, `file:/etc/supermcp/kek/<key>` for the file.
+So the incoming key always arrives as a file, under a Secret key name
+the outgoing key never had. `KEK_<year>_<month>` is a good habit.
+
+The commands assume the release is called `supermcp`; `deploy/supermcp`
+is its Deployment.
+
+1. Check nothing is stranded:
+
+   ```bash
+   kubectl exec deploy/supermcp -- /supermcp keys verify
+   ```
+
+2. Create the new key and, in its own Secret, the old one as
+   `SUPERMCP_KEK_PREVIOUS`. If the old key is `ENCRYPTION_KEK` in
+   `supermcp-kek`, the value is its base64 on its own:
+
+   ```bash
+   kubectl create secret generic supermcp-kek-2026-09 \
+     --from-literal=KEK_2026_09="$(openssl rand -base64 32)"
+   kubectl create secret generic supermcp-kek-previous \
+     --from-literal=SUPERMCP_KEK_PREVIOUS="$(kubectl get secret supermcp-kek \
+       -o jsonpath='{.data.ENCRYPTION_KEK}' | base64 -d)"
+   ```
+
+   If the old key was itself a file, say `KEK_2026_03` in
+   `supermcp-kek-2026-03`, the value carries its reference:
+   `file:/etc/supermcp/kek/KEK_2026_03|<base64>`. `SELECT DISTINCT
+   kek_ref FROM data_keys` shows the reference to use, with a `local:`
+   prefix you may keep or drop.
+
+3. Roll every replica onto the new key with the old one beside it, and
+   wait for the roll to finish:
+
+   ```bash
+   helm upgrade supermcp charts/supermcp --reuse-values \
+     --set encryption.local.file.secretName=supermcp-kek-2026-09 \
+     --set encryption.local.file.key=KEK_2026_09 \
+     --set encryption.previous.secretName=supermcp-kek-previous
+   kubectl rollout status deploy/supermcp
+   ```
+
+   A pod that will not start saying the previous key names the active
+   key's reference was given the same Secret key name for both; go back
+   to step 2 with a new name.
+
+4. Re-wrap and check, from a pod of the new release:
+
+   ```bash
+   kubectl exec deploy/supermcp -- /supermcp keys rotate-kek
+   kubectl exec deploy/supermcp -- /supermcp keys verify
+   ```
+
+5. Drop the previous key and roll again:
+
+   ```bash
+   helm upgrade supermcp charts/supermcp --reuse-values \
+     --set encryption.previous.secretName=
+   kubectl rollout status deploy/supermcp
+   kubectl delete secret supermcp-kek-previous
+   ```
+
+   Move the old key out of the cluster to wherever the backups' keys
+   live before deleting `supermcp-kek` or `supermcp-kek-2026-03`. Do not
+   change `encryption.local.file.key` again except as the next rotation:
+   the pods would start and then fail to open every stored credential.
+
+Moving from `local` to `awskms` is the same shape: in step 3 set
+`encryption.provider=awskms` and the `encryption.awskms` values instead
+of the file, keep `encryption.previous` pointing at the local key, and
+leave it there until step 4's `keys verify` passes.
 
 ## Rotating a data key
 

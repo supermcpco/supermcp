@@ -111,6 +111,34 @@ absent, the maintenance work runs under the same role as the
 application. Read "Two database roles" below before deciding to leave it
 out.
 
+The master key can reach the pods two ways. Pick one before the first
+install, because the key is recorded under the form it arrived in and
+changing form later is a rotation:
+
+| Values | What the pod gets |
+|---|---|
+| `encryption.local.existingSecret`, `encryption.local.key` (default `ENCRYPTION_KEK`) | The key in the environment as `ENCRYPTION_KEK`. This is the default. |
+| `encryption.local.file.secretName`, `encryption.local.file.key` (default `ENCRYPTION_KEK`) | The key as a read-only file at `/etc/supermcp/kek/<key>`, with `ENCRYPTION_KEK_FILE` naming it. When `secretName` is set, `existingSecret` is ignored. |
+| `encryption.previous.secretName`, `encryption.previous.key` (default `SUPERMCP_KEK_PREVIOUS`) | An old key as `SUPERMCP_KEK_PREVIOUS`, during a rotation only. Works with either provider. |
+
+The file form is the one a later local rotation needs, since the
+incoming key has to be a file under a Secret key name the outgoing one
+never had; `docs/operations.md`, "Rotating the master key", has the
+steps. To start with it:
+
+```bash
+kubectl create secret generic supermcp-kek \
+  --from-literal=KEK_2026_09="$(openssl rand -base64 32)"
+# then, in the install below, instead of encryption.local.existingSecret:
+#   --set encryption.local.file.secretName=supermcp-kek \
+#   --set encryption.local.file.key=KEK_2026_09
+```
+
+The file is mounted with mode 0400, which Kubernetes turns into 0440 for
+the pod's `fsGroup`; keep `podSecurityContext.fsGroup` set, or the
+non-root process cannot read it. Both the server and the migrate job get
+the mount.
+
 ### 2. Install
 
 ```bash
@@ -125,7 +153,8 @@ helm install supermcp charts/supermcp \
 ```
 
 `publicUrl`, `database.existingSecret` and — for the local key provider
-— `encryption.local.existingSecret` have no defaults. The chart fails to
+— `encryption.local.existingSecret` or `encryption.local.file.secretName`
+have no defaults. The chart fails to
 render without them rather than installing something that will not
 start.
 
@@ -274,7 +303,7 @@ which are also accepted under the prefix.
 |---|---|---|
 | `DATABASE_URL` | none | The Postgres connection for the application pool. Boot fails without it. |
 | `SUPERMCP_PUBLIC_URL` | none (`http://localhost:8080` when `SUPERMCP_DEV=1`) | The externally visible base URL. Must be an absolute `http` or `https` URL; `http` is refused unless the host is `localhost`, `127.0.0.1`, `::1` or a `.localhost` name. A trailing slash is trimmed. |
-| `ENCRYPTION_KEK` or `ENCRYPTION_KEK_FILE` | none, for the `local` provider | The master key: exactly 32 bytes, base64. Any other length is refused outright rather than padded. A key file must not be group- or world-readable. |
+| `ENCRYPTION_KEK` or `ENCRYPTION_KEK_FILE` | none, for the `local` provider | The master key: exactly 32 bytes, base64. Any other length is refused outright rather than padded. A key file may be readable by its owner and its group and nobody else, and writable by nobody but its owner. |
 
 ### Process
 
@@ -327,8 +356,8 @@ probes are never counted or limited.
 | Setting | Default | What it decides |
 |---|---|---|
 | `SUPERMCP_KEK_PROVIDER` | `local` | `local` or `awskms`. Any other value fails the boot. A provider that cannot be built is an error, never a silent downgrade to a weaker one. |
-| `ENCRYPTION_KEK_FILE` | empty | Reads the local key from a file instead of the environment. Takes precedence over `ENCRYPTION_KEK`. |
-| `SUPERMCP_KEK_PREVIOUS` | empty | Comma-separated master keys that may decrypt and never seal, for a rolling key rotation. An entry is either the base64 material or `<reference>|<base64>`. |
+| `ENCRYPTION_KEK_FILE` | empty | Reads the local key from a file instead of the environment. Takes precedence over `ENCRYPTION_KEK`. The key is recorded as `file:<path>`, so the path must not change except in a rotation. The chart sets it from `encryption.local.file`. |
+| `SUPERMCP_KEK_PREVIOUS` | empty | Comma-separated master keys that may decrypt and never seal, for a rolling key rotation. An entry is either the base64 material or `<reference>|<base64>`. The chart reads it from `encryption.previous`. |
 | `SUPERMCP_KMS_KEY_ID` | none, for `awskms` | A key id, key ARN, alias name (`alias/supermcp`) or alias ARN. An alias is resolved when a data key is wrapped; re-pointing it strands the data keys already wrapped. |
 | `SUPERMCP_KMS_REGION` | `AWS_REGION`, then `AWS_DEFAULT_REGION` | The region holding the key. Required even when the key is an ARN. |
 | `SUPERMCP_KMS_DEPLOYMENT` | the key reference | Names this installation in the KMS encryption context. |
@@ -369,7 +398,7 @@ entry in the allowed-hosts list.
 | `SUPERMCP_PUBLIC_URL` changes after clients have connected | Existing access tokens name an audience that no longer matches, and are refused at the MCP endpoint. Clients must re-authorise. API keys are unaffected. |
 | `ENCRYPTION_KEK` is not 32 bytes | Boot fails with "KEK material must be exactly 32 bytes (base64)". |
 | `ENCRYPTION_KEK` is a *different* 32 bytes than before | Boot succeeds. Every data key then fails to unwrap, and every operation touching a stored credential fails. `supermcp keys verify` reports each stranded key and the reference it is wrapped under. |
-| The key file is group-readable | Boot fails, naming the file and its mode. |
+| The key file is world-readable or group-writable | Boot fails, naming the file and its mode. Group read is allowed, because a Kubernetes Secret mounted under an `fsGroup` always has it. |
 | `SUPERMCP_KEK_PROVIDER` is `gcpkms`, `azurekv` or `vault` | Boot fails: only `local` and `awskms` exist. The chart refuses these at render time. |
 | `SUPERMCP_KEK_PREVIOUS` names the same reference as the active key | Boot fails. Two keys under one reference cannot be told apart by anything reading `data_keys.kek_ref`, so a rotation between them would skip every row as already done. Load the new key from `ENCRYPTION_KEK_FILE` to give it a distinct reference. |
 | A rate-limit budget is malformed | Boot fails. A limit nobody notices is off is worse than no limit: the dashboard says the route is protected and it is not. |
