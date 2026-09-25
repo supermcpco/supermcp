@@ -70,6 +70,33 @@ what it rendered before; an existing install needs nothing.
 - Outside Kubernetes, a key file with mode 0440 or 0640 is now accepted.
   A file others can read, or a group can write, is still refused.
 
+
+### The migrate Job has its own ServiceAccount, and pods pause before stopping
+
+Chart 1.4.0. A fresh install of an earlier chart could never finish: the
+migrate Job ran before Helm created the release's ServiceAccount and was
+set to run as it, so Kubernetes refused the pod until the install timed
+out. Upgrades worked only because the account already existed. The Job
+now gets its own account, `<release>-migrate`, created just before it and
+deleted when it succeeds; it has no annotations and no token.
+
+- If an admission policy limits which accounts may run in the namespace,
+  allow `<release>-migrate` before you upgrade. With
+  `serviceAccount.create=false`, nothing changes.
+- Pods take up to five seconds longer to stop (`preStopSleepSeconds`),
+  so a rolling upgrade no longer drops a request to a pod that has just
+  been told to stop. Keep `preStopSleepSeconds` plus
+  `SUPERMCP_SHUTDOWN_TIMEOUT` (20 s) under `terminationGracePeriodSeconds`
+  (30 s). Kubernetes 1.29 cannot render the pause, so the chart leaves it
+  out there; pass `--kube-version` when you render with `helm template`.
+- If a first install of an earlier chart timed out on
+  `serviceaccount "..." not found`, run `helm uninstall` and install this
+  release.
+
+CI now installs the chart on a kind cluster (1.29 and current), runs the
+migrate Job, the smoke test, and one rolling upgrade under a readiness
+probe. The required checks are `helm-install (1.29)` and
+`helm-install (current)`.
 ### Connector secrets read `***`
 
 A connector's `auth` and `transport` are meant to hold only
