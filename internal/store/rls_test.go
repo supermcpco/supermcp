@@ -101,6 +101,8 @@ INSERT INTO approval_requests (id, organization_id, policy_id, tool_id, tool_nam
     VALUES ('ar_a','rls_a','ap_a','t_a','a_t','u_a','\x00', now()+interval '1h'), ('ar_b','rls_b','ap_b','t_b','b_t','u_b','\x00', now()+interval '1h');
 INSERT INTO tool_blobs (id, organization_id, principal_id, media_type, data, expires_at)
     VALUES ('tb_a','rls_a','u_a','image/png','\x00', now()+interval '1h'), ('tb_b','rls_b','u_b','image/png','\x00', now()+interval '1h');
+INSERT INTO org_invites (id, organization_id, email, role_id, token_hash, expires_at)
+    VALUES ('oi_a','rls_a','new-a@rls.test','role_viewer','\x0a0a', now()+interval '1h'), ('oi_b','rls_b','new-b@rls.test','role_viewer','\x0b0b', now()+interval '1h');
 `
 	if err := db.Bypass(ctx, "test seed", func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, seed)

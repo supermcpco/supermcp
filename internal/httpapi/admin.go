@@ -822,6 +822,9 @@ func humaErr(err error) error {
 	if herr := toolConflict(err); herr != nil {
 		return herr
 	}
+	if herr := memberErr(err); herr != nil {
+		return herr
+	}
 	var invalid *connector.InvalidToolError
 	if errors.As(err, &invalid) {
 		return huma.Error422UnprocessableEntity(invalid.Error(), toolIssueDetails(invalid.Issues)...)

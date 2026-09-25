@@ -175,7 +175,7 @@ func load(version string, serving bool) (*Config, error) {
 	return c, nil
 }
 
-// budgetsFromEnv reads the five route budgets, each written "N/duration".
+// budgetsFromEnv reads the six route budgets, each written "N/duration".
 // Every one of them is reported, so an operator who mistyped two finds out
 // about both in the same boot.
 func budgetsFromEnv() (hardening.Budgets, error) {
@@ -188,6 +188,7 @@ func budgetsFromEnv() (hardening.Budgets, error) {
 	}{
 		{"SUPERMCP_RATELIMIT_SIGNIN", "10/1m", &b.SignIn},
 		{"SUPERMCP_RATELIMIT_REGISTER", "5/1h", &b.Register},
+		{"SUPERMCP_RATELIMIT_INVITE", "5/1h", &b.Invite},
 		{"SUPERMCP_RATELIMIT_DCR", "10/1h", &b.DCR},
 		{"SUPERMCP_RATELIMIT_TOOL_CALL", "600/1m", &b.ToolCall},
 		{"SUPERMCP_RATELIMIT_API", "300/1m", &b.API},

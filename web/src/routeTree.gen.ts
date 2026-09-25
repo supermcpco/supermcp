@@ -20,8 +20,10 @@ import { Route as CatalogIndexRouteImport } from './routes/catalog.index'
 import { Route as CatalogSlugRouteImport } from './routes/catalog.$slug'
 import { Route as ConnectorsIndexRouteImport } from './routes/connectors.index'
 import { Route as ConnectorsImportRouteImport } from './routes/connectors.import'
+import { Route as InviteTokenRouteImport } from './routes/invite.$token'
 import { Route as SettingsAuditRouteImport } from './routes/settings.audit'
 import { Route as SettingsDlpRouteImport } from './routes/settings.dlp'
+import { Route as SettingsMembersRouteImport } from './routes/settings.members'
 import { Route as SettingsRolesRouteImport } from './routes/settings.roles'
 import { Route as SettingsSecurityRouteImport } from './routes/settings.security'
 import { Route as SettingsServiceAccountsRouteImport } from './routes/settings.service-accounts'
@@ -87,6 +89,11 @@ const ConnectorsImportRoute = ConnectorsImportRouteImport.update({
   path: '/connectors/import',
   getParentRoute: () => rootRouteImport,
 } as any)
+const InviteTokenRoute = InviteTokenRouteImport.update({
+  id: '/invite/$token',
+  path: '/invite/$token',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SettingsAuditRoute = SettingsAuditRouteImport.update({
   id: '/settings/audit',
   path: '/settings/audit',
@@ -95,6 +102,11 @@ const SettingsAuditRoute = SettingsAuditRouteImport.update({
 const SettingsDlpRoute = SettingsDlpRouteImport.update({
   id: '/settings/dlp',
   path: '/settings/dlp',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SettingsMembersRoute = SettingsMembersRouteImport.update({
+  id: '/settings/members',
+  path: '/settings/members',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SettingsRolesRoute = SettingsRolesRouteImport.update({
@@ -155,8 +167,10 @@ export interface FileRoutesByFullPath {
   '/tool-calls': typeof ToolCallsRoute
   '/catalog/$slug': typeof CatalogSlugRoute
   '/connectors/import': typeof ConnectorsImportRoute
+  '/invite/$token': typeof InviteTokenRoute
   '/settings/audit': typeof SettingsAuditRoute
   '/settings/dlp': typeof SettingsDlpRoute
+  '/settings/members': typeof SettingsMembersRoute
   '/settings/roles': typeof SettingsRolesRoute
   '/settings/security': typeof SettingsSecurityRoute
   '/settings/service-accounts': typeof SettingsServiceAccountsRoute
@@ -179,8 +193,10 @@ export interface FileRoutesByTo {
   '/tool-calls': typeof ToolCallsRoute
   '/catalog/$slug': typeof CatalogSlugRoute
   '/connectors/import': typeof ConnectorsImportRoute
+  '/invite/$token': typeof InviteTokenRoute
   '/settings/audit': typeof SettingsAuditRoute
   '/settings/dlp': typeof SettingsDlpRoute
+  '/settings/members': typeof SettingsMembersRoute
   '/settings/roles': typeof SettingsRolesRoute
   '/settings/security': typeof SettingsSecurityRoute
   '/settings/service-accounts': typeof SettingsServiceAccountsRoute
@@ -204,8 +220,10 @@ export interface FileRoutesById {
   '/tool-calls': typeof ToolCallsRoute
   '/catalog/$slug': typeof CatalogSlugRoute
   '/connectors/import': typeof ConnectorsImportRoute
+  '/invite/$token': typeof InviteTokenRoute
   '/settings/audit': typeof SettingsAuditRoute
   '/settings/dlp': typeof SettingsDlpRoute
+  '/settings/members': typeof SettingsMembersRoute
   '/settings/roles': typeof SettingsRolesRoute
   '/settings/security': typeof SettingsSecurityRoute
   '/settings/service-accounts': typeof SettingsServiceAccountsRoute
@@ -230,8 +248,10 @@ export interface FileRouteTypes {
     | '/tool-calls'
     | '/catalog/$slug'
     | '/connectors/import'
+    | '/invite/$token'
     | '/settings/audit'
     | '/settings/dlp'
+    | '/settings/members'
     | '/settings/roles'
     | '/settings/security'
     | '/settings/service-accounts'
@@ -254,8 +274,10 @@ export interface FileRouteTypes {
     | '/tool-calls'
     | '/catalog/$slug'
     | '/connectors/import'
+    | '/invite/$token'
     | '/settings/audit'
     | '/settings/dlp'
+    | '/settings/members'
     | '/settings/roles'
     | '/settings/security'
     | '/settings/service-accounts'
@@ -278,8 +300,10 @@ export interface FileRouteTypes {
     | '/tool-calls'
     | '/catalog/$slug'
     | '/connectors/import'
+    | '/invite/$token'
     | '/settings/audit'
     | '/settings/dlp'
+    | '/settings/members'
     | '/settings/roles'
     | '/settings/security'
     | '/settings/service-accounts'
@@ -303,8 +327,10 @@ export interface RootRouteChildren {
   ToolCallsRoute: typeof ToolCallsRoute
   CatalogSlugRoute: typeof CatalogSlugRoute
   ConnectorsImportRoute: typeof ConnectorsImportRoute
+  InviteTokenRoute: typeof InviteTokenRoute
   SettingsAuditRoute: typeof SettingsAuditRoute
   SettingsDlpRoute: typeof SettingsDlpRoute
+  SettingsMembersRoute: typeof SettingsMembersRoute
   SettingsRolesRoute: typeof SettingsRolesRoute
   SettingsSecurityRoute: typeof SettingsSecurityRoute
   SettingsServiceAccountsRoute: typeof SettingsServiceAccountsRoute
@@ -397,6 +423,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ConnectorsImportRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/invite/$token': {
+      id: '/invite/$token'
+      path: '/invite/$token'
+      fullPath: '/invite/$token'
+      preLoaderRoute: typeof InviteTokenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/settings/audit': {
       id: '/settings/audit'
       path: '/settings/audit'
@@ -409,6 +442,13 @@ declare module '@tanstack/react-router' {
       path: '/settings/dlp'
       fullPath: '/settings/dlp'
       preLoaderRoute: typeof SettingsDlpRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/settings/members': {
+      id: '/settings/members'
+      path: '/settings/members'
+      fullPath: '/settings/members'
+      preLoaderRoute: typeof SettingsMembersRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/settings/roles': {
@@ -487,8 +527,10 @@ const rootRouteChildren: RootRouteChildren = {
   ToolCallsRoute: ToolCallsRoute,
   CatalogSlugRoute: CatalogSlugRoute,
   ConnectorsImportRoute: ConnectorsImportRoute,
+  InviteTokenRoute: InviteTokenRoute,
   SettingsAuditRoute: SettingsAuditRoute,
   SettingsDlpRoute: SettingsDlpRoute,
+  SettingsMembersRoute: SettingsMembersRoute,
   SettingsRolesRoute: SettingsRolesRoute,
   SettingsSecurityRoute: SettingsSecurityRoute,
   SettingsServiceAccountsRoute: SettingsServiceAccountsRoute,

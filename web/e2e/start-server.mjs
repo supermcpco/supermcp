@@ -49,6 +49,7 @@ const env = {
   // covered by its own tests and by a curl against a real instance; here
   // it would only be testing that a fixture can be rate limited.
   SUPERMCP_RATELIMIT_REGISTER: "1000/1m",
+  SUPERMCP_RATELIMIT_INVITE: "1000/1m",
   SUPERMCP_RATELIMIT_SIGNIN: "1000/1m",
   SUPERMCP_RATELIMIT_API: "5000/1m",
 };

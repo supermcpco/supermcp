@@ -39,6 +39,9 @@ type Budgets struct {
 	SignIn Limit
 	// Register covers self-service registration.
 	Register Limit
+	// Invite covers looking up and accepting an organisation invite, which
+	// is reachable without a credential and can create an account.
+	Invite Limit
 	// DCR covers RFC 7591 dynamic client registration, which writes a row
 	// per call and is reachable without a credential.
 	DCR Limit
@@ -187,6 +190,7 @@ func DefaultBudgets() Budgets {
 	return Budgets{
 		SignIn:   Limit{Name: "signin", Burst: 10, Window: time.Minute},
 		Register: Limit{Name: "register", Burst: 5, Window: time.Hour},
+		Invite:   Limit{Name: "invite", Burst: 5, Window: time.Hour},
 		DCR:      Limit{Name: "dcr", Burst: 10, Window: time.Hour},
 		ToolCall: Limit{Name: "tool_call", Burst: 600, Window: time.Minute},
 		API:      Limit{Name: "api", Burst: 300, Window: time.Minute},
