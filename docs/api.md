@@ -641,7 +641,17 @@ Prometheus has no workspace label and is not consulted.
 | `limit` | How many entries the top list holds, 1 to 50, default 10. |
 
 A window longer than 90 days, or one whose `from` is not before its `to`,
-is `422` with the reason in `detail`.
+is `422` with the reason in `detail`. `by=server` also needs
+`servers:read`, the permission the server list asks for; without it the
+request is `403`.
+
+Each request runs aggregates over up to 90 days of calls, so the route
+has limits of its own. It draws on the `SUPERMCP_RATELIMIT_ANALYTICS`
+budget (default `30/1m`) instead of the general one. Each replica runs at
+most two of a workspace's analytics queries at a time and answers a third
+with `429` rather than queueing it. An answer is reused for 60 seconds for
+the same workspace and the same parameters, so a window that ends at "now"
+to the millisecond is never reused; the screen rounds `to` to the minute.
 
 The answer has `totals` for the whole window, `series` with one entry per
 bucket (empty buckets included, with zero calls), and `top`, the busiest
@@ -652,8 +662,9 @@ percentile of the call's duration; and `upstreamP50Ms` and
 `upstreamP95Ms`, the same for the time spent waiting on the upstream.
 The percentiles are left out when there is nothing to take them over. A
 `top` entry also has `id` and `name`: a tool's current name, or the name
-it was called by if it has been deleted. Calls that went through no MCP
-server are one entry with an empty `id` when `by=server`.
+its latest call recorded if it has been deleted. Calls that went through
+no MCP server are one entry with an empty `id` when `by=server`, and calls
+that recorded no tool id are one entry with an empty `id` when `by=tool`.
 
 ## Members
 
