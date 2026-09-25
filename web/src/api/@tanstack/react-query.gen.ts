@@ -3,8 +3,8 @@
 import { type InfiniteData, infiniteQueryOptions, queryOptions, type UseMutationOptions } from '@tanstack/react-query';
 
 import { client } from '../client.gen';
-import { analyticsUsage, approvalPoliciesCreate, approvalPoliciesDelete, approvalPoliciesList, approvalPoliciesUpdate, approvalsApprove, approvalsCancel, approvalsGet, approvalsList, approvalsReject, auditExport, auditExportersCreate, auditExportersDelete, auditExportersList, auditGetPolicy, auditGetRetention, auditLegalHold, auditLegalHoldRelease, auditList, auditSetPolicy, auditSetRetention, auditVerify, blobGet, catalogGet, catalogGetYaml, catalogList, changePassword, connectorsCredentials, connectorsDelete, connectorsGet, connectorsImport, connectorsInstall, connectorsList, connectorsOauthAuthorize, connectorsOauthRedirectUri, connectorsResync, connectorsResyncPreview, connectorsRevisionsGet, connectorsRevisionsList, connectorsRevisionsRestore, connectorsTools, connectorsUpdate, createIdp, createRole, createRoleBinding, createSamlProvider, createServiceAccount, deleteIdp, deleteRole, deleteRoleBinding, deleteSamlProvider, deleteServiceAccount, dlpDetectors, dlpPoliciesList, dlpPolicyCreate, dlpPolicyDelete, dlpPolicyGet, dlpPolicyUpdate, dlpPreview, getPasswordPolicy, inviteAccept, inviteLookup, invitesCreate, invitesList, invitesRevoke, invocationsList, keysCreate, keysList, keysRevoke, keysRotate, listIdps, listPermissions, listRoleBindings, listRoles, listSamlProviders, listSamlSignIn, listServiceAccounts, listSessions, listSsoProviders, login, logout, membersList, membersRemove, membersUpdate, type Options, previewRole, probeIdp, probeSamlMetadata, reauthenticate, register, revokeSession, rolesRevisionsGet, rolesRevisionsList, rolesRevisionsRestore, rotateSamlKey, rotateServiceAccountSecret, serversCreate, serversDelete, serversGet, serversList, serversRevisionsGet, serversRevisionsList, serversRevisionsRestore, serversUpdate, session, setPasswordPolicy, setServiceAccountDisabled, switchOrg, toolsCreate, toolsDelete, toolsDraftDryRun, toolsDryRun, toolsEnable, toolsGet, toolsReferences, toolsRevisionsGet, toolsRevisionsList, toolsRevisionsRestore, toolsUpdate, updateIdp, updateRole, updateSamlProvider } from '../sdk.gen';
-import type { AnalyticsUsageData, AnalyticsUsageError, AnalyticsUsageResponse, ApprovalPoliciesCreateData, ApprovalPoliciesCreateError, ApprovalPoliciesCreateResponse, ApprovalPoliciesDeleteData, ApprovalPoliciesDeleteError, ApprovalPoliciesDeleteResponse, ApprovalPoliciesListData, ApprovalPoliciesListError, ApprovalPoliciesListResponse, ApprovalPoliciesUpdateData, ApprovalPoliciesUpdateError, ApprovalPoliciesUpdateResponse, ApprovalsApproveData, ApprovalsApproveError, ApprovalsApproveResponse, ApprovalsCancelData, ApprovalsCancelError, ApprovalsCancelResponse, ApprovalsGetData, ApprovalsGetError, ApprovalsGetResponse, ApprovalsListData, ApprovalsListError, ApprovalsListResponse, ApprovalsRejectData, ApprovalsRejectError, ApprovalsRejectResponse, AuditExportData, AuditExportError, AuditExportersCreateData, AuditExportersCreateError, AuditExportersCreateResponse, AuditExportersDeleteData, AuditExportersDeleteError, AuditExportersDeleteResponse, AuditExportersListData, AuditExportersListError, AuditExportersListResponse, AuditGetPolicyData, AuditGetPolicyError, AuditGetPolicyResponse, AuditGetRetentionData, AuditGetRetentionError, AuditGetRetentionResponse, AuditLegalHoldData, AuditLegalHoldError, AuditLegalHoldReleaseData, AuditLegalHoldReleaseError, AuditLegalHoldReleaseResponse, AuditLegalHoldResponse, AuditListData, AuditListError, AuditListResponse, AuditSetPolicyData, AuditSetPolicyError, AuditSetPolicyResponse, AuditSetRetentionData, AuditSetRetentionError, AuditSetRetentionResponse, AuditVerifyData, AuditVerifyError, AuditVerifyResponse, BlobGetData, BlobGetError, BlobGetResponse, CatalogGetData, CatalogGetError, CatalogGetResponse, CatalogGetYamlData, CatalogGetYamlError, CatalogGetYamlResponse, CatalogListData, CatalogListError, CatalogListResponse, ChangePasswordData, ChangePasswordError, ChangePasswordResponse2, ConnectorsCredentialsData, ConnectorsCredentialsError, ConnectorsCredentialsResponse, ConnectorsDeleteData, ConnectorsDeleteError, ConnectorsDeleteResponse, ConnectorsGetData, ConnectorsGetError, ConnectorsGetResponse, ConnectorsImportData, ConnectorsImportError, ConnectorsImportResponse, ConnectorsInstallData, ConnectorsInstallError, ConnectorsInstallResponse, ConnectorsListData, ConnectorsListError, ConnectorsListResponse, ConnectorsOauthAuthorizeData, ConnectorsOauthAuthorizeError, ConnectorsOauthAuthorizeResponse, ConnectorsOauthRedirectUriData, ConnectorsOauthRedirectUriError, ConnectorsOauthRedirectUriResponse2, ConnectorsResyncData, ConnectorsResyncError, ConnectorsResyncPreviewData, ConnectorsResyncPreviewError, ConnectorsResyncPreviewResponse, ConnectorsResyncResponse, ConnectorsRevisionsGetData, ConnectorsRevisionsGetError, ConnectorsRevisionsGetResponse, ConnectorsRevisionsListData, ConnectorsRevisionsListError, ConnectorsRevisionsListResponse, ConnectorsRevisionsRestoreData, ConnectorsRevisionsRestoreError, ConnectorsRevisionsRestoreResponse, ConnectorsToolsData, ConnectorsToolsError, ConnectorsToolsResponse, ConnectorsUpdateData, ConnectorsUpdateError, ConnectorsUpdateResponse, CreateIdpData, CreateIdpError, CreateIdpResponse, CreateRoleBindingData, CreateRoleBindingError, CreateRoleBindingResponse, CreateRoleData, CreateRoleError, CreateRoleResponse, CreateSamlProviderData, CreateSamlProviderError, CreateSamlProviderResponse, CreateServiceAccountData, CreateServiceAccountError, CreateServiceAccountResponse, DeleteIdpData, DeleteIdpError, DeleteIdpResponse, DeleteRoleBindingData, DeleteRoleBindingError, DeleteRoleBindingResponse, DeleteRoleData, DeleteRoleError, DeleteRoleResponse, DeleteSamlProviderData, DeleteSamlProviderError, DeleteSamlProviderResponse, DeleteServiceAccountData, DeleteServiceAccountError, DeleteServiceAccountResponse, DlpDetectorsData, DlpDetectorsError, DlpDetectorsResponse, DlpPoliciesListData, DlpPoliciesListError, DlpPoliciesListResponse, DlpPolicyCreateData, DlpPolicyCreateError, DlpPolicyCreateResponse, DlpPolicyDeleteData, DlpPolicyDeleteError, DlpPolicyDeleteResponse, DlpPolicyGetData, DlpPolicyGetError, DlpPolicyGetResponse, DlpPolicyUpdateData, DlpPolicyUpdateError, DlpPolicyUpdateResponse, DlpPreviewData, DlpPreviewError, DlpPreviewResponse, GetPasswordPolicyData, GetPasswordPolicyError, GetPasswordPolicyResponse, InviteAcceptData, InviteAcceptError, InviteAcceptResponse, InviteLookupData, InviteLookupError, InviteLookupResponse, InvitesCreateData, InvitesCreateError, InvitesCreateResponse, InvitesListData, InvitesListError, InvitesListResponse, InvitesRevokeData, InvitesRevokeError, InvitesRevokeResponse, InvocationsListData, InvocationsListError, InvocationsListResponse, KeysCreateData, KeysCreateError, KeysCreateResponse2, KeysListData, KeysListError, KeysListResponse, KeysRevokeData, KeysRevokeError, KeysRevokeResponse, KeysRotateData, KeysRotateError, KeysRotateResponse, ListIdpsData, ListIdpsError, ListIdpsResponse2, ListPermissionsData, ListPermissionsError, ListPermissionsResponse, ListRoleBindingsData, ListRoleBindingsError, ListRoleBindingsResponse, ListRolesData, ListRolesError, ListRolesResponse, ListSamlProvidersData, ListSamlProvidersError, ListSamlProvidersResponse, ListSamlSignInData, ListSamlSignInError, ListSamlSignInResponse, ListServiceAccountsData, ListServiceAccountsError, ListServiceAccountsResponse2, ListSessionsData, ListSessionsError, ListSessionsResponse2, ListSsoProvidersData, ListSsoProvidersError, ListSsoProvidersResponse2, LoginData, LoginError, LoginResponse, LogoutData, LogoutError, LogoutResponse, MembersListData, MembersListError, MembersListResponse, MembersRemoveData, MembersRemoveError, MembersRemoveResponse, MembersUpdateData, MembersUpdateError, MembersUpdateResponse, PreviewRoleData, PreviewRoleError, PreviewRoleResponse, ProbeIdpData, ProbeIdpError, ProbeIdpResponse, ProbeSamlMetadataData, ProbeSamlMetadataError, ProbeSamlMetadataResponse, ReauthenticateData, ReauthenticateError, ReauthenticateResponse, RegisterData, RegisterError, RegisterResponse, RevokeSessionData, RevokeSessionError, RevokeSessionResponse, RolesRevisionsGetData, RolesRevisionsGetError, RolesRevisionsGetResponse, RolesRevisionsListData, RolesRevisionsListError, RolesRevisionsListResponse, RolesRevisionsRestoreData, RolesRevisionsRestoreError, RolesRevisionsRestoreResponse, RotateSamlKeyData, RotateSamlKeyError, RotateSamlKeyResponse, RotateServiceAccountSecretData, RotateServiceAccountSecretError, RotateServiceAccountSecretResponse2, ServersCreateData, ServersCreateError, ServersCreateResponse, ServersDeleteData, ServersDeleteError, ServersDeleteResponse, ServersGetData, ServersGetError, ServersGetResponse, ServersListData, ServersListError, ServersListResponse, ServersRevisionsGetData, ServersRevisionsGetError, ServersRevisionsGetResponse, ServersRevisionsListData, ServersRevisionsListError, ServersRevisionsListResponse, ServersRevisionsRestoreData, ServersRevisionsRestoreError, ServersRevisionsRestoreResponse, ServersUpdateData, ServersUpdateError, ServersUpdateResponse, SessionData, SessionError, SessionResponse, SetPasswordPolicyData, SetPasswordPolicyError, SetPasswordPolicyResponse, SetServiceAccountDisabledData, SetServiceAccountDisabledError, SetServiceAccountDisabledResponse2, SwitchOrgData, SwitchOrgError, SwitchOrgResponse, ToolsCreateData, ToolsCreateError, ToolsCreateResponse, ToolsDeleteData, ToolsDeleteError, ToolsDeleteResponse, ToolsDraftDryRunData, ToolsDraftDryRunError, ToolsDraftDryRunResponse, ToolsDryRunData, ToolsDryRunError, ToolsDryRunResponse, ToolsEnableData, ToolsEnableError, ToolsEnableResponse2, ToolsGetData, ToolsGetError, ToolsGetResponse, ToolsReferencesData, ToolsReferencesError, ToolsReferencesResponse, ToolsRevisionsGetData, ToolsRevisionsGetError, ToolsRevisionsGetResponse, ToolsRevisionsListData, ToolsRevisionsListError, ToolsRevisionsListResponse, ToolsRevisionsRestoreData, ToolsRevisionsRestoreError, ToolsRevisionsRestoreResponse, ToolsUpdateData, ToolsUpdateError, ToolsUpdateResponse, UpdateIdpData, UpdateIdpError, UpdateIdpResponse, UpdateRoleData, UpdateRoleError, UpdateRoleResponse, UpdateSamlProviderData, UpdateSamlProviderError, UpdateSamlProviderResponse } from '../types.gen';
+import { analyticsUsage, approvalPoliciesCreate, approvalPoliciesDelete, approvalPoliciesList, approvalPoliciesRevisionsGet, approvalPoliciesRevisionsList, approvalPoliciesRevisionsRestore, approvalPoliciesUpdate, approvalsApprove, approvalsCancel, approvalsGet, approvalsList, approvalsReject, auditExport, auditExportersCreate, auditExportersDelete, auditExportersList, auditGetPolicy, auditGetRetention, auditLegalHold, auditLegalHoldRelease, auditList, auditSetPolicy, auditSetRetention, auditVerify, blobGet, catalogGet, catalogGetYaml, catalogList, changePassword, connectorsCredentials, connectorsDelete, connectorsGet, connectorsImport, connectorsInstall, connectorsList, connectorsOauthAuthorize, connectorsOauthRedirectUri, connectorsResync, connectorsResyncPreview, connectorsRevisionsGet, connectorsRevisionsList, connectorsRevisionsRestore, connectorsTools, connectorsUpdate, createIdp, createRole, createRoleBinding, createSamlProvider, createServiceAccount, deleteIdp, deleteRole, deleteRoleBinding, deleteSamlProvider, deleteServiceAccount, dlpDetectors, dlpPoliciesList, dlpPoliciesRevisionsGet, dlpPoliciesRevisionsList, dlpPoliciesRevisionsRestore, dlpPolicyCreate, dlpPolicyDelete, dlpPolicyGet, dlpPolicyUpdate, dlpPreview, getPasswordPolicy, idpsRevisionsGet, idpsRevisionsList, idpsRevisionsRestore, inviteAccept, inviteLookup, invitesCreate, invitesList, invitesRevoke, invocationsList, keysCreate, keysList, keysRevoke, keysRotate, listIdps, listPermissions, listRoleBindings, listRoles, listSamlProviders, listSamlSignIn, listServiceAccounts, listSessions, listSsoProviders, login, logout, membersList, membersRemove, membersUpdate, type Options, previewRole, probeIdp, probeSamlMetadata, reauthenticate, register, revokeSession, rolesRevisionsGet, rolesRevisionsList, rolesRevisionsRestore, rotateSamlKey, rotateServiceAccountSecret, samlProvidersRevisionsGet, samlProvidersRevisionsList, samlProvidersRevisionsRestore, serversCreate, serversDelete, serversGet, serversList, serversRevisionsGet, serversRevisionsList, serversRevisionsRestore, serversUpdate, session, setPasswordPolicy, setServiceAccountDisabled, switchOrg, toolsCreate, toolsDelete, toolsDraftDryRun, toolsDryRun, toolsEnable, toolsGet, toolsReferences, toolsRevisionsGet, toolsRevisionsList, toolsRevisionsRestore, toolsUpdate, updateIdp, updateRole, updateSamlProvider } from '../sdk.gen';
+import type { AnalyticsUsageData, AnalyticsUsageError, AnalyticsUsageResponse, ApprovalPoliciesCreateData, ApprovalPoliciesCreateError, ApprovalPoliciesCreateResponse, ApprovalPoliciesDeleteData, ApprovalPoliciesDeleteError, ApprovalPoliciesDeleteResponse, ApprovalPoliciesListData, ApprovalPoliciesListError, ApprovalPoliciesListResponse, ApprovalPoliciesRevisionsGetData, ApprovalPoliciesRevisionsGetError, ApprovalPoliciesRevisionsGetResponse, ApprovalPoliciesRevisionsListData, ApprovalPoliciesRevisionsListError, ApprovalPoliciesRevisionsListResponse, ApprovalPoliciesRevisionsRestoreData, ApprovalPoliciesRevisionsRestoreError, ApprovalPoliciesRevisionsRestoreResponse, ApprovalPoliciesUpdateData, ApprovalPoliciesUpdateError, ApprovalPoliciesUpdateResponse, ApprovalsApproveData, ApprovalsApproveError, ApprovalsApproveResponse, ApprovalsCancelData, ApprovalsCancelError, ApprovalsCancelResponse, ApprovalsGetData, ApprovalsGetError, ApprovalsGetResponse, ApprovalsListData, ApprovalsListError, ApprovalsListResponse, ApprovalsRejectData, ApprovalsRejectError, ApprovalsRejectResponse, AuditExportData, AuditExportError, AuditExportersCreateData, AuditExportersCreateError, AuditExportersCreateResponse, AuditExportersDeleteData, AuditExportersDeleteError, AuditExportersDeleteResponse, AuditExportersListData, AuditExportersListError, AuditExportersListResponse, AuditGetPolicyData, AuditGetPolicyError, AuditGetPolicyResponse, AuditGetRetentionData, AuditGetRetentionError, AuditGetRetentionResponse, AuditLegalHoldData, AuditLegalHoldError, AuditLegalHoldReleaseData, AuditLegalHoldReleaseError, AuditLegalHoldReleaseResponse, AuditLegalHoldResponse, AuditListData, AuditListError, AuditListResponse, AuditSetPolicyData, AuditSetPolicyError, AuditSetPolicyResponse, AuditSetRetentionData, AuditSetRetentionError, AuditSetRetentionResponse, AuditVerifyData, AuditVerifyError, AuditVerifyResponse, BlobGetData, BlobGetError, BlobGetResponse, CatalogGetData, CatalogGetError, CatalogGetResponse, CatalogGetYamlData, CatalogGetYamlError, CatalogGetYamlResponse, CatalogListData, CatalogListError, CatalogListResponse, ChangePasswordData, ChangePasswordError, ChangePasswordResponse2, ConnectorsCredentialsData, ConnectorsCredentialsError, ConnectorsCredentialsResponse, ConnectorsDeleteData, ConnectorsDeleteError, ConnectorsDeleteResponse, ConnectorsGetData, ConnectorsGetError, ConnectorsGetResponse, ConnectorsImportData, ConnectorsImportError, ConnectorsImportResponse, ConnectorsInstallData, ConnectorsInstallError, ConnectorsInstallResponse, ConnectorsListData, ConnectorsListError, ConnectorsListResponse, ConnectorsOauthAuthorizeData, ConnectorsOauthAuthorizeError, ConnectorsOauthAuthorizeResponse, ConnectorsOauthRedirectUriData, ConnectorsOauthRedirectUriError, ConnectorsOauthRedirectUriResponse2, ConnectorsResyncData, ConnectorsResyncError, ConnectorsResyncPreviewData, ConnectorsResyncPreviewError, ConnectorsResyncPreviewResponse, ConnectorsResyncResponse, ConnectorsRevisionsGetData, ConnectorsRevisionsGetError, ConnectorsRevisionsGetResponse, ConnectorsRevisionsListData, ConnectorsRevisionsListError, ConnectorsRevisionsListResponse, ConnectorsRevisionsRestoreData, ConnectorsRevisionsRestoreError, ConnectorsRevisionsRestoreResponse, ConnectorsToolsData, ConnectorsToolsError, ConnectorsToolsResponse, ConnectorsUpdateData, ConnectorsUpdateError, ConnectorsUpdateResponse, CreateIdpData, CreateIdpError, CreateIdpResponse, CreateRoleBindingData, CreateRoleBindingError, CreateRoleBindingResponse, CreateRoleData, CreateRoleError, CreateRoleResponse, CreateSamlProviderData, CreateSamlProviderError, CreateSamlProviderResponse, CreateServiceAccountData, CreateServiceAccountError, CreateServiceAccountResponse, DeleteIdpData, DeleteIdpError, DeleteIdpResponse, DeleteRoleBindingData, DeleteRoleBindingError, DeleteRoleBindingResponse, DeleteRoleData, DeleteRoleError, DeleteRoleResponse, DeleteSamlProviderData, DeleteSamlProviderError, DeleteSamlProviderResponse, DeleteServiceAccountData, DeleteServiceAccountError, DeleteServiceAccountResponse, DlpDetectorsData, DlpDetectorsError, DlpDetectorsResponse, DlpPoliciesListData, DlpPoliciesListError, DlpPoliciesListResponse, DlpPoliciesRevisionsGetData, DlpPoliciesRevisionsGetError, DlpPoliciesRevisionsGetResponse, DlpPoliciesRevisionsListData, DlpPoliciesRevisionsListError, DlpPoliciesRevisionsListResponse, DlpPoliciesRevisionsRestoreData, DlpPoliciesRevisionsRestoreError, DlpPoliciesRevisionsRestoreResponse, DlpPolicyCreateData, DlpPolicyCreateError, DlpPolicyCreateResponse, DlpPolicyDeleteData, DlpPolicyDeleteError, DlpPolicyDeleteResponse, DlpPolicyGetData, DlpPolicyGetError, DlpPolicyGetResponse, DlpPolicyUpdateData, DlpPolicyUpdateError, DlpPolicyUpdateResponse, DlpPreviewData, DlpPreviewError, DlpPreviewResponse, GetPasswordPolicyData, GetPasswordPolicyError, GetPasswordPolicyResponse, IdpsRevisionsGetData, IdpsRevisionsGetError, IdpsRevisionsGetResponse, IdpsRevisionsListData, IdpsRevisionsListError, IdpsRevisionsListResponse, IdpsRevisionsRestoreData, IdpsRevisionsRestoreError, IdpsRevisionsRestoreResponse, InviteAcceptData, InviteAcceptError, InviteAcceptResponse, InviteLookupData, InviteLookupError, InviteLookupResponse, InvitesCreateData, InvitesCreateError, InvitesCreateResponse, InvitesListData, InvitesListError, InvitesListResponse, InvitesRevokeData, InvitesRevokeError, InvitesRevokeResponse, InvocationsListData, InvocationsListError, InvocationsListResponse, KeysCreateData, KeysCreateError, KeysCreateResponse2, KeysListData, KeysListError, KeysListResponse, KeysRevokeData, KeysRevokeError, KeysRevokeResponse, KeysRotateData, KeysRotateError, KeysRotateResponse, ListIdpsData, ListIdpsError, ListIdpsResponse2, ListPermissionsData, ListPermissionsError, ListPermissionsResponse, ListRoleBindingsData, ListRoleBindingsError, ListRoleBindingsResponse, ListRolesData, ListRolesError, ListRolesResponse, ListSamlProvidersData, ListSamlProvidersError, ListSamlProvidersResponse, ListSamlSignInData, ListSamlSignInError, ListSamlSignInResponse, ListServiceAccountsData, ListServiceAccountsError, ListServiceAccountsResponse2, ListSessionsData, ListSessionsError, ListSessionsResponse2, ListSsoProvidersData, ListSsoProvidersError, ListSsoProvidersResponse2, LoginData, LoginError, LoginResponse, LogoutData, LogoutError, LogoutResponse, MembersListData, MembersListError, MembersListResponse, MembersRemoveData, MembersRemoveError, MembersRemoveResponse, MembersUpdateData, MembersUpdateError, MembersUpdateResponse, PreviewRoleData, PreviewRoleError, PreviewRoleResponse, ProbeIdpData, ProbeIdpError, ProbeIdpResponse, ProbeSamlMetadataData, ProbeSamlMetadataError, ProbeSamlMetadataResponse, ReauthenticateData, ReauthenticateError, ReauthenticateResponse, RegisterData, RegisterError, RegisterResponse, RevokeSessionData, RevokeSessionError, RevokeSessionResponse, RolesRevisionsGetData, RolesRevisionsGetError, RolesRevisionsGetResponse, RolesRevisionsListData, RolesRevisionsListError, RolesRevisionsListResponse, RolesRevisionsRestoreData, RolesRevisionsRestoreError, RolesRevisionsRestoreResponse, RotateSamlKeyData, RotateSamlKeyError, RotateSamlKeyResponse, RotateServiceAccountSecretData, RotateServiceAccountSecretError, RotateServiceAccountSecretResponse2, SamlProvidersRevisionsGetData, SamlProvidersRevisionsGetError, SamlProvidersRevisionsGetResponse, SamlProvidersRevisionsListData, SamlProvidersRevisionsListError, SamlProvidersRevisionsListResponse, SamlProvidersRevisionsRestoreData, SamlProvidersRevisionsRestoreError, SamlProvidersRevisionsRestoreResponse, ServersCreateData, ServersCreateError, ServersCreateResponse, ServersDeleteData, ServersDeleteError, ServersDeleteResponse, ServersGetData, ServersGetError, ServersGetResponse, ServersListData, ServersListError, ServersListResponse, ServersRevisionsGetData, ServersRevisionsGetError, ServersRevisionsGetResponse, ServersRevisionsListData, ServersRevisionsListError, ServersRevisionsListResponse, ServersRevisionsRestoreData, ServersRevisionsRestoreError, ServersRevisionsRestoreResponse, ServersUpdateData, ServersUpdateError, ServersUpdateResponse, SessionData, SessionError, SessionResponse, SetPasswordPolicyData, SetPasswordPolicyError, SetPasswordPolicyResponse, SetServiceAccountDisabledData, SetServiceAccountDisabledError, SetServiceAccountDisabledResponse2, SwitchOrgData, SwitchOrgError, SwitchOrgResponse, ToolsCreateData, ToolsCreateError, ToolsCreateResponse, ToolsDeleteData, ToolsDeleteError, ToolsDeleteResponse, ToolsDraftDryRunData, ToolsDraftDryRunError, ToolsDraftDryRunResponse, ToolsDryRunData, ToolsDryRunError, ToolsDryRunResponse, ToolsEnableData, ToolsEnableError, ToolsEnableResponse2, ToolsGetData, ToolsGetError, ToolsGetResponse, ToolsReferencesData, ToolsReferencesError, ToolsReferencesResponse, ToolsRevisionsGetData, ToolsRevisionsGetError, ToolsRevisionsGetResponse, ToolsRevisionsListData, ToolsRevisionsListError, ToolsRevisionsListResponse, ToolsRevisionsRestoreData, ToolsRevisionsRestoreError, ToolsRevisionsRestoreResponse, ToolsUpdateData, ToolsUpdateError, ToolsUpdateResponse, UpdateIdpData, UpdateIdpError, UpdateIdpResponse, UpdateRoleData, UpdateRoleError, UpdateRoleResponse, UpdateSamlProviderData, UpdateSamlProviderError, UpdateSamlProviderResponse } from '../types.gen';
 
 export type QueryKey<TOptions extends Options> = [
     Pick<TOptions, 'baseUrl' | 'body' | 'headers' | 'path' | 'query'> & {
@@ -189,6 +189,117 @@ export const approvalPoliciesUpdateMutation = (options?: Partial<Options<Approva
     const mutationOptions: UseMutationOptions<ApprovalPoliciesUpdateResponse, ApprovalPoliciesUpdateError, Options<ApprovalPoliciesUpdateData>> = {
         mutationFn: async (fnOptions) => {
             const { data } = await approvalPoliciesUpdate({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+export const approvalPoliciesRevisionsListQueryKey = (options: Options<ApprovalPoliciesRevisionsListData>) => createQueryKey('approvalPoliciesRevisionsList', options);
+
+/**
+ * List the revisions of one approval policy
+ */
+export const approvalPoliciesRevisionsListOptions = (options: Options<ApprovalPoliciesRevisionsListData>) => queryOptions<ApprovalPoliciesRevisionsListResponse, ApprovalPoliciesRevisionsListError, ApprovalPoliciesRevisionsListResponse, ReturnType<typeof approvalPoliciesRevisionsListQueryKey>>({
+    queryFn: async ({ queryKey, signal }) => {
+        const { data } = await approvalPoliciesRevisionsList({
+            ...options,
+            ...queryKey[0],
+            signal,
+            throwOnError: true
+        });
+        return data;
+    },
+    queryKey: approvalPoliciesRevisionsListQueryKey(options)
+});
+
+const createInfiniteParams = <K extends Pick<QueryKey<Options>[0], 'body' | 'headers' | 'path' | 'query'>>(queryKey: QueryKey<Options>, page: K) => {
+    const params = { ...queryKey[0] };
+    if (page.body) {
+        params.body = {
+            ...queryKey[0].body as any,
+            ...page.body as any
+        };
+    }
+    if (page.headers) {
+        params.headers = {
+            ...queryKey[0].headers,
+            ...page.headers
+        };
+    }
+    if (page.path) {
+        params.path = {
+            ...queryKey[0].path as any,
+            ...page.path as any
+        };
+    }
+    if (page.query) {
+        params.query = {
+            ...queryKey[0].query as any,
+            ...page.query as any
+        };
+    }
+    return params as unknown as typeof page;
+};
+
+export const approvalPoliciesRevisionsListInfiniteQueryKey = (options: Options<ApprovalPoliciesRevisionsListData>): QueryKey<Options<ApprovalPoliciesRevisionsListData>> => createQueryKey('approvalPoliciesRevisionsList', options, true);
+
+/**
+ * List the revisions of one approval policy
+ */
+export const approvalPoliciesRevisionsListInfiniteOptions = (options: Options<ApprovalPoliciesRevisionsListData>) => infiniteQueryOptions<ApprovalPoliciesRevisionsListResponse, ApprovalPoliciesRevisionsListError, InfiniteData<ApprovalPoliciesRevisionsListResponse>, QueryKey<Options<ApprovalPoliciesRevisionsListData>>, number | Pick<QueryKey<Options<ApprovalPoliciesRevisionsListData>>[0], 'body' | 'headers' | 'path' | 'query'>>(
+// @ts-ignore
+{
+    queryFn: async ({ pageParam, queryKey, signal }) => {
+        // @ts-ignore
+        const page: Pick<QueryKey<Options<ApprovalPoliciesRevisionsListData>>[0], 'body' | 'headers' | 'path' | 'query'> = typeof pageParam === 'object' ? pageParam : {
+            query: {
+                before: pageParam
+            }
+        };
+        const params = createInfiniteParams(queryKey, page);
+        const { data } = await approvalPoliciesRevisionsList({
+            ...options,
+            ...params,
+            signal,
+            throwOnError: true
+        });
+        return data;
+    },
+    queryKey: approvalPoliciesRevisionsListInfiniteQueryKey(options)
+});
+
+export const approvalPoliciesRevisionsGetQueryKey = (options: Options<ApprovalPoliciesRevisionsGetData>) => createQueryKey('approvalPoliciesRevisionsGet', options);
+
+/**
+ * Read one revision of a approval policy
+ */
+export const approvalPoliciesRevisionsGetOptions = (options: Options<ApprovalPoliciesRevisionsGetData>) => queryOptions<ApprovalPoliciesRevisionsGetResponse, ApprovalPoliciesRevisionsGetError, ApprovalPoliciesRevisionsGetResponse, ReturnType<typeof approvalPoliciesRevisionsGetQueryKey>>({
+    queryFn: async ({ queryKey, signal }) => {
+        const { data } = await approvalPoliciesRevisionsGet({
+            ...options,
+            ...queryKey[0],
+            signal,
+            throwOnError: true
+        });
+        return data;
+    },
+    queryKey: approvalPoliciesRevisionsGetQueryKey(options)
+});
+
+/**
+ * Put an approval policy back the way an earlier revision found it
+ *
+ * Needs revisions:rollback and org:settings:manage, and a browser session must have signed in within the fresh-auth window. A deleted policy is recreated under its old id.
+ */
+export const approvalPoliciesRevisionsRestoreMutation = (options?: Partial<Options<ApprovalPoliciesRevisionsRestoreData>>): UseMutationOptions<ApprovalPoliciesRevisionsRestoreResponse, ApprovalPoliciesRevisionsRestoreError, Options<ApprovalPoliciesRevisionsRestoreData>> => {
+    const mutationOptions: UseMutationOptions<ApprovalPoliciesRevisionsRestoreResponse, ApprovalPoliciesRevisionsRestoreError, Options<ApprovalPoliciesRevisionsRestoreData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await approvalPoliciesRevisionsRestore({
                 ...options,
                 ...fnOptions,
                 throwOnError: true
@@ -972,35 +1083,6 @@ export const connectorsRevisionsListOptions = (options: Options<ConnectorsRevisi
     queryKey: connectorsRevisionsListQueryKey(options)
 });
 
-const createInfiniteParams = <K extends Pick<QueryKey<Options>[0], 'body' | 'headers' | 'path' | 'query'>>(queryKey: QueryKey<Options>, page: K) => {
-    const params = { ...queryKey[0] };
-    if (page.body) {
-        params.body = {
-            ...queryKey[0].body as any,
-            ...page.body as any
-        };
-    }
-    if (page.headers) {
-        params.headers = {
-            ...queryKey[0].headers,
-            ...page.headers
-        };
-    }
-    if (page.path) {
-        params.path = {
-            ...queryKey[0].path as any,
-            ...page.path as any
-        };
-    }
-    if (page.query) {
-        params.query = {
-            ...queryKey[0].query as any,
-            ...page.query as any
-        };
-    }
-    return params as unknown as typeof page;
-};
-
 export const connectorsRevisionsListInfiniteQueryKey = (options: Options<ConnectorsRevisionsListData>): QueryKey<Options<ConnectorsRevisionsListData>> => createQueryKey('connectorsRevisionsList', options, true);
 
 /**
@@ -1239,6 +1321,88 @@ export const dlpPolicyUpdateMutation = (options?: Partial<Options<DlpPolicyUpdat
     return mutationOptions;
 };
 
+export const dlpPoliciesRevisionsListQueryKey = (options: Options<DlpPoliciesRevisionsListData>) => createQueryKey('dlpPoliciesRevisionsList', options);
+
+/**
+ * List the revisions of one data-loss prevention policy
+ */
+export const dlpPoliciesRevisionsListOptions = (options: Options<DlpPoliciesRevisionsListData>) => queryOptions<DlpPoliciesRevisionsListResponse, DlpPoliciesRevisionsListError, DlpPoliciesRevisionsListResponse, ReturnType<typeof dlpPoliciesRevisionsListQueryKey>>({
+    queryFn: async ({ queryKey, signal }) => {
+        const { data } = await dlpPoliciesRevisionsList({
+            ...options,
+            ...queryKey[0],
+            signal,
+            throwOnError: true
+        });
+        return data;
+    },
+    queryKey: dlpPoliciesRevisionsListQueryKey(options)
+});
+
+export const dlpPoliciesRevisionsListInfiniteQueryKey = (options: Options<DlpPoliciesRevisionsListData>): QueryKey<Options<DlpPoliciesRevisionsListData>> => createQueryKey('dlpPoliciesRevisionsList', options, true);
+
+/**
+ * List the revisions of one data-loss prevention policy
+ */
+export const dlpPoliciesRevisionsListInfiniteOptions = (options: Options<DlpPoliciesRevisionsListData>) => infiniteQueryOptions<DlpPoliciesRevisionsListResponse, DlpPoliciesRevisionsListError, InfiniteData<DlpPoliciesRevisionsListResponse>, QueryKey<Options<DlpPoliciesRevisionsListData>>, number | Pick<QueryKey<Options<DlpPoliciesRevisionsListData>>[0], 'body' | 'headers' | 'path' | 'query'>>(
+// @ts-ignore
+{
+    queryFn: async ({ pageParam, queryKey, signal }) => {
+        // @ts-ignore
+        const page: Pick<QueryKey<Options<DlpPoliciesRevisionsListData>>[0], 'body' | 'headers' | 'path' | 'query'> = typeof pageParam === 'object' ? pageParam : {
+            query: {
+                before: pageParam
+            }
+        };
+        const params = createInfiniteParams(queryKey, page);
+        const { data } = await dlpPoliciesRevisionsList({
+            ...options,
+            ...params,
+            signal,
+            throwOnError: true
+        });
+        return data;
+    },
+    queryKey: dlpPoliciesRevisionsListInfiniteQueryKey(options)
+});
+
+export const dlpPoliciesRevisionsGetQueryKey = (options: Options<DlpPoliciesRevisionsGetData>) => createQueryKey('dlpPoliciesRevisionsGet', options);
+
+/**
+ * Read one revision of a data-loss prevention policy
+ */
+export const dlpPoliciesRevisionsGetOptions = (options: Options<DlpPoliciesRevisionsGetData>) => queryOptions<DlpPoliciesRevisionsGetResponse, DlpPoliciesRevisionsGetError, DlpPoliciesRevisionsGetResponse, ReturnType<typeof dlpPoliciesRevisionsGetQueryKey>>({
+    queryFn: async ({ queryKey, signal }) => {
+        const { data } = await dlpPoliciesRevisionsGet({
+            ...options,
+            ...queryKey[0],
+            signal,
+            throwOnError: true
+        });
+        return data;
+    },
+    queryKey: dlpPoliciesRevisionsGetQueryKey(options)
+});
+
+/**
+ * Put a data-loss prevention policy back the way an earlier revision found it
+ *
+ * Needs revisions:rollback and dlp:manage, and a browser session must have signed in within the fresh-auth window. A deleted policy is recreated under its old id.
+ */
+export const dlpPoliciesRevisionsRestoreMutation = (options?: Partial<Options<DlpPoliciesRevisionsRestoreData>>): UseMutationOptions<DlpPoliciesRevisionsRestoreResponse, DlpPoliciesRevisionsRestoreError, Options<DlpPoliciesRevisionsRestoreData>> => {
+    const mutationOptions: UseMutationOptions<DlpPoliciesRevisionsRestoreResponse, DlpPoliciesRevisionsRestoreError, Options<DlpPoliciesRevisionsRestoreData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await dlpPoliciesRevisionsRestore({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
 /**
  * Run the detectors over a sample to see what a policy would catch
  */
@@ -1332,6 +1496,88 @@ export const updateIdpMutation = (options?: Partial<Options<UpdateIdpData>>): Us
     const mutationOptions: UseMutationOptions<UpdateIdpResponse, UpdateIdpError, Options<UpdateIdpData>> = {
         mutationFn: async (fnOptions) => {
             const { data } = await updateIdp({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+export const idpsRevisionsListQueryKey = (options: Options<IdpsRevisionsListData>) => createQueryKey('idpsRevisionsList', options);
+
+/**
+ * List the revisions of one identity provider
+ */
+export const idpsRevisionsListOptions = (options: Options<IdpsRevisionsListData>) => queryOptions<IdpsRevisionsListResponse, IdpsRevisionsListError, IdpsRevisionsListResponse, ReturnType<typeof idpsRevisionsListQueryKey>>({
+    queryFn: async ({ queryKey, signal }) => {
+        const { data } = await idpsRevisionsList({
+            ...options,
+            ...queryKey[0],
+            signal,
+            throwOnError: true
+        });
+        return data;
+    },
+    queryKey: idpsRevisionsListQueryKey(options)
+});
+
+export const idpsRevisionsListInfiniteQueryKey = (options: Options<IdpsRevisionsListData>): QueryKey<Options<IdpsRevisionsListData>> => createQueryKey('idpsRevisionsList', options, true);
+
+/**
+ * List the revisions of one identity provider
+ */
+export const idpsRevisionsListInfiniteOptions = (options: Options<IdpsRevisionsListData>) => infiniteQueryOptions<IdpsRevisionsListResponse, IdpsRevisionsListError, InfiniteData<IdpsRevisionsListResponse>, QueryKey<Options<IdpsRevisionsListData>>, number | Pick<QueryKey<Options<IdpsRevisionsListData>>[0], 'body' | 'headers' | 'path' | 'query'>>(
+// @ts-ignore
+{
+    queryFn: async ({ pageParam, queryKey, signal }) => {
+        // @ts-ignore
+        const page: Pick<QueryKey<Options<IdpsRevisionsListData>>[0], 'body' | 'headers' | 'path' | 'query'> = typeof pageParam === 'object' ? pageParam : {
+            query: {
+                before: pageParam
+            }
+        };
+        const params = createInfiniteParams(queryKey, page);
+        const { data } = await idpsRevisionsList({
+            ...options,
+            ...params,
+            signal,
+            throwOnError: true
+        });
+        return data;
+    },
+    queryKey: idpsRevisionsListInfiniteQueryKey(options)
+});
+
+export const idpsRevisionsGetQueryKey = (options: Options<IdpsRevisionsGetData>) => createQueryKey('idpsRevisionsGet', options);
+
+/**
+ * Read one revision of a identity provider
+ */
+export const idpsRevisionsGetOptions = (options: Options<IdpsRevisionsGetData>) => queryOptions<IdpsRevisionsGetResponse, IdpsRevisionsGetError, IdpsRevisionsGetResponse, ReturnType<typeof idpsRevisionsGetQueryKey>>({
+    queryFn: async ({ queryKey, signal }) => {
+        const { data } = await idpsRevisionsGet({
+            ...options,
+            ...queryKey[0],
+            signal,
+            throwOnError: true
+        });
+        return data;
+    },
+    queryKey: idpsRevisionsGetQueryKey(options)
+});
+
+/**
+ * Put an identity provider back the way an earlier revision found it
+ *
+ * Needs revisions:rollback and idp:manage, and a browser session must have signed in within the fresh-auth window. The client secret is not restored; the one stored now is kept. A deleted provider cannot be restored: its client secret went with it.
+ */
+export const idpsRevisionsRestoreMutation = (options?: Partial<Options<IdpsRevisionsRestoreData>>): UseMutationOptions<IdpsRevisionsRestoreResponse, IdpsRevisionsRestoreError, Options<IdpsRevisionsRestoreData>> => {
+    const mutationOptions: UseMutationOptions<IdpsRevisionsRestoreResponse, IdpsRevisionsRestoreError, Options<IdpsRevisionsRestoreData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await idpsRevisionsRestore({
                 ...options,
                 ...fnOptions,
                 throwOnError: true
@@ -1829,6 +2075,88 @@ export const updateSamlProviderMutation = (options?: Partial<Options<UpdateSamlP
     const mutationOptions: UseMutationOptions<UpdateSamlProviderResponse, UpdateSamlProviderError, Options<UpdateSamlProviderData>> = {
         mutationFn: async (fnOptions) => {
             const { data } = await updateSamlProvider({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+export const samlProvidersRevisionsListQueryKey = (options: Options<SamlProvidersRevisionsListData>) => createQueryKey('samlProvidersRevisionsList', options);
+
+/**
+ * List the revisions of one SAML provider
+ */
+export const samlProvidersRevisionsListOptions = (options: Options<SamlProvidersRevisionsListData>) => queryOptions<SamlProvidersRevisionsListResponse, SamlProvidersRevisionsListError, SamlProvidersRevisionsListResponse, ReturnType<typeof samlProvidersRevisionsListQueryKey>>({
+    queryFn: async ({ queryKey, signal }) => {
+        const { data } = await samlProvidersRevisionsList({
+            ...options,
+            ...queryKey[0],
+            signal,
+            throwOnError: true
+        });
+        return data;
+    },
+    queryKey: samlProvidersRevisionsListQueryKey(options)
+});
+
+export const samlProvidersRevisionsListInfiniteQueryKey = (options: Options<SamlProvidersRevisionsListData>): QueryKey<Options<SamlProvidersRevisionsListData>> => createQueryKey('samlProvidersRevisionsList', options, true);
+
+/**
+ * List the revisions of one SAML provider
+ */
+export const samlProvidersRevisionsListInfiniteOptions = (options: Options<SamlProvidersRevisionsListData>) => infiniteQueryOptions<SamlProvidersRevisionsListResponse, SamlProvidersRevisionsListError, InfiniteData<SamlProvidersRevisionsListResponse>, QueryKey<Options<SamlProvidersRevisionsListData>>, number | Pick<QueryKey<Options<SamlProvidersRevisionsListData>>[0], 'body' | 'headers' | 'path' | 'query'>>(
+// @ts-ignore
+{
+    queryFn: async ({ pageParam, queryKey, signal }) => {
+        // @ts-ignore
+        const page: Pick<QueryKey<Options<SamlProvidersRevisionsListData>>[0], 'body' | 'headers' | 'path' | 'query'> = typeof pageParam === 'object' ? pageParam : {
+            query: {
+                before: pageParam
+            }
+        };
+        const params = createInfiniteParams(queryKey, page);
+        const { data } = await samlProvidersRevisionsList({
+            ...options,
+            ...params,
+            signal,
+            throwOnError: true
+        });
+        return data;
+    },
+    queryKey: samlProvidersRevisionsListInfiniteQueryKey(options)
+});
+
+export const samlProvidersRevisionsGetQueryKey = (options: Options<SamlProvidersRevisionsGetData>) => createQueryKey('samlProvidersRevisionsGet', options);
+
+/**
+ * Read one revision of a SAML provider
+ */
+export const samlProvidersRevisionsGetOptions = (options: Options<SamlProvidersRevisionsGetData>) => queryOptions<SamlProvidersRevisionsGetResponse, SamlProvidersRevisionsGetError, SamlProvidersRevisionsGetResponse, ReturnType<typeof samlProvidersRevisionsGetQueryKey>>({
+    queryFn: async ({ queryKey, signal }) => {
+        const { data } = await samlProvidersRevisionsGet({
+            ...options,
+            ...queryKey[0],
+            signal,
+            throwOnError: true
+        });
+        return data;
+    },
+    queryKey: samlProvidersRevisionsGetQueryKey(options)
+});
+
+/**
+ * Put a SAML provider back the way an earlier revision found it
+ *
+ * Needs revisions:rollback and idp:manage, and a browser session must have signed in within the fresh-auth window. The signing key pair is not restored. A deleted provider cannot be restored: its signing key went with it.
+ */
+export const samlProvidersRevisionsRestoreMutation = (options?: Partial<Options<SamlProvidersRevisionsRestoreData>>): UseMutationOptions<SamlProvidersRevisionsRestoreResponse, SamlProvidersRevisionsRestoreError, Options<SamlProvidersRevisionsRestoreData>> => {
+    const mutationOptions: UseMutationOptions<SamlProvidersRevisionsRestoreResponse, SamlProvidersRevisionsRestoreError, Options<SamlProvidersRevisionsRestoreData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await samlProvidersRevisionsRestore({
                 ...options,
                 ...fnOptions,
                 throwOnError: true

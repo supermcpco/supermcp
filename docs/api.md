@@ -167,9 +167,9 @@ The guarded operations:
 | Approvals | `POST /api/v1/approvals/{id}/approve` (not reject or cancel) |
 | Roles | `POST /api/v1/roles`, `PATCH /api/v1/roles/{id}`, `DELETE /api/v1/roles/{id}`, `POST /api/v1/roles/{id}/revisions/{revision}/restore` |
 | Role holders | `POST /api/v1/roles/{id}/bindings`, `DELETE /api/v1/roles/{id}/bindings/{bindingId}`, `PATCH /api/v1/org/members/{userId}`, `DELETE /api/v1/org/members/{userId}`, `POST /api/v1/org/invites` |
-| Single sign-on | `POST /api/v1/idps`, `PUT` and `DELETE /api/v1/idps/{id}`, `POST /api/v1/saml-providers`, `PUT` and `DELETE /api/v1/saml-providers/{id}`, `POST /api/v1/saml-providers/{id}/rotate-key` |
+| Single sign-on | `POST /api/v1/idps`, `PUT` and `DELETE /api/v1/idps/{id}`, `POST /api/v1/idps/{id}/revisions/{revision}/restore`, `POST /api/v1/saml-providers`, `PUT` and `DELETE /api/v1/saml-providers/{id}`, `POST /api/v1/saml-providers/{id}/rotate-key`, `POST /api/v1/saml-providers/{id}/revisions/{revision}/restore` |
 | Security settings | `PUT /api/v1/org/password-policy`, `POST /api/v1/auth/password` from a single sign-on session |
-| Data-loss and approval rules | `POST /api/v1/dlp/policies`, `PUT` and `DELETE /api/v1/dlp/policies/{id}`, `POST /api/v1/approval-policies`, `PUT` and `DELETE /api/v1/approval-policies/{id}` |
+| Data-loss and approval rules | `POST /api/v1/dlp/policies`, `PUT` and `DELETE /api/v1/dlp/policies/{id}`, `POST /api/v1/dlp/policies/{id}/revisions/{revision}/restore`, `POST /api/v1/approval-policies`, `PUT` and `DELETE /api/v1/approval-policies/{id}`, `POST /api/v1/approval-policies/{id}/revisions/{revision}/restore` |
 | Audit trail | `PUT /api/v1/audit/policy`, `PUT /api/v1/audit/retention`, `POST` and `DELETE /api/v1/audit/legal-hold`, `POST /api/v1/audit/exporters`, `DELETE /api/v1/audit/exporters/{id}` |
 
 The master key and data keys have no HTTP endpoints. Rotating them is a
@@ -915,6 +915,78 @@ one succeeds and the other gets `404`. A new account is recorded as
 `account.register` with `meta.via = "invite"`. Every acceptance is
 recorded as `member.join` in the workspace, with the new member as the
 actor and the role in `meta`.
+
+## Revisions
+
+Connectors, tools, MCP servers, roles, data-loss policies, approval
+policies and sign-in providers keep a history. Every create, update and
+delete writes a revision in the same transaction as the change: the
+entity as it stood afterwards (for a delete, as it stood before), the
+diff, who made it and when. A delete keeps the history. An entity that
+predates its kind's history has its state recorded as revision 1, with
+no actor, just before its first recorded change.
+
+Each kind has the same three routes under its own path:
+
+| Kind (`kind` in a revision) | Path | Read with | Restore also needs |
+|---|---|---|---|
+| `connector` | `/api/v1/connectors/{id}` | `connectors:read` | |
+| `tool` | `/api/v1/tools/{id}` | `connectors:read` | see "Managing tools" |
+| `server` | `/api/v1/servers/{id}` | `servers:read` | |
+| `role` | `/api/v1/roles/{id}` | `roles:read` | |
+| `dlp_policy` | `/api/v1/dlp/policies/{id}` | `connectors:read` | `dlp:manage` |
+| `approval_policy` | `/api/v1/approval-policies/{id}` | `approvals:decide` | `org:settings:manage` |
+| `identity_provider` | `/api/v1/idps/{id}` | `idp:manage` | `idp:manage` |
+| `saml_provider` | `/api/v1/saml-providers/{id}` | `idp:manage` | `idp:manage` |
+
+- `GET <path>/revisions` lists them newest first, without snapshots.
+  `before` and `limit` page through; `nextBefore` is zero at the start of
+  the history.
+- `GET <path>/revisions/{revision}` reads one, with its `snapshot`.
+- `POST <path>/revisions/{revision}/restore` puts that version back. It
+  needs `revisions:rollback` and the permission in the last column, and
+  a browser session must be within the fresh-auth window. It answers with
+  the entity as it now stands.
+
+A restore goes through the path an edit takes, so it is checked like an
+edit, recorded as a further revision (the history of a mistake survives
+its correction) and audited twice: the ordinary change event (for
+example `dlp.policy.update`) and `<kind>.revision.restore` with the
+revision number in `meta.revision`. A refused restore is recorded as the
+same action with outcome `failure`.
+
+What each kind puts back:
+
+- **Data-loss policy.** Every setting, scope included. The change reaches
+  every replica's policy cache on commit, as an edit does, so the next
+  tool call anywhere is screened by the restored rule. A deleted policy is
+  recreated under its old id, recorded as a `create`. A scope that has
+  since gone (the connector or tool was deleted, which also deletes its
+  policies without a revision) is `400`, as is a scope that another rule
+  now holds.
+- **Approval policy.** Every setting. Rules are read on every tool call,
+  not cached, so the next call is governed by the restored rule. A deleted
+  rule is recreated under its old id, so requests it raised before the
+  delete point at it again.
+- **OIDC or OAuth 2.0 provider.** Everything but the client secret. The
+  history never holds the secret, sealed or otherwise: one that an older
+  version used may have been revoked at the provider since, and a copy in
+  the history would be a place rotation does not reach. The secret stored
+  when the restore runs is kept, and the answer says so with
+  `clientSecretKept: true`. A deleted provider cannot be restored (`404`):
+  its secret went with it.
+- **SAML provider.** Everything but our signing key pair, including the
+  identity provider's entity id, sign-in URL and certificates, which come
+  from the snapshot rather than from fetching the metadata again. The key
+  pair stays as it is, because the private key is not in the history and
+  the identity provider trusts the certificate in use now; the answer says
+  so with `signingKeyKept: true`. A rotation is recorded as a revision, so
+  it shows in the history. A deleted provider cannot be restored (`404`).
+
+A snapshot and a diff digest a top-level field whose name looks like a
+credential (`secret`, `token`, `password` and similar), as the audit
+trail does. That is why a provider's snapshot keeps its URLs under
+`endpoints`.
 
 ## Errors
 

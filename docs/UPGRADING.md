@@ -48,7 +48,7 @@ analytics; see "Usage analytics read an index of their own" below. Migration
 00026 lets disabling a service account refuse the tokens it already
 holds; see "Disabling a service account cuts it off" below. The chart can mount the master key as a file; see "The chart can mount the master key as a file" below.
 Migration 00027 adds a search index to `audit_events`; see "The audit
-trail can be searched" below.
+trail can be searched" below. Migration 00028 lets the history keep data-loss policies, approval policies and sign-in providers; see "Policies and sign-in providers have a history" below.
 
 ### The audit trail can be searched
 
@@ -132,6 +132,38 @@ Three things change with it that you may notice:
   export again with `afterSeq=N` for the rest (docs/api.md, "Audit
   search"). A tool that reads exports should stop at that line rather
   than treat it as an event.
+
+
+### Policies and sign-in providers have a history
+
+Data-loss policies, approval policies and OIDC and SAML sign-in
+providers now keep revisions like connectors, servers and roles do, with
+a History entry on their settings screens and a restore route for each
+(`docs/api.md`, "Revisions").
+
+Migration 00028 widens the check constraint on `revisions.entity_kind`
+to the four new kinds. It drops and re-adds the constraint, which takes
+an exclusive lock on `revisions` while Postgres checks the existing rows:
+configuration changes wait for it, tool calls do not. It is quick unless
+the history is very large. No rollout order matters: the new list is a
+superset, so a replica of the previous release, which writes only the
+old kinds, works against it. Changes made through such a replica during
+the roll are not recorded in the history, as they were not before.
+
+What changes for callers of the API:
+
+- A restore of a sign-in provider never restores a secret. An OIDC
+  provider keeps the client secret stored when the restore runs; a SAML
+  provider keeps its signing key pair. A deleted provider cannot be
+  restored from its history.
+- A deleted data-loss or approval policy can be restored, and comes back
+  under its old id.
+- Restores ask for `revisions:rollback` and the permission that edits the
+  entity (`dlp:manage`, `org:settings:manage` or `idp:manage`), and a
+  recent sign-in from a browser session.
+- Nothing is backfilled at upgrade time. A policy or provider that
+  predates the upgrade has its state recorded as revision 1, by nobody,
+  when it is first changed or deleted, so that state can be restored.
 
 ### The chart can mount the master key as a file
 

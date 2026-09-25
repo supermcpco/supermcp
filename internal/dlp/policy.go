@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
+	"github.com/supermcpco/supermcp/internal/audit"
 	"github.com/supermcpco/supermcp/internal/tenant"
 )
 
@@ -83,6 +84,9 @@ type ScanPolicy struct {
 type Policies struct {
 	DB    *tenant.DB
 	NewID func() string
+	// Revisions records each change beside the change itself, in the same
+	// transaction. Nil records nothing.
+	Revisions Recorder
 	// OnInvalidate, when set, is told of each local invalidation (source
 	// "local"), for the invalidation counter.
 	OnInvalidate func(source string)
@@ -97,6 +101,25 @@ type Policies struct {
 	orgGen map[string]uint64
 	now    func() time.Time
 }
+
+// Recorder is the part of the revision history this package needs. It is
+// an interface so the dependency points this way and not the other.
+type Recorder interface {
+	Record(ctx context.Context, tx pgx.Tx, kind, entityID, action string, entity any, diff *audit.Diff, actorID string) error
+	// RecordBaseline records entity as the first revision when entityID
+	// has none yet, and does nothing otherwise.
+	RecordBaseline(ctx context.Context, tx pgx.Tx, kind, entityID string, entity any) error
+}
+
+// RevisionKind is what the revision history calls a policy.
+const RevisionKind = "dlp_policy"
+
+// The actions a revision records.
+const (
+	revisionCreate = "create"
+	revisionUpdate = "update"
+	revisionDelete = "delete"
+)
 
 type cacheEntry struct {
 	list []ScanPolicy
@@ -314,7 +337,8 @@ func (p *Policies) Get(ctx context.Context, orgID, id string) (ScanPolicy, error
 	return ScanPolicy{}, ErrNotFound
 }
 
-// Create stores a new policy and returns it as stored.
+// Create stores a new policy and returns it as stored. The creator is
+// v.CreatedBy, which is also who the revision names.
 func (p *Policies) Create(ctx context.Context, orgID string, v ScanPolicy) (ScanPolicy, error) {
 	if err := v.Validate(); err != nil {
 		return ScanPolicy{}, err
@@ -327,12 +351,10 @@ func (p *Policies) Create(ctx context.Context, orgID string, v ScanPolicy) (Scan
 		if err := scopeExists(ctx, tx, v); err != nil {
 			return err
 		}
-		return tx.QueryRow(ctx, `INSERT INTO dlp_policies
-			(id, organization_id, name, connector_id, tool_id, scan, detectors, action, enabled, max_bytes, created_by)
-			VALUES ($1,$2,$3,NULLIF($4,''),NULLIF($5,''),$6,$7,$8,$9,$10,NULLIF($11,''))
-			RETURNING created_at, updated_at`,
-			v.ID, orgID, v.Name, v.ConnectorID, v.ToolID, v.Scan, v.Detectors, v.Action, v.Enabled, v.MaxBytes, v.CreatedBy).
-			Scan(&v.CreatedAt, &v.UpdatedAt)
+		if err := insertPolicy(ctx, tx, &v); err != nil {
+			return err
+		}
+		return p.record(ctx, tx, v, revisionCreate, audit.Created(v), v.CreatedBy)
 	})
 	if err != nil {
 		return ScanPolicy{}, scopeConflict(err)
@@ -344,7 +366,7 @@ func (p *Policies) Create(ctx context.Context, orgID string, v ScanPolicy) (Scan
 // Update replaces a policy's settings. The scope is part of a policy's
 // identity and is replaced with it, so moving a rule from a connector to
 // one of its tools is one write.
-func (p *Policies) Update(ctx context.Context, orgID, id string, v ScanPolicy) (ScanPolicy, error) {
+func (p *Policies) Update(ctx context.Context, orgID, id string, v ScanPolicy, actorID string) (ScanPolicy, error) {
 	if err := v.Validate(); err != nil {
 		return ScanPolicy{}, err
 	}
@@ -353,19 +375,20 @@ func (p *Policies) Update(ctx context.Context, orgID, id string, v ScanPolicy) (
 		v.Detectors = []string{}
 	}
 	err := p.DB.Tx(tenant.WithOrg(ctx, orgID), func(tx pgx.Tx) error {
+		before, err := lockPolicy(ctx, tx, orgID, id)
+		if err != nil {
+			return err
+		}
 		if err := scopeExists(ctx, tx, v); err != nil {
 			return err
 		}
-		err := tx.QueryRow(ctx, `UPDATE dlp_policies SET name = $3, connector_id = NULLIF($4,''), tool_id = NULLIF($5,''),
-			scan = $6, detectors = $7, action = $8, enabled = $9, max_bytes = $10, updated_at = now()
-			WHERE organization_id = $1 AND id = $2
-			RETURNING COALESCE(created_by,''), created_at, updated_at`,
-			orgID, id, v.Name, v.ConnectorID, v.ToolID, v.Scan, v.Detectors, v.Action, v.Enabled, v.MaxBytes).
-			Scan(&v.CreatedBy, &v.CreatedAt, &v.UpdatedAt)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return ErrNotFound
+		if err := updatePolicy(ctx, tx, &v); err != nil {
+			return err
 		}
-		return err
+		if err := p.baseline(ctx, tx, before); err != nil {
+			return err
+		}
+		return p.record(ctx, tx, v, revisionUpdate, audit.Changes(before, v), actorID)
 	})
 	if err != nil {
 		return ScanPolicy{}, scopeConflict(err)
@@ -374,23 +397,128 @@ func (p *Policies) Update(ctx context.Context, orgID, id string, v ScanPolicy) (
 	return v, nil
 }
 
-// Delete removes a policy.
-func (p *Policies) Delete(ctx context.Context, orgID, id string) error {
+// Restore puts a policy back the way a revision recorded it, through the
+// same statements an edit uses, so the change reaches every replica the
+// way an edit does. A policy that has since been deleted is recreated
+// under its old id, with its old creator, and the revision says so; one
+// that still exists is updated. The scope is checked again either way: a
+// rule for a connector that has gone cannot come back.
+func (p *Policies) Restore(ctx context.Context, orgID, id string, v ScanPolicy, actorID string) (ScanPolicy, error) {
+	if err := v.Validate(); err != nil {
+		return ScanPolicy{}, err
+	}
+	v.ID, v.OrgID = id, orgID
+	if v.Detectors == nil {
+		v.Detectors = []string{}
+	}
 	err := p.DB.Tx(tenant.WithOrg(ctx, orgID), func(tx pgx.Tx) error {
-		tag, err := tx.Exec(ctx, `DELETE FROM dlp_policies WHERE organization_id = $1 AND id = $2`, orgID, id)
+		before, err := lockPolicy(ctx, tx, orgID, id)
+		switch {
+		case errors.Is(err, ErrNotFound):
+			if err := scopeExists(ctx, tx, v); err != nil {
+				return err
+			}
+			if err := insertPolicy(ctx, tx, &v); err != nil {
+				return err
+			}
+			return p.record(ctx, tx, v, revisionCreate, audit.Created(v), actorID)
+		case err != nil:
+			return err
+		}
+		if err := scopeExists(ctx, tx, v); err != nil {
+			return err
+		}
+		if err := updatePolicy(ctx, tx, &v); err != nil {
+			return err
+		}
+		if err := p.baseline(ctx, tx, before); err != nil {
+			return err
+		}
+		return p.record(ctx, tx, v, revisionUpdate, audit.Changes(before, v), actorID)
+	})
+	if err != nil {
+		return ScanPolicy{}, scopeConflict(err)
+	}
+	p.invalidate(orgID)
+	return v, nil
+}
+
+// Delete removes a policy. Its history stays, with the policy as it was
+// last, so it can be restored.
+func (p *Policies) Delete(ctx context.Context, orgID, id, actorID string) error {
+	err := p.DB.Tx(tenant.WithOrg(ctx, orgID), func(tx pgx.Tx) error {
+		before, err := lockPolicy(ctx, tx, orgID, id)
 		if err != nil {
 			return err
 		}
-		if tag.RowsAffected() == 0 {
-			return ErrNotFound
+		if _, err := tx.Exec(ctx, `DELETE FROM dlp_policies WHERE organization_id = $1 AND id = $2`, orgID, id); err != nil {
+			return err
 		}
-		return nil
+		if err := p.baseline(ctx, tx, before); err != nil {
+			return err
+		}
+		return p.record(ctx, tx, before, revisionDelete, audit.Deleted(before), actorID)
 	})
 	if err != nil {
 		return err
 	}
 	p.invalidate(orgID)
 	return nil
+}
+
+// lockPolicy reads a policy inside the writing transaction and holds its
+// row, so the before a revision records is the one the write replaced.
+func lockPolicy(ctx context.Context, tx pgx.Tx, orgID, id string) (ScanPolicy, error) {
+	var v ScanPolicy
+	err := tx.QueryRow(ctx, `SELECT id, organization_id, name, COALESCE(connector_id,''), COALESCE(tool_id,''),
+		scan, detectors, action, enabled, max_bytes, COALESCE(created_by,''), created_at, updated_at
+		FROM dlp_policies WHERE organization_id = $1 AND id = $2 FOR UPDATE`, orgID, id).
+		Scan(&v.ID, &v.OrgID, &v.Name, &v.ConnectorID, &v.ToolID, &v.Scan, &v.Detectors,
+			&v.Action, &v.Enabled, &v.MaxBytes, &v.CreatedBy, &v.CreatedAt, &v.UpdatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ScanPolicy{}, ErrNotFound
+	}
+	return v, err
+}
+
+func insertPolicy(ctx context.Context, tx pgx.Tx, v *ScanPolicy) error {
+	return tx.QueryRow(ctx, `INSERT INTO dlp_policies
+		(id, organization_id, name, connector_id, tool_id, scan, detectors, action, enabled, max_bytes, created_by)
+		VALUES ($1,$2,$3,NULLIF($4,''),NULLIF($5,''),$6,$7,$8,$9,$10,NULLIF($11,''))
+		RETURNING created_at, updated_at`,
+		v.ID, v.OrgID, v.Name, v.ConnectorID, v.ToolID, v.Scan, v.Detectors, v.Action, v.Enabled, v.MaxBytes, v.CreatedBy).
+		Scan(&v.CreatedAt, &v.UpdatedAt)
+}
+
+func updatePolicy(ctx context.Context, tx pgx.Tx, v *ScanPolicy) error {
+	err := tx.QueryRow(ctx, `UPDATE dlp_policies SET name = $3, connector_id = NULLIF($4,''), tool_id = NULLIF($5,''),
+		scan = $6, detectors = $7, action = $8, enabled = $9, max_bytes = $10, updated_at = now()
+		WHERE organization_id = $1 AND id = $2
+		RETURNING COALESCE(created_by,''), created_at, updated_at`,
+		v.OrgID, v.ID, v.Name, v.ConnectorID, v.ToolID, v.Scan, v.Detectors, v.Action, v.Enabled, v.MaxBytes).
+		Scan(&v.CreatedBy, &v.CreatedAt, &v.UpdatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	}
+	return err
+}
+
+// record writes the policy's revision when a history is configured.
+func (p *Policies) record(ctx context.Context, tx pgx.Tx, v ScanPolicy, action string, diff *audit.Diff, actorID string) error {
+	if p.Revisions == nil {
+		return nil
+	}
+	return p.Revisions.Record(ctx, tx, RevisionKind, v.ID, action, v, diff, actorID)
+}
+
+// baseline records a policy as it stood before its first recorded change,
+// for one written before policies had a history, so that version can be
+// put back too.
+func (p *Policies) baseline(ctx context.Context, tx pgx.Tx, before ScanPolicy) error {
+	if p.Revisions == nil {
+		return nil
+	}
+	return p.Revisions.RecordBaseline(ctx, tx, RevisionKind, before.ID, before)
 }
 
 // Record stores what a scan found, aggregated: one row per detector and

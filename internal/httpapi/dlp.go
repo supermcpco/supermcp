@@ -102,6 +102,9 @@ func (d Deps) dlpRoutes(api huma.API) {
 	policies := d.DLP
 	if policies == nil {
 		policies = dlp.NewPolicies(d.DB, nil)
+		if policies != nil && d.Revisions != nil {
+			policies.Revisions = d.Revisions
+		}
 	}
 
 	huma.Register(api, huma.Operation{OperationID: "dlp-detectors", Method: http.MethodGet,
@@ -194,7 +197,7 @@ func (d Deps) dlpRoutes(api huma.API) {
 			if err != nil {
 				return nil, dlpErr(err)
 			}
-			got, err := policies.Update(ctx, p.OrgID, in.ID, in.Body.policy())
+			got, err := policies.Update(ctx, p.OrgID, in.ID, in.Body.policy(), p.ID)
 			if err != nil {
 				d.adminFailed(ctx, "dlp.policy.update", "dlp_policy", in.ID, err)
 				return nil, dlpErr(err)
@@ -218,12 +221,48 @@ func (d Deps) dlpRoutes(api huma.API) {
 			if err != nil {
 				return nil, dlpErr(err)
 			}
-			if err := policies.Delete(ctx, p.OrgID, in.ID); err != nil {
+			if err := policies.Delete(ctx, p.OrgID, in.ID, p.ID); err != nil {
 				d.adminFailed(ctx, "dlp.policy.delete", "dlp_policy", in.ID, err)
 				return nil, dlpErr(err)
 			}
 			d.admin(ctx, "dlp.policy.delete", "dlp_policy", before.ID, before.Name, audit.Deleted(before))
 			return nil, nil //nolint:nilnil // huma's no-content shape
+		})
+
+	// A restore goes through the reader the tool-call path uses, like an
+	// edit: this replica's cache is dropped before the response goes out,
+	// and the table's trigger tells every other replica on commit.
+	huma.Register(api, huma.Operation{OperationID: "dlp-policies-revisions-restore", Method: http.MethodPost,
+		Path:    "/api/v1/dlp/policies/{id}/revisions/{revision}/restore",
+		Summary: "Put a data-loss prevention policy back the way an earlier revision found it",
+		Description: "Needs revisions:rollback and dlp:manage, and a browser session must have signed in within " +
+			"the fresh-auth window. A deleted policy is recreated under its old id.",
+		Tags: []string{"dlp"}, Security: sessionSecurity},
+		func(ctx context.Context, in *revisionGetInput) (*dlpPolicyOutput, error) {
+			p, snapshot, err := d.snapshotToRestore(ctx, dlpRevisions, in)
+			if err != nil {
+				return nil, err
+			}
+			if policies == nil {
+				return nil, huma.Error503ServiceUnavailable("data-loss prevention is not configured")
+			}
+			var want dlp.ScanPolicy
+			if err := snapInto(snapshot, "", &want); err != nil {
+				return nil, err
+			}
+			before, getErr := policies.Get(ctx, p.OrgID, in.ID)
+			got, err := policies.Restore(ctx, p.OrgID, in.ID, want, p.ID)
+			if err != nil {
+				d.restoreFailed(ctx, dlpRevisions, in, err)
+				return nil, dlpErr(err)
+			}
+			if getErr == nil {
+				d.admin(ctx, "dlp.policy.update", "dlp_policy", got.ID, got.Name, audit.Changes(before, got))
+			} else {
+				d.admin(ctx, "dlp.policy.create", "dlp_policy", got.ID, got.Name, audit.Created(got))
+			}
+			d.restored(ctx, dlpRevisions, in, got.Name)
+			return &dlpPolicyOutput{Body: got}, nil
 		})
 
 	huma.Register(api, huma.Operation{OperationID: "dlp-preview", Method: http.MethodPost,

@@ -242,6 +242,9 @@ type Approvals struct {
 	// happen over HTTP are recorded by the handler that serves them, which
 	// knows the address and the session the answer came from.
 	Audit audit.Sink
+	// Revisions records each change to a policy beside the change, in the
+	// same transaction. Nil records nothing.
+	Revisions *Service
 }
 
 // NewApprovals builds the service.
@@ -604,25 +607,18 @@ func (a *Approvals) GetPolicy(ctx context.Context, orgID, id string) (*ApprovalP
 	return out, nil
 }
 
-// CreatePolicy stores a new rule.
+// CreatePolicy stores a new rule. The creator is p.CreatedBy, which is
+// also who the revision names.
 func (a *Approvals) CreatePolicy(ctx context.Context, orgID string, p ApprovalPolicy) (*ApprovalPolicy, error) {
 	if err := p.normalise(); err != nil {
 		return nil, err
 	}
 	p.ID, p.OrgID = a.NewID(), orgID
-	conditions, err := json.Marshal(p.Conditions)
-	if err != nil {
-		return nil, fmt.Errorf("encode policy conditions: %w", err)
-	}
-	err = a.DB.Tx(tenant.WithOrg(ctx, orgID), func(tx pgx.Tx) error {
-		return tx.QueryRow(ctx, `INSERT INTO approval_policies
-			(id, organization_id, name, scope_kind, scope_id, trigger_kind, tool_name, conditions,
-			 effect, ttl_seconds, enabled, created_by)
-			VALUES ($1, current_org(), $2, $3, $4, $5, $6, $7, $8, $9, $10, NULLIF($11,''))
-			RETURNING created_at, updated_at`,
-			p.ID, p.Name, string(p.Scope), p.ScopeID, string(p.Trigger), p.ToolName,
-			conditionsFor(p, conditions), string(p.Effect), p.TTL, p.Enabled, p.CreatedBy).
-			Scan(&p.CreatedAt, &p.UpdatedAt)
+	err := a.DB.Tx(tenant.WithOrg(ctx, orgID), func(tx pgx.Tx) error {
+		if err := insertApprovalPolicy(ctx, tx, &p); err != nil {
+			return err
+		}
+		return a.recordPolicy(ctx, tx, p, ActionCreate, audit.Created(p), p.CreatedBy)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create approval policy: %w", err)
@@ -633,28 +629,57 @@ func (a *Approvals) CreatePolicy(ctx context.Context, orgID string, p ApprovalPo
 // UpdatePolicy replaces a rule wholesale. A rule read, edited on a screen
 // and sent back is the whole rule, so a partial update here would leave
 // fields nobody could clear.
-func (a *Approvals) UpdatePolicy(ctx context.Context, orgID, id string, p ApprovalPolicy) (*ApprovalPolicy, error) {
+func (a *Approvals) UpdatePolicy(ctx context.Context, orgID, id string, p ApprovalPolicy, actorID string) (*ApprovalPolicy, error) {
 	if err := p.normalise(); err != nil {
 		return nil, err
 	}
 	p.ID, p.OrgID = id, orgID
-	conditions, err := json.Marshal(p.Conditions)
-	if err != nil {
-		return nil, fmt.Errorf("encode policy conditions: %w", err)
-	}
-	err = a.DB.Tx(tenant.WithOrg(ctx, orgID), func(tx pgx.Tx) error {
-		row := tx.QueryRow(ctx, `UPDATE approval_policies
-			SET name = $2, scope_kind = $3, scope_id = $4, trigger_kind = $5, tool_name = $6,
-			    conditions = $7, effect = $8, ttl_seconds = $9, enabled = $10, updated_at = now()
-			WHERE id = $1 RETURNING created_at, updated_at, COALESCE(created_by,'')`,
-			id, p.Name, string(p.Scope), p.ScopeID, string(p.Trigger), p.ToolName,
-			conditionsFor(p, conditions), string(p.Effect), p.TTL, p.Enabled)
-		if err := row.Scan(&p.CreatedAt, &p.UpdatedAt, &p.CreatedBy); errors.Is(err, pgx.ErrNoRows) {
-			return ErrPolicyNotFound
-		} else if err != nil {
+	err := a.DB.Tx(tenant.WithOrg(ctx, orgID), func(tx pgx.Tx) error {
+		before, err := lockApprovalPolicy(ctx, tx, id)
+		if err != nil {
 			return err
 		}
-		return nil
+		if err := updateApprovalPolicy(ctx, tx, &p); err != nil {
+			return err
+		}
+		if err := a.baselinePolicy(ctx, tx, before); err != nil {
+			return err
+		}
+		return a.recordPolicy(ctx, tx, p, ActionUpdate, audit.Changes(before, p), actorID)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &p, nil
+}
+
+// RestorePolicy puts a rule back the way a revision recorded it, through
+// the statements an edit uses. A rule that has since been deleted is
+// recreated under its old id and with its old creator; the requests it
+// raised before the delete kept its id, so they point at it again.
+func (a *Approvals) RestorePolicy(ctx context.Context, orgID, id string, p ApprovalPolicy, actorID string) (*ApprovalPolicy, error) {
+	if err := p.normalise(); err != nil {
+		return nil, err
+	}
+	p.ID, p.OrgID = id, orgID
+	err := a.DB.Tx(tenant.WithOrg(ctx, orgID), func(tx pgx.Tx) error {
+		before, err := lockApprovalPolicy(ctx, tx, id)
+		switch {
+		case errors.Is(err, ErrPolicyNotFound):
+			if err := insertApprovalPolicy(ctx, tx, &p); err != nil {
+				return err
+			}
+			return a.recordPolicy(ctx, tx, p, ActionCreate, audit.Created(p), actorID)
+		case err != nil:
+			return err
+		}
+		if err := updateApprovalPolicy(ctx, tx, &p); err != nil {
+			return err
+		}
+		if err := a.baselinePolicy(ctx, tx, before); err != nil {
+			return err
+		}
+		return a.recordPolicy(ctx, tx, p, ActionUpdate, audit.Changes(before, p), actorID)
 	})
 	if err != nil {
 		return nil, err
@@ -663,18 +688,87 @@ func (a *Approvals) UpdatePolicy(ctx context.Context, orgID, id string, p Approv
 }
 
 // DeletePolicy removes a rule. The requests it raised stay: what someone
-// approved last week is not undone by changing the rule this week.
-func (a *Approvals) DeletePolicy(ctx context.Context, orgID, id string) error {
+// approved last week is not undone by changing the rule this week. Its
+// history stays too, so it can be restored.
+func (a *Approvals) DeletePolicy(ctx context.Context, orgID, id, actorID string) error {
 	return a.DB.Tx(tenant.WithOrg(ctx, orgID), func(tx pgx.Tx) error {
-		tag, err := tx.Exec(ctx, `DELETE FROM approval_policies WHERE id = $1`, id)
+		before, err := lockApprovalPolicy(ctx, tx, id)
 		if err != nil {
 			return err
 		}
-		if tag.RowsAffected() == 0 {
-			return ErrPolicyNotFound
+		if _, err := tx.Exec(ctx, `DELETE FROM approval_policies WHERE id = $1`, id); err != nil {
+			return err
 		}
-		return nil
+		if err := a.baselinePolicy(ctx, tx, before); err != nil {
+			return err
+		}
+		return a.recordPolicy(ctx, tx, before, ActionDelete, audit.Deleted(before), actorID)
 	})
+}
+
+// lockApprovalPolicy reads a rule inside the writing transaction and holds
+// its row, so the before a revision records is the one the write replaced.
+func lockApprovalPolicy(ctx context.Context, tx pgx.Tx, id string) (ApprovalPolicy, error) {
+	list, err := scanPolicies(ctx, tx, `SELECT `+policyColumns+` FROM approval_policies WHERE id = $1 FOR UPDATE`, id)
+	if err != nil {
+		return ApprovalPolicy{}, err
+	}
+	if len(list) == 0 {
+		return ApprovalPolicy{}, ErrPolicyNotFound
+	}
+	return list[0], nil
+}
+
+func insertApprovalPolicy(ctx context.Context, tx pgx.Tx, p *ApprovalPolicy) error {
+	conditions, err := json.Marshal(p.Conditions)
+	if err != nil {
+		return fmt.Errorf("encode policy conditions: %w", err)
+	}
+	return tx.QueryRow(ctx, `INSERT INTO approval_policies
+		(id, organization_id, name, scope_kind, scope_id, trigger_kind, tool_name, conditions,
+		 effect, ttl_seconds, enabled, created_by)
+		VALUES ($1, current_org(), $2, $3, $4, $5, $6, $7, $8, $9, $10, NULLIF($11,''))
+		RETURNING created_at, updated_at`,
+		p.ID, p.Name, string(p.Scope), p.ScopeID, string(p.Trigger), p.ToolName,
+		conditionsFor(*p, conditions), string(p.Effect), p.TTL, p.Enabled, p.CreatedBy).
+		Scan(&p.CreatedAt, &p.UpdatedAt)
+}
+
+func updateApprovalPolicy(ctx context.Context, tx pgx.Tx, p *ApprovalPolicy) error {
+	conditions, err := json.Marshal(p.Conditions)
+	if err != nil {
+		return fmt.Errorf("encode policy conditions: %w", err)
+	}
+	err = tx.QueryRow(ctx, `UPDATE approval_policies
+		SET name = $2, scope_kind = $3, scope_id = $4, trigger_kind = $5, tool_name = $6,
+		    conditions = $7, effect = $8, ttl_seconds = $9, enabled = $10, updated_at = now()
+		WHERE id = $1 RETURNING created_at, updated_at, COALESCE(created_by,'')`,
+		p.ID, p.Name, string(p.Scope), p.ScopeID, string(p.Trigger), p.ToolName,
+		conditionsFor(*p, conditions), string(p.Effect), p.TTL, p.Enabled).
+		Scan(&p.CreatedAt, &p.UpdatedAt, &p.CreatedBy)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrPolicyNotFound
+	}
+	return err
+}
+
+// baselinePolicy records a rule as it stood before its first recorded
+// change, for one written before rules had a history, so that version can
+// be put back too.
+func (a *Approvals) baselinePolicy(ctx context.Context, tx pgx.Tx, before ApprovalPolicy) error {
+	if a.Revisions == nil {
+		return nil
+	}
+	return a.Revisions.RecordBaseline(ctx, tx, string(KindApprovalPolicy), before.ID, before)
+}
+
+// recordPolicy writes the rule's revision when a history is configured.
+func (a *Approvals) recordPolicy(ctx context.Context, tx pgx.Tx, p ApprovalPolicy, action string, diff *audit.Diff, actorID string) error {
+	if a.Revisions == nil {
+		return nil
+	}
+	return a.Revisions.RecordRevision(ctx, tx, Revision{Kind: KindApprovalPolicy, EntityID: p.ID, Action: action,
+		Entity: p, Diff: diff, ActorID: actorID})
 }
 
 // Matches reports whether this policy reaches the call at all, before its

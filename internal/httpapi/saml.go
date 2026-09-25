@@ -215,6 +215,17 @@ func samlErr(err error) error {
 	}
 }
 
+// samlRestoreDTO is a restored provider, and says what a restore does not
+// put back. It repeats samlDTO's fields rather than embedding it: the
+// schema generator does not see through an unexported embedded type.
+type samlRestoreDTO struct {
+	saml.Provider
+	ACSURL         string `json:"acsUrl"`
+	MetadataURL    string `json:"spMetadataUrl"`
+	LoginURL       string `json:"loginUrl"`
+	SigningKeyKept bool   `json:"signingKeyKept" doc:"Always true: a restore leaves our signing key pair as it is, because the history does not hold the private key and the identity provider trusts the certificate in use now. Rotate the key to replace it."`
+}
+
 type samlListBody struct {
 	Providers []samlDTO `json:"providers"`
 }
@@ -306,7 +317,7 @@ func (s samlAPI) register(api huma.API) {
 			if err != nil {
 				return nil, err
 			}
-			prov, err := s.svc.Update(ctx, p.OrgID, in.ID, in.Body.toInput())
+			prov, err := s.svc.Update(ctx, p.OrgID, in.ID, p.ID, in.Body.toInput())
 			if err != nil {
 				s.adminFailed(ctx, "saml.update", "saml_provider", in.ID, err)
 				return nil, samlErr(err)
@@ -332,7 +343,7 @@ func (s samlAPI) register(api huma.API) {
 			if err != nil {
 				return nil, err
 			}
-			prov, err := s.svc.Rotate(ctx, p.OrgID, in.ID)
+			prov, err := s.svc.Rotate(ctx, p.OrgID, in.ID, p.ID)
 			if err != nil {
 				s.adminFailed(ctx, "saml.rotate-key", "saml_provider", in.ID, err)
 				return nil, samlErr(err)
@@ -354,12 +365,49 @@ func (s samlAPI) register(api huma.API) {
 			if err != nil {
 				return nil, err
 			}
-			if err := s.svc.Delete(ctx, p.OrgID, in.ID); err != nil {
+			if err := s.svc.Delete(ctx, p.OrgID, in.ID, p.ID); err != nil {
 				s.adminFailed(ctx, "saml.delete", "saml_provider", in.ID, err)
 				return nil, samlErr(err)
 			}
 			s.admin(ctx, "saml.delete", "saml_provider", in.ID, "", nil)
 			return nil, nil //nolint:nilnil // huma's no-content shape
+		})
+
+	// The identity provider's side is put back from the snapshot, not
+	// fetched again, and our key pair stays as it is.
+	huma.Register(api, huma.Operation{OperationID: "saml-providers-revisions-restore", Method: http.MethodPost,
+		Path:    "/api/v1/saml-providers/{id}/revisions/{revision}/restore",
+		Summary: "Put a SAML provider back the way an earlier revision found it",
+		Description: "Needs revisions:rollback and idp:manage, and a browser session must have signed in within " +
+			"the fresh-auth window. The signing key pair is not restored. A deleted provider cannot be restored: " +
+			"its signing key went with it.",
+		Tags: []string{"identity"}, Security: sessionSecurity},
+		func(ctx context.Context, in *revisionGetInput) (*struct{ Body samlRestoreDTO }, error) {
+			if err := s.unavailable(); err != nil {
+				return nil, err
+			}
+			p, snapshot, err := s.snapshotToRestore(ctx, samlRevisions, in)
+			if err != nil {
+				return nil, err
+			}
+			var snap saml.Snapshot
+			if err := snapInto(snapshot, "", &snap); err != nil {
+				return nil, err
+			}
+			prov, err := s.svc.Restore(ctx, p.OrgID, in.ID, p.ID, snap)
+			if err != nil {
+				s.restoreFailed(ctx, samlRevisions, in, err)
+				if errors.Is(err, saml.ErrNotFound) {
+					return nil, huma.Error404NotFound("this SAML provider has been deleted; a deleted provider " +
+						"cannot be restored from its history, because its signing key went with it")
+				}
+				return nil, samlErr(err)
+			}
+			s.admin(ctx, "saml.update", "saml_provider", prov.ID, prov.Name, audit.Created(prov))
+			s.restored(ctx, samlRevisions, in, prov.Name)
+			dto := s.dto(*prov)
+			return &struct{ Body samlRestoreDTO }{Body: samlRestoreDTO{Provider: dto.Provider, ACSURL: dto.ACSURL,
+				MetadataURL: dto.MetadataURL, LoginURL: dto.LoginURL, SigningKeyKept: true}}, nil
 		})
 
 	// Reading the metadata before saving turns a failed sign-in later

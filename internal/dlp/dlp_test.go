@@ -675,7 +675,7 @@ func TestPolicyRoundTrip(t *testing.T) {
 
 	// A change is visible to the next read, not to the next half-minute.
 	if _, err := policies.Update(ctx, orgID, orgRule.ID, dlp.ScanPolicy{Name: "everything", Scan: dlp.StageArguments,
-		Action: dlp.ActionAllow, Enabled: true}); err != nil {
+		Action: dlp.ActionAllow, Enabled: true}, ""); err != nil {
 		t.Fatalf("update: %v", err)
 	}
 	got, _, err = policies.Resolve(ctx, orgID, connID, "some_other_tool")
@@ -731,7 +731,7 @@ func TestPolicyRoundTrip(t *testing.T) {
 		t.Errorf("stored matches=%d paths=%v, want two of each", matches, paths)
 	}
 
-	if err := policies.Delete(ctx, orgID, toolRule.ID); err != nil {
+	if err := policies.Delete(ctx, orgID, toolRule.ID, ""); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
 	if _, err := policies.Get(ctx, orgID, toolRule.ID); !errors.Is(err, dlp.ErrNotFound) {

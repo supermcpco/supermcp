@@ -67,6 +67,11 @@ type harness struct {
 	connectors *connector.Service
 	servers    *mcpserver.Service
 	db         *tenant.DB
+	// dlp is the tool-call path's policy reader. The API builds a reader
+	// of its own, so the two caches stand in for two replicas.
+	dlp *dlp.Policies
+	// dsn is the database the stack runs on, for a test that listens.
+	dsn string
 }
 
 // harnessOptions replace parts of the stack start builds. The zero value
@@ -144,8 +149,9 @@ func startWith(t *testing.T, opts harnessOptions) *harness {
 	servers.Revisions = revisions
 	approvals := governance.NewApprovals(db, sealer, newID)
 	approvals.Audit = auditor
+	execDLP := dlp.NewPolicies(db, newID)
 	exec := invoke.New(invoke.Deps{DB: db, Connectors: conns, Clients: clients, Pools: pools, Log: log, NewID: newID,
-		Audit: auditor, Policies: policies, DLP: dlp.NewPolicies(db, newID), Approvals: approvals})
+		Audit: auditor, Policies: policies, DLP: execDLP, Approvals: approvals})
 	keyring := mcpauth.NewKeyring(db, sealer, newID)
 	oauth := mcpauth.NewOAuth(db, keyring, "http://127.0.0.1", mcpauth.DCROpen, newID)
 	oauth.Accounts = ids
@@ -172,10 +178,12 @@ func startWith(t *testing.T, opts harnessOptions) *harness {
 	idpClient := httpclient.New(dialer, "identity-providers", httpclient.DefaultPolicy())
 	provisioning := scim.New(db, ids, az, newID)
 	provisioning.Audit = auditor
+	ssoSvc := sso.New(db, sealer, idpClient, newID, cfg.PublicURL)
+	ssoSvc.Revisions = revisions
 	deps := httpapi.Deps{Config: cfg, Log: log, Store: st, Catalog: cat, DB: db, Identity: ids,
 		Authz: az, Keys: keys, Connectors: conns, Servers: servers, MCP: endpoint, OAuth: oauth, OpenRegistration: true,
 		Executor: exec, Revisions: revisions,
-		SSO:   sso.New(db, sealer, idpClient, newID, cfg.PublicURL),
+		SSO:   ssoSvc,
 		SCIM:  provisioning,
 		Audit: auditor, AuditReader: &audit.Reader{DB: db}, AuditPolicies: policies,
 		AuditRetention: audit.NewRetention(db, log)}
@@ -184,7 +192,8 @@ func startWith(t *testing.T, opts harnessOptions) *harness {
 	srv.Start()
 	t.Cleanup(srv.Close)
 
-	return &harness{url: srv.URL, client: srv.Client(), deps: deps, connectors: conns, servers: servers, db: db}
+	return &harness{url: srv.URL, client: srv.Client(), deps: deps, connectors: conns, servers: servers, db: db,
+		dlp: execDLP, dsn: dsn}
 }
 
 func mustURL(s string) *url.URL {

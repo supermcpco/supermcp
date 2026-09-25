@@ -32,25 +32,51 @@ import (
 // registered per kind rather than behind a {kind} parameter so that each
 // one carries its own permission and its own response shape, and so that
 // /api/v1/connectors/{id}/revisions cannot be resolved by accident.
+//
+// op names the operations, and is the path wherever the path has no
+// slash in it. edit is the permission that changes the entity, which a
+// restore asks for on top of revisions:rollback: putting back an earlier
+// sign-in provider is changing how people sign in, and somebody allowed
+// to roll back a connector is not thereby allowed to do that. The kinds
+// that predate it leave it empty and ask for revisions:rollback alone.
 type revisionKind struct {
 	kind governance.Kind
 	path string
+	op   string
 	tag  string
 	read authz.Permission
+	edit authz.Permission
 }
 
 var (
-	connectorRevisions = revisionKind{governance.KindConnector, "connectors", "connectors", authz.ConnectorsRead}
-	toolRevisions      = revisionKind{governance.KindTool, "tools", "connectors", authz.ConnectorsRead}
-	serverRevisions    = revisionKind{governance.KindServer, "servers", "servers", authz.ServersRead}
-	roleRevisions      = revisionKind{governance.KindRole, "roles", "roles", authz.RolesRead}
+	connectorRevisions = revisionKind{kind: governance.KindConnector, path: "connectors", op: "connectors",
+		tag: "connectors", read: authz.ConnectorsRead}
+	toolRevisions = revisionKind{kind: governance.KindTool, path: "tools", op: "tools",
+		tag: "connectors", read: authz.ConnectorsRead}
+	serverRevisions = revisionKind{kind: governance.KindServer, path: "servers", op: "servers",
+		tag: "servers", read: authz.ServersRead}
+	roleRevisions = revisionKind{kind: governance.KindRole, path: "roles", op: "roles",
+		tag: "roles", read: authz.RolesRead}
+	// The policies and the providers are read with the permission that
+	// lists them, so the history shows nobody a rule they could not
+	// already see.
+	dlpRevisions = revisionKind{kind: governance.KindDLPPolicy, path: "dlp/policies", op: "dlp-policies",
+		tag: "dlp", read: authz.ConnectorsRead, edit: authz.DLPManage}
+	approvalPolicyRevisions = revisionKind{kind: governance.KindApprovalPolicy, path: "approval-policies",
+		op: "approval-policies", tag: "approvals", read: authz.ApprovalsDecide, edit: authz.OrgSettingsManage}
+	idpRevisions = revisionKind{kind: governance.KindIdentityProvider, path: "idps", op: "idps",
+		tag: "identity", read: authz.IdpManage, edit: authz.IdpManage}
+	samlRevisions = revisionKind{kind: governance.KindSAMLProvider, path: "saml-providers", op: "saml-providers",
+		tag: "identity", read: authz.IdpManage, edit: authz.IdpManage}
 
-	revisionKinds = []revisionKind{connectorRevisions, toolRevisions, serverRevisions, roleRevisions}
+	revisionKinds = []revisionKind{connectorRevisions, toolRevisions, serverRevisions, roleRevisions,
+		dlpRevisions, approvalPolicyRevisions, idpRevisions, samlRevisions}
 )
 
 // A role applies across the whole organisation rather than to one server
 // or connector, so its resource names nothing: reading its history is as
-// privileged as reading the roles.
+// privileged as reading the roles. The policies and providers are the
+// same.
 func (k revisionKind) resource(id string) authz.Resource {
 	switch k.kind {
 	case governance.KindConnector:
@@ -66,7 +92,7 @@ func (k revisionKind) resource(id string) authz.Resource {
 
 type revisionDTO struct {
 	ID           string         `json:"id"`
-	Kind         string         `json:"kind" enum:"connector,tool,server,role"`
+	Kind         string         `json:"kind" enum:"connector,tool,server,role,dlp_policy,approval_policy,identity_provider,saml_provider"`
 	EntityID     string         `json:"entityId"`
 	Revision     int            `json:"revision"`
 	Action       string         `json:"action" enum:"create,update,delete"`
@@ -126,6 +152,21 @@ func redactConnectorFields(m map[string]any) map[string]any {
 	return out
 }
 
+// noun is the kind in words, for the operation summaries.
+func (k revisionKind) noun() string {
+	switch k.kind {
+	case governance.KindDLPPolicy:
+		return "data-loss prevention policy"
+	case governance.KindApprovalPolicy:
+		return "approval policy"
+	case governance.KindIdentityProvider:
+		return "identity provider"
+	case governance.KindSAMLProvider:
+		return "SAML provider"
+	}
+	return string(k.kind)
+}
+
 func revisionToDTO(r governance.Revision) revisionDTO {
 	return revisionDTO{ID: r.ID, Kind: string(r.Kind), EntityID: r.EntityID, Revision: r.Number,
 		Action: r.Action, ActorID: r.ActorID, ActorDisplay: r.ActorDisplay, CreatedAt: r.CreatedAt, Diff: r.Diff}
@@ -143,8 +184,8 @@ func (d Deps) revisionRoutes(api huma.API) {
 }
 
 func (d Deps) revisionListRoute(api huma.API, k revisionKind) {
-	huma.Register(api, huma.Operation{OperationID: k.path + "-revisions-list", Method: http.MethodGet,
-		Path: "/api/v1/" + k.path + "/{id}/revisions", Summary: "List the revisions of one " + string(k.kind),
+	huma.Register(api, huma.Operation{OperationID: k.op + "-revisions-list", Method: http.MethodGet,
+		Path: "/api/v1/" + k.path + "/{id}/revisions", Summary: "List the revisions of one " + k.noun(),
 		Tags: []string{k.tag}, Security: sessionSecurity},
 		func(ctx context.Context, in *revisionListInput) (*revisionListOutput, error) {
 			p, err := d.require(ctx, k.read, k.resource(in.ID))
@@ -173,8 +214,8 @@ func (d Deps) revisionListRoute(api huma.API, k revisionKind) {
 }
 
 func (d Deps) revisionGetRoute(api huma.API, k revisionKind) {
-	huma.Register(api, huma.Operation{OperationID: k.path + "-revisions-get", Method: http.MethodGet,
-		Path: "/api/v1/" + k.path + "/{id}/revisions/{revision}", Summary: "Read one revision of a " + string(k.kind),
+	huma.Register(api, huma.Operation{OperationID: k.op + "-revisions-get", Method: http.MethodGet,
+		Path: "/api/v1/" + k.path + "/{id}/revisions/{revision}", Summary: "Read one revision of a " + k.noun(),
 		Tags: []string{k.tag}, Security: sessionSecurity},
 		func(ctx context.Context, in *revisionGetInput) (*struct{ Body revisionDTO }, error) {
 			p, err := d.require(ctx, k.read, k.resource(in.ID))
@@ -416,6 +457,11 @@ func (d Deps) snapshotToRestore(ctx context.Context, k revisionKind, in *revisio
 	if err != nil {
 		return nil, nil, err
 	}
+	if k.edit != "" {
+		if _, err := d.require(ctx, k.edit, k.resource(in.ID)); err != nil {
+			return nil, nil, err
+		}
+	}
 	if d.Revisions == nil {
 		return nil, nil, huma.Error503ServiceUnavailable("the revision history is not configured")
 	}
@@ -475,14 +521,19 @@ func snapStrings(m map[string]any, key string) *[]string {
 
 // snapInto re-reads a nested part of the snapshot as the type that owns
 // it, so a restore puts back a transport or an auth block the service can
-// use rather than a bag of values.
+// use rather than a bag of values. An empty key reads the whole snapshot.
 func snapInto(m map[string]any, key string, dst any) error {
-	raw, err := json.Marshal(m[key])
+	var v any = m
+	what := "snapshot"
+	if key != "" {
+		v, what = m[key], key
+	}
+	raw, err := json.Marshal(v)
 	if err != nil {
-		return huma.Error422UnprocessableEntity("this revision's " + key + " cannot be read back")
+		return huma.Error422UnprocessableEntity("this revision's " + what + " cannot be read back")
 	}
 	if err := json.Unmarshal(raw, dst); err != nil {
-		return huma.Error422UnprocessableEntity("this revision's " + key + " cannot be read back")
+		return huma.Error422UnprocessableEntity("this revision's " + what + " cannot be read back")
 	}
 	return nil
 }
