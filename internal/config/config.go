@@ -38,6 +38,10 @@ type Config struct {
 	MCPJSONResponse  bool
 	SQLiteRoot       string
 	ShutdownTimeout  time.Duration
+	// AuthFreshWindow is how recently a browser session must have signed
+	// in, or re-authenticated, to create credentials, change who may do
+	// what, or change the security settings. See httpapi.requireFresh.
+	AuthFreshWindow time.Duration
 
 	RateLimit RateLimit
 	Metrics   Metrics
@@ -80,6 +84,10 @@ type Metrics struct {
 	PerToolCap int
 }
 
+// DefaultAuthFreshWindow is the freshness window when
+// SUPERMCP_AUTH_FRESH_WINDOW is not set.
+const DefaultAuthFreshWindow = 5 * time.Minute
+
 // Load reads the environment. Every variable is prefixed SUPERMCP_ except
 // the conventional DATABASE_URL and REDIS_URL, which are accepted both
 // ways.
@@ -108,6 +116,7 @@ func load(version string, serving bool) (*Config, error) {
 		SQLiteRoot:       os.Getenv("SUPERMCP_SQLITE_ROOT"),
 		MigrateOnStart:   boolenv("SUPERMCP_MIGRATE_ON_START"),
 		ShutdownTimeout:  durenv("SUPERMCP_SHUTDOWN_TIMEOUT", 20*time.Second),
+		AuthFreshWindow:  DefaultAuthFreshWindow,
 		Version:          version,
 	}
 	if c.MaintDatabaseURL == "" {
@@ -136,6 +145,20 @@ func load(version string, serving bool) (*Config, error) {
 		// case of this one.
 		Endpoint: first(getenv("SUPERMCP_OTLP_ENDPOINT", ""), os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")),
 		Sample:   floatenv("SUPERMCP_TRACE_SAMPLE", 0.01),
+	}
+	if v := os.Getenv("SUPERMCP_AUTH_FRESH_WINDOW"); v != "" {
+		// Refused rather than defaulted: a typo that quietly turned this
+		// into five minutes would be harmless, but one that turned it into
+		// a year would switch the check off without anyone noticing.
+		d, err := time.ParseDuration(v)
+		switch {
+		case err != nil:
+			errs = append(errs, fmt.Errorf("SUPERMCP_AUTH_FRESH_WINDOW %q is not a duration, for example 5m", v))
+		case d < time.Minute || d > 24*time.Hour:
+			errs = append(errs, fmt.Errorf("SUPERMCP_AUTH_FRESH_WINDOW must be between 1m and 24h, got %s", d))
+		default:
+			c.AuthFreshWindow = d
+		}
 	}
 	if c.Tracing.Sample < 0 || c.Tracing.Sample > 1 {
 		errs = append(errs, fmt.Errorf("SUPERMCP_TRACE_SAMPLE must be between 0 and 1, got %v", c.Tracing.Sample))
