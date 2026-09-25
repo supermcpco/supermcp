@@ -30,8 +30,9 @@ concurrency:
   group: codeql-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+# No GOFLAGS here: the CodeQL action reads it at init and warns that it
+# belongs on analyze. -mod=readonly is what go build does by default.
 env:
-  GOFLAGS: -mod=readonly
   GOPROXY: https://proxy.golang.org,direct
   GOTOOLCHAIN: local
 
