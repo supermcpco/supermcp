@@ -113,8 +113,49 @@ created, and cannot be recovered.
 | Scopes | Default `mcp:tools:read mcp:tools:invoke`. See below. |
 | Ownership | A key acts as the user or service account that owns it, and inherits that principal's role bindings. It never has more access than its owner. |
 | Last use | Recorded at most once every five minutes per key, with the client address. |
-| Rotation | `Rotate` issues a replacement and gives the old key a grace period (24 hours by default) rather than revoking it immediately. |
+| Rotation | `POST /api/v1/api-keys/{id}/rotate` issues a replacement and gives the old key a grace period (24 hours by default, at most 7 days) rather than revoking it immediately. See below. |
 | Revocation | Immediate. A revoked key is indistinguishable from an unknown one. |
+
+#### Rotating a key
+
+```
+POST /api/v1/api-keys/{id}/rotate
+{"graceSeconds": 3600}
+```
+
+`graceSeconds` is how long the old key keeps working: 0 stops it at
+once, the maximum is 604800 (7 days), and leaving it out means 86400
+(24 hours). The grace only ever brings the old key's expiry forward; a
+key due to expire sooner keeps its earlier date.
+
+The replacement has the old key's name, owner, scopes and server
+binding, and the default 90-day expiry. The reply has the same shape as
+creating a key, with the old key's id and its new expiry added. The
+secret is shown this once:
+
+```json
+{
+  "key": {"id": "…", "name": "…", "prefix": "…", "scopes": ["…"], "expiresAt": "…", "createdAt": "…"},
+  "secret": "smk_…",
+  "previousKeyId": "…",
+  "previousExpiresAt": "2026-09-25T13:00:00Z"
+}
+```
+
+Shortening the old key and creating the new one happen in one
+transaction: if either fails, nothing changes. The permissions are the
+same as for revoking: `apikeys:self:manage` rotates your own keys,
+`apikeys:org:manage` any key in the workspace.
+
+| Status | When |
+|---|---|
+| 404 | No such key, or it is not yours and you lack `apikeys:org:manage`. |
+| 409 | The key is revoked, has expired, or has already been rotated (rotate its replacement instead). Of two rotations of the same key at once, one gets this. |
+| 422 | `graceSeconds` is negative or over 604800. |
+
+Each rotation is recorded as `apikey.rotate` against the old key, naming
+the replacement's id, prefix, scopes and expiry, the old key's new
+expiry, and the grace. Neither secret is in the event.
 
 ### A program: an OAuth access token
 

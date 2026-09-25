@@ -791,6 +791,17 @@ export type KeysCreateResponse = {
     secret: string;
 };
 
+export type KeysRotateRequest = {
+    /**
+     * A URL to the JSON Schema for this object.
+     */
+    readonly $schema?: string;
+    /**
+     * How long the old key keeps working, in seconds. 0 stops it at once; omitted means 86400 (24 hours).
+     */
+    graceSeconds?: number;
+};
+
 export type LegalHoldInputBody = {
     /**
      * A URL to the JSON Schema for this object.
@@ -1097,6 +1108,17 @@ export type RotateServiceAccountSecretResponse = {
      * A URL to the JSON Schema for this object.
      */
     readonly $schema?: string;
+    secret: string;
+};
+
+export type RotatedKeyDto = {
+    /**
+     * A URL to the JSON Schema for this object.
+     */
+    readonly $schema?: string;
+    key: ApiKeyDto;
+    previousExpiresAt: string;
+    previousKeyId: string;
     secret: string;
 };
 
@@ -2045,6 +2067,13 @@ export type KeysCreateResponseWritable = {
     secret: string;
 };
 
+export type KeysRotateRequestWritable = {
+    /**
+     * How long the old key keeps working, in seconds. 0 stops it at once; omitted means 86400 (24 hours).
+     */
+    graceSeconds?: number;
+};
+
 export type LegalHoldInputBodyWritable = {
     /**
      * Hold events at or after this time
@@ -2216,6 +2245,13 @@ export type RolesOutputBodyWritable = {
 };
 
 export type RotateServiceAccountSecretResponseWritable = {
+    secret: string;
+};
+
+export type RotatedKeyDtoWritable = {
+    key: ApiKeyDto;
+    previousExpiresAt: string;
+    previousKeyId: string;
     secret: string;
 };
 
@@ -2588,6 +2624,33 @@ export type KeysRevokeResponses = {
 };
 
 export type KeysRevokeResponse = KeysRevokeResponses[keyof KeysRevokeResponses];
+
+export type KeysRotateData = {
+    body: KeysRotateRequestWritable;
+    path: {
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/api-keys/{id}/rotate';
+};
+
+export type KeysRotateErrors = {
+    /**
+     * Error
+     */
+    default: ErrorModel;
+};
+
+export type KeysRotateError = KeysRotateErrors[keyof KeysRotateErrors];
+
+export type KeysRotateResponses = {
+    /**
+     * OK
+     */
+    200: RotatedKeyDto;
+};
+
+export type KeysRotateResponse = KeysRotateResponses[keyof KeysRotateResponses];
 
 export type ApprovalPoliciesListData = {
     body?: never;

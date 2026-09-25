@@ -703,6 +703,50 @@ func (d Deps) keyRoutes(api huma.API) {
 				TargetKind: "api_key", TargetID: in.ID})
 			return &struct{}{}, nil
 		})
+
+	huma.Register(api, huma.Operation{OperationID: "keys-rotate", Method: http.MethodPost, Path: "/api/v1/api-keys/{id}/rotate",
+		Summary:     "Rotate an API key (the new secret is shown once)",
+		Description: "Creates a replacement with the same name, scopes and server, and brings the old key's expiry forward to now plus the grace period (never later than it already was). Both happen together or not at all.",
+		Tags:        []string{"api-keys"}, Security: sessionSecurity},
+		func(ctx context.Context, in *struct {
+			ID   string `path:"id"`
+			Body struct {
+				GraceSeconds *int `json:"graceSeconds,omitempty" minimum:"0" maximum:"604800" doc:"How long the old key keeps working, in seconds. 0 stops it at once; omitted means 86400 (24 hours)."`
+			}
+		}) (*struct{ Body rotatedKeyDTO }, error) {
+			p, err := d.require(ctx, authz.APIKeysSelf, authz.Resource{})
+			if err != nil {
+				return nil, err
+			}
+			self := d.Authz.Require(ctx, authz.APIKeysOrg, authz.Resource{}) != nil
+			grace := mcpauth.DefaultRotationGrace
+			if in.Body.GraceSeconds != nil {
+				grace = time.Duration(*in.Body.GraceSeconds) * time.Second
+			}
+			rot, err := d.Keys.Rotate(ctx, mcpauth.RotateInput{OrgID: p.OrgID, ID: in.ID, ActorID: p.ID, Self: self, Grace: grace})
+			if err != nil {
+				d.adminFailed(ctx, "apikey.rotate", "api_key", in.ID, err)
+				return nil, humaErr(err)
+			}
+			// As with create, the secret stays out of the event: the
+			// replacement's prefix, scopes and expiry and the old key's new
+			// expiry say what changed.
+			d.emit(ctx, audit.Event{Category: audit.CategorySecrets, Action: "apikey.rotate", Outcome: audit.Success,
+				TargetKind: "api_key", TargetID: in.ID, TargetDisplay: rot.Key.Name,
+				Diff: audit.Created(keyDTO(*rot.Key)),
+				Meta: map[string]any{"replacementId": rot.Key.ID, "previousExpiresAt": rot.PreviousExpiresAt, "graceSeconds": int64(grace / time.Second)}})
+			return &struct{ Body rotatedKeyDTO }{Body: rotatedKeyDTO{Key: keyDTO(*rot.Key), Secret: rot.Secret,
+				PreviousKeyID: in.ID, PreviousExpiresAt: rot.PreviousExpiresAt}}, nil
+		})
+}
+
+// rotatedKeyDTO is the reply to a rotation: the replacement and its
+// one-time secret, shaped like a create, plus when the old key stops.
+type rotatedKeyDTO struct {
+	Key               apiKeyDTO `json:"key"`
+	Secret            string    `json:"secret"`
+	PreviousKeyID     string    `json:"previousKeyId"`
+	PreviousExpiresAt time.Time `json:"previousExpiresAt"`
 }
 
 // --- invocations -----------------------------------------------------------
@@ -762,8 +806,14 @@ func (d Deps) require(ctx context.Context, perm authz.Permission, r authz.Resour
 // 500s, whose detail huma hides; the router logs them instead.
 func humaErr(err error) error {
 	if errors.Is(err, connector.ErrNotFound) || errors.Is(err, mcpserver.ErrNotFound) ||
-		errors.Is(err, connector.ErrToolNotFound) {
+		errors.Is(err, connector.ErrToolNotFound) || errors.Is(err, mcpauth.ErrKeyNotFound) {
 		return huma.Error404NotFound(err.Error())
+	}
+	if errors.Is(err, mcpauth.ErrRotateRevoked) || errors.Is(err, mcpauth.ErrRotateExpired) || errors.Is(err, mcpauth.ErrRotateTwice) {
+		return huma.Error409Conflict(err.Error())
+	}
+	if errors.Is(err, mcpauth.ErrGraceRange) {
+		return huma.Error400BadRequest(err.Error())
 	}
 	if herr := toolConflict(err); herr != nil {
 		return herr

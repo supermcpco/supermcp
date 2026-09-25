@@ -9,6 +9,7 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"net/netip"
 	"strings"
 	"sync"
@@ -25,10 +26,31 @@ const (
 	prefixLen = 12
 )
 
+// DefaultRotationGrace is how long a rotated key keeps working when the
+// caller does not say.
+const DefaultRotationGrace = 24 * time.Hour
+
+// MaxRotationGrace caps how long a rotated key keeps working. Two live keys
+// for one principal is a window a holder of the old key shares, so it is
+// kept short.
+const MaxRotationGrace = 7 * 24 * time.Hour
+
 // Errors.
 var (
 	ErrInvalidKey = errors.New("invalid API key")
 	ErrKeyExpired = errors.New("API key expired")
+
+	// ErrKeyNotFound is returned when the key does not exist or is not the
+	// caller's to change.
+	ErrKeyNotFound = errors.New("API key not found")
+	// ErrRotateRevoked refuses to rotate a revoked key.
+	ErrRotateRevoked = errors.New("API key is revoked and cannot be rotated; create a new key")
+	// ErrRotateExpired refuses to rotate a key that has already expired.
+	ErrRotateExpired = errors.New("API key has expired and cannot be rotated; create a new key")
+	// ErrRotateTwice refuses to rotate a key that already has a replacement.
+	ErrRotateTwice = errors.New("API key has already been rotated; rotate its replacement instead")
+	// ErrGraceRange rejects a grace period outside [0, MaxRotationGrace].
+	ErrGraceRange = errors.New("grace must be between 0 and 7 days")
 )
 
 // APIKey is the stored record (never the secret).
@@ -105,6 +127,21 @@ func (k *Keys) Create(ctx context.Context, in CreateInput) (*APIKey, string, err
 			return nil, "", errors.New("unknown scope " + s)
 		}
 	}
+	var rec *APIKey
+	var full string
+	err := k.DB.Tx(tenant.WithOrg(ctx, in.OrgID), func(tx pgx.Tx) error {
+		var err error
+		rec, full, err = k.insert(ctx, tx, in)
+		return err
+	})
+	if err != nil {
+		return nil, "", err
+	}
+	return rec, full, nil
+}
+
+// insert mints a key and stores it in tx. The caller has validated in.
+func (k *Keys) insert(ctx context.Context, tx pgx.Tx, in CreateInput) (*APIKey, string, error) {
 	full, prefix, hash, err := Generate()
 	if err != nil {
 		return nil, "", err
@@ -119,14 +156,11 @@ func (k *Keys) Create(ctx context.Context, in CreateInput) (*APIKey, string, err
 		t := k.now().Add(ttl)
 		rec.ExpiresAt = &t
 	}
-	err = k.DB.Tx(tenant.WithOrg(ctx, in.OrgID), func(tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, `INSERT INTO api_keys (id, organization_id, principal_kind, principal_id, name, prefix, hash, scopes, server_id, expires_at, rotated_from, created_by)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NULLIF($9,''),$10,NULLIF($11,''),NULLIF($12,''))`,
-			rec.ID, rec.OrgID, rec.PrincipalKind, rec.PrincipalID, rec.Name, rec.Prefix, hash, rec.Scopes, rec.ServerID, rec.ExpiresAt, rec.RotatedFrom, in.CreatedBy)
-		return err
-	})
+	_, err = tx.Exec(ctx, `INSERT INTO api_keys (id, organization_id, principal_kind, principal_id, name, prefix, hash, scopes, server_id, expires_at, rotated_from, created_by)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NULLIF($9,''),$10,NULLIF($11,''),NULLIF($12,''))`,
+		rec.ID, rec.OrgID, rec.PrincipalKind, rec.PrincipalID, rec.Name, rec.Prefix, hash, rec.Scopes, rec.ServerID, rec.ExpiresAt, rec.RotatedFrom, in.CreatedBy)
 	if err != nil {
-		return nil, "", err
+		return nil, "", fmt.Errorf("insert api key: %w", err)
 	}
 	return rec, full, nil
 }
@@ -223,31 +257,92 @@ func (k *Keys) Revoke(ctx context.Context, orgID, id, principalID string, self b
 			return err
 		}
 		if tag.RowsAffected() == 0 {
-			return pgx.ErrNoRows
+			// Unknown, someone else's, or already revoked: the caller
+			// learns no more than that there is nothing here to revoke.
+			return ErrKeyNotFound
 		}
 		return nil
 	})
 }
 
-// Rotate creates a replacement and gives the old key a grace period.
-func (k *Keys) Rotate(ctx context.Context, orgID, id, principalID string, grace time.Duration) (*APIKey, string, error) {
-	var old APIKey
-	err := k.DB.Tx(tenant.WithOrg(ctx, orgID), func(tx pgx.Tx) error {
-		if err := tx.QueryRow(ctx, `SELECT id, principal_kind, principal_id, name, scopes, COALESCE(server_id,''), expires_at FROM api_keys WHERE id = $1 AND organization_id = $2 AND revoked_at IS NULL`, id, orgID).
-			Scan(&old.ID, &old.PrincipalKind, &old.PrincipalID, &old.Name, &old.Scopes, &old.ServerID, &old.ExpiresAt); err != nil {
-			return err
+// RotateInput names the key to rotate and who is rotating it.
+type RotateInput struct {
+	OrgID   string
+	ID      string
+	ActorID string
+	// Self restricts the rotation to keys whose principal is ActorID.
+	Self bool
+	// Grace is how long the old key keeps working, in [0, MaxRotationGrace].
+	// Zero stops it at once.
+	Grace time.Duration
+}
+
+// Rotation is the outcome of Rotate.
+type Rotation struct {
+	Key    *APIKey
+	Secret string
+	// PreviousExpiresAt is when the old key stops working.
+	PreviousExpiresAt time.Time
+}
+
+// Rotate replaces a key: the replacement gets the old key's principal,
+// name, scopes and server, and the old key's expiry is brought forward to
+// now+grace (never pushed back). Both happen in one transaction, so a
+// failure leaves the old key exactly as it was. The old row is locked
+// while this runs, so of two concurrent rotations of one key, one wins and
+// the other gets ErrRotateTwice.
+func (k *Keys) Rotate(ctx context.Context, in RotateInput) (*Rotation, error) {
+	if in.Grace < 0 || in.Grace > MaxRotationGrace {
+		return nil, ErrGraceRange
+	}
+	var out Rotation
+	err := k.DB.Tx(tenant.WithOrg(ctx, in.OrgID), func(tx pgx.Tx) error {
+		var old APIKey
+		err := tx.QueryRow(ctx, `SELECT id, principal_kind, principal_id, name, scopes, COALESCE(server_id,''), expires_at, revoked_at
+			FROM api_keys WHERE id = $1 AND organization_id = $2 AND ($3 = '' OR principal_id = $3) FOR UPDATE`,
+			in.ID, in.OrgID, selfFilter(in.Self, in.ActorID)).
+			Scan(&old.ID, &old.PrincipalKind, &old.PrincipalID, &old.Name, &old.Scopes, &old.ServerID, &old.ExpiresAt, &old.RevokedAt)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrKeyNotFound
 		}
-		if principalID != "" && old.PrincipalID != principalID {
-			return pgx.ErrNoRows
+		if err != nil {
+			return fmt.Errorf("lock api key: %w", err)
 		}
-		if grace <= 0 {
-			grace = 24 * time.Hour
+		now := k.now()
+		if old.RevokedAt != nil {
+			return ErrRotateRevoked
 		}
-		_, err := tx.Exec(ctx, `UPDATE api_keys SET expires_at = LEAST(COALESCE(expires_at, 'infinity'), $2::timestamptz) WHERE id = $1`, id, k.now().Add(grace))
+		if old.ExpiresAt != nil && !old.ExpiresAt.After(now) {
+			return ErrRotateExpired
+		}
+		// Read after taking the lock: under read committed a rotation that
+		// committed while this one waited is visible here as its new row.
+		var rotated bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM api_keys WHERE rotated_from = $1)`, old.ID).Scan(&rotated); err != nil {
+			return fmt.Errorf("check replacement: %w", err)
+		}
+		if rotated {
+			return ErrRotateTwice
+		}
+		if err := tx.QueryRow(ctx, `UPDATE api_keys SET expires_at = LEAST(COALESCE(expires_at, 'infinity'), $2::timestamptz) WHERE id = $1 RETURNING expires_at`,
+			old.ID, now.Add(in.Grace)).Scan(&out.PreviousExpiresAt); err != nil {
+			return fmt.Errorf("shorten old key: %w", err)
+		}
+		out.Key, out.Secret, err = k.insert(ctx, tx, CreateInput{OrgID: in.OrgID, PrincipalKind: old.PrincipalKind, PrincipalID: old.PrincipalID,
+			Name: old.Name, Scopes: old.Scopes, ServerID: old.ServerID, CreatedBy: in.ActorID, RotatedFrom: old.ID})
 		return err
 	})
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
-	return k.Create(ctx, CreateInput{OrgID: orgID, PrincipalKind: old.PrincipalKind, PrincipalID: old.PrincipalID, Name: old.Name, Scopes: old.Scopes, ServerID: old.ServerID, CreatedBy: principalID, RotatedFrom: old.ID})
+	return &out, nil
+}
+
+// selfFilter is the principal a query is restricted to: the actor when
+// self, nobody (every key in the org) otherwise.
+func selfFilter(self bool, actorID string) string {
+	if self {
+		return actorID
+	}
+	return ""
 }
