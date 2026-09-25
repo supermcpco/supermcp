@@ -75,6 +75,19 @@ spec:
             initialDelaySeconds: 3
             periodSeconds: 5
             failureThreshold: 3
+          {{- /*
+            The sleep action is on by default from 1.30. A 1.29 API server
+            rejects the Deployment outright ("preStop: must specify a
+            handler type"), so there the pause is left out.
+          */}}
+          {{- if and .Values.preStopSleepSeconds (semverCompare ">=1.30.0-0" .Capabilities.KubeVersion.Version) }}
+          # Serve on while the endpoint removal reaches every node; see
+          # preStopSleepSeconds in values.yaml.
+          lifecycle:
+            preStop:
+              sleep:
+                seconds: {{ int .Values.preStopSleepSeconds }}
+          {{- end }}
           securityContext:
             {{- toYaml .Values.containerSecurityContext | nindent 12 }}
           resources:

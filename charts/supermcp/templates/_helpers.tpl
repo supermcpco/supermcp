@@ -35,6 +35,19 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end -}}
 {{- end -}}
 
+{{/*
+The migrate Job's ServiceAccount. A hook of its own when the chart creates
+accounts (templates/serviceaccount-migrate.yaml); otherwise the one the
+operator named, which exists before the install does.
+*/}}
+{{- define "supermcp.migrateServiceAccountName" -}}
+{{- if .Values.serviceAccount.create -}}
+{{- printf "%s-migrate" (include "supermcp.fullname" .) -}}
+{{- else -}}
+{{- include "supermcp.serviceAccountName" . -}}
+{{- end -}}
+{{- end -}}
+
 {{- define "supermcp.image" -}}
 {{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}
 {{- end -}}

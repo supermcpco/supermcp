@@ -106,6 +106,10 @@ config:
   logLevel: info
   logFormat: json
 
+# The server's identity. The migrate Job does not use it: with create
+# true the Job gets its own <release>-migrate account, created as a hook
+# because the Job runs before this one exists, with no annotations and no
+# token. With create false, the Job runs as the account named here.
 serviceAccount:
   create: true
   name: ""
@@ -213,5 +217,17 @@ nodeSelector: {}
 tolerations: []
 affinity: {}
 topologySpreadConstraints: []
+
+# How long a pod keeps serving after it is told to stop, before it closes
+# its listener. Kubernetes removes a terminating pod from the Service's
+# endpoints at the same moment it signals the pod, and the nodes take a
+# moment to hear about it; without this pause a rolling upgrade drops
+# the requests routed to a pod in that moment (the kind install test
+# caught one). Raise it behind a cloud load balancer that sends straight
+# to pod IPs and deregisters slowly. 0 turns it off. Needs Kubernetes
+# 1.30 or later; on 1.29 the chart leaves it out, and `helm template`
+# needs --kube-version to know which. Keep it plus SUPERMCP_SHUTDOWN_TIMEOUT
+# (20s) under terminationGracePeriodSeconds, or the drain is cut short.
+preStopSleepSeconds: 5
 
 terminationGracePeriodSeconds: 30
