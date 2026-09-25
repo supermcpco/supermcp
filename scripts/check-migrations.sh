@@ -11,6 +11,8 @@
 #   ALTER ... RENAME, ALTER COLUMN ... TYPE, ALTER COLUMN ... SET NOT NULL,
 #   ADD COLUMN ... NOT NULL (or PRIMARY KEY) without DEFAULT,
 #   DROP INDEX of an index this migration does not also create,
+#   ALTER TABLE ... DROP CONSTRAINT of a constraint this migration does not
+#   add back (ADD CONSTRAINT, same table and name, after the drop),
 #   TRUNCATE, DELETE FROM.
 #
 # The Down section is not checked: it is allowed to remove what Up added.
@@ -18,7 +20,10 @@
 # CREATE FUNCTION body run when the function is called, not when the
 # migration applies, so they are not refused there; everything else is,
 # including inside DO blocks. SQL built at run time (EXECUTE 'DROP ...') is
-# not seen.
+# not seen. A constraint added back under the same name is not compared
+# with the one dropped: that it accepts every row the previous release
+# writes (a superset, as 00014, 00017 and 00028 widen a CHECK list) is for
+# review to see.
 #
 # A migration that has to break the rule carries a line
 #
@@ -116,7 +121,7 @@ function bodykind() {
   return ""
 }
 
-function altertable(k,   j, a, b, depth, s1, col, tbl, hasnn, hasdef, m, sep) {
+function altertable(k,   j, a, b, depth, s1, col, tbl, hasnn, hasdef, m, sep, key) {
   j = k + 2
   if (tok[j] == "IF" && tok[j + 1] == "EXISTS") j += 2
   if (tok[j] == "ONLY") j++
@@ -148,6 +153,18 @@ function altertable(k,   j, a, b, depth, s1, col, tbl, hasnn, hasdef, m, sep) {
         refuse(tline[a], "ALTER COLUMN " col " TYPE on " tbl ": rewrites the table under a lock and changes what the previous release reads")
       else if (tok[m] == "SET" && tok[m + 1] == "NOT" && tok[m + 2] == "NULL")
         refuse(tline[a], "ALTER COLUMN " col " SET NOT NULL on " tbl ": the previous release still writes rows without it")
+    } else if (s1 == "DROP") {
+      # DROP CONSTRAINT: refused at the end unless added back.
+      m = a + 2
+      if (tok[m] == "IF" && tok[m + 1] == "EXISTS") m += 2
+      # One this migration created itself was never seen by the previous
+      # release.
+      key = tbl SUBSEP tolower(tok[m])
+      if (!(key in cstate)) { ncd++; cdrop[ncd] = key }
+      if (cstate[key] != "created") { cstate[key] = "dropped"; cline[key] = tline[a] }
+    } else if (s1 == "ADD" && tok[a + 1] == "CONSTRAINT") {
+      key = tbl SUBSEP tolower(tok[a + 2])
+      cstate[key] = ((key in cstate) && cstate[key] != "created") ? "added" : "created"
     } else if (s1 == "ADD") {
       m = a + 1
       if (tok[m] == "COLUMN") m++
@@ -296,7 +313,7 @@ function lex(s,   i, L, c, t, rest, tg, k, w) {
   }
 }
 
-BEGIN { inup = 0; mode = "code"; ctx = "top"; n = 0; nv = 0; nd = 0 }
+BEGIN { inup = 0; mode = "code"; ctx = "top"; n = 0; nv = 0; nd = 0; ncd = 0 }
 
 /^[ \t]*--[ \t]*\+goose[ \t]+[Uu][Pp][ \t\r]*$/ { inup = 1; next }
 /^[ \t]*--[ \t]*\+goose[ \t]+[Dd][Oo][Ww][Nn][ \t\r]*$/ { if (inup) { flush(); inup = 0 } next }
@@ -307,6 +324,13 @@ END {
   for (k = 1; k <= nd; k++)
     if (!(dropname[k] in created))
       refuse(dropline[k], "DROP INDEX " tolower(dropname[k]) ": not created by this migration, and queries of the previous release may rely on it")
+  # A constraint counts as added back only if its last change in the Up
+  # section is an ADD: dropping it again afterwards leaves it gone.
+  for (k = 1; k <= ncd; k++)
+    if (cstate[cdrop[k]] == "dropped") {
+      split(cdrop[k], cparts, SUBSEP)
+      refuse(cline[cdrop[k]], "DROP CONSTRAINT " cparts[2] " on " cparts[1] ": not added back under the same name by this migration, and the previous release may rely on what it enforced")
+    }
   # Insertion sort by line; there are only ever a handful.
   for (k = 2; k <= nv; k++) {
     l = vline[k]; m = vmsg[k]

@@ -13,7 +13,11 @@ migration may only add. CI runs `scripts/check-migrations.sh` (locally,
 migration whose `-- +goose Up` section drops a table, schema or column,
 renames anything, changes a column's type, sets a column `NOT NULL`, adds
 a `NOT NULL` column without a default, drops an index it did not create,
-or deletes rows with `DELETE FROM` or `TRUNCATE`.
+or deletes rows with `DELETE FROM` or `TRUNCATE`. It also refuses
+`ALTER TABLE ... DROP CONSTRAINT` unless the same Up section then adds a
+constraint of the same name back to the same table, which is how a
+`CHECK` list is widened; that the new constraint accepts every row the
+previous release writes is confirmed in review, not by the script.
 
 A migration that has to do one of those carries the line
 `-- supermcp:breaking`, and this file has a section naming its number that
