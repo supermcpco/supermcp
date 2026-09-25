@@ -126,8 +126,13 @@ test("a role keeps a history that can be restored", async ({ page, workspace }) 
   const role = page.getByRole("listitem").filter({ hasText: "Rota keeper" }).first();
   await role.getByRole("button", { name: "Change what it allows" }).click();
   await page.getByLabel("See the available tools and what each one expects").check();
-  await page.getByRole("button", { name: "Save what it allows" }).click();
-  await expect(page.getByText("See the available tools and what each one expects").first()).toBeVisible();
+  // The save is awaited by its answer: the permission's label is already
+  // on screen inside the open editor, so waiting for text would let the
+  // history be opened before the change has reached the server.
+  await Promise.all([
+    page.waitForResponse((r) => /\/api\/v1\/roles\/[^/]+$/.test(r.url()) && r.request().method() !== "GET" && r.ok()),
+    page.getByRole("button", { name: "Save what it allows" }).click(),
+  ]);
 
   // What the history holds is read from the answer itself, so the test
   // is not racing the panel that draws it.
