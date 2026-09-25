@@ -5,11 +5,14 @@ import { execFileSync, spawn } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { resolve } from "node:path";
+import { dbName, repo } from "./isolation.mjs";
 
-const repo = resolve(import.meta.dirname, "..", "..");
 const admin = process.env.PLAYWRIGHT_ADMIN_DATABASE_URL ?? "postgres://supermcp:supermcp@127.0.0.1:55432/postgres?sslmode=disable";
-const dbName = process.env.PLAYWRIGHT_DB ?? "supermcp_browser";
 const url = admin.replace("/postgres?", `/${dbName}?`);
+// playwright.config.ts picks the port and passes it down; run on its own,
+// this falls back to the port the suite used to have to itself.
+const port = process.env.PLAYWRIGHT_PORT ?? "8099";
+console.log(`browser suite: database ${dbName}, http://localhost:${port}`);
 
 // psql is not always on the path — a developer running Postgres in a
 // container usually has no client installed — so fall back to running it
@@ -39,8 +42,8 @@ const env = {
   ...process.env,
   DATABASE_URL: url,
   ENCRYPTION_KEK: randomBytes(32).toString("base64"),
-  SUPERMCP_LISTEN: ":8099",
-  SUPERMCP_PUBLIC_URL: "http://localhost:8099",
+  SUPERMCP_LISTEN: `:${port}`,
+  SUPERMCP_PUBLIC_URL: `http://localhost:${port}`,
   SUPERMCP_DEV: "true",
   SUPERMCP_OPEN_REGISTRATION: "true",
   SUPERMCP_LOG_FORMAT: "text",

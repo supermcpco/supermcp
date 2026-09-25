@@ -26,6 +26,7 @@ import (
 	"github.com/supermcpco/supermcp/internal/authz"
 	"github.com/supermcpco/supermcp/internal/store"
 	"github.com/supermcpco/supermcp/internal/tenant"
+	"github.com/supermcpco/supermcp/internal/testdb"
 )
 
 // ---------------------------------------------------------------------------
@@ -40,8 +41,10 @@ func testLog() *slog.Logger {
 // sequence — so these tests need an instance nobody else is writing to.
 // Sharing the development database with the other packages' tests, which
 // `go test ./...` runs at the same time, made a cut delete rows the
-// verifier then reported as a broken chain.
-const auditTestDB = "supermcp_audit_tests"
+// verifier then reported as a broken chain. The name carries this
+// checkout's suffix (internal/testdb), so another worktree's run is not
+// that neighbour either.
+var auditTestDB = testdb.Name("supermcp_audit_tests")
 
 // liveDB opens both pools against a database of this package's own,
 // created beside the one DATABASE_URL names. The app pool runs as the
