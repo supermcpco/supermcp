@@ -10,6 +10,6 @@ func WithRetry(o Options, attempts int, base time.Duration) Options {
 	return o
 }
 
-// SearchDocument is the expression a search matches, for the test that
-// checks the index migration 00027 builds is the one the list reads.
-const SearchDocument = searchDocument
+// ListSearchSQL is the statement List sends for a search, for the test
+// that checks how Postgres runs it under the application role.
+const ListSearchSQL = listSearchSQL

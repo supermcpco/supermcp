@@ -8,11 +8,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/supermcpco/supermcp/internal/tenant"
 )
@@ -65,10 +67,12 @@ type Reader struct {
 	VerifyAnchor func(ctx context.Context, hash []byte, signature string) error
 }
 
-// listWhere is the list's filters, without the search.
-const listWhere = `SELECT seq, id, ts, category, action, outcome, actor_kind, COALESCE(actor_id,''), actor_display,
+const listColumns = `SELECT seq, id, ts, category, action, outcome, actor_kind, COALESCE(actor_id,''), actor_display,
 	COALESCE(target_kind,''), COALESCE(target_id,''), target_display, host(ip), diff, payload, meta, hash
-	FROM audit_events
+	FROM audit_events`
+
+// listSQL is a page of the list without a search.
+const listSQL = listColumns + `
 	WHERE organization_id = $1
 	  AND ($2 = '' OR category = $2)
 	  AND ($3 = '' OR action = $3)
@@ -77,21 +81,28 @@ const listWhere = `SELECT seq, id, ts, category, action, outcome, actor_kind, CO
 	  AND ($6 = '' OR outcome = $6)
 	  AND ($7::timestamptz IS NULL OR ts >= $7)
 	  AND ($8::timestamptz IS NULL OR ts <= $8)
-	  AND ($9 = 0 OR seq < $9)`
-
-const listOrder = `
+	  AND ($9 = 0 OR seq < $9)
 	ORDER BY seq DESC LIMIT $10`
 
-// searchDocument is what a search matches against. It has to be written
-// exactly as audit_events_search_idx is (migration 00027), or the planner
-// does not recognise the index and reads the whole organisation's stream.
-const searchDocument = `audit_search_document(action, actor_id, actor_display, target_kind, target_id, target_display, meta)`
+// listSearchSQL is a page of the list with a search. audit_search
+// (migration 00027) finds the page's sequence numbers, applying the search
+// and every other filter; this reads those events. The search cannot be a
+// condition here: under the table's row-level security the text match may
+// not use its index, and a search would read every event the workspace
+// has. The function is SECURITY DEFINER and takes the workspace from the
+// transaction's own setting, and the policy still applies to this read.
+const listSearchSQL = listColumns + `
+	WHERE organization_id = $1
+	  AND seq = ANY(ARRAY(SELECT audit_search($2, $3, $4, $5, $6, $7, $8, $9, $10, $11)))
+	ORDER BY seq DESC`
 
-const (
-	listSQL       = listWhere + listOrder
-	listSearchSQL = listWhere + `
-	  AND ` + searchDocument + ` @@ websearch_to_tsquery('simple', $11)` + listOrder
-)
+// listTimeout bounds one page of the list, the search included.
+const listTimeout = 10 * time.Second
+
+// ErrTimeout is returned when a page of the list took longer than it may.
+// A search for common words over a long time range is what usually does
+// it; narrowing either helps.
+var ErrTimeout = errors.New("the audit query took too long")
 
 // List returns matching events, newest first.
 func (r *Reader) List(ctx context.Context, q Query) ([]Record, error) {
@@ -101,14 +112,19 @@ func (r *Reader) List(ctx context.Context, q Query) ([]Record, error) {
 	sql := listSQL
 	args := []any{q.OrgID, q.Category, q.Action, q.ActorID, q.TargetID, q.Outcome, q.From, q.To, q.AfterSeq, q.Limit}
 	if search := strings.TrimSpace(q.Search); search != "" {
-		// A separate statement rather than "$11 = '' OR ...": a prepared
-		// statement's generic plan cannot use the index through an OR on a
-		// parameter.
 		sql = listSearchSQL
-		args = append(args, search)
+		args = []any{q.OrgID, search, q.Category, q.Action, q.ActorID, q.TargetID, q.Outcome, q.From, q.To, q.AfterSeq, q.Limit}
 	}
+	ctx, cancel := context.WithTimeout(ctx, listTimeout)
+	defer cancel()
 	out := []Record{}
 	err := r.DB.Tx(tenant.WithOrg(ctx, q.OrgID), func(tx pgx.Tx) error {
+		// The context deadline stops this side; the statement timeout makes
+		// Postgres stop too, rather than finish a search nobody will read.
+		if _, err := tx.Exec(ctx, `SELECT set_config('statement_timeout', $1, true)`,
+			strconv.FormatInt(listTimeout.Milliseconds(), 10)); err != nil {
+			return fmt.Errorf("audit list: statement timeout: %w", err)
+		}
 		rows, err := tx.Query(ctx, sql, args...)
 		if err != nil {
 			return err
@@ -137,6 +153,11 @@ func (r *Reader) List(ctx context.Context, q Query) ([]Record, error) {
 		}
 		return rows.Err()
 	})
+	// 57014 is query_canceled, which is what statement_timeout raises.
+	var pgErr *pgconn.PgError
+	if errors.Is(err, context.DeadlineExceeded) || (errors.As(err, &pgErr) && pgErr.Code == "57014") {
+		return nil, fmt.Errorf("%w: %w", ErrTimeout, err)
+	}
 	return out, err
 }
 

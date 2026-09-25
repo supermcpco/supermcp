@@ -2,10 +2,13 @@ package audit_test
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/supermcpco/supermcp/internal/audit"
 )
@@ -37,7 +40,7 @@ func TestListSearches(t *testing.T) {
 			Payload: map[string]any{"output": "narwhal"}},
 		// A NUL in a meta string is written as \u0000, which Postgres
 		// refuses to turn into text. The index must not refuse the event
-		// for it: the row is written and found by its other columns.
+		// for it, and the rest of meta is still searched.
 		{OrgID: org, Category: audit.CategoryAdmin, Action: "member.invited", Outcome: audit.Success,
 			ActorKind: "user", ActorID: "u_ada",
 			Meta: map[string]any{"reason": "nul\x00here", "other": "flamingo"}},
@@ -76,10 +79,12 @@ func TestListSearches(t *testing.T) {
 		{name: "another tenant's meta is not found", q: audit.Query{Search: "pelican"}, want: []string{}},
 		{name: "text with no words matches nothing", q: audit.Query{Search: "!!!"}, want: []string{}},
 		{name: "blank is no search", q: audit.Query{Search: "  \t "}, want: all},
-		{name: "an event whose meta cannot be read is written and found by its action",
+		{name: "an event whose meta holds a NUL is written and found by its action",
 			q: audit.Query{Search: "member.invited"}, want: []string{"member.invited"}},
-		{name: "an event whose meta cannot be read is not found by its meta",
-			q: audit.Query{Search: "flamingo"}, want: []string{}},
+		{name: "an event whose meta holds a NUL is found by the rest of its meta",
+			q: audit.Query{Search: "flamingo"}, want: []string{"member.invited"}},
+		{name: "and by the string that held the NUL",
+			q: audit.Query{Search: "nul here"}, want: []string{"member.invited"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -109,6 +114,23 @@ func TestListSearches(t *testing.T) {
 		}
 	})
 
+	t.Run("the search function answers nothing without a workspace", func(t *testing.T) {
+		// audit_search runs as its owner, past row-level security, so it
+		// takes the workspace from the same setting the policy reads. With
+		// none set, as a caller that skipped tenant.Tx would have it, it
+		// must find nothing, not everything.
+		var n int
+		err := pgx.BeginFunc(ctx, db.App, func(tx pgx.Tx) error {
+			return tx.QueryRow(ctx, `SELECT count(*) FROM audit_search('quarterly', '', '', '', '', '', NULL, NULL, 0, 100)`).Scan(&n)
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if n != 0 {
+			t.Errorf("audit_search with no workspace set found %d events", n)
+		}
+	})
+
 	t.Run("a search pages like the list", func(t *testing.T) {
 		q := audit.Query{OrgID: org, Search: "u_bob or u_ada", Limit: 2}
 		first, err := r.List(ctx, q)
@@ -131,36 +153,100 @@ func TestListSearches(t *testing.T) {
 	}
 }
 
-// TestSearchReadsTheIndex checks that the expression the list searches is
-// the one migration 00027 indexed. Were they to drift, every search would
-// still answer, by reading the organisation's whole stream.
+// TestSearchReadsTheIndex checks, as the application role and with the
+// exact statement List sends, that a search reaches audit_events_search_idx.
+// Under the table's forced row-level security a text match written as a
+// condition of the list cannot use the index (@@ is not leakproof), and a
+// search reads every event the workspace has; this is what failed before
+// the search moved into the audit_search function. The function's own
+// plan is not in EXPLAIN's output, so auto_explain reports it as a notice,
+// which needs a superuser to load; without one the test skips.
 func TestSearchReadsTheIndex(t *testing.T) {
 	ctx := context.Background()
 	db := liveDB(ctx, t)
-	var plan strings.Builder
-	err := db.Bypass(ctx, "audit search plan", func(tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, `SET LOCAL enable_seqscan = off`); err != nil {
-			return err
-		}
-		rows, err := tx.Query(ctx, `EXPLAIN SELECT seq FROM audit_events WHERE `+audit.SearchDocument+
-			` @@ websearch_to_tsquery('simple', 'quarterly')`)
-		if err != nil {
-			return err
-		}
-		defer rows.Close()
-		for rows.Next() {
-			var line string
-			if err := rows.Scan(&line); err != nil {
-				return err
-			}
-			plan.WriteString(line + "\n")
-		}
-		return rows.Err()
-	})
-	if err != nil {
-		t.Fatalf("explaining a search failed: %v", err)
+	s := newStream(ctx, t, db)
+	w := audit.NewWriter(db, testLog(), audit.Options{Buffer: 4096})
+	defer w.Close()
+	// Enough of the workspace's events that reading them all costs more
+	// than reading the index, and statistics that say so.
+	for i := range 2000 {
+		w.Emit(ctx, audit.Event{OrgID: s.org(), Category: audit.CategoryAdmin, Action: "connector.updated",
+			Outcome: audit.Success, ActorKind: "user", ActorID: fmt.Sprintf("u_%d", i), Meta: map[string]any{"reason": "routine"}})
 	}
-	if !strings.Contains(plan.String(), "audit_events_search_idx") {
-		t.Errorf("a search does not read audit_events_search_idx; the plan is:\n%s", plan.String())
+	w.Emit(ctx, audit.Event{OrgID: s.org(), Category: audit.CategoryAdmin, Action: "connector.created",
+		Outcome: audit.Success, ActorKind: "user", ActorID: "u_plan", Meta: map[string]any{"reason": "quarterly"}})
+	if err := w.Flush(ctx); err != nil {
+		t.Fatal(err)
+	}
+	s.bounds(ctx)
+	maintExec(ctx, t, db, `ANALYZE audit_events`)
+
+	var notices []string
+	cfg, err := pgx.ParseConfig(ownDatabase(ctx, t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.OnNotice = func(_ *pgconn.PgConn, n *pgconn.Notice) { notices = append(notices, n.Message) }
+	conn, err := pgx.ConnectConfig(ctx, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close(ctx) }()
+	if _, err := conn.Exec(ctx, `LOAD 'auto_explain'`); err != nil {
+		t.Skipf("auto_explain cannot be loaded here (it needs a superuser), so the function's plan cannot be read: %v", err)
+	}
+	for _, set := range []string{
+		`SET auto_explain.log_min_duration = 0`, `SET auto_explain.log_nested_statements = on`,
+		`SET auto_explain.log_level = notice`, `SET client_min_messages = notice`,
+		// The rest of the table is small enough to read whole.
+		`SET enable_seqscan = off`,
+		`SET ROLE supermcp_app`,
+	} {
+		if _, err := conn.Exec(ctx, set); err != nil {
+			t.Fatalf("%s: %v", set, err)
+		}
+	}
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, `SELECT set_config('app.current_org', $1, true)`, s.org()); err != nil {
+		t.Fatal(err)
+	}
+	notices = nil
+	rows, err := tx.Query(ctx, audit.ListSearchSQL,
+		s.org(), "quarterly", "", "", "", "", "", (*time.Time)(nil), (*time.Time)(nil), int64(0), 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for rows.Next() {
+		n++
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Errorf("the search found %d events as the application role, want 1", n)
+	}
+	plans := strings.Join(notices, "\n")
+	var inner string
+	for _, p := range notices {
+		if strings.Contains(p, "websearch_to_tsquery") {
+			inner = p
+		}
+	}
+	if inner == "" {
+		t.Fatalf("auto_explain reported no plan for the search inside audit_search; it reported:\n%s", plans)
+	}
+	if !strings.Contains(inner, "audit_events_search_idx") {
+		t.Errorf("the search inside audit_search does not read audit_events_search_idx:\n%s", inner)
+	}
+	for _, p := range notices {
+		if strings.Contains(p, "Filter: (audit_search_document") {
+			t.Errorf("a plan tests every event's document instead of reading the index:\n%s", p)
+		}
 	}
 }
