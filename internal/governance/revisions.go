@@ -68,6 +68,19 @@ type Revision struct {
 	CreatedAt    time.Time       `json:"createdAt"`
 }
 
+// actorDisplayOf is the SQL for how a person is shown in the history: the
+// name they gave, or their address when they gave none. It yields NULL for
+// an actor that is not a member of the current organisation, which the row
+// security on users hides, and for one that is not a user at all.
+func actorDisplayOf(idExpr string) string {
+	return `(SELECT COALESCE(NULLIF(u.name, ''), u.email) FROM users u WHERE u.id = ` + idExpr + `)`
+}
+
+// storedActorDisplay reads a revision's actor as recorded, and for a row
+// recorded before the name was kept, looks the actor up instead. An erased
+// person's rows hold a placeholder, so they are never looked up again.
+var storedActorDisplay = `COALESCE(NULLIF(r.actor_display, ''), ` + actorDisplayOf("r.actor_id") + `, '')`
+
 // Service reads and writes the history.
 type Service struct {
 	DB    *tenant.DB
@@ -122,7 +135,8 @@ func (s *Service) RecordRevision(ctx context.Context, tx pgx.Tx, r Revision) err
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO revisions
 		(id, organization_id, entity_kind, entity_id, revision, snapshot, diff, action, actor_id, actor_display)
-		SELECT $1, current_org(), $2, $3, COALESCE(MAX(revision), 0) + 1, $4, $5, $6, NULLIF($7,''), $8
+		SELECT $1, current_org(), $2, $3, COALESCE(MAX(revision), 0) + 1, $4, $5, $6, NULLIF($7,''),
+			COALESCE(NULLIF($8,''), `+actorDisplayOf("NULLIF($7,'')")+`, '')
 		FROM revisions WHERE organization_id = current_org() AND entity_kind = $2 AND entity_id = $3`,
 		s.NewID(), string(r.Kind), r.EntityID, snapshot, diff, r.Action, r.ActorID, r.ActorDisplay)
 	if err != nil {
@@ -179,7 +193,7 @@ func (s *Service) List(ctx context.Context, orgID string, kind Kind, entityID st
 	out := []Revision{}
 	err := s.DB.Tx(tenant.WithOrg(ctx, orgID), func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `SELECT id, entity_kind, entity_id, revision, action, COALESCE(actor_id,''),
-			actor_display, created_at, diff FROM revisions
+			`+storedActorDisplay+`, created_at, diff FROM revisions r
 			WHERE entity_kind = $1 AND entity_id = $2 AND ($3 = 0 OR revision < $3)
 			ORDER BY revision DESC LIMIT $4`, string(kind), entityID, before, limit)
 		if err != nil {
@@ -205,7 +219,7 @@ func (s *Service) Get(ctx context.Context, orgID string, kind Kind, entityID str
 		var snapshot []byte
 		var err error
 		r, err = scan(tx.QueryRow(ctx, `SELECT id, entity_kind, entity_id, revision, action, COALESCE(actor_id,''),
-			actor_display, created_at, diff, snapshot FROM revisions
+			`+storedActorDisplay+`, created_at, diff, snapshot FROM revisions r
 			WHERE entity_kind = $1 AND entity_id = $2 AND revision = $3`,
 			string(kind), entityID, revision), &snapshot)
 		if err != nil {

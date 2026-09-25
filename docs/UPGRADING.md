@@ -144,6 +144,16 @@ static tool on any connector.
 **Generated API clients need regenerating.** The tool routes are new,
 and the tool list and the revision restore return more fields.
 
+### The history names who made a change
+
+A revision kept the id of whoever made it but never their name, so the
+history screens showed a date and nobody. A revision now records the
+member's name, or their address when they gave none, as it is written.
+Revisions written before the upgrade look the member up when they are
+read, so they show a name too for as long as that person is still a
+member; a former member's rows show none. Nothing to do. Erasure already
+covers the column, as it did while it was empty.
+
 ## 1.2.0
 
 No migration. Two things were removed; neither is something a running
