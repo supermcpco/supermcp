@@ -25,11 +25,12 @@ import (
 const keysUsage = `Usage: supermcp keys <subcommand> [flags]
 
 Subcommands:
-  rotate-kek   re-wrap every data key under the configured master key
-  rotate-dek   re-seal a workspace's rows under a new data key
-  verify       check that every data key opens with the keys this process holds
+  rotate-kek       re-wrap every data key under the configured master key
+  rotate-dek       re-seal a workspace's rows under a new data key
+  verify           check that every data key opens with the keys this process holds
+  rotate-signing   replace the key that signs access tokens (-revoke for an incident)
 
-All three read the master keys from the same settings as the gateway:
+All of them read the master keys from the same settings as the gateway:
 SUPERMCP_KEK_PROVIDER (local|awskms), and SUPERMCP_KEK_PREVIOUS for a key
 that may only decrypt.
 
@@ -63,6 +64,8 @@ func keysCmd(args []string) error {
 		return keysRotateDEK(args[1:])
 	case "verify":
 		return keysVerify(args[1:])
+	case "rotate-signing":
+		return keysRotateSigning(args[1:])
 	default:
 		fmt.Fprint(os.Stderr, keysUsage)
 		return fmt.Errorf("unknown subcommand %q", args[0])

@@ -134,6 +134,44 @@ how many and in which table. Nothing is ever deleted: a retired key still
 opens a restored backup, and you should keep the master key that wraps it
 for as long as you keep the backups.
 
+## Replacing the token signing key
+
+One ES256 key signs the OAuth access tokens and the audit checkpoints,
+and `/.well-known/jwks.json` publishes it with the key that will replace
+it and the one it replaced. A sweep every six hours rotates it once it is
+90 days old: it publishes a next key, promotes it after it has been
+published for a day, so a verifier that cached the key set still knows
+the new key, and retires the old key 30 days later.
+
+`supermcp keys rotate-signing` starts the same rotation now. It publishes
+a next key, and the first sweep after a day promotes it. If a next key is
+already published it keeps that one and changes nothing, because it is
+the key clients have been fetching.
+
+`supermcp keys rotate-signing -revoke` is for a key that may be known.
+In one transaction it retires every key in the key set (the active key,
+the one it replaced, and a next key if there is one) and makes a new key
+active with no pre-publish. The JWKS then carries only the new key, and
+every access token signed before is refused. Each replica reloads its
+keys within a minute, and until then it still accepts the old tokens and
+may sign a few more with the old key, which are refused after the
+reload. A verifier outside the instance follows when its copy of the
+JWKS expires, which the endpoint allows for five minutes. Clients get new access tokens with
+their refresh tokens, which the signing key does not touch, or sign in
+again. Retiring the older keys as well costs nothing more: they vouch
+only for tokens signed before the last promotion, which have expired
+unless that promotion was within the hour. Checkpoints signed by a
+retired key still verify, because `audit verify` checks them against
+every key the table has ever held.
+
+Both forms write `signing_key.rotate` to the audit trail, with
+`revoked: true` or `false`, the new key id as the target, and the name
+given with `-by` (default `$USER`). A run that changed nothing writes
+nothing. The new private key is sealed under the instance data key, so
+the command needs the same master key settings as the gateway, and it
+proves a KMS key round-trips before using it. `-format json` prints the
+result for a script.
+
 ## Cache invalidation
 
 Each replica caches two things that decide what a caller may do: a

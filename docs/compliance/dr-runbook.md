@@ -153,8 +153,10 @@ spool file, and do it again:
   deactivated or removed, SCIM deactivations and rejected OAuth clients all revert.
   Search the destination for `session.revoke`, `apikey.revoke`,
   `member.deactivate`, `member.remove`, `scim.user.deactivate`,
-  `oauth.client.reject` and `service_account.delete` after the backup time, and
-  repeat each one. Also ask each identity provider to push its SCIM state again.
+  `oauth.client.reject`, `service_account.delete` and `signing_key.rotate` with
+  `revoked: true` after the backup time, and repeat each one. A revoked signing
+  key is back in the key set until you run `keys rotate-signing -revoke` again.
+  Also ask each identity provider to push its SCIM state again.
 - **New credentials vanish.** API keys created, rotated or re-issued after the
   backup are unknown and get 401. Service account secrets rotated after the backup
   revert to the old secret. Tell their owners.

@@ -17,7 +17,7 @@ Commands:
   migrate    apply database migrations (takes an advisory lock)
   adapter    validate, convert, index and scaffold adapter definitions
   audit      verify the audit trail's hash chain
-  keys       rotate the master key and the data keys, and check they open
+  keys       rotate the master key, the data keys and the signing key
   compliance access review, cryptography and configuration reports
   dsar       export or erase everything this instance holds about one person
   oauth      list, approve and reject registered OAuth clients
