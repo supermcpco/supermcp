@@ -2,7 +2,7 @@
 
 Give Claude, ChatGPT and Copilot governed access to the systems your company already runs. One static Go binary turns REST, GraphQL, SQL, SOAP and other MCP servers into MCP tools, with enterprise controls built in rather than bolted on.
 
-> Status: pre-release. M0 (skeleton, adapter format, tooling) is in progress. See `docs/plan.md` for the roadmap.
+> Status: released. `docs/UPGRADING.md` says what each release needs from an operator; `docs/plan.md` is the roadmap.
 
 ## Why
 

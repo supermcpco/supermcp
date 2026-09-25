@@ -341,7 +341,7 @@ func newLogin(conn *engine.Connector, vars tmpl.Vars, deps Deps, render func(str
 		return nil, vars, errors.New("login auth: request, tokenSource and inject are required")
 	}
 	if len(a.Preprocess) > 0 {
-		return nil, vars, fmt.Errorf("login auth: preprocess steps are %w (planned for M4)", engine.ErrUnsupported)
+		return nil, vars, fmt.Errorf("login auth: preprocess steps are not supported: %w", engine.ErrUnsupported)
 	}
 	creds, err := renderMap(a.Credentials)
 	if err != nil {
