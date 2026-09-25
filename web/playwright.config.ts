@@ -1,4 +1,14 @@
 import { defineConfig, devices } from "@playwright/test";
+import { dbName, freePort } from "./e2e/isolation.mjs";
+
+// Each checkout runs on a port and a database of its own, so two
+// worktrees can run the suite at once. PLAYWRIGHT_PORT pins the port;
+// otherwise one nobody holds is chosen here. Both are put in the
+// environment because the web server and every worker inherit it, and a
+// worker that loaded this file again would otherwise pick another port.
+process.env.PLAYWRIGHT_PORT ??= String(await freePort());
+process.env.PLAYWRIGHT_DB ??= dbName;
+const local = `http://localhost:${process.env.PLAYWRIGHT_PORT}`;
 
 // These tests drive the real binary against a real Postgres. There is no
 // mocking layer: the point is to catch what the Go tests cannot see,
@@ -15,7 +25,7 @@ export default defineConfig({
   timeout: 30_000,
   expect: { timeout: 10_000 },
   use: {
-    baseURL: process.env.SUPERMCP_URL ?? "http://localhost:8099",
+    baseURL: process.env.SUPERMCP_URL ?? local,
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
   },
@@ -27,7 +37,7 @@ export default defineConfig({
     ? undefined
     : {
         command: "node e2e/start-server.mjs",
-        url: "http://localhost:8099/readyz",
+        url: `${local}/readyz`,
         reuseExistingServer: false,
         // It builds the interface and then the binary that embeds it, so
         // the first start on a cold runner is minutes, not seconds.

@@ -1,11 +1,11 @@
 import { execFileSync } from "node:child_process";
+import { dbName } from "./isolation.mjs";
 
 // Runs one statement against the suite's private database. Most specs
 // never need this: they drive the product. It exists for the one thing
 // the product cannot do to itself, which is make time pass.
 const admin =
   process.env.PLAYWRIGHT_ADMIN_DATABASE_URL ?? "postgres://supermcp:supermcp@127.0.0.1:55432/postgres?sslmode=disable";
-const dbName = process.env.PLAYWRIGHT_DB ?? "supermcp_browser";
 const url = admin.replace("/postgres?", `/${dbName}?`);
 const container = process.env.PLAYWRIGHT_PG_CONTAINER ?? "supermcp-pg";
 

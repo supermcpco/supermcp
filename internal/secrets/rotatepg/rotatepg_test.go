@@ -19,6 +19,7 @@ import (
 	"github.com/supermcpco/supermcp/internal/secrets/rotatepg"
 	"github.com/supermcpco/supermcp/internal/store"
 	"github.com/supermcpco/supermcp/internal/tenant"
+	"github.com/supermcpco/supermcp/internal/testdb"
 )
 
 // The tests in this file need a migrated database and are skipped without
@@ -28,8 +29,9 @@ import (
 // exactly what a rotation is for and exactly what nobody else's tests can
 // survive. The schema is the repository's own migrations, which is what
 // CI deploys, so the catalogue is still checked against a real schema
-// rather than against itself.
-const rotateTestDB = "supermcp_rotate_tests"
+// rather than against itself. The name carries this checkout's suffix
+// (internal/testdb) so two worktrees never rotate each other's keys.
+var rotateTestDB = testdb.Name("supermcp_rotate_tests")
 
 func testDB(t *testing.T) (*tenant.DB, *pgxpool.Pool) {
 	t.Helper()

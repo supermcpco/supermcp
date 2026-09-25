@@ -21,10 +21,13 @@ import (
 	"github.com/supermcpco/supermcp/internal/secrets"
 	"github.com/supermcpco/supermcp/internal/store"
 	"github.com/supermcpco/supermcp/internal/tenant"
+	"github.com/supermcpco/supermcp/internal/testdb"
 )
 
 // keysTestDB is the database these tests run in, created beside the one
-// DATABASE_URL names.
+// DATABASE_URL names. The name carries this checkout's suffix
+// (internal/testdb): two worktrees running the suite at once would
+// otherwise empty signing_keys under each other.
 //
 // signing_keys is instance-wide: there is no organisation to partition it
 // by, one active key serves the whole installation, and these tests empty
@@ -35,12 +38,12 @@ import (
 // active key and could not unseal it ("ciphertext references an unknown
 // data key"), or had its key deleted from under it.
 //
-// The convention, shared with supermcp_audit_tests and
-// supermcp_rotate_tests: a test that owns instance-wide state (signing
+// The convention, shared with supermcp_audit_tests_<suffix> and
+// supermcp_rotate_tests_<suffix>: a test that owns instance-wide state (signing
 // keys, the instance data-key scope, anything not keyed by an
 // organisation) runs in a database of its package's own. Tests that only
 // write rows under organisations they made up may share DATABASE_URL.
-const keysTestDB = "supermcp_mcpauth_keys_tests"
+var keysTestDB = testdb.Name("supermcp_mcpauth_keys_tests")
 
 func testKeyring(ctx context.Context, t *testing.T) (*mcpauth.Keyring, *tenant.DB) {
 	t.Helper()
