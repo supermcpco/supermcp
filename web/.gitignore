@@ -3,3 +3,5 @@ dist/
 .vite/
 test-results/
 playwright-report/
+openapi-ts-error-*.log
+test-results/
