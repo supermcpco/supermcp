@@ -1,7 +1,7 @@
 BIN := bin/supermcp
 GO  ?= go
 
-.PHONY: build test lint check-migrations chart-test adapters web web-client airgap clean
+.PHONY: build test lint check-migrations chart-test kind-test adapters web web-client airgap clean
 
 build:
 	$(GO) build -trimpath -o $(BIN) ./cmd/supermcp
@@ -24,6 +24,13 @@ check-migrations:
 chart-test:
 	helm lint charts/supermcp
 	./scripts/chart_test.sh
+
+# Build the image, install the chart on a kind cluster against a real
+# Postgres, check it serves, upgrade it in place and check it kept
+# serving. The helm-install CI job runs the same script. Needs kind,
+# kubectl, helm and Docker; exits 2 naming whichever is missing.
+kind-test:
+	./hack/kind/test.sh
 
 # Regenerate the adapter catalog from the vendored v1 corpus and rebuild the index.
 # The catalog is generated; adapters/embed.go and the recorded cassettes
