@@ -242,11 +242,10 @@ to the model as safe when it is not.
 **mcp**: `tool` names the upstream tool, `argsMap` maps arguments.
 
 **any**: `kind: static` returns `value` without calling anything. It is
-how an adapter ships a reference table or a constant. The validator
-accepts it on every transport, but only the database engine runs it:
-the HTTP engine ignores `kind` and sends a request, so a static tool on
-an HTTP adapter does not work today. The tool editor refuses to save
-one (`operation-static-transport`).
+how an adapter ships a reference table or a constant. It works on every
+transport: the call is answered before any engine runs, so nothing is
+sent upstream and no credential is decrypted. The response transform and
+the data-loss rules still apply to the value.
 
 ## Placeholder syntax
 

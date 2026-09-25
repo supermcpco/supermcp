@@ -687,10 +687,6 @@ func checkToolTx(ctx context.Context, tx pgx.Tx, c *Connector, toolID string, be
 		errorAt("response.transform.jmespath", "transform-length",
 			fmt.Sprintf("the transform is %d characters; the limit is %d", len(def.Response.Transform.JMESPath), transform.MaxExpressionLength))
 	}
-	if def.Operation.Kind == "static" && tt != adapter.TransportDatabase {
-		errorAt("operation.kind", "operation-static-transport", fmt.Sprintf("static operations do not run on %s connectors", tt))
-	}
-
 	if tt == adapter.TransportHTTP || tt == adapter.TransportSOAP {
 		if host, ok := pathHost(def.Operation.Path); ok {
 			known, err := knownHostsTx(ctx, tx, c, before)

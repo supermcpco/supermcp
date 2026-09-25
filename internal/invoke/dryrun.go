@@ -48,6 +48,10 @@ func (refusingDoer) Do(*http.Request) (*http.Response, error) { return nil, errN
 // credential's use and the arguments, which is not something to hand to
 // somebody who may not make the call itself.
 func (e *Executor) DryRun(ctx context.Context, c Call) (*engine.Preview, error) {
+	if c.Tool.Definition.Operation.Kind == "static" {
+		e.auditDryRun(ctx, c)
+		return &engine.Preview{Note: "A static tool answers with the text in its definition and sends no request."}, nil
+	}
 	eng, ok := e.engines[c.Connector.Transport.Type]
 	if !ok {
 		return nil, fmt.Errorf("transport %s: %w", c.Connector.Transport.Type, engine.ErrUnsupported)
