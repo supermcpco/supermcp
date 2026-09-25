@@ -240,6 +240,7 @@ func build(ctx context.Context, cfg *config.Config, log *slog.Logger, st *store.
 		depth: func() {
 			metrics.SetAuditQueueDepth(auditor.QueueDepth())
 			metrics.SetAuditSpoolDepth(auditor.SpoolDepth())
+			metrics.SetAuditDroppedTotal(auditor.DroppedTotal())
 		}}
 	// Dynamic client registration is rate limited by the same budget the
 	// rest of the surface uses.

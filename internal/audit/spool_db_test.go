@@ -131,7 +131,8 @@ func TestWithoutSpoolingEventsAreStillCounted(t *testing.T) {
 	ctx := context.Background()
 	db := liveDB(ctx, t)
 	away := &tenant.DB{App: db.App, Maint: deadPool(ctx, t), Log: testLog()}
-	w := audit.NewWriter(away, testLog(), audit.Options{OnUnavailable: audit.UnavailableDegrade})
+	w := audit.NewWriter(away, testLog(), //nolint:contextcheck // the writer appends from its own goroutine
+		audit.WithRetry(audit.Options{OnUnavailable: audit.UnavailableDegrade}, 2, time.Millisecond))
 	defer w.Close()
 
 	w.Emit(ctx, bare("audit_t_no_spool", "connector.update", 1))
@@ -140,5 +141,8 @@ func TestWithoutSpoolingEventsAreStillCounted(t *testing.T) {
 	}
 	if w.SpoolDepth() != 0 {
 		t.Fatalf("spool depth = %d, want nothing spooled when spooling was not asked for", w.SpoolDepth())
+	}
+	if w.Dropped() != 1 || w.DroppedTotal() != 1 {
+		t.Fatalf("dropped = %d (total %d), want the one event counted", w.Dropped(), w.DroppedTotal())
 	}
 }

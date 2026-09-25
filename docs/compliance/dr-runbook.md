@@ -39,9 +39,12 @@ The restore fails without any one of these, so check them now:
 You cannot promise any of these:
 
 - Audit events that never reached the database during an outage, unless the spool
-  was on. With the default `degrade`, a batch the database refuses is logged
-  (`audit append failed`, with a count) and lost. The trail itself shows only a
-  quiet period.
+  was on. With the default `degrade`, a batch the database refuses is retried for
+  about eight seconds; after that it is dropped, and so is whatever the full queue
+  cannot take. The trail records the gap (`audit.events_dropped`, with the count)
+  once the database takes events again, but the events themselves are gone. A
+  replica that is shut down or lost before then takes the record of its gap with
+  it; its log still says `audit events dropped`.
 - Revocations made after the backup was taken. "What a restore undoes" covers this.
 - A restore into another AWS region under `awskms` with a single-Region key. The
   key exists in one region only. A multi-Region key works; see "The master key a

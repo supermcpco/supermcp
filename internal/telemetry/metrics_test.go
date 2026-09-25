@@ -92,6 +92,18 @@ func TestGaugesCarryTheValueSet(t *testing.T) {
 			want:   42,
 		},
 		{
+			// The writer reports a running total; the counter follows it
+			// and never goes back down.
+			name: "audit events dropped",
+			record: func(m *telemetry.Metrics) {
+				m.SetAuditDroppedTotal(3)
+				m.SetAuditDroppedTotal(5)
+				m.SetAuditDroppedTotal(4)
+			},
+			metric: "supermcp_audit_events_dropped_total",
+			want:   5,
+		},
+		{
 			name:   "ratelimit degraded",
 			record: func(m *telemetry.Metrics) { m.SetRateLimitDegraded(true) },
 			metric: "supermcp_ratelimit_degraded",
@@ -253,6 +265,7 @@ func TestNilMetricsRecordsNothing(t *testing.T) {
 	m.ObserveSurfaceBuild(time.Second)
 	m.SetBreakerState("c", telemetry.BreakerOpen)
 	m.SetAuditQueueDepth(1)
+	m.SetAuditDroppedTotal(1)
 	m.SetRateLimitDegraded(true)
 	m.ObserveKEK(telemetry.KEKProviderAWSKMS, telemetry.KEKUnwrap, errors.New("down"))
 	m.SetAuditExportLag(map[string]time.Duration{telemetry.ExportKindWebhook: time.Hour})
