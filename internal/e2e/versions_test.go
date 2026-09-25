@@ -1,9 +1,17 @@
 package e2e
 
 import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
+	"sync/atomic"
 	"testing"
+
+	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
+	"golang.org/x/sync/errgroup"
 )
 
 // Every connector and server write that takes expectedVersion refuses a
@@ -186,4 +194,103 @@ func (f *toolFixture) oldestRevision(t *testing.T, kind, id string) int {
 		t.Fatalf("%s revisions: %d, %d revisions", kind, code, len(revs.Revisions))
 	}
 	return revs.Revisions[len(revs.Revisions)-1].Revision
+}
+
+// Two writes against the same version, sent at once, cannot both go
+// through: the version is compared under the connector's row lock in the
+// transaction that writes, so the second one to take the lock sees the
+// first one's version.
+func TestConcurrentConnectorWritesOneWins(t *testing.T) {
+	f := newToolFixture(t)
+	read := f.connectorVersion(t)
+	path := "/api/v1/connectors/" + f.conn.ID
+
+	var ok, conflict atomic.Int32
+	g, ctx := errgroup.WithContext(context.Background())
+	for i := range 2 {
+		g.Go(func() error {
+			body := map[string]any{"name": fmt.Sprintf("Writer %d", i), "expectedVersion": read}
+			code, err := f.h.send(ctx, http.MethodPatch, path, body)
+			switch {
+			case err != nil:
+				return err
+			case code == http.StatusOK:
+				ok.Add(1)
+			case code == http.StatusConflict:
+				conflict.Add(1)
+			default:
+				return fmt.Errorf("writer %d: status %d", i, code)
+			}
+			return nil
+		})
+	}
+	if err := g.Wait(); err != nil {
+		t.Fatal(err)
+	}
+	if ok.Load() != 1 || conflict.Load() != 1 {
+		t.Errorf("two writes against version %d: %d went through and %d were refused, want 1 and 1", read, ok.Load(), conflict.Load())
+	}
+	if now := f.connectorVersion(t); now != read+1 {
+		t.Errorf("the version is %d after one write from %d, want %d", now, read, read+1)
+	}
+}
+
+// Disabling a connector takes its tools off the MCP endpoint at once, not
+// when the cached tool list runs out: the write moves the version of
+// every server the connector is on, which is what the list is cached
+// under. A call was already checked against live state; the list was not.
+func TestDisabledConnectorIsRefusedAtOnce(t *testing.T) {
+	f := newToolFixture(t)
+	tl := f.importedTool(t)
+	if res, err := f.tryMCP(tl.Name); err != nil || res.IsError {
+		t.Fatalf("a call before the connector is disabled: %v %+v", err, res)
+	}
+	if _, ok := f.mcpTools(t)[tl.Name]; !ok {
+		t.Fatalf("%s is not listed before the connector is disabled", tl.Name)
+	}
+	if code := f.h.do(t, http.MethodPatch, "/api/v1/connectors/"+f.conn.ID, map[string]any{"enabled": false}, nil); code != 200 {
+		t.Fatalf("disable the connector: %d", code)
+	}
+	if res, err := f.tryMCP(tl.Name); err == nil && !res.IsError {
+		t.Errorf("a disabled connector's tool %s was still called: %+v", tl.Name, res)
+	}
+	if _, ok := f.mcpTools(t)[tl.Name]; ok {
+		t.Errorf("a disabled connector's tool %s is still listed", tl.Name)
+	}
+}
+
+// tryMCP calls a tool and returns what came back, a refusal included.
+func (f *toolFixture) tryMCP(tool string) (*sdk.CallToolResult, error) {
+	ctx := context.Background()
+	transport := &sdk.StreamableClientTransport{
+		Endpoint:   f.h.url + "/mcp/" + f.srv.ID,
+		HTTPClient: &http.Client{Transport: &keyRoundTripper{key: f.key, base: f.h.client.Transport}},
+	}
+	sess, err := sdk.NewClient(&sdk.Implementation{Name: "versions-e2e", Version: "1"}, nil).Connect(ctx, transport, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = sess.Close() }()
+	return sess.CallTool(ctx, &sdk.CallToolParams{Name: tool, Arguments: map[string]any{"id": "1"}})
+}
+
+// send is do for use off the test goroutine: it reports failures instead
+// of stopping the test, and leaves the session cookie alone.
+func (h *harness) send(ctx context.Context, method, path string, body any) (int, error) {
+	b, err := json.Marshal(body)
+	if err != nil {
+		return 0, err
+	}
+	req, err := http.NewRequestWithContext(ctx, method, h.url+path, bytes.NewReader(b))
+	if err != nil {
+		return 0, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Cookie", h.cookie)
+	resp, err := h.client.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+	return resp.StatusCode, nil
 }

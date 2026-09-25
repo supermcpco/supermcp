@@ -76,9 +76,6 @@ func (s *Service) Create(ctx context.Context, orgID, name, slug, instructions st
 		if err := s.setConnectorsTx(ctx, tx, srv, connectorIDs); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(ctx, `UPDATE mcp_servers SET version = version + 1, updated_at = now() WHERE id = $1`, srv.ID); err != nil {
-			return err
-		}
 		srv.ConnectorIDs = connectorIDs
 		return s.record(ctx, tx, srv.ID, "create", srv, audit.Created(srv), createdBy)
 	})

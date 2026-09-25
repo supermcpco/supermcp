@@ -228,38 +228,68 @@ func (s *Service) setCredentialsTx(ctx context.Context, tx pgx.Tx, c *Connector,
 }
 
 func (s *Service) sealCredential(ctx context.Context, tx pgx.Tx, c *Connector, name, value string, secret bool) error {
-	ct, err := s.Sealer.Seal(ctx, secrets.ScopeOrg(c.OrgID), []byte(value), secrets.AAD{Table: "connector_credentials", Column: "value_enc", RowID: c.ID + "/" + name, OrgID: c.OrgID})
+	ct, err := s.seal(ctx, c, name, value)
 	if err != nil {
 		return err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO connector_credentials (connector_id, organization_id, name, value_enc, secret) VALUES ($1,$2,$3,$4,$5)
+	return writeCredential(ctx, tx, c, name, ct, secret)
+}
+
+// seal encrypts one credential value for the connector. It may call the
+// key service, so a caller holding a row lock seals first.
+func (s *Service) seal(ctx context.Context, c *Connector, name, value string) ([]byte, error) {
+	return s.Sealer.Seal(ctx, secrets.ScopeOrg(c.OrgID), []byte(value), secrets.AAD{Table: "connector_credentials", Column: "value_enc", RowID: c.ID + "/" + name, OrgID: c.OrgID})
+}
+
+// writeCredential stores one sealed credential value.
+func writeCredential(ctx context.Context, tx pgx.Tx, c *Connector, name string, ct []byte, secret bool) error {
+	_, err := tx.Exec(ctx, `INSERT INTO connector_credentials (connector_id, organization_id, name, value_enc, secret) VALUES ($1,$2,$3,$4,$5)
 		ON CONFLICT (connector_id, name) DO UPDATE SET value_enc = EXCLUDED.value_enc, secret = EXCLUDED.secret, updated_at = now()`,
 		c.ID, c.OrgID, name, ct, secret)
 	return err
 }
 
 // SetCredentials replaces the given credentials (others untouched) and
-// bumps the version so cached clients rebuild. A non-zero expectedVersion
-// must equal the stored version; see CheckVersion.
+// bumps the connector's version and its servers' so cached clients and
+// served tool lists rebuild. A non-zero expectedVersion must equal the
+// stored version; see CheckVersion.
+//
+// The values are sealed before the transaction: sealing may call the key
+// service, and the connector's lock is not held across that, since a
+// refresh-token rotation on the tool-call path waits for it.
 func (s *Service) SetCredentials(ctx context.Context, orgID, id string, creds map[string]string, expectedVersion int64) error {
+	c := &Connector{ID: id, OrgID: orgID}
+	sealed := make(map[string][]byte, len(creds))
+	for name, v := range creds {
+		if v == "" {
+			continue
+		}
+		ct, err := s.seal(ctx, c, name, v)
+		if err != nil {
+			return err
+		}
+		sealed[name] = ct
+	}
 	return s.DB.Tx(tenant.WithOrg(ctx, orgID), func(tx pgx.Tx) error {
 		if _, err := lockConnectorAt(ctx, tx, id, expectedVersion); err != nil {
 			return err
 		}
-		c := &Connector{ID: id, OrgID: orgID}
-		for name, v := range creds {
-			if v == "" {
+		for name := range creds {
+			ct, ok := sealed[name]
+			if !ok {
 				if _, err := tx.Exec(ctx, `DELETE FROM connector_credentials WHERE connector_id = $1 AND name = $2`, id, name); err != nil {
 					return err
 				}
 				continue
 			}
-			if err := s.sealCredential(ctx, tx, c, name, v, true); err != nil {
+			if err := writeCredential(ctx, tx, c, name, ct, true); err != nil {
 				return err
 			}
 		}
-		_, err := tx.Exec(ctx, `UPDATE connectors SET version = version + 1, updated_at = now() WHERE id = $1`, id)
-		return err
+		if err := bumpConnectorTx(ctx, tx, id); err != nil {
+			return err
+		}
+		return bumpServersTx(ctx, tx, id)
 	})
 }
 
@@ -410,6 +440,12 @@ func (s *Service) Update(ctx context.Context, orgID, id string, in UpdateInput) 
 		au, _ := json.Marshal(c.Auth) //nolint:gosec // placeholders only
 		if _, err = tx.Exec(ctx, `UPDATE connectors SET name=$2, instructions=$3, read_only=$4, enabled=$5, transport=$6, auth=$7, version=version+1, updated_at=now() WHERE id=$1`,
 			id, c.Name, c.Instructions, c.ReadOnly, c.Enabled, tr, au); err != nil {
+			return err
+		}
+		// What the connector serves may have changed (enabled, readOnly,
+		// its upstream), and the served tool list is cached under the
+		// server's version.
+		if err := bumpServersTx(ctx, tx, id); err != nil {
 			return err
 		}
 		// The row's version was bumped in SQL, so the snapshot says so too.
