@@ -334,6 +334,29 @@ func (a *Approvals) Governing(ctx context.Context, c CallRef) (*ApprovalPolicy, 
 	return best, nil
 }
 
+// Reaches reports whether any enabled rule that asks for a person could
+// hold a call on this server: one for the whole organisation, for the
+// server, or for one of the connectors or tools it serves. It is what
+// decides whether a server lists the tools for following a request up;
+// a server no rule reaches has nothing to follow up.
+func (a *Approvals) Reaches(ctx context.Context, orgID, serverID string, connectorIDs, toolIDs []string) (bool, error) {
+	if orgID == "" {
+		return false, tenant.ErrNoOrg
+	}
+	var reaches bool
+	err := a.DB.Tx(tenant.WithOrg(ctx, orgID), func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM approval_policies
+			WHERE enabled AND effect = 'require' AND (scope_kind = 'organization'
+				OR (scope_kind = 'server' AND scope_id = $1)
+				OR (scope_kind = 'connector' AND scope_id = ANY($2))
+				OR (scope_kind = 'tool' AND scope_id = ANY($3))))`, serverID, connectorIDs, toolIDs).Scan(&reaches)
+	})
+	if err != nil {
+		return false, fmt.Errorf("read approval policies: %w", err)
+	}
+	return reaches, nil
+}
+
 // Raise records a call that needs a person, and seals its arguments.
 //
 // A model that calls the same tool the same way twice gets the same

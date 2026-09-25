@@ -111,10 +111,11 @@ type Endpoint struct {
 // builtServer is one assembled surface. sdk.Server is safe for concurrent
 // sessions, which is what makes sharing it between requests possible.
 type builtServer struct {
-	srv     *sdk.Server
-	names   map[string]bool
-	byName  map[string]visibleTool
-	expires time.Time
+	srv      *sdk.Server
+	names    map[string]bool
+	byName   map[string]visibleTool
+	followUp bool
+	expires  time.Time
 }
 
 // builtTTL bounds how stale a shared surface may be. A tool added to a
@@ -142,6 +143,9 @@ type surface struct {
 	// with the tool as this request sees it, not as it stood when the
 	// session was opened.
 	byName map[string]visibleTool
+	// followUp is whether the server lists the approval tools
+	// (systemtools.go): whether any rule asking for a person reaches it.
+	followUp bool
 	// mcp is the assembled server, shared with every other request that
 	// sees the same tools. nil until getServer assembles it.
 	mcp    *sdk.Server
@@ -397,7 +401,7 @@ func (e *Endpoint) buildSurface(r *http.Request) *surface {
 	// request that shares a key, so it is the part worth keeping.
 	key := builtKey(srv, p)
 	if b := e.cachedServer(key); b != nil {
-		return &surface{server: srv, names: b.names, byName: b.byName, mcp: b.srv}
+		return &surface{server: srv, names: b.names, byName: b.byName, followUp: b.followUp, mcp: b.srv}
 	}
 
 	sf, err := e.Servers.Surface(ctx, srv)
@@ -420,8 +424,20 @@ func (e *Endpoint) buildSurface(r *http.Request) *surface {
 		out.byName[st.Tool.Name] = vt
 	}
 	out.instructionsText = sf.Instructions
+	if e.Approvals != nil {
+		connectors, tools := map[string]bool{}, make([]string, 0, len(out.tools))
+		for _, vt := range out.tools {
+			connectors[vt.connector.ID] = true
+			tools = append(tools, vt.tool.ID)
+		}
+		out.followUp, err = e.Approvals.Reaches(ctx, srv.OrgID, srv.ID, sortedKeys(connectors), tools)
+		if err != nil {
+			return &surface{err: err, status: http.StatusInternalServerError}
+		}
+	}
 	out.mcp = e.assemble(out)
-	e.keepServer(key, &builtServer{srv: out.mcp, names: out.names, byName: out.byName, expires: time.Now().Add(builtTTL)})
+	e.keepServer(key, &builtServer{srv: out.mcp, names: out.names, byName: out.byName, followUp: out.followUp,
+		expires: time.Now().Add(builtTTL)})
 	return out
 }
 
@@ -480,12 +496,19 @@ func (e *Endpoint) assemble(s *surface) *sdk.Server {
 	for _, vt := range s.tools {
 		srv.AddTool(mcpTool(vt), e.handlerFor(s.server, vt))
 	}
+	if s.followUp {
+		for _, t := range systemTools() {
+			srv.AddTool(t, e.systemToolHandler(s.server))
+		}
+	}
 	// bindRequest is outermost, so everything after it reads the request
 	// that carried the message. recordMethod is next, so a call the guard
 	// refuses is still labelled with the method it asked for. Both read
 	// the per-request surface out of the context, because this server
-	// outlives the request.
-	srv.AddReceivingMiddleware(e.bindRequest(), recordMethod(), hiddenToolGuard(s.names))
+	// outlives the request. The system tools are answered after the guard
+	// has let them through, and before the SDK looks for a registration a
+	// server that does not list them does not have.
+	srv.AddReceivingMiddleware(e.bindRequest(), recordMethod(), hiddenToolGuard(s.names), e.systemToolCalls(s.server))
 	return srv
 }
 
@@ -611,6 +634,9 @@ func (e *Endpoint) handlerFor(server *mcpserver.Server, assembled visibleTool) s
 		}
 		result := &sdk.CallToolResult{Content: out.Content, StructuredContent: out.Structured, IsError: out.IsError}
 		if notice, ok := out.Structured.(*governance.Notice); ok {
+			if s, _ := ctx.Value(surfaceKey).(*surface); s != nil && s.followUp && notice.State == governance.StatePending {
+				result.Content = []sdk.Content{&sdk.TextContent{Text: textOf(result) + followUpHint}}
+			}
 			result = e.confirmHeld(ctx, req, server, p, notice, result)
 		}
 		return result, nil
@@ -643,6 +669,15 @@ func renderPreview(p *engine.Preview) string {
 	return b.String()
 }
 
+func sortedKeys(m map[string]bool) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
 func sortedHeaders(h map[string]string) []string {
 	out := make([]string, 0, len(h))
 	for k := range h {
@@ -658,7 +693,9 @@ func sortedHeaders(h map[string]string) []string {
 //
 // The names are the request's own surface where there is one: a stateful
 // session outlives the surface it was opened with, and a tool taken away
-// since must not stay callable on it.
+// since must not stay callable on it. The system tools pass whether or
+// not the server lists them; they only ever act on the caller's own
+// requests.
 func hiddenToolGuard(assembled map[string]bool) sdk.Middleware {
 	return func(next sdk.MethodHandler) sdk.MethodHandler {
 		return func(ctx context.Context, method string, req sdk.Request) (sdk.Result, error) {
@@ -667,7 +704,7 @@ func hiddenToolGuard(assembled map[string]bool) sdk.Middleware {
 				if s, _ := ctx.Value(surfaceKey).(*surface); s != nil && s.names != nil {
 					names = s.names
 				}
-				if r, ok := req.(*sdk.CallToolRequest); ok && !names[r.Params.Name] {
+				if r, ok := req.(*sdk.CallToolRequest); ok && !names[r.Params.Name] && !isSystemTool(r.Params.Name) {
 					// Deliberately ambiguous: a client must not learn whether a
 					// tool exists in a workspace it cannot see.
 					return nil, &jsonrpc.Error{Code: -32600, Message: "tool not available"}

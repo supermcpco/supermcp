@@ -231,6 +231,15 @@ The server object in the API gains `sessions`, and
 `acknowledgedAt` and `acknowledgement`. Regenerate generated API
 clients.
 
+Every MCP server now has two tools of its own for following up a call
+held for approval, `supermcp_approval_status` and
+`supermcp_approval_cancel` (docs/api.md, "Following up a held call").
+They are listed only on servers an approval rule can reach, and a held
+call's result mentions them there. A connector tool with either name is
+shadowed by them; rename it if you have one. Building a server's tool
+list reads the approval rules once more, cached with the rest of the
+list.
+
 ### The audit trail can be searched
 
 The audit list and export take `q`, a free-text search over each event's
