@@ -156,6 +156,7 @@ func startWith(t *testing.T, opts harnessOptions) *harness {
 	keyring := mcpauth.NewKeyring(db, sealer, newID)
 	oauth := mcpauth.NewOAuth(db, keyring, "http://127.0.0.1", mcpauth.DCROpen, newID)
 	oauth.Accounts = ids
+	oauth.Sessions = ids
 	endpoint := mcpendpoint.New(mcpendpoint.Deps{Servers: servers, Authz: az, Executor: exec, Log: log, Version: "test"})
 
 	cat := opts.catalog

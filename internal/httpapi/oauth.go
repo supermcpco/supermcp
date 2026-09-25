@@ -146,7 +146,8 @@ func (d Deps) consent(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusForbidden, "that server is not part of this workspace")
 		return
 	}
-	location, err := d.OAuth.Approve(r.Context(), req, p.ID, p.OrgID, serverID)
+	location, err := d.OAuth.Approve(r.Context(), req, mcpauth.Consent{UserID: p.ID, OrgID: p.OrgID, ServerID: serverID,
+		SessionID: p.SessionID, AMR: mcpauth.AMR(p.SignIn, p.MFA)})
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, "could not complete authorization")
 		return
