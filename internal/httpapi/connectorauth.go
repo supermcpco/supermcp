@@ -209,7 +209,7 @@ func (d Deps) storeConnectorGrant(ctx context.Context, orgID, connectorID string
 		}
 		name = refreshCredential
 	}
-	if err := d.Connectors.SetCredentials(ctx, orgID, connectorID, map[string]string{name: tok.Refresh}); err != nil {
+	if err := d.Connectors.SetCredentials(ctx, orgID, connectorID, map[string]string{name: tok.Refresh}, 0); err != nil {
 		return err
 	}
 	store := &connector.TokenStore{S: d.Connectors, OrgID: orgID}

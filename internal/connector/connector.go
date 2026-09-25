@@ -239,9 +239,13 @@ func (s *Service) sealCredential(ctx context.Context, tx pgx.Tx, c *Connector, n
 }
 
 // SetCredentials replaces the given credentials (others untouched) and
-// bumps the version so cached clients rebuild.
-func (s *Service) SetCredentials(ctx context.Context, orgID, id string, creds map[string]string) error {
+// bumps the version so cached clients rebuild. A non-zero expectedVersion
+// must equal the stored version; see CheckVersion.
+func (s *Service) SetCredentials(ctx context.Context, orgID, id string, creds map[string]string, expectedVersion int64) error {
 	return s.DB.Tx(tenant.WithOrg(ctx, orgID), func(tx pgx.Tx) error {
+		if _, err := lockConnectorAt(ctx, tx, id, expectedVersion); err != nil {
+			return err
+		}
 		c := &Connector{ID: id, OrgID: orgID}
 		for name, v := range creds {
 			if v == "" {
@@ -369,6 +373,9 @@ type UpdateInput struct {
 	Enabled      *bool
 	Transport    *adapter.Transport
 	Auth         *adapter.Auth
+	// ExpectedVersion, when not zero, must equal the stored version; see
+	// CheckVersion.
+	ExpectedVersion int64
 	// ActorID names who made the change, for the revision it produces.
 	ActorID string
 }
@@ -376,7 +383,7 @@ type UpdateInput struct {
 // Update applies a partial update and bumps the version.
 func (s *Service) Update(ctx context.Context, orgID, id string, in UpdateInput) (*Connector, error) {
 	err := s.DB.Tx(tenant.WithOrg(ctx, orgID), func(tx pgx.Tx) error {
-		c, err := scanConnector(tx.QueryRow(ctx, selectConnector+` WHERE c.id = $1 FOR UPDATE`, id))
+		c, err := lockConnectorAt(ctx, tx, id, in.ExpectedVersion)
 		if err != nil {
 			return err
 		}
@@ -602,7 +609,7 @@ func (s *Service) RotateRefreshToken(ctx context.Context, orgID, id, refreshToke
 	if name == "" {
 		return nil // refresh token was a literal; the token store already holds it
 	}
-	return s.SetCredentials(ctx, orgID, id, map[string]string{name: refreshToken})
+	return s.SetCredentials(ctx, orgID, id, map[string]string{name: refreshToken}, 0)
 }
 
 func envName(s string) string {

@@ -609,6 +609,40 @@ code to match on. The message is written for people and may change.
 | `not_deletable` | The tool is not `custom`. Disable it instead. |
 | `references_unacknowledged` | Approval policies refer to the tool. The response lists them, one further entry each at `references.approvalPolicies`, with the policy's name as `message` and its id as `value`. A rename lists the policies that match by name; a delete lists all of them. Send `acknowledgeReferences` to go ahead. |
 
+## Connectors and servers: concurrent edits
+
+Connectors and MCP servers carry a `version`, as tools do. These writes
+take `expectedVersion` in the body, the `version` that was read:
+
+| Operation | Route |
+|---|---|
+| `connectors-update` | `PATCH /api/v1/connectors/{id}` (name, instructions, `readOnly`, `enabled`) |
+| `connectors-credentials` | `PUT /api/v1/connectors/{id}/credentials` |
+| `connectors-revisions-restore` | `POST /api/v1/connectors/{id}/revisions/{revision}/restore` |
+| `servers-update` | `PATCH /api/v1/servers/{id}` (name, instructions, `enabled`, `connectorIds`) |
+| `servers-revisions-restore` | `POST /api/v1/servers/{id}/revisions/{revision}/restore` |
+
+With a stale one the answer is `409`, with the same body a tool edit
+gets: `errors[].value` is `version_conflict` at `body.expectedVersion`,
+and a further entry at `version` carries the version stored now as its
+`value` (a `tools-update` conflict carries it too). Read the connector
+or server again and send the change against that. The version is
+compared under the row's lock, in the transaction that writes, so two
+writes against the same version cannot both go through.
+
+For this release `expectedVersion` is optional on these routes, and a
+write without it is not checked. A later release makes it required, as
+it is on `tools-update`; send it now. A restore takes it in an optional
+body, `{"expectedVersion": N}`.
+
+A connector's version moves on every change to it, including a change
+to one of its tools, its credentials or a catalogue re-sync, and a
+server's moves when one of its connectors' tools changes, because the
+version is what the served tool list is cached under. A write read
+before any of those is refused. A write that goes through moves the
+version by one. `connectors-resync` checks the same version, through the
+same lock, but answers a mismatch with its own code, `resync_stale`.
+
 ## Audit retention
 
 `GET /api/v1/audit/retention` (`audit:read`) reads the current

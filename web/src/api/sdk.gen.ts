@@ -757,7 +757,11 @@ export const connectorsRevisionsRestore = <ThrowOnError extends boolean = false>
             type: 'apiKey'
         }],
     url: '/api/v1/connectors/{id}/revisions/{revision}/restore',
-    ...options
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
 });
 
 /**
@@ -1492,7 +1496,11 @@ export const serversRevisionsRestore = <ThrowOnError extends boolean = false>(op
             type: 'apiKey'
         }],
     url: '/api/v1/servers/{id}/revisions/{revision}/restore',
-    ...options
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
 });
 
 /**
