@@ -172,7 +172,7 @@ func (d Deps) importRoutes(api huma.API) {
 				d.adminFailed(ctx, "connector.import", "connector", a.Metadata.Name, err)
 				return nil, humaErr(err)
 			}
-			dto := connectorToDTO(c)
+			dto := d.connectorDTO(c)
 			d.admin(ctx, "connector.import", "connector", c.ID, c.Name, audit.Created(dto))
 			out.Body.Connector = &dto
 			return out, nil

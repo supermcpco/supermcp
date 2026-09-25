@@ -560,6 +560,9 @@ const (
 	conflictNameTaken  = "name_taken"
 	conflictDeletable  = "not_deletable"
 	conflictReferences = "references_unacknowledged"
+	// conflictResyncStale: the connector or the catalog changed since the
+	// re-sync was reviewed.
+	conflictResyncStale = "resync_stale"
 )
 
 // toolNameRule is the issue rule for a name another tool on the
