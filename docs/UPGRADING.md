@@ -46,37 +46,69 @@ in; see "Sensitive actions ask for a recent sign-in" below.
 
 ### Sensitive actions ask for a recent sign-in
 
-A browser session now has to have signed in, or confirmed its password,
-within the last five minutes to create, rotate or revoke credentials, to
-change roles or who holds them, or to change the security, single
-sign-on, data-loss, approval and audit settings. An older session gets
-`403` with the code `reauth_required`. The interface asks for the
-password, or sends a single sign-on user back through their provider,
-and then repeats the action. `docs/api.md` ("Recent sign-in") lists the
-operations.
+A browser session now has to have signed in, or confirmed who is using
+it, within the last five minutes for these actions:
 
-API keys, OAuth access tokens and service accounts are not affected:
-nobody signs them in, so there is nobody to ask.
+- creating, rotating or revoking credentials
+- setting connector credentials or connecting a connector through OAuth
+- granting an OAuth client access
+- approving a held tool call
+- changing roles or who holds them
+- changing the security, single sign-on, data-loss, approval and audit
+  settings
+
+An older session gets `403` with the code `reauth_required`. The
+interface asks for the password and then repeats the action. For a
+single sign-on user, it sends them back through their provider.
+`docs/api.md` ("Recent sign-in") lists the operations.
+
+API keys, OAuth access tokens and service accounts are not affected.
+Nobody signs them in, so there is nobody to ask.
 
 What it needs from you:
 
-- **Nothing for migration 00024 in most cases.** It adds two columns to
-  `sessions`: `authenticated_at` (not null, default `now()`) and
-  `auth_provider_id` (nullable). It also adds three functions. Adding the
-  columns changes only the catalogue: the default is stored once, not
-  written into every row. The migration then sets `authenticated_at` to
-  `created_at` for existing sessions. That update takes row locks, not a
-  table lock, and runs outside a transaction so that sign-ins continue.
-  On a table with many sessions, a request touching a session row can
-  wait for the update to finish, usually under a second. If the migration
-  is interrupted, run `supermcp migrate` again; every statement can be
-  repeated safely.
+- **Nothing for migration 00024 in most cases.** It adds these columns:
+  - `sessions.authenticated_at`: not null, default `now()`
+  - `sessions.auth_provider_id`: nullable
+  - `replaces_session` on `sso_requests` and on `saml_requests`: nullable
+
+  It also adds seven functions. The new column is added with the
+  constant default `'-infinity'`, which changes only the catalogue: no
+  row is rewritten. The default then becomes `now()`. Live sessions
+  (not revoked, not expired) then take `created_at` as their
+  authentication time. That backfill runs in batches of 1000 rows, each
+  committed on its own, and outside a transaction, so a sign-in waits
+  for one batch at most. Revoked and expired sessions keep
+  `'-infinity'`. If the migration is interrupted, run `supermcp migrate`
+  again; every statement can be repeated safely.
 - **Rollout order does not matter.** An older replica still running
-  during the roll ignores the new columns, and the default fills them for
-  the sessions it creates.
+  during the roll ignores the new columns. The default fills them for
+  the sessions it creates, and the older replica keeps using the
+  functions it already knows.
 - **Sessions that exist at upgrade time count as old.** They signed in
-  when they were created, so the first sensitive action after the upgrade
-  asks the person to confirm who they are. Nobody is signed out.
+  when they were created, so the first sensitive action after the
+  upgrade asks the person to confirm who they are. Nobody is signed out.
+- **Single sign-on sessions are fresh only if the provider says when
+  the person authenticated.** A session counts as fresh only when that
+  time is recent:
+  - OpenID Connect: the `auth_time` claim of the verified ID token
+  - SAML: `AuthnInstant`
+
+  Re-authenticating through a provider sends `prompt=login` and
+  `max_age=0` (OpenID Connect) or `ForceAuthn` (SAML). The server does
+  not trust that the provider honoured these. It accepts the answer only
+  when the provider's time is within the window and the person,
+  workspace and provider match the session being replaced. Otherwise the
+  old session is left as it was and the browser is sent to `/reauth`
+  with the reason. Some OpenID Connect providers include `auth_time` only
+  when asked, so a sign-in there may need one re-authentication before
+  the first sensitive action.
+- **GitHub, and any plain OAuth2 provider, cannot make a session
+  fresh.** They never say when the person authenticated. People who sign
+  in that way must sign in with a password to do these actions, or ask
+  an administrator. The interface tells them so. If your administrators
+  sign in only through GitHub, give at least one of them a password
+  before upgrading.
 - **A new setting, `SUPERMCP_AUTH_FRESH_WINDOW`** (default `5m`, allowed
   `1m` to `24h`). Like the session lifetimes, it applies to the whole
   instance by design. A value that does not parse, or is outside that
@@ -85,21 +117,22 @@ What it needs from you:
   operations need to call `POST /api/v1/auth/reauth` first if the session
   is older than the window. Such scripts would be better off with an API
   key.
-- **Single sign-on re-authentication asks the provider to sign the
-  person in again** (`prompt=login` for OpenID Connect, `ForceAuthn` for
-  SAML). A provider that ignores these parameters may answer from its own
-  session without asking. This is the case for GitHub, which does not
-  support `prompt=login`.
 - **The re-authentication endpoint uses the sign-in lockout and rate
   limit.** Wrong passwords count against the same `login_lockouts`
   counters as the sign-in form, and requests draw on the
   `SUPERMCP_RATELIMIT_SIGNIN` budget.
 
-New audit actions: `session.reauth` (success and failure). A refusal is
-recorded as `access.denied` with `meta.reason = "reauth_required"`. A
-single sign-on re-authentication is recorded as `session.create` with
-`meta.reauth = true`, and the session it replaces is ended with the
-reason `replaced by re-authentication`.
+New audit actions: `session.reauth`, for success and failure. A failure
+carries `meta.reason`:
+- `reauth_mismatch`: a different person, workspace or provider
+- `reauth_unconfirmed`: the provider gave no time
+- `reauth_not_recent`: the provider's time is older than the window
+
+A refusal of a stale session is recorded as `access.denied` with
+`meta.reason = "reauth_required"`. A successful single sign-on
+re-authentication also records `session.create` with
+`meta.reauth = true`. The session it replaces is ended with the reason
+`replaced by re-authentication`.
 
 ### Colleagues can be invited
 

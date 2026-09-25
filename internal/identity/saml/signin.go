@@ -19,10 +19,13 @@ import (
 // request is recorded before the redirect, so the assertion that comes
 // back can be tied to a sign-in someone here actually started.
 //
-// forceLogin sets ForceAuthn on the request, so the identity provider
-// authenticates the person again rather than answering from a session it
-// already holds; a re-authentication asks for it.
-func (s *Service) Begin(ctx context.Context, providerID, redirectAfter, binding string, forceLogin bool) (string, error) {
+// replaces names the session a re-authentication would replace, and is
+// empty for an ordinary sign-in. It is kept on the request row, so only
+// the assertion answering this request reads it back. A re-authentication
+// sets ForceAuthn, asking the provider to authenticate the person again
+// rather than answer from a session it already holds; whether it did is
+// judged from the AuthnInstant it returns, not from having asked.
+func (s *Service) Begin(ctx context.Context, providerID, redirectAfter, binding, replaces string) (string, error) {
 	p, err := s.load(ctx, providerID)
 	if err != nil {
 		return "", err
@@ -38,7 +41,7 @@ func (s *Service) Begin(ctx context.Context, providerID, redirectAfter, binding 
 	if err != nil {
 		return "", err
 	}
-	if forceLogin {
+	if replaces != "" {
 		force := true
 		sp.ForceAuthn = &force
 	}
@@ -50,8 +53,8 @@ func (s *Service) Begin(ctx context.Context, providerID, redirectAfter, binding 
 		return "", fmt.Errorf("%w: %w", ErrNotConfigured, err)
 	}
 	err = s.DB.Pre(ctx, func(tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, `SELECT auth_saml_request_create($1,$2,$3,$4,$5)`,
-			req.ID, p.ID, safeRedirect(redirectAfter), s.now().Add(requestTTL), BindingDigest(binding))
+		_, err := tx.Exec(ctx, `SELECT auth_saml_request_open($1,$2,$3,$4,$5,NULLIF($6,''))`,
+			req.ID, p.ID, safeRedirect(redirectAfter), s.now().Add(requestTTL), BindingDigest(binding), replaces)
 		return err
 	})
 	if err != nil {
@@ -86,7 +89,7 @@ func (s *Service) Consume(ctx context.Context, providerID, samlResponse, binding
 	if err != nil {
 		return nil, err
 	}
-	redirectAfter, err := s.pendingRequest(ctx, p.ID, requestID, binding)
+	redirectAfter, replaces, err := s.pendingRequest(ctx, p.ID, requestID, binding)
 	if err != nil {
 		return nil, err
 	}
@@ -120,35 +123,41 @@ func (s *Service) Consume(ctx context.Context, providerID, samlResponse, binding
 		return nil, err
 	}
 	res.RedirectAfter = redirectAfter
+	res.Replaces = replaces
+	res.AuthnInstant = claims.AuthnInstant
 	return res, nil
 }
 
 // pendingRequest finds the sign-in an assertion answers and returns where
-// to send the browser afterwards.
-func (s *Service) pendingRequest(ctx context.Context, providerID, requestID, binding string) (string, error) {
+// to send the browser afterwards, and the session it re-authenticates.
+func (s *Service) pendingRequest(ctx context.Context, providerID, requestID, binding string) (string, string, error) {
 	var redirectAfter, wantBinding string
+	var replaces *string
 	var expires time.Time
 	err := s.DB.Pre(ctx, func(tx pgx.Tx) error {
-		return tx.QueryRow(ctx, `SELECT redirect_after, expires_at, binding FROM auth_saml_request($1,$2)`,
-			requestID, providerID).Scan(&redirectAfter, &expires, &wantBinding)
+		return tx.QueryRow(ctx, `SELECT redirect_after, expires_at, binding, replaces_session FROM auth_saml_request_load($1,$2)`,
+			requestID, providerID).Scan(&redirectAfter, &expires, &wantBinding, &replaces)
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
-		return "", ErrRequestInvalid
+		return "", "", ErrRequestInvalid
 	}
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	if s.now().After(expires) {
-		return "", ErrRequestInvalid
+		return "", "", ErrRequestInvalid
 	}
 	// The assertion has to come back to the browser that asked for it.
 	// An identity provider will happily issue one to anybody who asks, so
 	// without this somebody signs in as themselves, posts the answer into
 	// another person's browser, and that person is signed in as them.
 	if wantBinding != "" && subtle.ConstantTimeCompare([]byte(wantBinding), []byte(BindingDigest(binding))) != 1 {
-		return "", ErrRequestInvalid
+		return "", "", ErrRequestInvalid
 	}
-	return redirectAfter, nil
+	if replaces == nil {
+		return redirectAfter, "", nil
+	}
+	return redirectAfter, *replaces, nil
 }
 
 // BindingDigest is what the request row holds for a browser's cookie:

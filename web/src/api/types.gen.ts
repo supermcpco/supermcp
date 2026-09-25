@@ -1631,13 +1631,17 @@ export type SetServiceAccountDisabledResponse = {
 
 export type SignInDto = {
     /**
-     * When the session last proved who is using it
+     * When the session last proved who is using it; absent when nobody vouched for the time
      */
-    authenticatedAt: string;
+    authenticatedAt?: string;
+    /**
+     * Whether this session can be made fresh again: by its password, or by a provider that says when the person authenticated
+     */
+    canReauth: boolean;
     /**
      * Until when sensitive operations are allowed without signing in again
      */
-    freshUntil: string;
+    freshUntil?: string;
     /**
      * How the session signed in
      */
@@ -1651,7 +1655,7 @@ export type SignInDto = {
      */
     providerName?: string;
     /**
-     * Where to send the browser to sign in again through the provider; append &next= to come back. Empty for a password session, which confirms its password with POST /api/v1/auth/reauth.
+     * Where to send the browser to sign in again through the provider; append &next= to come back. Empty for a password session, which confirms its password with POST /api/v1/auth/reauth, and for a provider that cannot confirm a recent sign-in.
      */
     reauthUrl?: string;
 };

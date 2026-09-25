@@ -8,6 +8,7 @@ import (
 	"html/template"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -74,6 +75,15 @@ func (d Deps) authorize(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/login?next="+template.URLQueryEscaper("/oauth/authorize?"+r.URL.RawQuery), http.StatusFound)
 		return
 	}
+	// Granting a client a token is handing out a credential, so it needs
+	// a recent sign-in like creating an API key does. The consent page is
+	// served here rather than by the interface, so the person is sent to
+	// the interface's /reauth page and brought back to this request.
+	if !fresh(p, d.freshWindow(), time.Now()) {
+		//nolint:gosec // a fixed local path with an escaped query
+		http.Redirect(w, r, "/reauth?next="+template.URLQueryEscaper("/oauth/authorize?"+r.URL.RawQuery), http.StatusFound)
+		return
+	}
 	servers, _ := d.Servers.List(r.Context(), p.OrgID)
 	renderConsent(w, consentData{
 		RequestID:  req.ID,
@@ -101,6 +111,17 @@ func (d Deps) consent(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeOAuthError(w, err)
 		return
+	}
+	// The page may have sat open past the window since authorize checked.
+	// Declining needs nothing; granting does. The request cannot be
+	// rebuilt from the form, so the person starts again from the client,
+	// and authorize sends them to confirm who they are first.
+	if r.FormValue("decision") == "allow" {
+		if err := d.checkFresh(r.Context(), p, "", authz.Resource{OrgID: p.OrgID}); err != nil {
+			renderConsent(w, consentData{Error: "Granting access needs a recent sign-in. Go back to " + clientLabel(req) +
+				" and connect again; you will be asked to confirm it is you first.", Status: http.StatusForbidden})
+			return
+		}
 	}
 	if r.FormValue("decision") != "allow" {
 		d.emit(r.Context(), audit.Event{Category: audit.CategoryAuth, Action: "oauth.consent.decline", Outcome: audit.Success,

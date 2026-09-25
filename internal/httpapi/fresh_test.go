@@ -32,6 +32,13 @@ func TestFresh(t *testing.T) {
 		{"an API key", &authz.Principal{Kind: authz.KindAPIKey, AuthMethod: "api_key"}, true},
 		{"an OAuth access token", &authz.Principal{Kind: authz.KindUser, AuthMethod: "oauth_at"}, true},
 		{"a service account", &authz.Principal{Kind: authz.KindServiceAccount, AuthMethod: "client_credentials"}, true},
+		// Only the named non-interactive credentials are exempt: an empty
+		// or unknown method is held to the window, and without a vouched
+		// time it fails.
+		{"no method at all", &authz.Principal{Kind: authz.KindUser}, false},
+		{"a method added later", &authz.Principal{Kind: authz.KindUser, AuthMethod: "webauthn_assertion"}, false},
+		{"an unknown method signed in just now", &authz.Principal{Kind: authz.KindUser, AuthMethod: "future",
+			SignIn: authz.SignIn{At: now.Add(-time.Second)}}, true},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -69,5 +76,20 @@ func TestHumanWindow(t *testing.T) {
 		if got := humanWindow(d); got != want {
 			t.Errorf("humanWindow(%s) = %q, want %q", d, got, want)
 		}
+	}
+}
+
+func TestVouchedTime(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 9, 25, 12, 0, 0, 0, time.UTC)
+	earlier, later := now.Add(-time.Minute), now.Add(time.Minute)
+	if got := vouchedTime(nil, now); !got.IsZero() {
+		t.Errorf("no time = %v, want zero", got)
+	}
+	if got := vouchedTime(&earlier, now); !got.Equal(earlier) {
+		t.Errorf("an earlier time = %v, want it as said", got)
+	}
+	if got := vouchedTime(&later, now); !got.Equal(now) {
+		t.Errorf("a time ahead of the clock = %v, want now", got)
 	}
 }

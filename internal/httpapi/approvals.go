@@ -204,6 +204,15 @@ func (d Deps) approvalDecisionRoutes(api huma.API) {
 // in one field and in the sentence the model is eventually shown, and
 // splitting them would duplicate the permission check that matters.
 func (d Deps) decideApproval(ctx context.Context, id string, decision governance.Decision, action string) (*struct{ Body governance.ApprovalRequest }, error) {
+	// Agreeing runs a tool call somebody else asked for, under their
+	// name; refusing only stops one. So only agreeing needs a recent
+	// sign-in, checked before the request is looked up, like the other
+	// guarded operations.
+	if decision.Approve {
+		if _, err := d.requireFresh(ctx, authz.ApprovalsDecide, authz.Resource{}); err != nil {
+			return nil, err
+		}
+	}
 	p, svc, before, err := d.approvalFor(ctx, id, authz.ApprovalsDecide)
 	if err != nil {
 		return nil, err

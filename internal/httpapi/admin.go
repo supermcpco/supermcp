@@ -59,11 +59,15 @@ type signInDTO struct {
 	Method       string `json:"method" enum:"password,sso,saml" doc:"How the session signed in"`
 	ProviderID   string `json:"providerId,omitempty" doc:"The single sign-on provider, for sso and saml"`
 	ProviderName string `json:"providerName,omitempty" doc:"The provider's name, to put on the button that signs in again"`
-	ReauthURL    string `json:"reauthUrl,omitempty" doc:"Where to send the browser to sign in again through the provider; append &next= to come back. Empty for a password session, which confirms its password with POST /api/v1/auth/reauth."`
+	ReauthURL    string `json:"reauthUrl,omitempty" doc:"Where to send the browser to sign in again through the provider; append &next= to come back. Empty for a password session, which confirms its password with POST /api/v1/auth/reauth, and for a provider that cannot confirm a recent sign-in."`
+	// CanReauth is false for a provider that never says when the person
+	// authenticated (GitHub, plain OAuth2): signing in again through it
+	// proves nothing about when, so it cannot make a session fresh.
+	CanReauth bool `json:"canReauth" doc:"Whether this session can be made fresh again: by its password, or by a provider that says when the person authenticated"`
 	// AuthenticatedAt and FreshUntil let a client warn before an action
 	// rather than after; the server decides either way.
-	AuthenticatedAt time.Time `json:"authenticatedAt" doc:"When the session last proved who is using it"`
-	FreshUntil      time.Time `json:"freshUntil" doc:"Until when sensitive operations are allowed without signing in again"`
+	AuthenticatedAt *time.Time `json:"authenticatedAt,omitempty" doc:"When the session last proved who is using it; absent when nobody vouched for the time"`
+	FreshUntil      *time.Time `json:"freshUntil,omitempty" doc:"Until when sensitive operations are allowed without signing in again"`
 }
 
 type userDTO struct {
@@ -195,7 +199,7 @@ func (d Deps) startSession(ctx context.Context, u *identity.User, o *identity.Or
 	}
 	ip, _ := ctx.Value(ipKey).(string)
 	ua, _ := ctx.Value(uaKey).(string)
-	sess, err := d.Identity.CreateSession(ctx, u.ID, orgID, "password", "", ip, ua)
+	sess, err := d.Identity.CreateSession(ctx, u.ID, orgID, "password", "", time.Now(), ip, ua)
 	if err != nil {
 		return nil, err
 	}
@@ -325,7 +329,7 @@ func (d Deps) connectorRoutes(api huma.API) {
 				Credentials map[string]string `json:"credentials"`
 			}
 		}) (*struct{ Body connectorDTO }, error) {
-			p, err := d.require(ctx, authz.ConnectorsAuth, authz.Resource{ConnectorID: in.ID})
+			p, err := d.requireFresh(ctx, authz.ConnectorsAuth, authz.Resource{ConnectorID: in.ID})
 			if err != nil {
 				return nil, err
 			}

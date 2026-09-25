@@ -132,8 +132,16 @@ const testBinding = "a-browser"
 // provider would post back for it.
 func (f *dbFixture) signIn(mutate func(*crewjam.Assertion)) string {
 	f.t.Helper()
+	return f.signInReplacing("", nil, mutate)
+}
+
+// signInReplacing starts a sign-in as a re-authentication of the session
+// named by replaces, and reports whether the request asked the provider to
+// authenticate the person again.
+func (f *dbFixture) signInReplacing(replaces string, forced *bool, mutate func(*crewjam.Assertion)) string {
+	f.t.Helper()
 	ctx := f.t.Context()
-	authnURL, err := f.svc.Begin(ctx, f.provider.ID, "/dashboard", testBinding, false)
+	authnURL, err := f.svc.Begin(ctx, f.provider.ID, "/dashboard", testBinding, replaces)
 	if err != nil {
 		f.t.Fatal(err)
 	}
@@ -143,6 +151,9 @@ func (f *dbFixture) signIn(mutate func(*crewjam.Assertion)) string {
 	}
 	if err := req.Validate(); err != nil {
 		f.t.Fatal(err)
+	}
+	if forced != nil {
+		*forced = req.Request.ForceAuthn != nil && *req.Request.ForceAuthn
 	}
 	now := time.Now()
 	acs := f.svc.ACSURL(f.provider.ID)
@@ -189,6 +200,41 @@ func (f *dbFixture) signIn(mutate func(*crewjam.Assertion)) string {
 		f.t.Fatal(err)
 	}
 	return form.SAMLResponse
+}
+
+// TestConsumeReportsReauthentication checks what the web layer judges a
+// re-authentication by: the session it replaces comes back from the
+// request row, the provider was asked to authenticate afresh, and the
+// assertion's AuthnInstant is reported rather than the time it arrived.
+func TestConsumeReportsReauthentication(t *testing.T) {
+	f := newDBFixture(t)
+	var forced bool
+	earlier := time.Now().Add(-time.Hour).Truncate(time.Second)
+	doc := f.signInReplacing("the-old-session", &forced, func(a *crewjam.Assertion) {
+		a.AuthnStatements[0].AuthnInstant = earlier
+	})
+	if !forced {
+		t.Error("a re-authentication did not set ForceAuthn")
+	}
+	res, err := f.svc.Consume(t.Context(), f.provider.ID, doc, testBinding)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Replaces != "the-old-session" {
+		t.Errorf("replaces = %q, want the session named when the sign-in began", res.Replaces)
+	}
+	if res.AuthnInstant == nil || !res.AuthnInstant.Equal(earlier) {
+		t.Errorf("AuthnInstant = %v, want %v", res.AuthnInstant, earlier)
+	}
+
+	var plain bool
+	res, err = f.svc.Consume(t.Context(), f.provider.ID, f.signInReplacing("", &plain, nil), testBinding)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plain || res.Replaces != "" {
+		t.Errorf("an ordinary sign-in: ForceAuthn %v, replaces %q", plain, res.Replaces)
+	}
 }
 
 func TestConsumeLinksAnAccount(t *testing.T) {

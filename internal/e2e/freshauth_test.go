@@ -2,6 +2,8 @@ package e2e
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
@@ -10,6 +12,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -157,11 +160,17 @@ func TestFreshAuthGuardsSensitiveOperations(t *testing.T) {
 		{http.MethodDelete, "/api/v1/dlp/policies/none"},
 		{http.MethodDelete, "/api/v1/approval-policies/none"},
 		{http.MethodDelete, "/api/v1/audit/exporters/none"},
+		{http.MethodPost, "/api/v1/connectors/none/oauth/authorize"},
+		{http.MethodPost, "/api/v1/approvals/none/approve"},
+		{http.MethodPut, "/api/v1/connectors/none/credentials"},
 	} {
 		var r refusal
 		var body any
-		if c.method == http.MethodPost {
+		switch c.method {
+		case http.MethodPost:
 			body = map[string]any{}
+		case http.MethodPut:
+			body = map[string]any{"credentials": map[string]string{}}
 		}
 		if code := h.do(t, c.method, c.path, body, &r); code != http.StatusForbidden || r.code() != "reauth_required" {
 			t.Errorf("%s %s from a stale session: %d %+v, want 403 reauth_required", c.method, c.path, code, r)
@@ -268,18 +277,22 @@ func lockoutFailures(t *testing.T, h *harness, key string) int {
 	return n
 }
 
-// TestSSOReauth re-authenticates a single sign-on session through its
-// provider: the provider is asked to sign the person in again, a new
-// session opens, and the one it replaces is ended.
-func TestSSOReauth(t *testing.T) {
-	h := start(t)
+// ssoBrowser is one browser signing in through a fake provider.
+type ssoBrowser struct {
+	h      *harness
+	idp    *fakeIdP
+	prov   *sso.Provider
+	jar    *cookiejar.Jar
+	client *http.Client
+}
+
+func newSSOBrowser(t *testing.T, h *harness, orgName string) (*ssoBrowser, registered) {
+	t.Helper()
 	idp := newFakeIdP(t)
 	idp.email = newID() + "@example.test"
 	idp.subject = "sub-" + newID()
-	ctx := context.Background()
-
-	admin := h.register(t, "E2E SSO reauth")
-	octx := tenant.WithOrg(ctx, admin.Org.ID)
+	admin := h.register(t, orgName)
+	octx := tenant.WithOrg(context.Background(), admin.Org.ID)
 	prov, err := h.deps.SSO.Create(octx, admin.Org.ID, admin.User.ID, sso.Input{
 		Name: "Reauth IdP", Preset: "generic", Issuer: idp.URL, ClientID: idp.clientID,
 		ClientSecret: "test-secret", JITProvisioning: true, DefaultRoleID: "role_admin", Enabled: true,
@@ -287,55 +300,87 @@ func TestSSOReauth(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-
 	jar, err := cookiejar.New(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	client := &http.Client{Jar: jar}
-	base, _ := url.Parse(h.url)
-	signedIn := func() *harness {
-		parts := []string{}
-		for _, c := range jar.Cookies(base) {
-			parts = append(parts, c.Name+"="+c.Value)
-		}
-		return &harness{url: h.url, client: h.client, deps: h.deps, db: h.db, cookie: strings.Join(parts, "; ")}
-	}
-	follow := func(path string) {
-		t.Helper()
-		resp, err := client.Get(h.url + path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer resp.Body.Close()
-		if resp.Request.URL.Path != "/connectors" {
-			t.Fatalf("the sign-in ended at %s", resp.Request.URL)
-		}
-	}
-	follow("/auth/sso/" + prov.ID + "/start?next=/connectors")
-	if idp.prompt != "" {
-		t.Fatalf("an ordinary sign-in asked the provider for prompt=%q", idp.prompt)
-	}
-	first := signedIn()
+	return &ssoBrowser{h: h, idp: idp, prov: prov, jar: jar, client: &http.Client{Jar: jar}}, admin
+}
 
-	var sess struct {
-		User   struct{ ID string } `json:"user"`
-		SignIn struct {
-			Method       string `json:"method"`
-			ProviderID   string `json:"providerId"`
-			ProviderName string `json:"providerName"`
-			ReauthURL    string `json:"reauthUrl"`
-		} `json:"signIn"`
+// follow walks a redirect chain and returns where it ended.
+func (b *ssoBrowser) follow(t *testing.T, path string) *url.URL {
+	t.Helper()
+	resp, err := b.client.Get(b.h.url + path)
+	if err != nil {
+		t.Fatal(err)
 	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, resp.Body)
+	return resp.Request.URL
+}
+
+// session is a harness carrying whatever session cookie the browser holds.
+func (b *ssoBrowser) session() *harness {
+	base, _ := url.Parse(b.h.url)
+	parts := []string{}
+	for _, c := range b.jar.Cookies(base) {
+		parts = append(parts, c.Name+"="+c.Value)
+	}
+	return &harness{url: b.h.url, client: b.h.client, deps: b.h.deps, db: b.h.db, cookie: strings.Join(parts, "; ")}
+}
+
+type ssoSignInView struct {
+	User   struct{ ID string } `json:"user"`
+	SignIn struct {
+		Method       string `json:"method"`
+		ProviderID   string `json:"providerId"`
+		ProviderName string `json:"providerName"`
+		ReauthURL    string `json:"reauthUrl"`
+		CanReauth    bool   `json:"canReauth"`
+	} `json:"signIn"`
+}
+
+func (h *harness) replacedCount(t *testing.T, userID string) int {
+	t.Helper()
+	ctx := context.Background()
+	var n int
+	if err := h.db.Bypass(ctx, "e2e revoked", func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT count(*) FROM sessions WHERE user_id = $1 AND revoked_reason = 'replaced by re-authentication'`,
+			userID).Scan(&n)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+// TestSSOReauth re-authenticates a single sign-on session through its
+// provider. The provider is asked to sign the person in again, and the
+// answer is judged by the auth_time it carries, not by having asked: an
+// auth_time older than the window, or none at all, leaves the stale
+// session as it was; a recent one opens a fresh session and ends the old.
+func TestSSOReauth(t *testing.T) {
+	h := start(t)
+	b, _ := newSSOBrowser(t, h, "E2E SSO reauth")
+	now := func() int64 { return time.Now().Unix() }
+	b.idp.authTime = now
+
+	if end := b.follow(t, "/auth/sso/"+b.prov.ID+"/start?next=/connectors"); end.Path != "/connectors" {
+		t.Fatalf("the sign-in ended at %s", end)
+	}
+	if b.idp.prompt != "" || b.idp.maxAge != "" {
+		t.Fatalf("an ordinary sign-in asked the provider for prompt=%q max_age=%q", b.idp.prompt, b.idp.maxAge)
+	}
+	first := b.session()
+	var sess ssoSignInView
 	if code := first.do(t, http.MethodGet, "/api/v1/auth/session", nil, &sess); code != 200 {
 		t.Fatalf("session: %d", code)
 	}
-	if sess.SignIn.Method != "sso" || sess.SignIn.ProviderID != prov.ID || sess.SignIn.ProviderName != "Reauth IdP" ||
-		!strings.Contains(sess.SignIn.ReauthURL, "reauth=1") {
+	if sess.SignIn.Method != "sso" || sess.SignIn.ProviderID != b.prov.ID || sess.SignIn.ProviderName != "Reauth IdP" ||
+		!sess.SignIn.CanReauth || !strings.Contains(sess.SignIn.ReauthURL, "reauth=1") {
 		t.Fatalf("the session does not say how to sign in again: %+v", sess.SignIn)
 	}
 	if code, _, _ := first.createKey(t, "sso fresh", nil); code != http.StatusOK {
-		t.Fatalf("a fresh SSO session creating a key: %d", code)
+		t.Fatalf("a session the provider said authenticated just now, creating a key: %d", code)
 	}
 
 	// Stale, and a password is not accepted in place of the provider.
@@ -353,29 +398,196 @@ func TestSSOReauth(t *testing.T) {
 		t.Fatalf("setting a password from a stale SSO session: %d %+v", code, pw)
 	}
 
-	follow(sess.SignIn.ReauthURL + "&next=/connectors")
-	if idp.prompt != "login" {
-		t.Fatalf("the re-authentication asked the provider for prompt=%q, want login", idp.prompt)
+	// An ordinary sign-in from the same browser is not a re-authentication
+	// and ends nothing.
+	b.follow(t, "/auth/sso/"+b.prov.ID+"/start?next=/connectors")
+	if n := h.replacedCount(t, sess.User.ID); n != 0 {
+		t.Fatalf("an ordinary sign-in ended %d sessions as replaced", n)
 	}
-	second := signedIn()
-	if second.cookie == first.cookie {
+	h.ageSessions(t, sess.User.ID)
+	stale := b.session()
+
+	refused := func(name, reason string) {
+		t.Helper()
+		end := b.follow(t, sess.SignIn.ReauthURL+"&next=/connectors")
+		if b.idp.prompt != "login" || b.idp.maxAge != "0" {
+			t.Fatalf("%s: the re-authentication asked for prompt=%q max_age=%q, want login and 0", name, b.idp.prompt, b.idp.maxAge)
+		}
+		if end.Path != "/reauth" || end.Query().Get("error") != reason || end.Query().Get("next") != "/connectors" {
+			t.Fatalf("%s: ended at %s, want /reauth with error=%s", name, end, reason)
+		}
+		now := b.session()
+		if now.cookie != stale.cookie {
+			t.Fatalf("%s: a refused re-authentication changed the session cookie", name)
+		}
+		if code, _, _ := now.createKey(t, name, nil); code != http.StatusForbidden {
+			t.Fatalf("%s: the session became fresh: %d", name, code)
+		}
+		if code := now.do(t, http.MethodGet, "/api/v1/api-keys", nil, nil); code != http.StatusOK {
+			t.Fatalf("%s: the session stopped working: %d", name, code)
+		}
+		if n := h.replacedCount(t, sess.User.ID); n != 0 {
+			t.Fatalf("%s: %d sessions were ended as replaced", name, n)
+		}
+	}
+	// The provider answered from a sign-in older than the window.
+	b.idp.authTime = func() int64 { return time.Now().Add(-10 * time.Minute).Unix() }
+	refused("auth_time too old", "reauth_not_recent")
+	// The provider did not say when.
+	b.idp.authTime = nil
+	refused("no auth_time", "reauth_unconfirmed")
+
+	// A recent auth_time: a new, fresh session, and the old one ends.
+	b.idp.authTime = now
+	if end := b.follow(t, sess.SignIn.ReauthURL+"&next=/connectors"); end.Path != "/connectors" {
+		t.Fatalf("the re-authentication ended at %s", end)
+	}
+	second := b.session()
+	if second.cookie == stale.cookie {
 		t.Fatal("the re-authentication did not open a new session")
 	}
 	if code, _, _ := second.createKey(t, "sso reauthenticated", nil); code != http.StatusOK {
 		t.Fatalf("the re-authenticated session creating a key: %d", code)
 	}
-	// The session it replaced is over.
-	if code := first.do(t, http.MethodGet, "/api/v1/api-keys", nil, nil); code != http.StatusUnauthorized && code != http.StatusForbidden {
+	if code := stale.do(t, http.MethodGet, "/api/v1/api-keys", nil, nil); code != http.StatusUnauthorized && code != http.StatusForbidden {
 		t.Fatalf("the replaced session still works: %d", code)
 	}
-	var revoked int
-	if err := h.db.Bypass(ctx, "e2e revoked", func(tx pgx.Tx) error {
-		return tx.QueryRow(ctx, `SELECT count(*) FROM sessions WHERE user_id = $1 AND revoked_reason = 'replaced by re-authentication'`,
-			sess.User.ID).Scan(&revoked)
+	if n := h.replacedCount(t, sess.User.ID); n != 1 {
+		t.Fatalf("%d sessions were ended as replaced, want 1", n)
+	}
+}
+
+// TestSSOReauthRefusesAnotherPerson starts a re-authentication from one
+// person's session and has the provider answer for somebody else. No
+// session opens for the other person, and the first one stays live.
+func TestSSOReauthRefusesAnotherPerson(t *testing.T) {
+	h := start(t)
+	ctx := context.Background()
+	b, admin := newSSOBrowser(t, h, "E2E SSO reauth mismatch")
+	b.idp.authTime = func() int64 { return time.Now().Unix() }
+	b.follow(t, "/auth/sso/"+b.prov.ID+"/start?next=/connectors")
+	first := b.session()
+	var sess ssoSignInView
+	if code := first.do(t, http.MethodGet, "/api/v1/auth/session", nil, &sess); code != 200 {
+		t.Fatalf("session: %d", code)
+	}
+	h.ageSessions(t, sess.User.ID)
+
+	// The provider now answers for a different person.
+	other := newID() + "@example.test"
+	b.idp.email, b.idp.subject = other, "sub-"+newID()
+	end := b.follow(t, sess.SignIn.ReauthURL+"&next=/connectors")
+	if end.Path != "/reauth" || end.Query().Get("error") != "reauth_mismatch" {
+		t.Fatalf("a re-authentication answered for another person ended at %s", end)
+	}
+	if b.session().cookie != first.cookie {
+		t.Fatal("a session was opened for the other person")
+	}
+	if code := first.do(t, http.MethodGet, "/api/v1/api-keys", nil, nil); code != http.StatusOK {
+		t.Fatalf("the original session stopped working: %d", code)
+	}
+	var sessions int
+	if err := h.db.Bypass(ctx, "e2e other sessions", func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT count(*) FROM sessions s JOIN users u ON u.id = s.user_id WHERE u.email = $1`,
+			other).Scan(&sessions)
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if revoked != 1 {
-		t.Fatalf("%d sessions were ended as replaced, want 1", revoked)
+	if sessions != 0 {
+		t.Fatalf("%d sessions were opened for the other person", sessions)
+	}
+	// The refusal is on the audit trail.
+	found := false
+	for _, e := range h.auditEvents(t, ctx, admin.Org.ID) {
+		if e.Action == "session.reauth" && e.Outcome == audit.Failure && e.Meta["reason"] == "reauth_mismatch" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("the refused re-authentication is not on the audit trail")
+	}
+}
+
+// TestOAuthConsentNeedsRecentSignIn covers the consent page, which is
+// served by the server rather than the interface: granting a client a
+// token needs a recent sign-in, authorize sends a stale session to the
+// interface's /reauth page and back, and a consent form left open past
+// the window is refused when it is submitted.
+func TestOAuthConsentNeedsRecentSignIn(t *testing.T) {
+	h := start(t)
+	upstream, _ := fakeUpstream(t)
+	ctx := context.Background()
+	admin := h.register(t, "E2E OAuth fresh")
+	octx := tenant.WithOrg(ctx, admin.Org.ID)
+	c, err := h.connectors.Create(octx, admin.Org.ID, testConnector(t, upstream.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv, err := h.servers.Create(octx, admin.Org.ID, "OAuth fresh server", "", "", []string{c.ID}, admin.User.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var client struct {
+		ClientID string `json:"client_id"`
+	}
+	if code := h.do(t, http.MethodPost, "/oauth/register", map[string]any{
+		"client_name": "Fresh Client", "redirect_uris": []string{"http://127.0.0.1:7777/callback"},
+	}, &client); code != 201 {
+		t.Fatalf("register client: %d", code)
+	}
+	sum := sha256.Sum256([]byte("fresh-verifier-" + newID() + newID()))
+	q := url.Values{"response_type": {"code"}, "client_id": {client.ClientID},
+		"redirect_uri": {"http://127.0.0.1:7777/callback"}, "state": {"xyz"},
+		"code_challenge": {base64.RawURLEncoding.EncodeToString(sum[:])}, "code_challenge_method": {"S256"},
+		"scope": {"mcp:tools:read"}, "resource": {h.url + "/mcp/" + srv.ID}}
+	noRedirect := *h.client
+	noRedirect.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	send := func(method, path string, form url.Values) *http.Response {
+		t.Helper()
+		var body io.Reader
+		if form != nil {
+			body = strings.NewReader(form.Encode())
+		}
+		req, _ := http.NewRequestWithContext(ctx, method, h.url+path, body)
+		if form != nil {
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		}
+		req.Header.Set("Cookie", h.cookie)
+		resp, err := noRedirect.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { resp.Body.Close() })
+		return resp
+	}
+
+	// Fresh: the consent page, whose form is then left open too long.
+	page := h.getString(t, "/oauth/authorize?"+q.Encode())
+	id := between(page, `name="request_id" value="`, `"`)
+	if id == "" {
+		t.Fatalf("no consent page for a fresh session: %s", page)
+	}
+	h.ageSessions(t, admin.User.ID)
+	if resp := send(http.MethodPost, "/oauth/consent", url.Values{"request_id": {id}, "decision": {"allow"}}); resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("granting from a stale session: %d, want 403", resp.StatusCode)
+	}
+
+	// Stale: authorize sends the person to confirm who they are, and back.
+	resp := send(http.MethodGet, "/oauth/authorize?"+q.Encode(), nil)
+	loc, _ := url.Parse(resp.Header.Get("Location"))
+	if resp.StatusCode != http.StatusFound || loc.Path != "/reauth" || !strings.HasPrefix(loc.Query().Get("next"), "/oauth/authorize?") {
+		t.Fatalf("authorize from a stale session: %d %s, want a redirect to /reauth", resp.StatusCode, loc)
+	}
+	if code := h.do(t, http.MethodPost, "/api/v1/auth/reauth", map[string]any{"password": e2ePassword}, nil); code != http.StatusOK {
+		t.Fatalf("re-authenticating: %d", code)
+	}
+	page = h.getString(t, loc.Query().Get("next"))
+	id = between(page, `name="request_id" value="`, `"`)
+	if id == "" {
+		t.Fatalf("no consent page after re-authenticating: %s", page)
+	}
+	resp = send(http.MethodPost, "/oauth/consent", url.Values{"request_id": {id}, "decision": {"allow"}})
+	if resp.StatusCode != http.StatusFound || !strings.HasPrefix(resp.Header.Get("Location"), "http://127.0.0.1:7777/callback") {
+		t.Fatalf("granting after re-authenticating: %d %s", resp.StatusCode, resp.Header.Get("Location"))
 	}
 }

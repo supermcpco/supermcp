@@ -92,8 +92,8 @@ ambient credential a browser could attach on someone else's behalf.
 
 A session cookie lives for up to 30 days. The operations that create
 credentials, decide who may do what, or change how the workspace is
-secured also require the session to have signed in, or confirmed its
-password, within the last five minutes (`SUPERMCP_AUTH_FRESH_WINDOW`).
+secured also require the session to have signed in, or confirmed who is
+using it, within the last five minutes (`SUPERMCP_AUTH_FRESH_WINDOW`).
 The permission is checked first. A session that holds the permission but
 is older than the window gets:
 
@@ -106,28 +106,54 @@ is older than the window gets:
 }
 ```
 
-The session itself stays valid for everything else. It becomes fresh
-again in one of two ways:
+The session itself stays valid for everything else.
+`GET /api/v1/auth/session` returns `signIn`:
+- `method`: `password`, `sso` or `saml`
+- `canReauth`
+- `authenticatedAt` and `freshUntil`
+- `reauthUrl`, for single sign-on
 
-- A password session sends `POST /api/v1/auth/reauth` with
+The session becomes fresh again in one of two ways:
+
+- **A password session** sends `POST /api/v1/auth/reauth` with
   `{"password": "…"}`. The session keeps its cookie and its id, and its
   authentication time becomes now. A wrong password is a `400` and counts
   toward the same lockout as a failed sign-in.
-- A single sign-on session signs in through its provider again.
-  `GET /api/v1/auth/session` returns `signIn.method` (`password`, `sso` or
-  `saml`) and, for single sign-on, `signIn.reauthUrl`. Send the browser
-  there with `&next=<path>` appended. The provider is asked to
-  authenticate the person again (`prompt=login` or `ForceAuthn`). The
-  callback opens a new session and ends the one it replaces.
+- **A single sign-on session** signs in through its provider again.
+  Send the browser to `signIn.reauthUrl` with `&next=<path>` appended.
+  The provider is asked to authenticate the person again: `prompt=login`
+  and `max_age=0` for OpenID Connect, `ForceAuthn` for SAML. The answer
+  is accepted only when all of these hold:
+  - the provider's own authentication time is within the window
+    (`auth_time` from the verified ID token, or `AuthnInstant`)
+  - the person, workspace and provider match the session being replaced
+
+  If so, a new session opens with that time and the old one ends.
+  Otherwise nothing changes, and the browser lands on
+  `/reauth?error=<reason>&next=<path>`. The reason is
+  `reauth_not_recent`, `reauth_unconfirmed` or `reauth_mismatch`.
+
+  A provider that never gives a time (GitHub, plain OAuth2) has
+  `canReauth: false` and no `reauthUrl`. Its sessions cannot be made
+  fresh, because a sign-in through it says nothing about when the person
+  authenticated. For the same reason, a sign-in through it opens a
+  session that is never fresh.
 
 Setting a password from a single sign-on session is also subject to the
 window. A password session instead proves itself with the current
 password.
 
-API keys, OAuth access tokens and service accounts are not subject to
-the window, because no person signs them in who could be asked to sign
-in again. Their scopes and the principal's permissions are all that
-apply.
+The OAuth consent page is served by the server, not the interface. A
+stale session that reaches `GET /oauth/authorize` is redirected to
+`/reauth?next=<the authorize URL>` and comes back once it confirms. A
+consent form submitted with `allow` after the window has passed is
+refused with `403`, and the person starts again from the client.
+
+API keys, OAuth access tokens and service accounts
+(`client_credentials`) are the only credentials not subject to the
+window. No person signs them in who could be asked to sign in again.
+They are named explicitly; any other kind of credential is held to the
+window. Their scopes and the principal's permissions are all that apply.
 
 The guarded operations:
 
@@ -135,11 +161,14 @@ The guarded operations:
 |---|---|
 | API keys | `POST /api/v1/api-keys`, `POST /api/v1/api-keys/{id}/rotate`, `DELETE /api/v1/api-keys/{id}` (a SCIM token is an API key) |
 | Service accounts | `POST /api/v1/service-accounts`, `POST …/{id}/rotate`, `POST …/{id}/disabled`, `DELETE …/{id}` |
+| Connector credentials | `PUT /api/v1/connectors/{id}/credentials`, `POST /api/v1/connectors/{id}/oauth/authorize` |
+| OAuth clients | `GET /oauth/authorize` (redirects to `/reauth`), `POST /oauth/consent` with `decision=allow` |
+| Approvals | `POST /api/v1/approvals/{id}/approve` (not reject or cancel) |
 | Roles | `POST /api/v1/roles`, `PATCH /api/v1/roles/{id}`, `DELETE /api/v1/roles/{id}`, `POST /api/v1/roles/{id}/revisions/{revision}/restore` |
 | Role holders | `POST /api/v1/roles/{id}/bindings`, `DELETE /api/v1/roles/{id}/bindings/{bindingId}`, `PATCH /api/v1/org/members/{userId}`, `DELETE /api/v1/org/members/{userId}`, `POST /api/v1/org/invites` |
 | Single sign-on | `POST /api/v1/idps`, `PUT` and `DELETE /api/v1/idps/{id}`, `POST /api/v1/saml-providers`, `PUT` and `DELETE /api/v1/saml-providers/{id}`, `POST /api/v1/saml-providers/{id}/rotate-key` |
 | Security settings | `PUT /api/v1/org/password-policy`, `POST /api/v1/auth/password` from a single sign-on session |
-| Data-loss and approvals | `POST /api/v1/dlp/policies`, `PUT` and `DELETE /api/v1/dlp/policies/{id}`, `POST /api/v1/approval-policies`, `PUT` and `DELETE /api/v1/approval-policies/{id}` |
+| Data-loss and approval rules | `POST /api/v1/dlp/policies`, `PUT` and `DELETE /api/v1/dlp/policies/{id}`, `POST /api/v1/approval-policies`, `PUT` and `DELETE /api/v1/approval-policies/{id}` |
 | Audit trail | `PUT /api/v1/audit/policy`, `PUT /api/v1/audit/retention`, `POST` and `DELETE /api/v1/audit/legal-hold`, `POST /api/v1/audit/exporters`, `DELETE /api/v1/audit/exporters/{id}` |
 
 The master key and data keys have no HTTP endpoints. Rotating them is a

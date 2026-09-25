@@ -30,14 +30,12 @@ func (d Deps) ssoStart(w http.ResponseWriter, r *http.Request) {
 		d.ssoFailed(w, r, err)
 		return
 	}
-	reauth := r.URL.Query().Get("reauth") == "1"
-	url, err := d.SSO.Begin(r.Context(), chi.URLParam(r, "id"), r.URL.Query().Get("next"), binding, reauth)
+	url, err := d.SSO.Begin(r.Context(), chi.URLParam(r, "id"), r.URL.Query().Get("next"), binding, reauthReplaces(r))
 	if err != nil {
 		d.ssoFailed(w, r, err)
 		return
 	}
 	w.Header().Add("Set-Cookie", d.flowCookie(ssoFlowCookie, binding, int(ssoFlowTTL.Seconds()), false))
-	d.reauthStart(w, r, false)
 	//nolint:gosec // the URL comes from the provider's own metadata
 	http.Redirect(w, r, url, http.StatusFound)
 }
@@ -55,36 +53,18 @@ func (d Deps) ssoCallback(w http.ResponseWriter, r *http.Request) {
 	res, err := d.SSO.Callback(r.Context(), q.Get("state"), q.Get("code"), binding)
 	// The sign-in is over either way, so the cookie goes whatever happened.
 	w.Header().Add("Set-Cookie", d.flowCookie(ssoFlowCookie, "", 0, false))
-	replaces := d.reauthFinish(w, r, false)
 	if err != nil {
 		d.ssoFailed(w, r, err)
 		return
 	}
-	ip, _ := r.Context().Value(ipKey).(string)
-	sess, err := d.Identity.CreateSession(r.Context(), res.UserID, res.OrgID, "sso", res.ProviderID, ip, r.UserAgent())
-	if err != nil {
-		d.ssoFailed(w, r, err)
-		return
-	}
-	meta := map[string]any{"method": "sso", "provider": res.ProviderName, "groups": res.Groups}
-	if d.retireReplaced(r.Context(), replaces, res.UserID) {
-		meta["reauth"] = true
-	}
-	d.emit(r.Context(), audit.Event{OrgID: res.OrgID, Category: audit.CategoryAuth, Action: "session.create",
-		Outcome: audit.Success, ActorKind: "user", ActorID: res.UserID, ActorDisplay: res.Email,
-		SessionID: sess.ID, IP: ip, UserAgent: r.UserAgent(), Meta: meta})
 	// The provider verified the person; the session records that, so a
 	// policy can require a factor we did not issue ourselves.
-	if err := d.Identity.MarkVerified(r.Context(), sess.ID); err != nil {
-		d.Log.Warn("could not record the provider's verification", "session", sess.ID, "err", err)
-	}
-	w.Header().Add("Set-Cookie", d.cookieValue(sess.Secret, int(d.Identity.Cfg.SessionAbsolute.Seconds())))
-	next := res.RedirectAfter
-	if next == "" {
-		next = "/"
-	}
-	//nolint:gosec // safeRedirect in the sso package kept this path local
-	http.Redirect(w, r, next, http.StatusFound)
+	d.finishProviderSignIn(w, r, providerSignIn{
+		UserID: res.UserID, OrgID: res.OrgID, Email: res.Email, ProviderID: res.ProviderID,
+		ProviderName: res.ProviderName, Method: "sso", At: res.AuthTime, Replaces: res.Replaces,
+		Verified: true, Next: res.RedirectAfter,
+		Meta: map[string]any{"method": "sso", "provider": res.ProviderName, "groups": res.Groups},
+	}, func(err error) { d.ssoFailed(w, r, err) })
 }
 
 // ssoFailed sends the person back to the sign-in page with something they
