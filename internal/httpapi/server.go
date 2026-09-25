@@ -237,15 +237,16 @@ func requestLogger(log *slog.Logger) func(http.Handler) http.Handler {
 			start := time.Now()
 			ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
 			next.ServeHTTP(ww, r)
+			path := loggedPath(r.URL.Path)
 			if ww.Status() >= 500 {
 				log.Error("http server error",
 					"req_id", middleware.GetReqID(r.Context()),
-					"method", r.Method, "path", r.URL.Path, "status", ww.Status())
+					"method", r.Method, "path", path, "status", ww.Status())
 			}
 			log.Info("http",
 				"req_id", middleware.GetReqID(r.Context()),
 				"method", r.Method,
-				"path", r.URL.Path,
+				"path", path,
 				"status", ww.Status(),
 				"bytes", ww.BytesWritten(),
 				"duration_ms", time.Since(start).Milliseconds(),
@@ -253,6 +254,17 @@ func requestLogger(log *slog.Logger) func(http.Handler) http.Handler {
 			)
 		})
 	}
+}
+
+// loggedPath is the request path as the access log records it. An
+// invitation is accepted by opening /invite/<token> in a browser, and the
+// token is the whole secret, so that one path is logged with the token
+// replaced. The API calls that follow carry it in a body and are safe.
+func loggedPath(p string) string {
+	if rest, ok := strings.CutPrefix(p, "/invite/"); ok && rest != "" {
+		return "/invite/{token}"
+	}
+	return p
 }
 
 // readyz fails when the database is unreachable or the schema is older
