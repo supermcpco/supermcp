@@ -15,6 +15,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/supermcpco/supermcp/internal/safeurl"
 )
 
 // Where a copy of the trail can go. A SIEM team rarely gets to choose the
@@ -175,8 +177,12 @@ func validateHTTPURL(raw string) error {
 
 // Destination describes where deliveries go, for a reader who is allowed
 // to see the configuration but not its secrets. A destination nobody can
-// see is a destination nobody can check; a password in a URL is a secret
-// wherever it happens to be written, so it does not come back out.
+// see is a destination nobody can check; a credential in a URL is a secret
+// wherever it happens to be written, so it does not come back out. It is
+// also written into the audit trail, where the search indexes it. A URL
+// keeps its scheme, host and path (safeurl.Display): the query, where a
+// collector token often sits, becomes "?***", and a path segment that
+// looks like a token, as in a Slack or Discord webhook, becomes "***".
 func (e Endpoint) Destination() string {
 	switch e.Kind {
 	case KindSyslog:
@@ -186,11 +192,7 @@ func (e Endpoint) Destination() string {
 		}
 		return scheme + "://" + net.JoinHostPort(e.Host, strconv.Itoa(e.Port))
 	default:
-		u, err := url.Parse(e.URL)
-		if err != nil {
-			return ""
-		}
-		return u.Redacted()
+		return safeurl.Display(e.URL)
 	}
 }
 
