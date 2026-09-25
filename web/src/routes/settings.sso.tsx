@@ -11,11 +11,13 @@ import {
   listIdpsOptions,
   listIdpsQueryKey,
   probeIdpMutation,
+  updateIdpMutation,
   samlProvidersRevisionsListOptions,
   samlProvidersRevisionsListQueryKey,
   samlProvidersRevisionsRestoreMutation,
 } from "../api/@tanstack/react-query.gen";
 import { client } from "../api/client.gen";
+import type { IdpDto, IdpInput } from "../api/types.gen";
 import { useSession } from "../lib/session";
 import { Badge, Loading, SignInFirst } from "../lib/ui";
 import { message } from "../lib/errors";
@@ -89,6 +91,11 @@ const blankSaml = {
   enabled: true,
 };
 
+// What a new OpenID Connect provider counts as a second factor unless the
+// form says otherwise; the server gives the same default to a provider
+// created without a rule.
+const defaultAmr = "mfa, otp, hwk, sc";
+
 const blank = {
   name: "",
   preset: "entra",
@@ -99,7 +106,19 @@ const blank = {
   groupsClaim: "",
   jitProvisioning: true,
   enabled: true,
+  mfaAmr: defaultAmr,
+  mfaAcr: "",
 };
+
+/** Splits a comma-separated field into its non-empty values. */
+function list(value: string): string[] {
+  return value
+    .split(",")
+    .map((v) => v.trim())
+    .filter(Boolean);
+}
+
+type Preset = IdpInput["preset"];
 
 function SingleSignOn() {
   const { signedIn, can, loading } = useSession();
@@ -109,6 +128,7 @@ function SingleSignOn() {
   const [error, setError] = useState<string | null>(null);
   const [probe, setProbe] = useState<string | null>(null);
   const [history, setHistory] = useState<string | null>(null);
+  const [editing, setEditing] = useState<string | null>(null);
   const canRestore = can("revisions:rollback");
 
   const create = useMutation({
@@ -193,8 +213,20 @@ function SingleSignOn() {
                     {p.issuer || "no issuer"}
                     {p.allowedDomains?.length ? ` · ${p.allowedDomains.join(", ")} only` : " · any email domain"}
                   </Text>
+                  <Text as="span" variant="secondary">
+                    {describeRule(p)}
+                  </Text>
                 </div>
                 <div className="flex flex-wrap gap-2">
+                  {p.protocol === "oidc" && (
+                    <Button
+                      onClick={() => setEditing((current) => (current === p.id ? null : p.id))}
+                      aria-expanded={editing === p.id}
+                      aria-label={`${editing === p.id ? "Stop editing" : "Edit"} the second-factor rule of ${p.name}`}
+                    >
+                      {editing === p.id ? "Cancel" : "Second factor"}
+                    </Button>
+                  )}
                   <Button
                     onClick={() => setHistory((current) => (current === p.id ? null : p.id))}
                     aria-expanded={history === p.id}
@@ -207,6 +239,7 @@ function SingleSignOn() {
                   </Button>
                 </div>
               </div>
+              {editing === p.id && <SecondFactorEditor provider={p} onDone={() => setEditing(null)} />}
               {history === p.id && <ProviderHistory id={p.id} name={p.name} canRestore={canRestore} />}
             </li>
           ))}
@@ -224,22 +257,22 @@ function SingleSignOn() {
         </Text>
         <form
           className="grid gap-3 rounded-lg px-5 py-4 ring ring-kumo-line"
+          aria-label="Add a provider"
           onSubmit={(e) => {
             e.preventDefault();
             create.mutate({
               body: {
                 name: form.name,
-                preset: form.preset as "entra" | "google" | "okta" | "auth0" | "github" | "generic",
+                preset: form.preset as Preset,
                 issuer: form.issuer,
                 clientId: form.clientId,
                 clientSecret: form.clientSecret,
                 groupsClaim: form.groupsClaim,
                 jitProvisioning: form.jitProvisioning,
                 enabled: form.enabled,
-                allowedDomains: form.allowedDomains
-                  .split(",")
-                  .map((d) => d.trim())
-                  .filter(Boolean),
+                allowedDomains: list(form.allowedDomains),
+                // GitHub issues no ID token, so it has no rule to send.
+                ...(form.preset !== "github" && { mfa: { amr: list(form.mfaAmr), acr: list(form.mfaAcr) } }),
               },
             });
           }}
@@ -329,6 +362,14 @@ function SingleSignOn() {
             anyone the provider admits.
           </Text>
 
+          {form.preset !== "github" && (
+            <SecondFactorFields
+              amr={form.mfaAmr}
+              acr={form.mfaAcr}
+              onChange={(amr, acr) => setForm({ ...form, mfaAmr: amr, mfaAcr: acr })}
+            />
+          )}
+
           <div className="flex flex-wrap items-center gap-4">
             <label className="flex items-center gap-2">
               <input
@@ -374,6 +415,116 @@ function SingleSignOn() {
         </code>
       </section>
     </div>
+  );
+}
+
+/** Says in words what a provider counts as a second factor. */
+function describeRule(p: IdpDto): string {
+  if (p.protocol !== "oidc") return "Second factor: never reported (no ID token)";
+  const amr = p.mfa.amr ?? [];
+  const acr = p.mfa.acr ?? [];
+  if (amr.length === 0 && acr.length === 0) return "Second factor: no rule, so no sign-in counts as one";
+  const parts = [];
+  if (amr.length) parts.push(`amr ${amr.join(", ")}`);
+  if (acr.length) parts.push(`acr ${acr.join(", ")}`);
+  return `Second factor: ${parts.join(" or ")}`;
+}
+
+/** The two fields of a second-factor rule, as comma-separated lists. */
+function SecondFactorFields({
+  amr,
+  acr,
+  onChange,
+}: {
+  amr: string;
+  acr: string;
+  onChange: (amr: string, acr: string) => void;
+}) {
+  return (
+    <div className="grid gap-1.5">
+      <div className="flex flex-wrap gap-3">
+        <label className="grid flex-1 gap-1.5">
+          <Text as="span">Second factor: amr values that count</Text>
+          <Input value={amr} onChange={(e) => onChange(e.target.value, acr)} placeholder={defaultAmr} />
+        </label>
+        <label className="grid flex-1 gap-1.5">
+          <Text as="span">Second factor: acr values that count</Text>
+          <Input value={acr} onChange={(e) => onChange(amr, e.target.value)} placeholder="phr" />
+        </label>
+      </div>
+      <Text variant="secondary">
+        A sign-in has a second factor when the provider's signed ID token names one of these amr values, or its acr is
+        one of these. Leave both empty and no sign-in through this provider counts as having one. Google sends
+        neither.
+      </Text>
+    </div>
+  );
+}
+
+/**
+ * Changes one provider's second-factor rule. The update replaces the whole
+ * configuration, so everything else is sent back as it is; the client
+ * secret is left out, which keeps the stored one.
+ */
+function SecondFactorEditor({ provider: p, onDone }: { provider: IdpDto; onDone: () => void }) {
+  const qc = useQueryClient();
+  const [amr, setAmr] = useState((p.mfa.amr ?? []).join(", "));
+  const [acr, setAcr] = useState((p.mfa.acr ?? []).join(", "));
+  const save = useMutation({
+    ...updateIdpMutation(),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: listIdpsQueryKey() });
+      onDone();
+    },
+  });
+  return (
+    <form
+      className="grid gap-3"
+      aria-label={`Second-factor rule of ${p.name}`}
+      onSubmit={(e) => {
+        e.preventDefault();
+        save.mutate({
+          path: { id: p.id },
+          body: {
+            name: p.name,
+            preset: p.preset as Preset,
+            issuer: p.issuer,
+            clientId: p.clientId,
+            scopes: p.scopes ?? [],
+            allowedDomains: p.allowedDomains ?? [],
+            jitProvisioning: p.jitProvisioning,
+            defaultRoleId: p.defaultRoleId,
+            groupsClaim: p.groupsClaim,
+            enabled: p.enabled,
+            authorizationEndpoint: p.authorizationEndpoint,
+            tokenEndpoint: p.tokenEndpoint,
+            userinfoEndpoint: p.userinfoEndpoint,
+            jwksUri: p.jwksUri,
+            mfa: { amr: list(amr), acr: list(acr) },
+          },
+        });
+      }}
+    >
+      <SecondFactorFields
+        amr={amr}
+        acr={acr}
+        onChange={(a, c) => {
+          setAmr(a);
+          setAcr(c);
+        }}
+      />
+      <div className="flex items-center gap-3">
+        <Button type="submit" variant="primary" disabled={save.isPending}>
+          Save second-factor rule
+        </Button>
+        <Text variant="secondary">It applies from the next sign-in.</Text>
+      </div>
+      {save.error && (
+        <div role="alert">
+          <Text>{message(save.error)}</Text>
+        </div>
+      )}
+    </form>
   );
 }
 
