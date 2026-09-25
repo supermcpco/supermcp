@@ -141,9 +141,16 @@ function Roles() {
     setError(null);
   };
 
-  const afterSave = async () => {
+  // A change to a role is a new version in its history, so the history
+  // read before the save is out of date the moment the save lands. Left
+  // alone it would be served from the cache, and an open history panel
+  // would go on showing the role as it was.
+  const afterSave = async (id?: string) => {
     setEditing(null);
-    await refresh();
+    await Promise.all([
+      refresh(),
+      id ? qc.invalidateQueries({ queryKey: rolesRevisionsListQueryKey({ path: { id } }) }) : undefined,
+    ]);
   };
 
   return (
@@ -180,7 +187,7 @@ function Roles() {
         <RoleEditor
           groups={permissions.data?.groups ?? []}
           holders={previewHolders}
-          onSaved={afterSave}
+          onSaved={() => afterSave()}
           onCancel={() => setEditing(null)}
         />
       )}
@@ -260,7 +267,7 @@ function Roles() {
                   role={role}
                   groups={permissions.data?.groups ?? []}
                   holders={previewHolders}
-                  onSaved={afterSave}
+                  onSaved={() => afterSave(role.id)}
                   onCancel={() => setEditing(null)}
                 />
               )}
