@@ -94,6 +94,7 @@ INSERT INTO saml_providers (id, organization_id, name, entity_id, signing_cert, 
     VALUES ('sp_a','rls_a','A','https://a.example/saml','\x00','\x00','https://idp-a.example','https://idp-a.example/sso'),
            ('sp_b','rls_b','B','https://b.example/saml','\x00','\x00','https://idp-b.example','https://idp-b.example/sso');
 INSERT INTO dlp_policies (id, organization_id, name, action) VALUES ('dp_a','rls_a','A','mask'), ('dp_b','rls_b','B','mask');
+INSERT INTO dlp_detectors (id, organization_id, name, pattern) VALUES ('dd_a','rls_a','contract','CN-[0-9]{6}'), ('dd_b','rls_b','contract','CN-[0-9]{6}');
 INSERT INTO dlp_findings (id, organization_id, policy_id, stage, action, detector, kind, confidence)
     VALUES ('df_a','rls_a','dp_a','result','mask','builtin','email','high'), ('df_b','rls_b','dp_b','result','mask','builtin','email','high');
 INSERT INTO approval_policies (id, organization_id, name, scope_kind, trigger_kind) VALUES ('ap_a','rls_a','A','organization','destructive'), ('ap_b','rls_b','B','organization','destructive');

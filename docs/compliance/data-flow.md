@@ -107,6 +107,15 @@ A finding records the detector, the kind, a count and the field paths,
 never an excerpt of what it matched. With no rule configured, nothing is
 inspected.
 
+The detectors are the built-ins (card numbers, bank accounts, email
+addresses, telephone numbers, national identifiers, credentials) and
+any the workspace writes itself: a regular expression for an identifier
+of its own, such as a contract id, which a rule runs only when it names
+it. A workspace detector stores its pattern and the sample strings it is
+tested against on every save, in the clear, in `dlp_detectors`; the
+samples are meant to be invented, and nothing a tool call carried is
+ever written there.
+
 Some calls do not reach an upstream at all: an approval rule holds the
 call, seals its arguments under the workspace's data key, and answers
 the caller with the identifier of the request it raised. What runs, when

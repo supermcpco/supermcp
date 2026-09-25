@@ -20,7 +20,7 @@ import (
 type Kind string
 
 // The kinds a revision can describe. The table's check constraint lists
-// the same set (00028); a kind added here needs a migration there.
+// the same set (00028, 00031); a kind added here needs a migration there.
 const (
 	KindConnector Kind = "connector"
 	KindTool      Kind = "tool"
@@ -36,6 +36,9 @@ const (
 	// they are two kinds.
 	KindIdentityProvider Kind = "identity_provider"
 	KindSAMLProvider     Kind = "saml_provider"
+	// KindDLPDetector is a workspace's own detector: a pattern loosened
+	// by mistake lets through what it was written to catch.
+	KindDLPDetector Kind = "dlp_detector"
 )
 
 // What a revision says happened. A rollback is an update: it puts an
@@ -331,7 +334,7 @@ func lockSequence(ctx context.Context, tx pgx.Tx, kind Kind, entityID string) er
 func validKind(k Kind) bool {
 	switch k {
 	case KindConnector, KindTool, KindServer, KindRole,
-		KindDLPPolicy, KindApprovalPolicy, KindIdentityProvider, KindSAMLProvider:
+		KindDLPPolicy, KindApprovalPolicy, KindIdentityProvider, KindSAMLProvider, KindDLPDetector:
 		return true
 	}
 	return false

@@ -274,6 +274,42 @@ func TestChangedDLPPolicyReachesOtherReplicas(t *testing.T) {
 	})
 }
 
+// TestChangedDLPDetectorReachesOtherReplicas edits a custom detector on
+// one reader and sees another reader, which had the old pattern compiled
+// and cached for thirty seconds, screen with the new one well inside that.
+func TestChangedDLPDetectorReachesOtherReplicas(t *testing.T) {
+	t.Parallel()
+	f := setup(t)
+	ctx := context.Background()
+	writer, listening := dlp.NewPolicies(f.db, nil), dlp.NewPolicies(f.db, nil)
+	startListener(t, f, "inv-dlpdet-"+f.org, map[invalidation.Kind]invalidation.Cache{invalidation.KindDLP: listening})
+
+	det, err := writer.CreateDetector(ctx, f.org, dlp.CustomDetector{Name: "contract_id", Pattern: `\bCN-\d{6}\b`, Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := writer.Create(ctx, f.org, dlp.ScanPolicy{Name: "contracts", Scan: dlp.StageBoth, Action: dlp.ActionMask,
+		Enabled: true, Detectors: []string{det.Ref()}}); err != nil {
+		t.Fatal(err)
+	}
+	masked := func(v string) bool {
+		scr, err := listening.Screen(ctx, f.org, "", "", dlp.StageArguments, map[string]any{"ref": v})
+		return err == nil && scr.Value.(map[string]any)["ref"] == "<redacted:custom:contract_id>"
+	}
+	eventually(t, propagation, "the listening replica masks the old shape", func() bool { return masked("CN-123456") })
+
+	// Now compiled and cached there. Change the shape elsewhere.
+	start := time.Now()
+	pattern := `\bCT-\d{8}\b`
+	if _, _, err := writer.UpdateDetector(ctx, f.org, det.ID, dlp.DetectorPatch{Pattern: &pattern}, det.Version, ""); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, propagation, "the listening replica masks the new shape and not the old", func() bool {
+		return masked("CT-12345678") && !masked("CN-123456")
+	})
+	t.Logf("detector change reached the other replica in %s", time.Since(start))
+}
+
 // TestReconnectFlushes loses a notification on purpose and shows the
 // reconnect is what recovers from it.
 func TestReconnectFlushes(t *testing.T) {
@@ -338,6 +374,7 @@ func TestTriggersNotifyEveryPath(t *testing.T) {
 	}
 	s := suffix(t)
 	connID, toolID, ruleID, policyID := "inv_c_"+s, "inv_t_"+s, "inv_tar_"+s, "inv_dp_"+s
+	detectorID := "inv_dd_" + s
 	tests := []struct {
 		name string
 		sql  string
@@ -360,6 +397,12 @@ func TestTriggersNotifyEveryPath(t *testing.T) {
 			args: []any{policyID, f.org, connID, toolID}, want: []string{"dlp:" + f.org}},
 		{name: "deleting the connector cascades to the policy", sql: `DELETE FROM connectors WHERE id = $1`,
 			args: []any{connID}, want: []string{"dlp:" + f.org}},
+		{name: "custom detector", sql: `INSERT INTO dlp_detectors (id, organization_id, name, pattern) VALUES ($1, $2, 'contract', 'CN-[0-9]{6}')`,
+			args: []any{detectorID, f.org}, want: []string{"dlp:" + f.org}},
+		{name: "a custom detector's edit", sql: `UPDATE dlp_detectors SET enabled = false, version = version + 1 WHERE id = $1`,
+			args: []any{detectorID}, want: []string{"dlp:" + f.org}},
+		{name: "a custom detector's delete", sql: `DELETE FROM dlp_detectors WHERE id = $1`,
+			args: []any{detectorID}, want: []string{"dlp:" + f.org}},
 		{name: "deactivating a member", sql: `UPDATE organization_members SET deactivated_at = now()
 			WHERE organization_id = $1 AND user_id = $2`, args: []any{f.org, f.user}, want: []string{"authz:" + f.org}},
 		{name: "a membership update that leaves deactivated_at alone says nothing",
