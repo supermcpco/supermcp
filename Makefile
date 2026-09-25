@@ -1,7 +1,7 @@
 BIN := bin/supermcp
 GO  ?= go
 
-.PHONY: build test lint adapters web web-client airgap clean
+.PHONY: build test lint check-migrations adapters web web-client airgap clean
 
 build:
 	$(GO) build -trimpath -o $(BIN) ./cmd/supermcp
@@ -11,6 +11,13 @@ test:
 
 lint:
 	gofmt -l . && $(GO) vet ./...
+
+# Refuse a migration that would break pods of the previous release during a
+# rolling upgrade; docs/UPGRADING.md, "How migrations are checked". The
+# fixture test runs first so a checker that stopped refusing cannot pass.
+check-migrations:
+	./scripts/check-migrations_test.sh
+	./scripts/check-migrations.sh
 
 # Regenerate the adapter catalog from the vendored v1 corpus and rebuild the index.
 # The catalog is generated; adapters/embed.go and the recorded cassettes
