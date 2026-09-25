@@ -193,7 +193,7 @@ func TestDeactivatedMemberReachesOtherReplicas(t *testing.T) {
 	// The deactivation, the way the members API makes it, then a local
 	// invalidation on the writing replica.
 	members := identity.New(f.db, identity.Config{}, writer, nil)
-	if _, after, err := members.SetMemberStatus(ctx, f.org, "inv_admin", f.user, false); err != nil || after.Status != identity.MemberDeactivated {
+	if _, after, _, err := members.SetMemberStatus(ctx, f.org, "inv_admin", f.user, false); err != nil || after.Status != identity.MemberDeactivated {
 		t.Fatalf("deactivate: %+v, %v", after, err)
 	}
 	start := time.Now()

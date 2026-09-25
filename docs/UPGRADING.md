@@ -299,44 +299,77 @@ descended from it remember the browser session that consented, and:
 - Signing out, ending a session from the sessions list, a password
   change ending the other sessions, and deactivating a member (from the
   API or SCIM `active=false`) revoke the refresh tokens those sessions
-  granted.
-- Access tokens carry the session as `sid`, and the MCP endpoint and
-  introspection refuse one whose session was ended, before it expires.
+  granted, by family.
+- Access tokens carry the session's public id as `sid`, and the MCP
+  endpoint and introspection refuse one whose session was ended, before
+  it expires.
 - A re-authentication through a single sign-on provider replaces the
   session; the refresh tokens move to the new session rather than end.
   An access token naming the old session is refused, and the client
   refreshes into one naming the new session.
 - A session that merely expires ends nothing: its tokens live on, which
-  is what `offline_access` is for.
+  is what `offline_access` is for. The session pruner now keeps such a
+  session while a live refresh token names it, since a token whose
+  session is not on record is refused.
 
 Access tokens also carry `amr`; see the OAuth section of `docs/api.md`.
 
+Other changes that come with it:
+
+- **The sessions list shows a public id.** `GET /api/v1/auth/sessions`
+  returns each session's new public id in `id` and `current`, and
+  `DELETE /api/v1/auth/sessions/{id}` takes it. The server's own key for
+  a session no longer leaves the server. An id copied from the list
+  before the upgrade no longer matches anything. Read the list again.
+- **Introspection is scoped.** `/oauth/introspect` answers
+  `{"active": false}` unless the API key belongs to the token's
+  workspace and holds `tools:read` on the token's server (a key scoped
+  to MCP use passes with `mcp:tools:read` or `mcp:tools:invoke`). A
+  resource server that introspected with another workspace's key has to
+  use one from the token's workspace.
+- **Signing out can fail visibly.** If the session cannot be ended,
+  `POST /api/v1/auth/logout` now answers `500`, keeps the cookie and
+  records `session.end` as a failure, instead of reporting success. On
+  the audit trail, `session.end`, `session.revoke` (now also written for
+  a password change) and `member.deactivate` or `scim.user.deactivate`
+  carry `meta.revokedTokens`: how many live refresh tokens they revoked.
+
 What it needs from you:
 
-- **Nothing for migration 00029.** It adds `session_id` (text, null)
-  and `amr` (text[], not null, default `{}`) to `oauth_codes` and
-  `oauth_refresh_tokens`. Neither rewrites a row; each table is locked
-  only for the catalogue change. It builds `oauth_refresh_session_idx`
-  with `CREATE INDEX CONCURRENTLY`, which does not block token
-  issuance; the migration runs outside a transaction for that. It
-  replaces `auth_session_revoke`, `auth_session_revoke_others` and
-  `auth_revoke_principal` with versions that also revoke the session's
-  refresh tokens, keeping their signatures, and adds
-  `auth_session_replace`. If it is interrupted, run it again.
+- **Nothing for migration 00029**, though it takes longer than most on a
+  large `sessions` table. It adds `session_id` (text, null) and `amr`
+  (text[], not null, default `{}`) to `oauth_codes` and
+  `oauth_refresh_tokens`, and `public_id` (text, default a random UUID)
+  to `sessions`. None of these rewrites a row, and each table is locked
+  only for the catalogue change. Existing sessions get their
+  `public_id` in batches of 1000, each committed on its own, so a
+  request waits for one batch at most. It builds the unique index
+  `sessions_public_id_idx` and `oauth_refresh_session_idx` with
+  `CREATE INDEX CONCURRENTLY`, which blocks neither sign-ins nor token
+  issuance. For both, the migration runs outside a transaction. It adds
+  `auth_session_end`, `auth_session_end_others`, `auth_principal_end`,
+  `auth_session_replace` and `auth_session_ended`. It points
+  `auth_session_revoke`, `auth_session_revoke_others` and
+  `auth_revoke_principal`, which keep their signatures, at the new
+  functions. If it is interrupted, run it again.
 - **Rollout order does not matter**, with these gaps until the roll
   finishes. A replica of the previous release issues codes and refresh
-  tokens without a session, and those are tied to no session, as every
-  token issued before the upgrade is: they end when the client or the
-  member is revoked, or expire. It does not check `sid`, so an ended
-  session's access token still passes there. And a single sign-on
-  re-authentication handled there ends the replaced session's refresh
-  tokens instead of moving them, so that client has to connect again.
+  tokens without a session. When it rotates a token that has one, the
+  child names no session but stays in the family, and ending the
+  session still revokes it. Tokens it issues from a new consent are tied
+  to no session, as every token issued before the upgrade is: they end
+  when the client or the member is revoked, or expire. It does not check
+  `sid`, so an ended session's access token still passes there. A single
+  sign-on re-authentication handled there ends the replaced session's
+  refresh tokens instead of moving them, so that client has to connect
+  again. It still prunes sessions that live refresh tokens name, and the
+  tokens of a pruned session are then refused.
 - **People who sign out** of the web interface now disconnect the MCP
   clients they connected from that session. They connect again from the
   client.
 
-Migrating down restores the three functions as they were and drops the
-new columns, the index and `auth_session_replace`.
+Migrating down restores the three functions as they were, and drops the
+new functions, indexes and columns, including every session's public id.
 
 ### A refused audit batch is retried, and a loss is always recorded
 

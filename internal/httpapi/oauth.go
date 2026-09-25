@@ -216,11 +216,31 @@ func (d Deps) introspect(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusUnauthorized, "client authentication required")
 		return
 	}
-	if _, err := d.Keys.Authenticate(r.Context(), apiKeyFrom(r), clientIP(r)); err != nil {
+	caller, err := d.Keys.Authenticate(r.Context(), apiKeyFrom(r), clientIP(r))
+	if err != nil {
 		writeJSONError(w, http.StatusUnauthorized, "client authentication failed")
 		return
 	}
-	writeJSON(w, http.StatusOK, d.OAuth.Introspect(r.Context(), r.FormValue("token")))
+	in := d.OAuth.Introspect(r.Context(), r.FormValue("token"))
+	if in.Active && !d.mayIntrospect(r.Context(), caller, in) {
+		// RFC 7662 lets the server answer inactive for a token the caller
+		// may not know about, which says nothing about whether it exists.
+		in = &mcpauth.Introspection{Active: false}
+	}
+	writeJSON(w, http.StatusOK, in)
+}
+
+// mayIntrospect reports whether a key may learn about a token: the token
+// is for the key's own workspace, and the key may read the tools of the
+// server the token is for, which is what a resource server serving that
+// server needs. tools:read is the permission, and a key scoped to MCP use
+// passes with mcp:tools:read or mcp:tools:invoke.
+func (d Deps) mayIntrospect(ctx context.Context, caller *authz.Principal, in *mcpauth.Introspection) bool {
+	if in.Org == "" || in.Org != caller.OrgID {
+		return false
+	}
+	decision, err := d.Authz.Evaluate(ctx, caller, authz.ToolsRead, authz.Resource{OrgID: in.Org, ServerID: in.Server})
+	return err == nil && decision.Allow
 }
 
 // tokenIssued records a token minted at the token endpoint. The actor is

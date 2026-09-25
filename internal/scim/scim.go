@@ -399,13 +399,14 @@ func (s *Service) setActive(ctx context.Context, orgID, userID string, active bo
 	}
 	// Deactivation is the event that matters most in this package: it is
 	// the moment a person stops being able to reach anything.
-	if err := s.Identity.RevokeEverything(ctx, orgID, userID, "deprovisioned"); err != nil {
+	revoked, err := s.Identity.RevokeEverything(ctx, orgID, userID, "deprovisioned")
+	if err != nil {
 		s.emit(ctx, "scim.user.deactivate", audit.Failure, "user", userID, "",
 			map[string]any{"error": err.Error()})
 		return err
 	}
 	s.emit(ctx, "scim.user.deactivate", audit.Success, "user", userID, "",
-		map[string]any{"revoked": "sessions, api keys, refresh tokens"})
+		map[string]any{"revoked": "sessions, api keys, refresh tokens", "revokedTokens": revoked})
 	return nil
 }
 

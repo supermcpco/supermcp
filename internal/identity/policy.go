@@ -273,20 +273,24 @@ func (s *Service) SessionPasswordExpired(ctx context.Context, sess *Session) (bo
 }
 
 // RevokeEverything ends a principal's sessions and revokes their keys and
-// refresh tokens. Deactivation has to reach every credential, or the
-// account keeps working after it was switched off.
-func (s *Service) RevokeEverything(ctx context.Context, orgID, userID, reason string) error {
-	return s.DB.Pre(ctx, func(tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, `SELECT auth_revoke_principal($1,$2,$3)`, orgID, userID, reason)
+// refresh tokens, and returns how many live refresh tokens it revoked.
+// Deactivation has to reach every credential, or the account keeps
+// working after it was switched off.
+func (s *Service) RevokeEverything(ctx context.Context, orgID, userID, reason string) (int, error) {
+	var n int
+	err := s.DB.Pre(ctx, func(tx pgx.Tx) error {
+		var err error
+		n, err = revokeEverything(ctx, tx, orgID, userID, reason)
 		return err
 	})
+	return n, err
 }
 
 // Sessions lists a user's live sessions for the security screen.
 func (s *Service) Sessions(ctx context.Context, orgID, userID string) ([]SessionInfo, error) {
 	out := []SessionInfo{}
 	err := s.DB.Tx(tenant.WithOrg(ctx, orgID), func(tx pgx.Tx) error {
-		rows, err := tx.Query(ctx, `SELECT id, created_at, last_seen_at, idle_expires_at, auth_method,
+		rows, err := tx.Query(ctx, `SELECT id, COALESCE(public_id,''), created_at, last_seen_at, idle_expires_at, auth_method,
 			COALESCE(host(ip),''), COALESCE(user_agent,'') FROM sessions
 			WHERE user_id = $1 AND revoked_at IS NULL AND idle_expires_at > now()
 			ORDER BY last_seen_at DESC`, userID)
@@ -296,7 +300,7 @@ func (s *Service) Sessions(ctx context.Context, orgID, userID string) ([]Session
 		defer rows.Close()
 		for rows.Next() {
 			var s SessionInfo
-			if err := rows.Scan(&s.ID, &s.CreatedAt, &s.LastSeenAt, &s.ExpiresAt, &s.AuthMethod, &s.IP, &s.UserAgent); err != nil {
+			if err := rows.Scan(&s.Key, &s.ID, &s.CreatedAt, &s.LastSeenAt, &s.ExpiresAt, &s.AuthMethod, &s.IP, &s.UserAgent); err != nil {
 				return err
 			}
 			out = append(out, s)
@@ -308,7 +312,11 @@ func (s *Service) Sessions(ctx context.Context, orgID, userID string) ([]Session
 
 // SessionInfo is a session as the owner sees it.
 type SessionInfo struct {
-	ID         string    `json:"id"`
+	// ID is the session's public id, the one a token's sid claim carries.
+	ID string `json:"id"`
+	// Key is the id the server names the session by. It stays on the
+	// server.
+	Key        string    `json:"-"`
 	CreatedAt  time.Time `json:"createdAt"`
 	LastSeenAt time.Time `json:"lastSeenAt"`
 	ExpiresAt  time.Time `json:"expiresAt"`

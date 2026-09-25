@@ -366,13 +366,18 @@ func (s *Service) CreateSession(ctx context.Context, userID, orgID, method, prov
 // PruneSessions removes the sessions nobody can use any more. The grace
 // period keeps a revoked session readable for a while, because "your
 // session was ended at 14:02" is a better answer to a support question
-// than a row that is not there.
+// than a row that is not there. A session a live refresh token still
+// names stays: a token whose session is not on record is refused, and an
+// expired session's tokens are meant to outlive it.
 func (s *Service) PruneSessions(ctx context.Context) error {
 	return s.DB.Bypass(ctx, "session-prune", func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `DELETE FROM sessions
-			WHERE absolute_expires_at < now() - interval '7 days'
-			   OR idle_expires_at < now() - interval '7 days'
-			   OR revoked_at < now() - interval '7 days'`)
+			WHERE (absolute_expires_at < now() - interval '7 days'
+			    OR idle_expires_at < now() - interval '7 days'
+			    OR revoked_at < now() - interval '7 days')
+			  AND NOT EXISTS (SELECT 1 FROM oauth_refresh_tokens r
+			                  WHERE r.session_id = sessions.id AND r.revoked_at IS NULL
+			                    AND r.consumed_at IS NULL AND r.expires_at > now())`)
 		return err
 	})
 }
@@ -454,12 +459,17 @@ func (s *Service) SwitchOrg(ctx context.Context, sess *Session, orgID string) er
 	return fmt.Errorf("not a member of organisation %s", orgID)
 }
 
-// RevokeSession ends a session.
-func (s *Service) RevokeSession(ctx context.Context, id, reason string) error {
-	return s.DB.Pre(ctx, func(tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, "SELECT auth_session_revoke($1,$2)", id, reason)
-		return err
+// RevokeSession ends a session and the refresh tokens it granted, and
+// returns how many live refresh tokens that revoked.
+func (s *Service) RevokeSession(ctx context.Context, id, reason string) (int, error) {
+	var n int
+	err := s.DB.Pre(ctx, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, "SELECT auth_session_end($1,$2)", id, reason).Scan(&n)
 	})
+	if err != nil {
+		return 0, fmt.Errorf("end session: %w", err)
+	}
+	return n, nil
 }
 
 // ReplaceSession ends a session that a re-authentication replaced with
@@ -472,21 +482,18 @@ func (s *Service) ReplaceSession(ctx context.Context, oldID, newID, reason strin
 	})
 }
 
-// SessionRevoked reports whether a session was ended. An expired session
-// was not, and neither was one no longer on record: ended sessions are
-// kept for a week, far longer than an access token lives.
-func (s *Service) SessionRevoked(ctx context.Context, id string) (bool, error) {
-	var revoked *time.Time
+// SessionEnded reports whether the session with this public id was
+// ended. An expired session was not. One no longer on record was: the
+// pruner keeps any session a live refresh token still names.
+func (s *Service) SessionEnded(ctx context.Context, publicID string) (bool, error) {
+	var ended bool
 	err := s.DB.Pre(ctx, func(tx pgx.Tx) error {
-		return tx.QueryRow(ctx, "SELECT revoked_at FROM auth_session_load($1)", id).Scan(&revoked)
+		return tx.QueryRow(ctx, "SELECT auth_session_ended($1)", publicID).Scan(&ended)
 	})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return false, nil
-	}
 	if err != nil {
 		return false, fmt.Errorf("read session: %w", err)
 	}
-	return revoked != nil, nil
+	return ended, nil
 }
 
 // Principal builds the request principal from a session.
@@ -518,10 +525,16 @@ func (s *Service) MarkVerified(ctx context.Context, sessionID string) error {
 	})
 }
 
-// RevokeOtherSessions ends every session of a user except the one given.
-func (s *Service) RevokeOtherSessions(ctx context.Context, userID, keepSessionID, reason string) error {
-	return s.DB.Pre(ctx, func(tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, "SELECT auth_session_revoke_others($1,$2,$3)", userID, keepSessionID, reason)
-		return err
+// RevokeOtherSessions ends every session of a user except the one given,
+// with the refresh tokens they granted, and returns how many live refresh
+// tokens that revoked.
+func (s *Service) RevokeOtherSessions(ctx context.Context, userID, keepSessionID, reason string) (int, error) {
+	var n int
+	err := s.DB.Pre(ctx, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, "SELECT auth_session_end_others($1,$2,$3)", userID, keepSessionID, reason).Scan(&n)
 	})
+	if err != nil {
+		return 0, fmt.Errorf("end other sessions: %w", err)
+	}
+	return n, nil
 }
