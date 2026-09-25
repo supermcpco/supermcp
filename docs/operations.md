@@ -295,6 +295,15 @@ address of the resource metadata, which is what a compliant client follows
 to discover how to authenticate. A client that ignores it is not
 configured for this server.
 
+**The database is lost, or must go back to a backup.** Follow
+`docs/compliance/dr-runbook.md`. It covers the restore, the master key
+the dump needs, the audit spool and what a restore undoes.
+
+**Someone may have misused the instance.** Follow
+`docs/compliance/incident-response.md`. It covers cutting off people,
+keys and clients, rotating keys, holding and exporting the audit trail,
+and scaling to zero.
+
 **Migrations will not apply.** They take an advisory lock, so a second
 process waits rather than racing. A migration numbered below the current
 version is refused; that means two branches added migrations at once and

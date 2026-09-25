@@ -105,7 +105,7 @@ software and depend on the operator for the rest; those rows say which.
 | Graceful degradation | The rate limiter divides budgets per replica when Redis is gone rather than allowing traffic through, and reports it as a metric. The response cache resolves every error to a miss. The audit writer queues in memory; when the queue is full it drops and counts the event by default, and records the gap. It can instead make the caller wait, or spool the event to local disk, fsynced, and replay it in order when the database returns (`audit.onUnavailable: spool` with `audit.spool.enabled`, which mounts a volume; 256 MiB by default, past which events are dropped and counted). | Partial — an audit queue overflow drops events by default; the disk spool is opt-in, bounded, and lost with its volume |
 | Protection from a failing upstream | Per-connector circuit breaker (trips at ten requests and 60 per cent failures, ignoring 4xx), concurrency cap, timeouts at every layer, retries only on transient statuses and only when the body can be replayed, and a 16 MiB response cap. | Yes |
 | Rollout safety | `maxUnavailable: 0`, a pod disruption budget requiring one replica to survive, readiness gated on the schema version, and a 20-second graceful drain. | Yes |
-| Backup and recovery | **Not provided.** No backup command, no backup job, no documented recovery procedure. Postgres backups, their encryption, their retention and restore testing are the operator's. |
+| Backup and recovery | **Not provided.** No backup command and no backup job. Postgres backups, their encryption, their retention and restore testing are the operator's. The restore procedure and a rehearsal are in `dr-runbook.md`. |
 | Monitoring | Prometheus exposition on a separate listener with counts and latencies by connector type, status and error class, breaker state, audit queue and spool depth, audit export lag by destination kind, master key operations by outcome, database pool statistics and limiter health, plus ten alert rules in the chart, among them an unreachable key service, audit export lag, a saturated connection pool and a failed migration job (the last read from kube-state-metrics). | Yes |
 | Tracing | OpenTelemetry spans over OTLP/HTTP for each MCP request, each tool call and each upstream call, off unless `SUPERMCP_OTLP_ENDPOINT` (the chart's `tracing.endpoint`) names a collector, and sampled at one per cent by default. Trace context is not sent upstream. | Partial — only the MCP path is traced, not the administrative API or background jobs, and an incoming trace context is not joined, so a trace starts at the gateway |
 
@@ -127,7 +127,8 @@ For an assessor reading only one section:
 
 - No multi-factor authentication of our own; it is delegated to the
   identity provider, and password sign-in has none.
-- No backup, restore or disaster-recovery mechanism.
+- No backup or restore mechanism. The procedure is documented in
+  `dr-runbook.md`; the tooling is the operator's.
 - Data key and master key rotation are manual; nothing runs them on a
   schedule. Signing keys rotate on their own, ninety days apart.
 - Only one external key provider.
