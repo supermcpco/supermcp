@@ -602,7 +602,14 @@ func (v *validator) authStrings() []string {
 func (v *validator) checkPlaceholders(field, loc, s string, params, envUsed map[string]bool) {
 	matches := rePlaceholder.FindAllStringSubmatch(s, -1)
 	if len(matches) != len(reAnyBraces.FindAllString(s, -1)) {
-		v.errorAt(field, "placeholder-syntax", "%s: malformed placeholder in %q", loc, truncate(s))
+		switch loc {
+		case "auth", "transport.headers":
+			// An auth value or a header may be a literal credential in a
+			// local adapter; the message names the place, not the value.
+			v.errorAt(field, "placeholder-syntax", "%s: malformed placeholder", loc)
+		default:
+			v.errorAt(field, "placeholder-syntax", "%s: malformed placeholder in %q", loc, truncate(s))
+		}
 	}
 	for _, m := range matches {
 		ns, name := m[1], m[2]
