@@ -19,9 +19,20 @@ import (
 
 // Re-sync brings a connector installed from the catalog up to the adapter
 // bundled in the running binary. The catalog is compiled in, so a newer
-// adapter only ever arrives with an upgrade: the check is a comparison of
-// the connector's catalog_hash with the bundled adapter's content hash,
-// made when someone asks, and nothing runs on a schedule.
+// adapter only ever arrives with an upgrade: the check compares the
+// connector's catalog_hash with the bundled adapter's, made when someone
+// asks, and nothing runs on a schedule.
+//
+// Re-sync only moves forward. The generated index keeps each adapter's
+// earlier content hashes; a connector is behind only when its hash is one
+// of them. A hash this binary does not know may come from a newer one, as
+// during a rolling upgrade or after a rollback, and is refused rather than
+// overwritten with an older adapter.
+//
+// Re-sync replaces the instructions and the catalog's tools, never the
+// transport or auth: an operator may have pointed the connector at their
+// own host, and its sealed credentials would follow the catalog's default
+// one. Differences there are reported as settings not applied.
 //
 // A tool someone changed by hand is never overwritten or deleted. It is
 // skipped, and the plan says so:
@@ -44,6 +55,9 @@ var (
 	// ErrNotInCatalog means the bundled catalog no longer has the adapter
 	// the connector was installed from.
 	ErrNotInCatalog = errors.New("the catalog in this version no longer has the adapter this connector was installed from")
+	// ErrCatalogNotBehind means the connector came from a catalog version
+	// this binary does not know, which may be a newer one.
+	ErrCatalogNotBehind = errors.New("this connector came from a catalog version this server does not know, possibly a newer one; re-sync it from a server that runs that version or a later one")
 	// ErrResyncStale means the connector, or the catalog the server runs,
 	// changed since the re-sync was reviewed.
 	ErrResyncStale = errors.New("the connector or the catalog changed since this re-sync was reviewed; review it again")
@@ -64,10 +78,10 @@ const (
 	ChangeRemove = "remove"
 )
 
-// BundledFunc returns the adapter bundled for a catalog slug and its
-// content hash. It returns an error wrapping fs.ErrNotExist for an unknown
-// slug.
-type BundledFunc func(slug string) (*adapter.Adapter, string, error)
+// BundledFunc returns the adapter bundled for a catalog slug and its index
+// entry, which carries its content hash and the hashes it had before. It
+// returns an error wrapping fs.ErrNotExist for an unknown slug.
+type BundledFunc func(slug string) (*adapter.Adapter, adapter.IndexEntry, error)
 
 // ResyncPlan is what a re-sync changes. Apply recomputes it under the
 // connector's lock, so the plan applied is the one the caller reviewed as
@@ -81,16 +95,22 @@ type ResyncPlan struct {
 	Update      []ResyncTool
 	Remove      []ResyncTool
 	Skipped     []SkippedTool
-	// Fields are the connector-level settings that differ.
+	// Relabel are tools an older replica stored as imports; they stay,
+	// and are marked as the catalog's.
+	Relabel []ResyncTool
+	// Fields are the connector settings re-sync replaces (instructions).
 	Fields []FieldChange
+	// NotApplied are the settings that differ from the bundled adapter but
+	// that re-sync leaves for an operator to change (transport, auth).
+	NotApplied []FieldChange
 	// MissingCredentials are credentials the bundled adapter requires that
 	// the connector does not have. Re-sync does not ask for them.
 	MissingCredentials []string
 
-	// What the connector's settings become.
+	// Instructions is what the connector's instructions become.
 	Instructions string
-	Transport    adapter.Transport
-	Auth         adapter.Auth
+
+	entry adapter.IndexEntry
 }
 
 // ResyncTool is one tool a re-sync adds, rewrites or removes.
@@ -126,14 +146,14 @@ type FieldChange struct {
 	After  string
 }
 
-// Outdated reports whether the bundled adapter differs from the one the
-// connector was installed or last re-synced from.
-func (p *ResyncPlan) Outdated() bool { return p.Connector.CatalogHash != p.BundledHash }
+// Outdated reports whether the connector came from an earlier version of
+// the bundled adapter.
+func (p *ResyncPlan) Outdated() bool { return p.entry.Precedes(p.Connector.CatalogHash) }
 
 // Empty reports whether applying the plan would change no tool and no
 // setting.
 func (p *ResyncPlan) Empty() bool {
-	return len(p.Add)+len(p.Update)+len(p.Remove)+len(p.Fields) == 0
+	return len(p.Add)+len(p.Update)+len(p.Remove)+len(p.Relabel)+len(p.Fields) == 0
 }
 
 // ResyncInput is what applying a re-sync needs besides the connector.
@@ -145,6 +165,11 @@ type ResyncInput struct {
 	ExpectedVersion int64
 	// ActorID names who applied it.
 	ActorID string
+	// Authorize is called with the plan rebuilt inside the transaction,
+	// before anything is written. An error from it rolls the re-sync back
+	// and is returned as is. The permission a re-sync needs depends on
+	// what it changes, so it is decided on the plan that is applied.
+	Authorize func(*ResyncPlan) error
 }
 
 // PlanResync compares a catalog connector with its bundled adapter.
@@ -193,6 +218,11 @@ func (s *Service) ApplyResync(ctx context.Context, orgID, id string, bundled Bun
 		if plan.Empty() && !plan.Outdated() {
 			return nil
 		}
+		if in.Authorize != nil {
+			if err := in.Authorize(plan); err != nil {
+				return err
+			}
+		}
 		return s.applyResyncTx(ctx, tx, plan, in.ActorID)
 	})
 	if err != nil {
@@ -207,12 +237,15 @@ func planResyncTx(ctx context.Context, tx pgx.Tx, c *Connector, bundled BundledF
 	if c.CatalogSlug == "" {
 		return nil, ErrNotFromCatalog
 	}
-	a, hash, err := bundled(c.CatalogSlug)
+	a, entry, err := bundled(c.CatalogSlug)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, fmt.Errorf("%w: %s", ErrNotInCatalog, c.CatalogSlug)
 	}
 	if err != nil {
 		return nil, err
+	}
+	if c.CatalogHash != entry.ContentHash && !entry.Precedes(c.CatalogHash) {
+		return nil, ErrCatalogNotBehind
 	}
 	rows, err := tx.Query(ctx, selectTool+` WHERE t.connector_id = $1 ORDER BY t.name`+lock, c.ID)
 	if err != nil {
@@ -234,12 +267,12 @@ func planResyncTx(ctx context.Context, tx pgx.Tx, c *Connector, bundled BundledF
 	for _, n := range names {
 		creds[n] = true
 	}
-	return planResync(c, stored, creds, a, hash)
+	return planResync(c, stored, creds, a, entry)
 }
 
 // planResync is the comparison itself. stored is sorted by name.
-func planResync(c *Connector, stored []*Tool, creds map[string]bool, a *adapter.Adapter, hash string) (*ResyncPlan, error) {
-	p := &ResyncPlan{Connector: c, BundledHash: hash, Instructions: a.Instructions, Transport: a.Transport, Auth: a.Auth}
+func planResync(c *Connector, stored []*Tool, creds map[string]bool, a *adapter.Adapter, entry adapter.IndexEntry) (*ResyncPlan, error) {
+	p := &ResyncPlan{Connector: c, BundledHash: entry.ContentHash, Instructions: a.Instructions, entry: entry}
 	byName := make(map[string]*Tool, len(stored))
 	for _, t := range stored {
 		byName[t.Name] = t
@@ -256,6 +289,9 @@ func planResync(c *Connector, stored []*Tool, creds map[string]bool, a *adapter.
 		changed, err := definitionChanges(st.Definition, b)
 		if err != nil {
 			return nil, fmt.Errorf("compare tool %s: %w", b.Name, err)
+		}
+		if st.Source == ToolSourceImport && st.EditedAt == nil {
+			p.Relabel = append(p.Relabel, ResyncTool{Name: st.Name, ToolID: st.ID, Before: st})
 		}
 		if len(changed) == 0 {
 			continue
@@ -302,7 +338,7 @@ func planResync(c *Connector, stored []*Tool, creds map[string]bool, a *adapter.
 			return nil, fmt.Errorf("compare %s: %w", f.name, err)
 		}
 		if b != af {
-			p.Fields = append(p.Fields, FieldChange{Field: f.name, Before: b, After: af})
+			p.NotApplied = append(p.NotApplied, FieldChange{Field: f.name, Before: b, After: af})
 		}
 	}
 	for _, name := range a.Credentials.Keys {
@@ -440,18 +476,16 @@ func (s *Service) applyResyncTx(ctx context.Context, tx pgx.Tx, p *ResyncPlan, a
 		b.Queue(`DELETE FROM tool_access_rules WHERE tool_id = ANY($1)`, removed)
 		b.Queue(cancel, removed, "the tool was removed from the catalog adapter")
 	}
-	b.Queue(`UPDATE tools SET source = $2 WHERE connector_id = $1 AND source = $3 AND edited_at IS NULL`,
-		c.ID, ToolSourceCatalog, ToolSourceImport)
-	tr, err := json.Marshal(p.Transport)
-	if err != nil {
-		return fmt.Errorf("encode transport: %w", err)
+	if len(p.Relabel) > 0 {
+		relabel := make([]string, 0, len(p.Relabel))
+		for _, t := range p.Relabel {
+			relabel = append(relabel, t.ToolID)
+		}
+		b.Queue(`UPDATE tools SET source = $2 WHERE id = ANY($1)`, relabel, ToolSourceCatalog)
 	}
-	au, err := json.Marshal(p.Auth) //nolint:gosec // placeholders only; values live sealed in connector_credentials
-	if err != nil {
-		return fmt.Errorf("encode auth: %w", err)
-	}
-	b.Queue(`UPDATE connectors SET instructions = $2, transport = $3, auth = $4, catalog_hash = $5, version = version + 1, updated_at = now() WHERE id = $1`,
-		c.ID, p.Instructions, tr, au, p.BundledHash)
+	// Transport and auth are left as they are; see NotApplied.
+	b.Queue(`UPDATE connectors SET instructions = $2, catalog_hash = $3, version = version + 1, updated_at = now() WHERE id = $1`,
+		c.ID, p.Instructions, p.BundledHash)
 	b.Queue(`UPDATE mcp_servers SET version = version + 1, updated_at = now()
 		WHERE id IN (SELECT server_id FROM mcp_server_connectors WHERE connector_id = $1)`, c.ID)
 	if err := tx.SendBatch(ctx, b).Close(); err != nil {
@@ -465,7 +499,7 @@ func (s *Service) applyResyncTx(ctx context.Context, tx pgx.Tx, p *ResyncPlan, a
 func (s *Service) recordResync(ctx context.Context, tx pgx.Tx, p *ResyncPlan, removedEnabled int, actorID string) error {
 	before := *p.Connector
 	after := before
-	after.Instructions, after.Transport, after.Auth, after.CatalogHash = p.Instructions, p.Transport, p.Auth, p.BundledHash
+	after.Instructions, after.CatalogHash = p.Instructions, p.BundledHash
 	after.Version++
 	after.ToolCount += len(p.Add) - removedEnabled
 	if err := s.record(ctx, tx, "connector", before.ID, "update", &after, audit.Changes(before, &after), actorID); err != nil {

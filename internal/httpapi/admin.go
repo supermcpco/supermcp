@@ -830,7 +830,7 @@ func humaErr(err error) error {
 		// they name tables and can echo another tenant-visible record.
 		return huma.Error409Conflict("this conflicts with a record that already exists")
 	}
-	if errors.Is(err, connector.ErrNotFromCatalog) || errors.Is(err, connector.ErrNotInCatalog) {
+	if errors.Is(err, connector.ErrNotFromCatalog) || errors.Is(err, connector.ErrNotInCatalog) || errors.Is(err, connector.ErrCatalogNotBehind) {
 		return huma.Error409Conflict(err.Error())
 	}
 	if errors.Is(err, connector.ErrResyncStale) {

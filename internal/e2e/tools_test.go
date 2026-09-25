@@ -107,7 +107,13 @@ type toolFixture struct {
 // tool, credential FAKE_KEY) on one MCP server, and an API key for it.
 func newToolFixture(t *testing.T) *toolFixture {
 	t.Helper()
-	h := start(t)
+	return newToolFixtureWith(t, harnessOptions{})
+}
+
+// newToolFixtureWith is newToolFixture on a stack built with opts.
+func newToolFixtureWith(t *testing.T, opts harnessOptions) *toolFixture {
+	t.Helper()
+	h := startWith(t, opts)
 	upstream, calls := fakeUpstream(t)
 	f := &toolFixture{h: h, upstream: upstream.URL, calls: calls}
 	f.admin = h.register(t, "E2E tools")
