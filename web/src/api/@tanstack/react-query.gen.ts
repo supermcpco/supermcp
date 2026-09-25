@@ -1048,6 +1048,8 @@ export const connectorsRevisionsGetOptions = (options: Options<ConnectorsRevisio
 
 /**
  * Put a connector back the way an earlier revision found it
+ *
+ * A browser session must have signed in within the fresh-auth window.
  */
 export const connectorsRevisionsRestoreMutation = (options?: Partial<Options<ConnectorsRevisionsRestoreData>>): UseMutationOptions<ConnectorsRevisionsRestoreResponse, ConnectorsRevisionsRestoreError, Options<ConnectorsRevisionsRestoreData>> => {
     const mutationOptions: UseMutationOptions<ConnectorsRevisionsRestoreResponse, ConnectorsRevisionsRestoreError, Options<ConnectorsRevisionsRestoreData>> = {
@@ -1734,6 +1736,8 @@ export const rolesRevisionsGetOptions = (options: Options<RolesRevisionsGetData>
 
 /**
  * Put a role back the way an earlier revision found it
+ *
+ * A browser session must have signed in within the fresh-auth window.
  */
 export const rolesRevisionsRestoreMutation = (options?: Partial<Options<RolesRevisionsRestoreData>>): UseMutationOptions<RolesRevisionsRestoreResponse, RolesRevisionsRestoreError, Options<RolesRevisionsRestoreData>> => {
     const mutationOptions: UseMutationOptions<RolesRevisionsRestoreResponse, RolesRevisionsRestoreError, Options<RolesRevisionsRestoreData>> = {
@@ -1872,6 +1876,8 @@ export const serversListOptions = (options?: Options<ServersListData>) => queryO
 
 /**
  * Create an MCP server
+ *
+ * A browser session must have signed in within the fresh-auth window: a new server is a new endpoint for keys to reach its connectors through.
  */
 export const serversCreateMutation = (options?: Partial<Options<ServersCreateData>>): UseMutationOptions<ServersCreateResponse, ServersCreateError, Options<ServersCreateData>> => {
     const mutationOptions: UseMutationOptions<ServersCreateResponse, ServersCreateError, Options<ServersCreateData>> = {
@@ -1924,6 +1930,8 @@ export const serversGetOptions = (options: Options<ServersGetData>) => queryOpti
 
 /**
  * Update an MCP server
+ *
+ * Setting connectorIds, or enabled to true, widens what keys bound to the server can reach, so a browser session must have signed in within the fresh-auth window to do either. A rename, new instructions or turning the server off do not ask.
  */
 export const serversUpdateMutation = (options?: Partial<Options<ServersUpdateData>>): UseMutationOptions<ServersUpdateResponse, ServersUpdateError, Options<ServersUpdateData>> => {
     const mutationOptions: UseMutationOptions<ServersUpdateResponse, ServersUpdateError, Options<ServersUpdateData>> = {
@@ -2004,6 +2012,8 @@ export const serversRevisionsGetOptions = (options: Options<ServersRevisionsGetD
 
 /**
  * Put an MCP server back the way an earlier revision found it
+ *
+ * A browser session must have signed in within the fresh-auth window.
  */
 export const serversRevisionsRestoreMutation = (options?: Partial<Options<ServersRevisionsRestoreData>>): UseMutationOptions<ServersRevisionsRestoreResponse, ServersRevisionsRestoreError, Options<ServersRevisionsRestoreData>> => {
     const mutationOptions: UseMutationOptions<ServersRevisionsRestoreResponse, ServersRevisionsRestoreError, Options<ServersRevisionsRestoreData>> = {

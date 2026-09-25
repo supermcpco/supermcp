@@ -116,6 +116,10 @@ it, within the last five minutes for these actions:
 
 - creating, rotating or revoking credentials
 - setting connector credentials or connecting a connector through OAuth
+- widening what keys bound to a server can reach:
+  - creating a server
+  - changing which connectors a server serves, or turning it on
+  - restoring a server or a connector from its revision history
 - granting an OAuth client access
 - approving a held tool call
 - changing roles or who holds them

@@ -200,8 +200,9 @@ func (d Deps) revisionGetRoute(api huma.API, k revisionKind) {
 
 func (d Deps) connectorRestoreRoute(api huma.API) {
 	huma.Register(api, huma.Operation{OperationID: "connectors-revisions-restore", Method: http.MethodPost,
-		Path:    "/api/v1/connectors/{id}/revisions/{revision}/restore",
-		Summary: "Put a connector back the way an earlier revision found it", Tags: []string{"connectors"},
+		Path:        "/api/v1/connectors/{id}/revisions/{revision}/restore",
+		Summary:     "Put a connector back the way an earlier revision found it",
+		Description: "A browser session must have signed in within the fresh-auth window.", Tags: []string{"connectors"},
 		Security: sessionSecurity},
 		func(ctx context.Context, in *revisionGetInput) (*struct{ Body connectorDTO }, error) {
 			p, snapshot, err := d.snapshotToRestore(ctx, connectorRevisions, in)
@@ -236,8 +237,9 @@ func (d Deps) connectorRestoreRoute(api huma.API) {
 
 func (d Deps) serverRestoreRoute(api huma.API) {
 	huma.Register(api, huma.Operation{OperationID: "servers-revisions-restore", Method: http.MethodPost,
-		Path:    "/api/v1/servers/{id}/revisions/{revision}/restore",
-		Summary: "Put an MCP server back the way an earlier revision found it", Tags: []string{"servers"},
+		Path:        "/api/v1/servers/{id}/revisions/{revision}/restore",
+		Summary:     "Put an MCP server back the way an earlier revision found it",
+		Description: "A browser session must have signed in within the fresh-auth window.", Tags: []string{"servers"},
 		Security: sessionSecurity},
 		func(ctx context.Context, in *revisionGetInput) (*struct{ Body *mcpserver.Server }, error) {
 			p, snapshot, err := d.snapshotToRestore(ctx, serverRevisions, in)
@@ -347,16 +349,15 @@ type toolRestoreInput struct {
 // edit goes through: the built-in roles are refused there too.
 func (d Deps) roleRestoreRoute(api huma.API) {
 	huma.Register(api, huma.Operation{OperationID: "roles-revisions-restore", Method: http.MethodPost,
-		Path:    "/api/v1/roles/{id}/revisions/{revision}/restore",
-		Summary: "Put a role back the way an earlier revision found it", Tags: []string{"roles"},
+		Path:        "/api/v1/roles/{id}/revisions/{revision}/restore",
+		Summary:     "Put a role back the way an earlier revision found it",
+		Description: "A browser session must have signed in within the fresh-auth window.", Tags: []string{"roles"},
 		Security: sessionSecurity},
 		func(ctx context.Context, in *revisionGetInput) (*struct{ Body roleDTO }, error) {
+			// Restoring a role changes what it allows, like an edit does;
+			// snapshotToRestore has asked for a recent sign-in.
 			p, snapshot, err := d.snapshotToRestore(ctx, roleRevisions, in)
 			if err != nil {
-				return nil, err
-			}
-			// Restoring a role changes what it allows, like an edit does.
-			if err := d.checkFresh(ctx, p, authz.RolesManage, authz.Resource{}); err != nil {
 				return nil, err
 			}
 			role, before, err := d.updateRole(ctx, p, in.ID, roleWriteBody{
@@ -378,8 +379,12 @@ func (d Deps) roleRestoreRoute(api huma.API) {
 // snapshotToRestore authorises the rollback and reads the snapshot to put
 // back. It deliberately does not apply anything: each kind has its own
 // owning service, and that service decides what a restore means.
+//
+// A restore can put back connectors a server served, or a connector's
+// upstream and how it signs in, so it asks a browser session for a recent
+// sign-in, before the snapshot is read.
 func (d Deps) snapshotToRestore(ctx context.Context, k revisionKind, in *revisionGetInput) (*authz.Principal, map[string]any, error) {
-	p, err := d.require(ctx, authz.RevisionsRollback, k.resource(in.ID))
+	p, err := d.requireFresh(ctx, authz.RevisionsRollback, k.resource(in.ID))
 	if err != nil {
 		return nil, nil, err
 	}
