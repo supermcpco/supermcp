@@ -522,6 +522,24 @@ code to match on. The message is written for people and may change.
 | `not_deletable` | The tool is not `custom`. Disable it instead. |
 | `references_unacknowledged` | Approval policies refer to the tool. The response lists them, one further entry each at `references.approvalPolicies`, with the policy's name as `message` and its id as `value`. A rename lists the policies that match by name; a delete lists all of them. Send `acknowledgeReferences` to go ahead. |
 
+## Audit retention
+
+`GET /api/v1/audit/retention` (`audit:read`) reads the current
+workspace's window; `PUT` with `{"days": N}` (`audit:policy:manage`,
+the permission that also sets the payload policy) changes it. Both answer:
+
+| Field | Means |
+|---|---|
+| `days` | Events older than this lose their content. They stay in the chain. |
+| `configured` | `false` while the workspace is on the default. |
+| `defaultDays`, `minDays`, `maxDays` | 365, 90 and 36 500. |
+
+A `days` below `minDays` or above `maxDays` is `422`, with the bound in
+`detail`; nothing is stored. Each change is recorded as
+`audit.retention.set` with the window before and after, and a refused
+one as the same action with outcome `failure`. The hourly sweep reads
+the new value on its next run.
+
 ## Errors
 
 ### The admin API

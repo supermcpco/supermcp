@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"time"
 
@@ -69,6 +70,22 @@ type auditPolicyOutput struct {
 type auditPolicyInput struct {
 	Body struct {
 		Mode string `json:"mode" enum:"none,metadata,masked,full" doc:"How much of a tool call's arguments and result the record keeps"`
+	}
+}
+
+type auditRetentionOutput struct {
+	Body struct {
+		Days        int  `json:"days" doc:"Events older than this lose their content; the fact that they happened stays in the chain"`
+		Configured  bool `json:"configured" doc:"False while the workspace is on the default"`
+		DefaultDays int  `json:"defaultDays"`
+		MinDays     int  `json:"minDays"`
+		MaxDays     int  `json:"maxDays"`
+	}
+}
+
+type auditRetentionInput struct {
+	Body struct {
+		Days int `json:"days" doc:"How many days events keep their content; between minDays and maxDays"`
 	}
 }
 
@@ -236,4 +253,65 @@ func (d Deps) auditRoutes(api huma.API) {
 			out.Body.Mode = string(mode)
 			return out, nil
 		})
+
+	// Retention is a policy decision like the payload one: shortening it
+	// removes content from the record, so it takes the same permission,
+	// not the auditor's export-and-hold one.
+	huma.Register(api, huma.Operation{OperationID: "audit-get-retention", Method: http.MethodGet, Path: "/api/v1/audit/retention",
+		Summary: "Read how long the workspace's audit events keep their content", Tags: []string{"audit"}, Security: sessionSecurity},
+		func(ctx context.Context, _ *struct{}) (*auditRetentionOutput, error) {
+			p, err := d.require(ctx, authz.AuditRead, authz.Resource{})
+			if err != nil {
+				return nil, err
+			}
+			if d.AuditRetention == nil {
+				return nil, huma.Error503ServiceUnavailable("the audit stream is not configured")
+			}
+			return d.retentionOutput(ctx, p.OrgID)
+		})
+
+	huma.Register(api, huma.Operation{OperationID: "audit-set-retention", Method: http.MethodPut, Path: "/api/v1/audit/retention",
+		Summary: "Set how long the workspace's audit events keep their content", Tags: []string{"audit"}, Security: sessionSecurity},
+		func(ctx context.Context, in *auditRetentionInput) (*auditRetentionOutput, error) {
+			p, err := d.require(ctx, authz.AuditPolicy, authz.Resource{})
+			if err != nil {
+				return nil, err
+			}
+			if d.AuditRetention == nil {
+				return nil, huma.Error503ServiceUnavailable("the audit stream is not configured")
+			}
+			before, err := d.AuditRetention.Setting(ctx, p.OrgID)
+			if err != nil {
+				return nil, err
+			}
+			if err := d.AuditRetention.SetDays(ctx, p.OrgID, in.Body.Days); err != nil {
+				d.adminFailed(ctx, "audit.retention.set", "organization", p.OrgID, err)
+				var outOfRange *audit.RetentionRangeError
+				if errors.As(err, &outOfRange) {
+					return nil, huma.Error422UnprocessableEntity(outOfRange.Error())
+				}
+				return nil, err
+			}
+			d.admin(ctx, "audit.retention.set", "organization", p.OrgID, "",
+				audit.Changes(map[string]any{"retentionDays": before.Days}, map[string]any{"retentionDays": in.Body.Days}))
+			return d.retentionOutput(ctx, p.OrgID)
+		})
+}
+
+// retentionOutput reads the workspace's window alongside the bounds, so a
+// client never has to hard-code them. It does not say when rows are
+// finally deleted: that is the longest window any workspace keeps, and
+// one workspace has no business learning another's choice.
+func (d Deps) retentionOutput(ctx context.Context, orgID string) (*auditRetentionOutput, error) {
+	setting, err := d.AuditRetention.Setting(ctx, orgID)
+	if err != nil {
+		return nil, err
+	}
+	out := &auditRetentionOutput{}
+	out.Body.Days = setting.Days
+	out.Body.Configured = setting.Configured
+	out.Body.DefaultDays = audit.DefaultRetentionDays
+	out.Body.MinDays = audit.MinRetentionDays
+	out.Body.MaxDays = audit.MaxRetentionDays
+	return out, nil
 }
