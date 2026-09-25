@@ -540,6 +540,59 @@ A `days` below `minDays` or above `maxDays` is `422`, with the bound in
 one as the same action with outcome `failure`. The hourly sweep reads
 the new value on its next run.
 
+## Members
+
+The people in the current workspace and what an administrator can do
+about them.
+
+| Method | Path | Permission | Audit action |
+|---|---|---|---|
+| `GET` | `/api/v1/org/members` | `org:read` | none |
+| `PATCH` | `/api/v1/org/members/{userId}` with `{"status": "deactivated"}` or `{"status": "active"}` | `org:members:manage` | `member.deactivate`, `member.reactivate` |
+| `PATCH` | `/api/v1/org/members/{userId}` with `{"roleId": "..."}` | `org:members:manage` | `member.role.set` |
+| `DELETE` | `/api/v1/org/members/{userId}` | `org:members:manage` | `member.remove` |
+
+Each member carries `userId`, `email`, `name`, `status` (`active` or
+`deactivated`), `source` (`scim` when an identity provider provisions
+them through SCIM, `sso` when they sign in through single sign-on, else
+`password`), `roles` (every unexpired binding they hold here, with its
+`roleId`, `roleName`, `bindingId`, `source` and `scopeKind`),
+`lastSignInAt`, `joinedAt`, `isSelf` and `scimManaged`.
+
+A `PATCH` changes one thing: send `status` or `roleId`, not both (`400`).
+
+- **Deactivate** keeps the membership and its role bindings but switches
+  them off, and in the same transaction revokes the member's sessions
+  (in every workspace), their API keys in this workspace and their
+  refresh tokens. Their next request is unauthenticated. They can no
+  longer switch into the workspace, and the evaluator ignores the
+  bindings of a deactivated member, so nothing cached keeps working.
+  **Reactivate** turns the membership back on; the member signs in again.
+- **Set role** replaces the member's manual workspace-wide bindings with
+  one for `roleId`. Bindings an identity provider made, and bindings
+  scoped to a server, connector or tool, are left alone, so this works
+  for single sign-on and SCIM members too. An unknown role, or another
+  workspace's own role, is `404`. Making someone an owner takes an owner
+  (`403` otherwise).
+- **Remove** deletes the member's role bindings here and the membership,
+  and revokes their credentials as deactivation does. The account itself
+  stays: it may belong to other workspaces, and the audit trail names it.
+
+The audit event's target is the user, named by email, with the member
+before and after (or, for a removal, before) as its diff. A refused
+change is recorded under the same action with outcome `failure`.
+
+Refusals are `409` with a stable code in `errors[0].value`:
+
+| Code | Refused because |
+|---|---|
+| `self` | The change is aimed at the caller. Ask another administrator. |
+| `last_owner` | It would leave the workspace with no active member holding the owner role workspace-wide. Applies to deactivate, remove and a role change. |
+| `scim_managed` | The member is provisioned through SCIM. Deactivate or remove them in the identity provider; their role can still be changed here. |
+
+A `userId` that is not a member of the current workspace, including one
+in another workspace, is `404`.
+
 ## Errors
 
 ### The admin API

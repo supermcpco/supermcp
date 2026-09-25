@@ -8,6 +8,8 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"github.com/supermcpco/supermcp/internal/audit"
+	"github.com/supermcpco/supermcp/internal/authz"
 	"github.com/supermcpco/supermcp/internal/identity"
 )
 
@@ -68,23 +70,110 @@ func (d Deps) memberRoutes(api huma.API) {
 	huma.Register(api, huma.Operation{OperationID: "members-list", Method: http.MethodGet,
 		Path: "/api/v1/org/members", Summary: "List the members of the organisation and their roles",
 		Tags: []string{"members"}, Security: sessionSecurity},
-		func(_ context.Context, _ *struct{}) (*membersOutput, error) {
-			return nil, huma.Error501NotImplemented("not implemented")
+		func(ctx context.Context, _ *struct{}) (*membersOutput, error) {
+			p, err := d.require(ctx, authz.OrgRead, authz.Resource{})
+			if err != nil {
+				return nil, err
+			}
+			members, err := d.Identity.ListMembers(ctx, p.OrgID)
+			if err != nil {
+				return nil, humaErr(err)
+			}
+			out := &membersOutput{}
+			out.Body.Members = make([]memberDTO, 0, len(members))
+			for _, m := range members {
+				out.Body.Members = append(out.Body.Members, toMemberDTO(m, p.ID))
+			}
+			return out, nil
 		})
 
 	huma.Register(api, huma.Operation{OperationID: "members-update", Method: http.MethodPatch,
 		Path: "/api/v1/org/members/{userId}", Summary: "Change a member's role, or deactivate or reactivate them",
 		Tags: []string{"members"}, Security: sessionSecurity},
-		func(_ context.Context, _ *updateMemberInput) (*memberOutput, error) {
-			return nil, huma.Error501NotImplemented("not implemented")
+		func(ctx context.Context, in *updateMemberInput) (*memberOutput, error) {
+			p, err := d.require(ctx, authz.OrgMembersManage, authz.Resource{})
+			if err != nil {
+				return nil, err
+			}
+			switch {
+			case in.Body.Status != nil && in.Body.RoleID == nil:
+				return d.setMemberStatus(ctx, p, in.UserID, *in.Body.Status == identity.MemberActive)
+			case in.Body.RoleID != nil && in.Body.Status == nil:
+				return d.setMemberRole(ctx, p, in.UserID, *in.Body.RoleID)
+			default:
+				return nil, huma.Error400BadRequest("send either status or roleId")
+			}
 		})
 
 	huma.Register(api, huma.Operation{OperationID: "members-remove", Method: http.MethodDelete,
 		Path: "/api/v1/org/members/{userId}", Summary: "Remove a member from the organisation",
 		Tags: []string{"members"}, Security: sessionSecurity, DefaultStatus: http.StatusNoContent},
-		func(_ context.Context, _ *removeMemberInput) (*struct{}, error) {
-			return nil, huma.Error501NotImplemented("not implemented")
+		func(ctx context.Context, in *removeMemberInput) (*struct{}, error) {
+			p, err := d.require(ctx, authz.OrgMembersManage, authz.Resource{})
+			if err != nil {
+				return nil, err
+			}
+			m, err := d.Identity.RemoveMember(ctx, p.OrgID, p.ID, in.UserID)
+			if err != nil {
+				d.adminFailed(ctx, "member.remove", "user", in.UserID, err)
+				return nil, humaErr(err)
+			}
+			d.admin(ctx, "member.remove", "user", m.UserID, m.Email, audit.Deleted(toMemberDTO(m, p.ID)))
+			d.invalidate(p.OrgID, "user", m.UserID)
+			return nil, nil //nolint:nilnil // huma's no-content shape
 		})
+}
+
+// setMemberStatus deactivates or reactivates a member.
+func (d Deps) setMemberStatus(ctx context.Context, p *authz.Principal, userID string, active bool) (*memberOutput, error) {
+	action := "member.deactivate"
+	if active {
+		action = "member.reactivate"
+	}
+	before, after, err := d.Identity.SetMemberStatus(ctx, p.OrgID, p.ID, userID, active)
+	if err != nil {
+		d.adminFailed(ctx, action, "user", userID, err)
+		return nil, humaErr(err)
+	}
+	dto := toMemberDTO(after, p.ID)
+	d.admin(ctx, action, "user", after.UserID, after.Email, audit.Changes(toMemberDTO(before, p.ID), dto))
+	d.invalidate(p.OrgID, "user", after.UserID)
+	return &memberOutput{Body: dto}, nil
+}
+
+// setMemberRole replaces a member's manual organisation-wide roles. Making
+// someone an owner hands them everything, so it takes an owner to do it,
+// the same rule invitations follow.
+func (d Deps) setMemberRole(ctx context.Context, p *authz.Principal, userID, roleID string) (*memberOutput, error) {
+	if roleID == ownerRoleID {
+		if _, err := d.require(ctx, authz.Wildcard, authz.Resource{}); err != nil {
+			d.adminFailed(ctx, "member.role.set", "user", userID, errOwnerGrant)
+			return nil, huma.Error403Forbidden(errOwnerGrant.Error())
+		}
+	}
+	before, after, err := d.Identity.SetMemberRole(ctx, p.OrgID, p.ID, userID, roleID)
+	if err != nil {
+		d.adminFailed(ctx, "member.role.set", "user", userID, err)
+		return nil, humaErr(err)
+	}
+	dto := toMemberDTO(after, p.ID)
+	d.admin(ctx, "member.role.set", "user", after.UserID, after.Email, audit.Changes(toMemberDTO(before, p.ID), dto))
+	d.invalidate(p.OrgID, "user", after.UserID)
+	return &memberOutput{Body: dto}, nil
+}
+
+// errOwnerGrant refuses making someone an owner without being one.
+var errOwnerGrant = errors.New("only an owner can make someone an owner")
+
+func toMemberDTO(m identity.Member, callerID string) memberDTO {
+	roles := make([]memberRoleDTO, 0, len(m.Roles))
+	for _, r := range m.Roles {
+		roles = append(roles, memberRoleDTO{RoleID: r.RoleID, RoleName: r.RoleName, BindingID: r.BindingID,
+			Source: r.Source, ScopeKind: r.ScopeKind})
+	}
+	return memberDTO{UserID: m.UserID, Email: m.Email, Name: m.Name, Status: m.Status, Source: m.Source,
+		Roles: roles, LastSignInAt: m.LastSignInAt, JoinedAt: m.JoinedAt,
+		IsSelf: m.UserID == callerID, ScimManaged: m.ScimManaged}
 }
 
 // Stable codes a client reads from errors[].value on a member or invite
@@ -109,7 +198,8 @@ func memberErr(err error) error {
 		code = conflictScimManaged
 	case errors.Is(err, identity.ErrInviteExists):
 		code = conflictInviteExists
-	case errors.Is(err, identity.ErrNotMember), errors.Is(err, identity.ErrInviteInvalid):
+	case errors.Is(err, identity.ErrNotMember), errors.Is(err, identity.ErrNoSuchRole),
+		errors.Is(err, identity.ErrInviteInvalid):
 		return huma.Error404NotFound(err.Error())
 	case errors.Is(err, identity.ErrInviteEmailMismatch):
 		return huma.Error403Forbidden(err.Error())
