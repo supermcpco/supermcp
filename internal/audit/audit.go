@@ -15,6 +15,7 @@ import (
 	"log/slog"
 	"math/rand/v2"
 	"net/netip"
+	"os"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -123,10 +124,18 @@ type Options struct {
 	OnUnavailable string
 	// SpoolDir is where spooled events wait. Only "spool" reads it.
 	SpoolDir string
-	// SpoolMaxBytes bounds that directory. Past the bound events are
-	// dropped and counted, because filling the disk stops the gateway
-	// recording anything at all.
+	// SpoolMaxBytes bounds what this replica holds there. Past the bound
+	// events are dropped and counted, because filling the disk stops the
+	// gateway recording anything at all.
 	SpoolMaxBytes int64
+	// SpoolOrphanAge is how long another replica's spool heartbeat may go
+	// unrefreshed before this one takes over its events.
+	// DefaultSpoolOrphanAge when zero.
+	SpoolOrphanAge time.Duration
+	// Instance names this replica. The spool keeps its files under a
+	// directory of that name, and a gap marker says whose gap it was. The
+	// host name when empty.
+	Instance string
 	// Now supplies the write time. It exists for tests, which need to age a
 	// stream: the timestamp is covered by the hash, so editing it in the
 	// database is tampering and is caught, as it should be.
@@ -144,12 +153,32 @@ type Options struct {
 //	SUPERMCP_AUDIT_ON_UNAVAILABLE   block | degrade (default) | spool
 //	SUPERMCP_AUDIT_SPOOL_DIR        /var/lib/supermcp/audit-spool
 //	SUPERMCP_AUDIT_SPOOL_MAX_BYTES  268435456
+//	SUPERMCP_AUDIT_SPOOL_ORPHAN_AGE 10m
+//	SUPERMCP_INSTANCE_ID            the host name
 func OptionsFromEnv(get func(string) string) Options {
-	o := Options{OnUnavailable: get("SUPERMCP_AUDIT_ON_UNAVAILABLE"), SpoolDir: get("SUPERMCP_AUDIT_SPOOL_DIR")}
+	o := Options{OnUnavailable: get("SUPERMCP_AUDIT_ON_UNAVAILABLE"), SpoolDir: get("SUPERMCP_AUDIT_SPOOL_DIR"),
+		Instance: get("SUPERMCP_INSTANCE_ID")}
 	if n, err := strconv.ParseInt(get("SUPERMCP_AUDIT_SPOOL_MAX_BYTES"), 10, 64); err == nil && n > 0 {
 		o.SpoolMaxBytes = n
 	}
+	if d, err := time.ParseDuration(get("SUPERMCP_AUDIT_SPOOL_ORPHAN_AGE")); err == nil && d > 0 {
+		o.SpoolOrphanAge = d
+	}
 	return o
+}
+
+// instanceName is the replica's name when none was configured: the host
+// name, which in Kubernetes is the pod name.
+func instanceName(configured string) string {
+	if id := SanitizeInstance(configured); id != "" {
+		return id
+	}
+	if host, err := os.Hostname(); err == nil {
+		if id := SanitizeInstance(host); id != "" {
+			return id
+		}
+	}
+	return fmt.Sprintf("pid-%d", os.Getpid())
 }
 
 // Writer appends events.
@@ -290,6 +319,7 @@ func NewWriter(db *tenant.DB, log *slog.Logger, opts Options) *Writer {
 	if opts.retryBase <= 0 {
 		opts.retryBase = defaultRetryBase
 	}
+	opts.Instance = instanceName(opts.Instance)
 	w := &Writer{db: db, log: log, opts: opts, queue: make(chan *pending, opts.Buffer),
 		stopping: make(chan struct{}), closed: make(chan struct{})}
 	if opts.OnUnavailable == UnavailableSpool {
@@ -297,7 +327,8 @@ func NewWriter(db *tenant.DB, log *slog.Logger, opts Options) *Writer {
 		if dir == "" {
 			dir = defaultSpoolDir
 		}
-		spool, err := OpenSpool(dir, opts.SpoolMaxBytes, log)
+		spool, err := OpenSpool(SpoolConfig{Dir: dir, Instance: opts.Instance,
+			MaxBytes: opts.SpoolMaxBytes, OrphanAge: opts.SpoolOrphanAge}, log)
 		if err != nil {
 			// A spool that cannot be opened is a misconfiguration, not a
 			// reason to refuse to start: the gateway still records
@@ -488,6 +519,10 @@ func (w *Writer) run() {
 	}
 	timer := time.NewTicker(200 * time.Millisecond)
 	defer timer.Stop()
+	// The spool's heartbeat is refreshed from here, so it stops exactly
+	// when this goroutine does; the same beat looks for replicas that have
+	// stopped refreshing theirs.
+	lastBeat := time.Now()
 	for {
 		select {
 		case p, ok := <-w.queue:
@@ -504,6 +539,11 @@ func (w *Writer) run() {
 				flush()
 			}
 		case <-timer.C:
+			if w.spool != nil && time.Since(lastBeat) >= w.spool.BeatEvery() {
+				w.spool.Beat()
+				w.spool.AdoptOrphans()
+				lastBeat = time.Now()
+			}
 			flush()
 		}
 	}
@@ -670,6 +710,9 @@ func (w *Writer) replay() error {
 		if err := w.spool.Remove(seg.Name); err != nil {
 			return err
 		}
+		// A long backlog must not let the heartbeat go stale, or another
+		// replica would take this directory over mid-replay.
+		w.spool.Beat()
 	}
 }
 
@@ -699,11 +742,12 @@ func eventsOf(batch []*pending) []*Event {
 	return out
 }
 
-// gapEvent is the record of a gap: how many events this writer accepted
-// and could not write, which of its own numbers they carried, and when it
-// accepted them.
-func gapEvent(g gap) *Event {
+// gapEvent is the record of a gap: which replica, how many events it
+// accepted and could not write, which of its own numbers they carried, and
+// when it accepted them.
+func gapEvent(g gap, instance string) *Event {
 	meta := map[string]any{
+		"instance": instance,
 		"events":   g.count,
 		"firstSeq": g.first,
 		"lastSeq":  g.last,
@@ -723,7 +767,7 @@ func (w *Writer) append(ctx context.Context, events []*Event) (err error) {
 	// in the right place in the record. If this append fails the gap goes
 	// back, to be reported by the next one.
 	if g := w.takeGap(); g.count > 0 {
-		events = append([]*Event{gapEvent(g)}, events...)
+		events = append([]*Event{gapEvent(g, w.opts.Instance)}, events...)
 		defer func() {
 			if err != nil {
 				w.giveBackGap(g)

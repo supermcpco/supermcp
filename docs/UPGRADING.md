@@ -59,6 +59,28 @@ time of the lost events. Nothing to do; a database blip that used to
 cost a batch of events now costs none. `docs/operations.md`, "When the
 database refuses audit events", says what each mode does.
 
+### Each replica keeps its own audit spool directory
+
+With `audit.onUnavailable: spool`, replicas sharing the spool volume
+could overwrite each other's segments (both named their first one alike)
+and replay each other's files, so an event could be lost or recorded
+twice. Each replica now writes under a directory named by
+`SUPERMCP_INSTANCE_ID`, which the chart sets to the pod name through the
+downward API (the host name when unset), and replays only that
+directory. The directory of a replica whose heartbeat is older than
+`SUPERMCP_AUDIT_SPOOL_ORPHAN_AGE` (chart: `audit.spool.orphanAge`,
+default `10m`) is taken over by one live replica and replayed.
+
+- **Nothing to do** under the chart. Segments left at the top of the
+  spool directory by the previous release are taken over the same way
+  once they are ten minutes old.
+- **If you copy spool files by hand** (the disaster recovery runbook),
+  they are now in subdirectories: copy every `*.ndjson` under the spool
+  path.
+- The chart also renders `audit.spool.maxBytes` as a plain integer now.
+  It used to come out as `2.68435456e+08`, which the binary could not
+  read, so a changed bound was ignored and 256 MiB applied.
+
 ### Sensitive actions ask for a recent sign-in
 
 A browser session now has to have signed in, or confirmed who is using

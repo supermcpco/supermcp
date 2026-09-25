@@ -5,6 +5,9 @@ package audit_test
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -144,5 +147,92 @@ func TestWithoutSpoolingEventsAreStillCounted(t *testing.T) {
 	}
 	if w.Dropped() != 1 || w.DroppedTotal() != 1 {
 		t.Fatalf("dropped = %d (total %d), want the one event counted", w.Dropped(), w.DroppedTotal())
+	}
+}
+
+// One spool volume shared by replicas: two write to it while the database
+// is away, both go, and two new ones start together on the same volume.
+// Every event must land exactly once. Before each replica had a directory
+// of its own, the two writers named their first segments alike and one
+// overwrote the other, and both replayers read every file.
+func TestReplicasSharingASpoolLandEachEventOnce(t *testing.T) {
+	ctx := context.Background()
+	db := liveDB(ctx, t)
+	s := newStream(ctx, t, db)
+	dir := t.TempDir()
+
+	away := &tenant.DB{App: db.App, Maint: deadPool(ctx, t), Log: testLog()}
+	writers := []string{"pod-a", "pod-b"}
+	var wg sync.WaitGroup
+	for i, instance := range writers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			w := audit.NewWriter(away, testLog(), audit.Options{ //nolint:contextcheck // the writer appends from its own goroutine
+				OnUnavailable: audit.UnavailableSpool, SpoolDir: dir, Instance: instance})
+			defer w.Close()
+			for n := range 5 {
+				w.Emit(ctx, bare(s.org(), "connector.update", i*5+n))
+			}
+			_ = w.Flush(ctx) // fails: the database is away, and the events go to disk
+		}()
+	}
+	wg.Wait()
+
+	// Both writers are gone. Their heartbeats say so once they are older
+	// than the orphan age.
+	old := time.Now().Add(-time.Hour)
+	for _, instance := range writers {
+		if err := os.Chtimes(filepath.Join(dir, instance, ".heartbeat"), old, old); err != nil {
+			t.Fatalf("age %s's heartbeat: %v", instance, err)
+		}
+	}
+
+	replayers := make([]*audit.Writer, 2)
+	for i, instance := range []string{"pod-c", "pod-d"} {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			replayers[i] = audit.NewWriter(db, testLog(), audit.Options{ //nolint:contextcheck // the writer appends from its own goroutine
+				OnUnavailable: audit.UnavailableSpool, SpoolDir: dir, Instance: instance})
+		}()
+	}
+	wg.Wait()
+	for _, w := range replayers {
+		defer w.Close()
+	}
+	for _, w := range replayers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := w.Flush(ctx); err != nil {
+				t.Errorf("a replayer's flush failed: %v", err)
+			}
+		}()
+	}
+	wg.Wait()
+	for _, w := range replayers {
+		if w.SpoolDepth() != 0 {
+			t.Fatalf("a replayer still holds %d spooled events", w.SpoolDepth())
+		}
+	}
+
+	r := &audit.Reader{DB: db}
+	got, err := r.List(tenant.WithOrg(ctx, s.org()), audit.Query{OrgID: s.org(), Limit: 50})
+	if err != nil {
+		t.Fatalf("reading the stream back: %v", err)
+	}
+	seen := map[string]int{}
+	for _, rec := range got {
+		seen[rec.TargetID]++
+	}
+	for n := range 10 {
+		id := bare(s.org(), "", n).TargetID
+		if seen[id] != 1 {
+			t.Errorf("event %s landed %d times, want once", id, seen[id])
+		}
+	}
+	if len(got) != 10 {
+		t.Fatalf("the stream holds %d events, want the 10 the two writers spooled", len(got))
 	}
 }

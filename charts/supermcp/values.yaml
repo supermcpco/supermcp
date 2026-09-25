@@ -28,8 +28,10 @@ redis:
   urlKey: REDIS_URL
 
 # What happens to an audit event when the database will not take it.
-# `degrade` drops it and records the gap, `block` makes callers wait, and
-# `spool` writes it to disk and replays it when the database comes back.
+# `degrade` retries it for a few seconds, then drops it and records the
+# gap; `block` retries until it lands and makes callers wait once the
+# queue is full; `spool` writes it to disk and replays it when the
+# database comes back.
 # A spool needs a volume that survives the pod, which is why turning it on
 # asks for one: a spool in the ephemeral layer buys nothing over dropping.
 audit:
@@ -37,12 +39,16 @@ audit:
   spool:
     enabled: false
     path: /var/lib/supermcp/audit-spool
-    maxBytes: 268435456    # 256 MiB, then it drops and counts as before
+    maxBytes: 268435456    # 256 MiB per replica, then it drops and counts
+    # Each replica keeps to a directory named after its pod. A pod that is
+    # gone leaves one behind; once its heartbeat is this old, a live
+    # replica takes it over and replays it.
+    orphanAge: 10m
     size: 1Gi
     storageClass: ""
-    # A claim you made yourself; otherwise the chart makes one per replica
-    # set. With more than one replica, give each pod its own by using a
-    # storage class that provisions ReadWriteOnce and setting this empty.
+    # A claim you made yourself; otherwise the chart makes one
+    # ReadWriteMany claim that every replica shares, each in its own
+    # directory.
     existingClaim: ""
 
 # Envelope-encryption key encryption key.

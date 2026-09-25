@@ -352,6 +352,8 @@ entry in the allowed-hosts list.
 | Setting | Default | What it decides |
 |---|---|---|
 | `SUPERMCP_AUDIT_ON_UNAVAILABLE` | `degrade` | What happens when the database refuses audit events. `degrade` retries a refused batch for about eight seconds while new events queue behind it; what it then drops, and what the full queue cannot take, is counted and recorded in the stream as a gap on the next successful append. `block` retries until the database takes it and makes callers wait once the queue is full. `spool` writes refused events to disk and replays them. The details are in `docs/operations.md`, "When the database refuses audit events". |
+| `SUPERMCP_INSTANCE_ID` | the host name | This replica's name, which must be unique among running replicas: the audit spool keeps its files under a directory of that name, and the gaps it records carry it. The chart sets it to the pod name. |
+| `SUPERMCP_AUDIT_SPOOL_ORPHAN_AGE` | `10m` | With `spool`, how long another replica's spool may go without a heartbeat before this one takes over its events and replays them. At least `30s`. |
 | `SUPERMCP_METRICS_PER_TOOL` | off | Publishes a metric series per tool name. Off by default: tool names are operator data and nothing caps how many an organisation installs. |
 | `SUPERMCP_METRICS_PER_TOOL_CAP` | `5000` | How many distinct tool names get their own series before the rest collapse into one. |
 
