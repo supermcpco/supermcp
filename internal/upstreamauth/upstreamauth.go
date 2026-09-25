@@ -234,7 +234,7 @@ func Prepare(ctx context.Context, conn *engine.Connector, vars tmpl.Vars, deps D
 		return newLogin(conn, vars, deps, render, renderMap)
 
 	case adapter.AuthOAuth1, adapter.AuthWSSec, adapter.AuthMTLS:
-		return nil, vars, fmt.Errorf("auth type %s: %w (planned for M4)", a.Type, engine.ErrUnsupported)
+		return nil, vars, fmt.Errorf("auth type %s is not supported: %w", a.Type, engine.ErrUnsupported)
 	}
 	return nil, vars, fmt.Errorf("unknown auth type %q", a.Type)
 }

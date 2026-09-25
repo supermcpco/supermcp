@@ -531,7 +531,7 @@ func (d Deps) recordRole(ctx context.Context, tx pgx.Tx, role roleDTO, action st
 	if err != nil {
 		return err
 	}
-	if err := d.Revisions.Record(ctx, nested, string(roleRevisionKind), role.ID, action, role, diff, actorID); err != nil {
+	if err := d.Revisions.Record(ctx, nested, string(governance.KindRole), role.ID, action, role, diff, actorID); err != nil {
 		_ = nested.Rollback(ctx)
 		if historyKeepsNoRoles(err) {
 			return nil

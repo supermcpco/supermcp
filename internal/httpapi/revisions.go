@@ -39,17 +39,11 @@ type revisionKind struct {
 	read authz.Permission
 }
 
-// roleRevisionKind is the history's name for a role. The history keeps a
-// closed set of kinds and this one is not in the set the governance
-// package declares, so it is named here, where the roles routes that
-// write it can reach it.
-const roleRevisionKind governance.Kind = "role"
-
 var (
 	connectorRevisions = revisionKind{governance.KindConnector, "connectors", "connectors", authz.ConnectorsRead}
 	toolRevisions      = revisionKind{governance.KindTool, "tools", "connectors", authz.ConnectorsRead}
 	serverRevisions    = revisionKind{governance.KindServer, "servers", "servers", authz.ServersRead}
-	roleRevisions      = revisionKind{roleRevisionKind, "roles", "roles", authz.RolesRead}
+	roleRevisions      = revisionKind{governance.KindRole, "roles", "roles", authz.RolesRead}
 
 	revisionKinds = []revisionKind{connectorRevisions, toolRevisions, serverRevisions, roleRevisions}
 )

@@ -1,5 +1,5 @@
-// Package mcpauth authenticates MCP clients: API keys now, the OAuth 2.1
-// authorization server in M2.
+// Package mcpauth authenticates MCP clients: API keys, and the OAuth 2.1
+// authorization server that issues their access tokens.
 package mcpauth
 
 import (

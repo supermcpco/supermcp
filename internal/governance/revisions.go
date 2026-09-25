@@ -19,7 +19,7 @@ import (
 // Kind names what a revision is about.
 type Kind string
 
-// The three kinds a revision can describe.
+// The four kinds a revision can describe.
 const (
 	KindConnector Kind = "connector"
 	KindTool      Kind = "tool"

@@ -52,8 +52,7 @@ func (a AAD) bytes() []byte {
 	return []byte(a.Table + "\x00" + a.Column + "\x00" + a.RowID + "\x00" + a.OrgID)
 }
 
-// KEK wraps and unwraps data keys. Implementations: Local, and cloud KMS
-// providers added in M3.
+// KEK wraps and unwraps data keys. Implementations: Local and AWSKMS.
 type KEK interface {
 	Ref() string
 	Wrap(ctx context.Context, dek []byte) ([]byte, error)
