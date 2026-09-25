@@ -166,7 +166,7 @@ func OpenSpool(cfg SpoolConfig, log *slog.Logger) (*Spool, error) {
 // scan reads this replica's directory, adopted directories included, into
 // the in-memory index.
 func (s *Spool) scan() error {
-	var names []string
+	var names, unfinished []string
 	var events int
 	var bytes, next int64
 	err := filepath.WalkDir(s.dir, func(path string, d fs.DirEntry, err error) error {
@@ -179,8 +179,9 @@ func (s *Spool) scan() error {
 		name := d.Name()
 		if strings.HasSuffix(name, spoolTempSuffix) {
 			// A segment that never finished being written: it was never
-			// counted as spooled, so removing it loses nothing.
-			_ = os.Remove(path)
+			// counted as spooled, so removing it loses nothing. Removed
+			// after the walk, not inside it (gosec G122).
+			unfinished = append(unfinished, path)
 			return nil
 		}
 		if !strings.HasSuffix(name, spoolSuffix) {
@@ -203,6 +204,9 @@ func (s *Spool) scan() error {
 	})
 	if err != nil {
 		return fmt.Errorf("read the audit spool directory: %w", err)
+	}
+	for _, path := range unfinished {
+		_ = os.Remove(path)
 	}
 	sortSegments(names)
 	s.mu.Lock()
