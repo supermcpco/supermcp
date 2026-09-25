@@ -1,3 +1,7 @@
+-- supermcp:breaking
+-- The marker is for scripts/check-migrations.sh, which cannot see that
+-- the index dropped below is replaced by one with the same key. Nothing
+-- the previous release runs breaks; docs/UPGRADING.md has the section.
 -- +goose NO TRANSACTION
 -- +goose Up
 
