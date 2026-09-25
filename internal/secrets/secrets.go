@@ -59,6 +59,28 @@ type KEK interface {
 	Unwrap(ctx context.Context, wrapped []byte) ([]byte, error)
 }
 
+// crossRef is implemented by a master key that can open data keys
+// recorded under a reference other than its own: AWSKMS, for its
+// multi-Region replicas in other regions.
+type crossRef interface {
+	forRef(ref string) (KEK, bool)
+}
+
+// openerFor returns the key that opens what was recorded under ref: k
+// itself when the reference is its own, or what k says stands in for it.
+func openerFor(k KEK, ref string) (KEK, bool) {
+	if k == nil {
+		return nil, false
+	}
+	if k.Ref() == ref {
+		return k, true
+	}
+	if c, ok := k.(crossRef); ok {
+		return c.forRef(ref)
+	}
+	return nil, false
+}
+
 // DataKey is a wrapped DEK as stored in data_keys.
 type DataKey struct {
 	ID      [keyIDLen]byte
@@ -265,12 +287,24 @@ func (s *Sealer) unwrap(ctx context.Context, dk *DataKey) ([]byte, error) {
 // holds is refused outright rather than fed to every key in turn, so a
 // blob substituted in data_keys.wrapped gets exactly one decryption
 // attempt, under the key its own row names.
+//
+// A reference no key here spells exactly may still be one of them in
+// another region (an AWS multi-Region key after a restore elsewhere); the
+// key that says so is then the one attempt.
 func (s *Sealer) kekFor(dk *DataKey) (KEK, error) {
 	if dk.KEKRef == s.kek.Ref() {
 		return s.kek, nil
 	}
 	if k, ok := s.older[dk.KEKRef]; ok {
 		return k, nil
+	}
+	if k, ok := openerFor(s.kek, dk.KEKRef); ok {
+		return k, nil
+	}
+	for _, o := range s.older {
+		if k, ok := openerFor(o, dk.KEKRef); ok {
+			return k, nil
+		}
 	}
 	return nil, fmt.Errorf("data key %x is wrapped by KEK %q, which this process does not hold (it has %q)", dk.ID[:4], dk.KEKRef, s.kek.Ref())
 }

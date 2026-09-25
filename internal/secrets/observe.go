@@ -40,6 +40,15 @@ func Observed(k KEK, observe KEKObserver) KEK {
 	return &observedKEK{KEK: k, provider: ProviderOf(k.Ref()), observe: observe}
 }
 
+// forRef keeps an observed key's cross-region opener observed too.
+func (o *observedKEK) forRef(ref string) (KEK, bool) {
+	k, ok := openerFor(o.KEK, ref)
+	if !ok {
+		return nil, false
+	}
+	return &observedKEK{KEK: k, provider: o.provider, observe: o.observe}, true
+}
+
 // Wrap implements KEK.
 func (o *observedKEK) Wrap(ctx context.Context, dek []byte) ([]byte, error) {
 	out, err := o.KEK.Wrap(ctx, dek)
