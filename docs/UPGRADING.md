@@ -46,6 +46,19 @@ in; see "Sensitive actions ask for a recent sign-in" below. Migration
 00025 replaces an index on `tool_invocations` for the new usage
 analytics; see "Usage analytics read an index of their own" below.
 
+### A refused audit batch is retried, and a loss is always recorded
+
+Under `SUPERMCP_AUDIT_ON_UNAVAILABLE=degrade` (the default) or `block`, a
+batch the database refused used to be dropped with one `audit append
+failed` log line and no record in the trail. It is now kept at the head
+of the queue and retried: for about eight seconds under `degrade`, until
+it succeeds under `block`. Whatever `degrade` finally drops is counted in
+the new `supermcp_audit_events_dropped_total` and recorded in the trail
+as an `audit.events_dropped` event, which now also carries the range and
+time of the lost events. Nothing to do; a database blip that used to
+cost a batch of events now costs none. `docs/operations.md`, "When the
+database refuses audit events", says what each mode does.
+
 ### Sensitive actions ask for a recent sign-in
 
 A browser session now has to have signed in, or confirmed who is using

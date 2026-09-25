@@ -19,7 +19,7 @@ reach for when something is wrong.
 | `SUPERMCP_OPEN_REGISTRATION` | off | Whether anyone who reaches the sign-in page can create a workspace. The first registration on an empty instance is always allowed. |
 | `SUPERMCP_OTLP_ENDPOINT` | empty | An OTLP/HTTP collector for traces. Empty is off; `OTEL_EXPORTER_OTLP_ENDPOINT` is read too. A collector that cannot be reached is a log line, never a failed boot. |
 | `SUPERMCP_TRACE_SAMPLE` | 0.01 | The fraction of traces kept. |
-| `SUPERMCP_AUDIT_ON_UNAVAILABLE` | `degrade` | What happens when the database will not take an event: `degrade` drops it and records the gap, `block` makes callers wait, `spool` writes it to disk and replays it. |
+| `SUPERMCP_AUDIT_ON_UNAVAILABLE` | `degrade` | What happens when the database will not take an event. See "When the database refuses audit events" below. |
 | `SUPERMCP_AUDIT_SPOOL_DIR` | `/var/lib/supermcp/audit-spool` | Where `spool` writes. It must be a persistent volume: a spool in a pod's ephemeral layer buys nothing over `degrade`. |
 | `SUPERMCP_AUDIT_SPOOL_MAX_BYTES` | 256 MiB | Past this, events are dropped and counted as they are without a spool. |
 | `SUPERMCP_DCR_MODE` | `approval` | Whether an MCP client can register itself: `open`, `approval` or `closed`. |
@@ -47,6 +47,44 @@ clients reach. The same is true of `keys verify` and `keys rotate-kek`.
 Run it after a restore and on a schedule. A broken chain means either a
 bug or someone editing the database directly; both deserve the same
 attention.
+
+### When the database refuses audit events
+
+Each replica writes events through one in-memory queue (256 events) and
+appends them in batches. When the database refuses a batch (it is down,
+failing over, or does not answer within ten seconds), what happens
+depends on `SUPERMCP_AUDIT_ON_UNAVAILABLE`:
+
+- **`degrade`** (the default). The batch stays at the head of the queue
+  and is retried with back-off, six attempts over about eight seconds.
+  Nothing behind it is written first, so the order holds. Requests are
+  never slowed: while the batch waits, new events fill the queue, and
+  once it is full further events are dropped. If the retries run out, the
+  batch is dropped too. Every dropped event is counted in
+  `supermcp_audit_events_dropped_total`, and the next append that
+  succeeds writes an `audit.events_dropped` event ahead of its own, with
+  how many were lost (`meta.events`), the replica's own numbers for them
+  (`meta.firstSeq`, `meta.lastSeq`) and when they were accepted
+  (`meta.from`, `meta.to`). A database that refuses a few appends and
+  then recovers loses nothing.
+- **`block`**. The batch stays at the head of the queue and is retried
+  with back-off, capped at five seconds, until the database takes it.
+  The queue fills behind it, and then every request that emits an event
+  waits for room. A request that gives up waiting drops its event, which
+  is counted and recorded like any other.
+- **`spool`**. The batch is written to disk (see "The audit spool"
+  below) and replayed in order when the database takes events again.
+  Events that arrive while the queue is full wait in a second in-memory
+  buffer of the same size and go to disk behind it; past that buffer they
+  are dropped. A batch the spool refuses because it is at its bound
+  (`SUPERMCP_AUDIT_SPOOL_MAX_BYTES`) is dropped. Both are counted and
+  recorded as a gap. A spool that could not be opened at start is logged,
+  and the writer then does what `degrade` does.
+
+In every mode, a replica shutting down gives a refused batch one more
+attempt rather than the full back-off. What it cannot write then is
+logged (`audit events dropped`, with the count and range) and is lost
+with the process, because the record of the gap has nowhere to go.
 
 **What a tool call records** is the workspace's decision, on the audit
 screen: nothing, the shape of the arguments, their masked values, or
@@ -250,7 +288,8 @@ Each is a symptom rather than a cause.
   replica and the effective ceiling is lower and uneven.
 - **The audit writer falling behind.** Events queue before they are
   written and a full queue drops them, which is a gap in the record. This
-  one is worth waking someone. With `SUPERMCP_AUDIT_ON_UNAVAILABLE=spool`
+  one is worth waking someone. `supermcp_audit_events_dropped_total`
+  going up means the gap has already happened. With `SUPERMCP_AUDIT_ON_UNAVAILABLE=spool`
   they go to disk instead, and `supermcp_audit_spool_depth` above zero
   means part of the record is somewhere a database backup does not reach.
 - **KMS unreachable.** More than half of the calls to AWS KMS are failing.

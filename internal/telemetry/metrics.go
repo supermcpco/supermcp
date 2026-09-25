@@ -121,6 +121,7 @@ type Metrics struct {
 	breakerState     *prometheus.GaugeVec
 	auditQueueDepth  prometheus.Gauge
 	auditSpoolDepth  prometheus.Gauge
+	auditDropped     prometheus.Counter
 	rateLimitDegrade prometheus.Gauge
 	kekOperations    *prometheus.CounterVec
 	auditExportLag   *prometheus.GaugeVec
@@ -130,6 +131,10 @@ type Metrics struct {
 
 	perTool    bool
 	perToolCap int
+	// droppedMu guards droppedSeen, the writer's total at the last
+	// sample, so the counter moves by the difference.
+	droppedMu   sync.Mutex
+	droppedSeen int64
 	// mu guards toolNames, the set of tool labels already admitted. It is
 	// taken only when per-tool series are on.
 	mu        sync.Mutex
@@ -215,6 +220,12 @@ func NewMetrics(opts MetricsOptions) *Metrics {
 			Help:      "Audit events waiting on disk for a database that would not take them.",
 		}),
 
+		auditDropped: prometheus.NewCounter(prometheus.CounterOpts{
+			Namespace: Namespace,
+			Name:      "audit_events_dropped_total",
+			Help:      "Audit events this replica accepted and could not write: the queue was full, the database refused them past the retries, or the spool would not take them. Each is also recorded in the stream as a gap.",
+		}),
+
 		rateLimitDegrade: prometheus.NewGauge(prometheus.GaugeOpts{
 			Namespace: Namespace,
 			Name:      "ratelimit_degraded",
@@ -259,6 +270,7 @@ func NewMetrics(opts MetricsOptions) *Metrics {
 		m.breakerState,
 		m.auditQueueDepth,
 		m.auditSpoolDepth,
+		m.auditDropped,
 		m.rateLimitDegrade,
 		m.kekOperations,
 		m.auditExportLag,
@@ -373,6 +385,21 @@ func (m *Metrics) SetAuditSpoolDepth(n int) {
 		return
 	}
 	m.auditSpoolDepth.Set(float64(n))
+}
+
+// SetAuditDroppedTotal records the audit writer's running count of events
+// it had to discard. The writer's number only goes up, so the counter
+// moves by what has been added since the last sample.
+func (m *Metrics) SetAuditDroppedTotal(total int64) {
+	if m == nil {
+		return
+	}
+	m.droppedMu.Lock()
+	defer m.droppedMu.Unlock()
+	if total > m.droppedSeen {
+		m.auditDropped.Add(float64(total - m.droppedSeen))
+		m.droppedSeen = total
+	}
 }
 
 // SetRateLimitDegraded records whether rate limit budgets are shared.
