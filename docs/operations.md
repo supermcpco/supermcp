@@ -176,7 +176,10 @@ from the maintenance pool, a separate session, and waits five seconds
 for it to arrive. If it does not, it reports itself disconnected and
 reconnects. Behind a transaction-pooling proxy it therefore never
 reports connected, and changes reach other replicas within the thirty
-seconds alone.
+seconds alone. On such a deployment set
+`metrics.prometheusRule.cacheInvalidation.expected=false`, or the
+chart's `SupermcpCacheListenerDown` alert fires on every replica and
+never clears.
 
 **What to watch.**
 
@@ -189,10 +192,12 @@ seconds alone.
   `notify` for a notification, `reconnect` for the flush after a
   (re)connect. `reconnect` climbing steadily means the listener keeps
   losing its connection.
+- The chart's `SupermcpCacheListenerDown` alert fires when a replica has
+  reported 0 for ten minutes (`metrics.prometheusRule.for.errors`).
 
 ## What the alerts mean
 
-The chart ships ten rules with `metrics.prometheusRule.enabled=true`.
+The chart ships eleven rules with `metrics.prometheusRule.enabled=true`.
 Each is a symptom rather than a cause.
 
 - **Nothing answering.** No replica responded. Clients cannot reach any tool.
@@ -233,6 +238,16 @@ Each is a symptom rather than a cause.
   happens after `database.migrate.ttlSecondsAfterFinished`. This rule
   reads `kube_job_failed` from kube-state-metrics and never fires without
   it.
+- **A cache listener down.** A replica has not been hearing cache
+  invalidations for ten minutes, so a revoked role or a changed
+  data-loss policy made elsewhere takes up to thirty seconds to apply
+  there. Nothing is refused and nothing is lost. Check that
+  `SUPERMCP_MAINT_DATABASE_URL` reaches Postgres directly (or a proxy in
+  session mode), not PgBouncer in transaction mode, then read that
+  replica's log for `cache invalidation listener disconnected`. If the
+  deployment goes through a transaction-pooling proxy on purpose, set
+  `metrics.prometheusRule.cacheInvalidation.expected=false`; the rule is
+  then not rendered.
 
 ## Traces
 

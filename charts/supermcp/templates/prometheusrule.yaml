@@ -94,6 +94,21 @@ spec:
           annotations:
             summary: "the {{`{{ $labels.pool }}`}} database pool is full and callers are queueing"
             description: "Requests wait for a connection before they do anything, so everything slows at once. Look for slow queries or held transactions before raising pool_max_conns in the database URL."
+{{- if .Values.metrics.prometheusRule.cacheInvalidation.expected }}
+
+        # The gauge is exported as 0 from start-up until the listener has
+        # proved delivery, so a replica that never connects is caught too;
+        # a replica that is not scraped at all is SupermcpDown's business.
+        # Reconnects back off to thirty seconds at most, so a blip cannot
+        # last the wait.
+        - alert: SupermcpCacheListenerDown
+          expr: supermcp_cache_listener_connected == 0
+          for: {{ .Values.metrics.prometheusRule.for.errors }}
+          labels: { severity: warning }
+          annotations:
+            summary: "a replica is not hearing cache invalidations"
+            description: "On {{`{{ $labels.instance }}`}} a revoked role or a changed data-loss policy made on another replica applies only when the cached entry expires, up to thirty seconds later. Check that SUPERMCP_MAINT_DATABASE_URL reaches Postgres directly or through a session-mode proxy, not PgBouncer in transaction mode, and read the replica's log for 'cache invalidation listener disconnected'. Behind a transaction-pooling proxy by choice, set metrics.prometheusRule.cacheInvalidation.expected=false."
+{{- end }}
 {{- if .Values.database.migrate.enabled }}
 
         # Needs kube-state-metrics. The hook job is kept after a failure, but
