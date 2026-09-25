@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as ApiKeysRouteImport } from './routes/api-keys'
 import { Route as ApprovalsRouteImport } from './routes/approvals'
 import { Route as LoginRouteImport } from './routes/login'
+import { Route as ReauthRouteImport } from './routes/reauth'
 import { Route as ServersRouteImport } from './routes/servers'
 import { Route as StatusRouteImport } from './routes/status'
 import { Route as ToolCallsRouteImport } from './routes/tool-calls'
@@ -52,6 +53,11 @@ const ApprovalsRoute = ApprovalsRouteImport.update({
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ReauthRoute = ReauthRouteImport.update({
+  id: '/reauth',
+  path: '/reauth',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ServersRoute = ServersRouteImport.update({
@@ -162,6 +168,7 @@ export interface FileRoutesByFullPath {
   '/api-keys': typeof ApiKeysRoute
   '/approvals': typeof ApprovalsRoute
   '/login': typeof LoginRoute
+  '/reauth': typeof ReauthRoute
   '/servers': typeof ServersRoute
   '/status': typeof StatusRoute
   '/tool-calls': typeof ToolCallsRoute
@@ -188,6 +195,7 @@ export interface FileRoutesByTo {
   '/api-keys': typeof ApiKeysRoute
   '/approvals': typeof ApprovalsRoute
   '/login': typeof LoginRoute
+  '/reauth': typeof ReauthRoute
   '/servers': typeof ServersRoute
   '/status': typeof StatusRoute
   '/tool-calls': typeof ToolCallsRoute
@@ -215,6 +223,7 @@ export interface FileRoutesById {
   '/api-keys': typeof ApiKeysRoute
   '/approvals': typeof ApprovalsRoute
   '/login': typeof LoginRoute
+  '/reauth': typeof ReauthRoute
   '/servers': typeof ServersRoute
   '/status': typeof StatusRoute
   '/tool-calls': typeof ToolCallsRoute
@@ -243,6 +252,7 @@ export interface FileRouteTypes {
     | '/api-keys'
     | '/approvals'
     | '/login'
+    | '/reauth'
     | '/servers'
     | '/status'
     | '/tool-calls'
@@ -269,6 +279,7 @@ export interface FileRouteTypes {
     | '/api-keys'
     | '/approvals'
     | '/login'
+    | '/reauth'
     | '/servers'
     | '/status'
     | '/tool-calls'
@@ -295,6 +306,7 @@ export interface FileRouteTypes {
     | '/api-keys'
     | '/approvals'
     | '/login'
+    | '/reauth'
     | '/servers'
     | '/status'
     | '/tool-calls'
@@ -322,6 +334,7 @@ export interface RootRouteChildren {
   ApiKeysRoute: typeof ApiKeysRoute
   ApprovalsRoute: typeof ApprovalsRoute
   LoginRoute: typeof LoginRoute
+  ReauthRoute: typeof ReauthRoute
   ServersRoute: typeof ServersRoute
   StatusRoute: typeof StatusRoute
   ToolCallsRoute: typeof ToolCallsRoute
@@ -372,6 +385,13 @@ declare module '@tanstack/react-router' {
       path: '/login'
       fullPath: '/login'
       preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/reauth': {
+      id: '/reauth'
+      path: '/reauth'
+      fullPath: '/reauth'
+      preLoaderRoute: typeof ReauthRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/servers': {
@@ -522,6 +542,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiKeysRoute: ApiKeysRoute,
   ApprovalsRoute: ApprovalsRoute,
   LoginRoute: LoginRoute,
+  ReauthRoute: ReauthRoute,
   ServersRoute: ServersRoute,
   StatusRoute: StatusRoute,
   ToolCallsRoute: ToolCallsRoute,
