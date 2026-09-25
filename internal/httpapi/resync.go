@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -20,13 +21,15 @@ type resyncDTO struct {
 	CatalogSlug        string           `json:"catalogSlug"`
 	InstalledHash      string           `json:"installedHash" doc:"The catalog hash the connector was installed or last re-synced from"`
 	BundledHash        string           `json:"bundledHash" doc:"The content hash of the adapter this server carries; send it back as catalogHash to apply"`
-	Outdated           bool             `json:"outdated" doc:"The bundled adapter differs from the one the connector came from"`
+	Outdated           bool             `json:"outdated" doc:"The connector came from an earlier version of the adapter this server carries"`
 	Version            int64            `json:"version" doc:"The connector version the plan was made against; send it back as expectedVersion to apply"`
 	Add                []resyncToolDTO  `json:"add" nullable:"false"`
 	Update             []resyncToolDTO  `json:"update" nullable:"false"`
 	Remove             []resyncToolDTO  `json:"remove" nullable:"false"`
 	Skipped            []resyncSkipDTO  `json:"skipped" nullable:"false" doc:"Tools the catalog would change but a person owns; they are left alone"`
+	Relabel            []resyncToolDTO  `json:"relabel" nullable:"false" doc:"Tools an older server stored as imports; they stay, marked as the catalog's"`
 	Fields             []resyncFieldDTO `json:"fields" nullable:"false" doc:"Connector settings the re-sync replaces"`
+	NotApplied         []resyncFieldDTO `json:"notApplied" nullable:"false" doc:"Settings that differ from the bundled adapter but that re-sync never changes (transport, auth); change them by hand if wanted"`
 	MissingCredentials []string         `json:"missingCredentials" nullable:"false" doc:"Credentials the bundled adapter requires that the connector does not have; set them separately"`
 }
 
@@ -68,10 +71,12 @@ type resyncApplyOutput struct {
 	}
 }
 
-// Re-syncing rewrites a connector's settings and its tools, so it takes
-// both connectors:update and tools:update, as creating or deleting a tool
-// does; one that takes the destructive hint off a tool whose operation
-// implies it also takes tools:invoke:destructive, as the editor does.
+// Re-syncing rewrites a connector's instructions and its tools, so it
+// takes connectors:update and tools:update on the connector, as creating
+// or deleting a tool does, and tools:update on every existing tool it
+// rewrites, removes or relabels, so a rule on one tool applies as it does
+// in the editor. A tool that loses a destructive hint its operation
+// implies also takes tools:invoke:destructive for that tool.
 
 func (d Deps) resyncRoutes(api huma.API) {
 	huma.Register(api, huma.Operation{OperationID: "connectors-resync-preview", Method: http.MethodGet, Path: "/api/v1/connectors/{id}/resync",
@@ -105,25 +110,35 @@ func (d Deps) resyncRoutes(api huma.API) {
 			if _, err := d.require(ctx, authz.ToolsUpdate, r); err != nil {
 				return nil, err
 			}
-			// The escalation is decided on the plan read here. Apply
-			// refuses unless the connector is still at the version the
-			// caller reviewed, and the plan is a function of that version
-			// and the bundled adapter, so this is the plan that is applied.
+			// What was reviewed has to be what is here now. The service
+			// checks the version again under the connector's lock.
 			plan, err := d.Connectors.PlanResync(ctx, p.OrgID, in.ID, d.Catalog.Bundled)
 			if err != nil {
 				return nil, humaErr(err)
 			}
-			declassified := resyncDeclassifies(plan)
-			if declassified {
-				if _, err := d.require(ctx, authz.ToolsInvokeDestr, authz.Resource{ConnectorID: in.ID, Destructive: true}); err != nil {
-					return nil, err
-				}
+			if in.Body.ExpectedVersion != plan.Connector.Version || in.Body.CatalogHash != plan.BundledHash {
+				d.adminFailed(ctx, "connector.resync", "connector", in.ID, connector.ErrResyncStale)
+				return nil, humaErr(connector.ErrResyncStale)
 			}
+			// The permissions are decided on the plan rebuilt inside the
+			// transaction, which is the one written: a change to the
+			// connector between the read above and the lock cannot slip a
+			// plan past a check made on another.
+			declassified := false
 			applied, err := d.Connectors.ApplyResync(ctx, p.OrgID, in.ID, d.Catalog.Bundled, connector.ResyncInput{
 				CatalogHash: in.Body.CatalogHash, ExpectedVersion: in.Body.ExpectedVersion, ActorID: p.ID,
+				Authorize: func(plan *connector.ResyncPlan) error {
+					var err error
+					declassified, err = d.authorizeResync(ctx, plan)
+					return err
+				},
 			})
 			if err != nil {
 				d.adminFailed(ctx, "connector.resync", "connector", in.ID, err)
+				var refused huma.StatusError
+				if errors.As(err, &refused) {
+					return nil, err
+				}
 				return nil, humaErr(err)
 			}
 			c, err := d.Connectors.Get(ctx, p.OrgID, in.ID)
@@ -140,20 +155,38 @@ func (d Deps) resyncRoutes(api huma.API) {
 		})
 }
 
-// resyncDeclassifies reports whether any tool the plan adds or rewrites
-// loses a destructive hint its operation implies.
-func resyncDeclassifies(p *connector.ResyncPlan) bool {
+// authorizeResync checks the per-tool permissions a plan needs and
+// reports whether it takes a destructive hint off any tool. A refusal is
+// a huma error, already recorded.
+func (d Deps) authorizeResync(ctx context.Context, p *connector.ResyncPlan) (bool, error) {
+	c := p.Connector
+	for _, group := range [][]connector.ResyncTool{p.Update, p.Remove, p.Relabel} {
+		for _, t := range group {
+			if _, err := d.require(ctx, authz.ToolsUpdate, toolResource(t.Before)); err != nil {
+				return false, err
+			}
+		}
+	}
+	declassified := false
 	for _, t := range p.Add {
-		if tool.Declassifies(nil, t.After, p.Transport.Type, p.Connector.ReadOnly) {
-			return true
+		if tool.Declassifies(nil, t.After, c.Transport.Type, c.ReadOnly) {
+			declassified = true
+			if _, err := d.require(ctx, authz.ToolsInvokeDestr, authz.Resource{ConnectorID: c.ID, Destructive: true}); err != nil {
+				return false, err
+			}
 		}
 	}
 	for _, t := range p.Update {
-		if tool.Declassifies(t.Before.Definition, t.After, p.Transport.Type, p.Connector.ReadOnly) {
-			return true
+		if tool.Declassifies(t.Before.Definition, t.After, c.Transport.Type, c.ReadOnly) {
+			declassified = true
+			r := toolResource(t.Before)
+			r.Destructive = true
+			if _, err := d.require(ctx, authz.ToolsInvokeDestr, r); err != nil {
+				return false, err
+			}
 		}
 	}
-	return false
+	return declassified, nil
 }
 
 // resynced records an applied re-sync: the connector settings and tool
@@ -188,7 +221,16 @@ func (d Deps) resynced(ctx context.Context, c *connector.Connector, p *connector
 	for _, s := range p.Skipped {
 		skipped = append(skipped, s.Name)
 	}
-	meta := map[string]any{"added": len(p.Add), "updated": len(p.Update), "removed": len(p.Remove), "skipped": skipped}
+	relabelled := make([]string, 0, len(p.Relabel))
+	for _, t := range p.Relabel {
+		relabelled = append(relabelled, t.Name)
+	}
+	notApplied := make([]string, 0, len(p.NotApplied))
+	for _, f := range p.NotApplied {
+		notApplied = append(notApplied, f.Field)
+	}
+	meta := map[string]any{"added": len(p.Add), "updated": len(p.Update), "removed": len(p.Remove), "skipped": skipped,
+		"relabelled": relabelled, "notApplied": notApplied}
 	if declassified {
 		meta["declassified"] = true
 	}
@@ -211,14 +253,20 @@ func resyncToDTO(p *connector.ResyncPlan) resyncDTO {
 		ConnectorID: p.Connector.ID, CatalogSlug: p.Connector.CatalogSlug, InstalledHash: p.Connector.CatalogHash,
 		BundledHash: p.BundledHash, Outdated: p.Outdated(), Version: p.Connector.Version,
 		Add: resyncToolsToDTO(p.Add), Update: resyncToolsToDTO(p.Update), Remove: resyncToolsToDTO(p.Remove),
-		Skipped: make([]resyncSkipDTO, 0, len(p.Skipped)), Fields: make([]resyncFieldDTO, 0, len(p.Fields)),
+		Skipped: make([]resyncSkipDTO, 0, len(p.Skipped)), Relabel: resyncToolsToDTO(p.Relabel),
+		Fields: resyncFieldsToDTO(p.Fields), NotApplied: resyncFieldsToDTO(p.NotApplied),
 		MissingCredentials: append([]string{}, p.MissingCredentials...),
 	}
 	for _, s := range p.Skipped {
 		out.Skipped = append(out.Skipped, resyncSkipDTO{Name: s.Name, ToolID: s.ToolID, Reason: s.Reason, Change: s.Change})
 	}
-	for _, f := range p.Fields {
-		out.Fields = append(out.Fields, resyncFieldDTO{Field: f.Field, Before: f.Before, After: f.After})
+	return out
+}
+
+func resyncFieldsToDTO(fs []connector.FieldChange) []resyncFieldDTO {
+	out := make([]resyncFieldDTO, 0, len(fs))
+	for _, f := range fs {
+		out = append(out, resyncFieldDTO{Field: f.Field, Before: f.Before, After: f.After})
 	}
 	return out
 }
@@ -238,17 +286,17 @@ func resyncToolsToDTO(ts []connector.ResyncTool) []resyncToolDTO {
 	return out
 }
 
-// catalogOutdated reports whether the adapter this server carries differs
-// from the one c was installed or last re-synced from. It reads the
-// embedded index only, so a list costs no query per connector. A
-// connector whose adapter the catalog no longer has is not outdated:
-// there is nothing to re-sync it with.
+// catalogOutdated reports whether c came from an earlier version of the
+// adapter this server carries. It reads the embedded index only, so a
+// list costs no query per connector. A connector from a version this
+// server does not know, possibly a newer one, is not outdated, and nor is
+// one whose adapter the catalog no longer has.
 func (d Deps) catalogOutdated(c *connector.Connector) bool {
 	if c.CatalogSlug == "" || d.Catalog == nil {
 		return false
 	}
 	e, ok := d.Catalog.Entry(c.CatalogSlug)
-	return ok && e.ContentHash != c.CatalogHash
+	return ok && e.Precedes(c.CatalogHash)
 }
 
 // connectorDTO is the wire shape of c, with whether it is outdated.

@@ -71,14 +71,14 @@ func TestPlanResyncOfFreshInstallIsEmpty(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, e := range cat.Index.Adapters {
-		a, hash, err := cat.Bundled(e.Slug)
+		a, entry, err := cat.Bundled(e.Slug)
 		if err != nil {
 			t.Fatalf("%s: %v", e.Slug, err)
 		}
-		if got, err := adapter.ContentHash(a); err != nil || got != hash {
-			t.Errorf("%s: index hash %s, adapter hashes to %s (%v)", e.Slug, hash, got, err)
+		if got, err := adapter.ContentHash(a); err != nil || got != entry.ContentHash {
+			t.Errorf("%s: index hash %s, adapter hashes to %s (%v)", e.Slug, entry.ContentHash, got, err)
 		}
-		c := storedConnector(t, a, hash)
+		c := storedConnector(t, a, entry.ContentHash)
 		stored := make([]*Tool, 0, len(a.Tools))
 		for i := range a.Tools {
 			stored = append(stored, &Tool{ID: a.Tools[i].Name, Name: a.Tools[i].Name, Source: ToolSourceCatalog,
@@ -88,13 +88,13 @@ func TestPlanResyncOfFreshInstallIsEmpty(t *testing.T) {
 		for _, k := range a.Credentials.Keys {
 			creds[k] = true
 		}
-		p, err := planResync(c, stored, creds, a, hash)
+		p, err := planResync(c, stored, creds, a, entry)
 		if err != nil {
 			t.Fatalf("%s: %v", e.Slug, err)
 		}
-		if p.Outdated() || !p.Empty() || len(p.Skipped) > 0 {
-			t.Errorf("%s: a fresh install plans a re-sync: add %v update %v remove %v skipped %v fields %v",
-				e.Slug, names(p.Add), p.Update, names(p.Remove), p.Skipped, p.Fields)
+		if p.Outdated() || !p.Empty() || len(p.Skipped) > 0 || len(p.NotApplied) > 0 {
+			t.Errorf("%s: a fresh install plans a re-sync: add %v update %v remove %v skipped %v fields %v not applied %v",
+				e.Slug, names(p.Add), p.Update, names(p.Remove), p.Skipped, p.Fields, p.NotApplied)
 		}
 	}
 }
@@ -178,7 +178,7 @@ tools:
 		Transport: adapter.Transport{Type: adapter.TransportHTTP, BaseURL: "https://api.example.com/v1"},
 		Auth:      adapter.Auth{Type: adapter.AuthBearer, Token: "{{env.API_KEY}}"}}
 
-	p, err := planResync(c, stored, map[string]bool{}, a, "new")
+	p, err := planResync(c, stored, map[string]bool{}, a, adapter.IndexEntry{ContentHash: "new", PreviousHashes: []string{"old"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -214,8 +214,15 @@ tools:
 	for _, f := range p.Fields {
 		fields = append(fields, f.Field)
 	}
-	if !reflect.DeepEqual(fields, []string{"instructions", "transport"}) {
-		t.Errorf("fields = %v, want [instructions transport]", fields)
+	if !reflect.DeepEqual(fields, []string{"instructions"}) {
+		t.Errorf("fields = %v, want [instructions]", fields)
+	}
+	// The operator's transport stays; the difference is only reported.
+	if len(p.NotApplied) != 1 || p.NotApplied[0].Field != "transport" {
+		t.Errorf("not applied = %+v, want transport", p.NotApplied)
+	}
+	if got := names(p.Relabel); !reflect.DeepEqual(got, []string{"legacy", "legacy_changed"}) {
+		t.Errorf("relabel = %v, want [legacy legacy_changed]", got)
 	}
 	if !reflect.DeepEqual(p.MissingCredentials, []string{"API_KEY"}) {
 		t.Errorf("missing credentials = %v, want [API_KEY]", p.MissingCredentials)

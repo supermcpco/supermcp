@@ -76,6 +76,8 @@ type harnessOptions struct {
 	kek secrets.KEK
 	// log receives the server's log; nil discards it.
 	log *slog.Logger
+	// catalog replaces the embedded adapter catalog.
+	catalog *catalog.Catalog
 }
 
 func start(t *testing.T) *harness {
@@ -149,9 +151,12 @@ func startWith(t *testing.T, opts harnessOptions) *harness {
 	oauth.Accounts = ids
 	endpoint := mcpendpoint.New(mcpendpoint.Deps{Servers: servers, Authz: az, Executor: exec, Log: log, Version: "test"})
 
-	cat, err := catalog.Load()
-	if err != nil {
-		t.Fatal(err)
+	cat := opts.catalog
+	if cat == nil {
+		cat, err = catalog.Load()
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 	cfg, err := config.Load("test")
 	if err != nil {

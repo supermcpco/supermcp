@@ -825,6 +825,7 @@ export type IndexEntry = {
     icon: string;
     keyless: boolean;
     name: string;
+    previousHashes?: Array<string> | null;
     priority?: number;
     region: string;
     selfHostOnly?: boolean;
@@ -1252,9 +1253,17 @@ export type ResyncDto = {
      */
     missingCredentials: Array<string>;
     /**
-     * The bundled adapter differs from the one the connector came from
+     * Settings that differ from the bundled adapter but that re-sync never changes (transport, auth); change them by hand if wanted
+     */
+    notApplied: Array<ResyncFieldDto>;
+    /**
+     * The connector came from an earlier version of the adapter this server carries
      */
     outdated: boolean;
+    /**
+     * Tools an older server stored as imports; they stay, marked as the catalog's
+     */
+    relabel: Array<ResyncToolDto>;
     remove: Array<ResyncToolDto>;
     /**
      * Tools the catalog would change but a person owns; they are left alone
@@ -2618,9 +2627,17 @@ export type ResyncDtoWritable = {
      */
     missingCredentials: Array<string>;
     /**
-     * The bundled adapter differs from the one the connector came from
+     * Settings that differ from the bundled adapter but that re-sync never changes (transport, auth); change them by hand if wanted
+     */
+    notApplied: Array<ResyncFieldDto>;
+    /**
+     * The connector came from an earlier version of the adapter this server carries
      */
     outdated: boolean;
+    /**
+     * Tools an older server stored as imports; they stay, marked as the catalog's
+     */
+    relabel: Array<ResyncToolDto>;
     remove: Array<ResyncToolDto>;
     /**
      * Tools the catalog would change but a person owns; they are left alone
