@@ -396,10 +396,15 @@ func (e *Evaluator) load(ctx context.Context, p *Principal) (*cacheEntry, error)
 
 	entry := &cacheEntry{deny: map[string]map[string]bool{}, allow: map[string]map[string]bool{}, at: e.now()}
 	err := e.DB.Tx(tenant.WithOrg(ctx, p.OrgID), func(tx pgx.Tx) error {
+		// A person's bindings count only while they are an active member:
+		// a deactivated or removed member's credential fails closed here
+		// even if it outlives the revocation that should have ended it.
 		rows, err := tx.Query(ctx, `
 SELECT b.role_id, b.scope_kind, COALESCE(b.scope_id, ''), b.expires_at, r.permissions
 FROM role_bindings b JOIN roles r ON r.id = b.role_id
-WHERE b.organization_id = $1 AND b.principal_kind = $2 AND b.principal_id = $3`, p.OrgID, kind, id)
+WHERE b.organization_id = $1 AND b.principal_kind = $2 AND b.principal_id = $3
+  AND ($2 <> 'user' OR EXISTS (SELECT 1 FROM organization_members m
+       WHERE m.organization_id = $1 AND m.user_id = $3 AND m.deactivated_at IS NULL))`, p.OrgID, kind, id)
 		if err != nil {
 			return err
 		}
