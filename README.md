@@ -75,6 +75,10 @@ bin/supermcp migrate
 bin/supermcp serve    # /healthz /readyz /api/v1/catalog /api/openapi.json /api/docs
 ```
 
+## Security
+
+To report a vulnerability, see [SECURITY.md](SECURITY.md); please do not open a public issue.
+
 ## Licence
 
 MIT. See [LICENSE](LICENSE).
