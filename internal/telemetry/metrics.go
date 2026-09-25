@@ -61,6 +61,30 @@ const (
 	BreakerOpen     BreakerState = 2
 )
 
+// Master key operations and the providers that perform them. Both are
+// closed sets, like ErrorClass: anything else is recorded as OtherLabel,
+// so supermcp_kek_operations_total never has more than eighteen series.
+const (
+	KEKWrap   = "wrap"
+	KEKUnwrap = "unwrap"
+
+	KEKProviderLocal  = "local"
+	KEKProviderAWSKMS = "awskms"
+)
+
+// Audit export destination kinds, mirroring the audit package's own. A
+// destination belongs to an organisation, so its id would be a label with
+// no ceiling; the kind is the finest grain the lag is published at.
+const (
+	ExportKindWebhook = "webhook"
+	ExportKindSyslog  = "syslog"
+	ExportKindSplunk  = "splunk"
+	ExportKindOTLP    = "otlp"
+)
+
+// OtherLabel is what a label value outside a closed set collapses into.
+const OtherLabel = "other"
+
 // MetricsOptions configure a Metrics.
 type MetricsOptions struct {
 	// Registry receives the instruments. Nil builds a private one, which
@@ -98,6 +122,9 @@ type Metrics struct {
 	auditQueueDepth  prometheus.Gauge
 	auditSpoolDepth  prometheus.Gauge
 	rateLimitDegrade prometheus.Gauge
+	kekOperations    *prometheus.CounterVec
+	auditExportLag   *prometheus.GaugeVec
+	dbPools          *dbPoolCollector
 
 	perTool    bool
 	perToolCap int
@@ -191,6 +218,20 @@ func NewMetrics(opts MetricsOptions) *Metrics {
 			Name:      "ratelimit_degraded",
 			Help:      "1 when rate limit budgets are per replica rather than shared through Redis.",
 		}),
+
+		kekOperations: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: Namespace,
+			Name:      "kek_operations_total",
+			Help:      "Master key wraps and unwraps by provider and outcome. Unwrapped data keys are cached, so this counts cache misses, not decryptions.",
+		}, []string{"provider", "op", "outcome"}),
+
+		auditExportLag: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Namespace: Namespace,
+			Name:      "audit_export_lag_seconds",
+			Help:      "Age of the oldest audit event an enabled destination has not yet accepted, the worst across destinations of each kind. 0 when all are caught up.",
+		}, []string{"kind"}),
+
+		dbPools: newDBPoolCollector(),
 	}
 
 	opts.Registry.MustRegister(
@@ -205,6 +246,9 @@ func NewMetrics(opts MetricsOptions) *Metrics {
 		m.auditQueueDepth,
 		m.auditSpoolDepth,
 		m.rateLimitDegrade,
+		m.kekOperations,
+		m.auditExportLag,
+		m.dbPools,
 	)
 	if opts.GoCollectors {
 		opts.Registry.MustRegister(collectors.NewGoCollector(), collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
@@ -327,6 +371,41 @@ func (m *Metrics) SetRateLimitDegraded(degraded bool) {
 	m.rateLimitDegrade.Set(v)
 }
 
+// ObserveKEK records one master key operation. provider is the KEK's
+// provider (local or awskms), op is KEKWrap or KEKUnwrap. A caller that
+// gave up on the call should not report it: a cancelled request says
+// nothing about whether the key service is reachable.
+func (m *Metrics) ObserveKEK(provider, op string, err error) {
+	if m == nil {
+		return
+	}
+	outcome := "ok"
+	if err != nil {
+		outcome = "error"
+	}
+	m.kekOperations.WithLabelValues(oneOf(provider, KEKProviderLocal, KEKProviderAWSKMS), oneOf(op, KEKWrap, KEKUnwrap), outcome).Inc()
+}
+
+// SetAuditExportLag records, per destination kind, how long the oldest
+// undelivered event has been waiting. Every kind is written on each call,
+// zero where the map has nothing, so a kind whose last destination was
+// switched off stops reporting its old lag. A kind this package does not
+// know is folded into OtherLabel rather than given a series of its own.
+func (m *Metrics) SetAuditExportLag(lag map[string]time.Duration) {
+	if m == nil {
+		return
+	}
+	kinds := [...]string{ExportKindWebhook, ExportKindSyslog, ExportKindSplunk, ExportKindOTLP}
+	worst := make(map[string]time.Duration, len(kinds)+1)
+	for kind, d := range lag {
+		k := oneOf(kind, kinds[:]...)
+		worst[k] = max(worst[k], d)
+	}
+	for _, kind := range append(kinds[:], OtherLabel) {
+		m.auditExportLag.WithLabelValues(kind).Set(worst[kind].Seconds())
+	}
+}
+
 // toolLabel admits a tool name until the cap, then returns OtherTool.
 //
 // Tool names come from adapters an operator installs, so their number has
@@ -367,6 +446,16 @@ func normaliseClass(c ErrorClass) ErrorClass {
 	default:
 		return ClassOther
 	}
+}
+
+// oneOf returns v if it is one of allowed and OtherLabel otherwise.
+func oneOf(v string, allowed ...string) string {
+	for _, a := range allowed {
+		if v == a {
+			return v
+		}
+	}
+	return OtherLabel
 }
 
 // labelOrUnknown keeps an empty label from producing a series that reads

@@ -12,6 +12,25 @@ rest. Tools can now be created, edited and deleted, which brings
 migration 00019 and a handful of changes to existing behaviour, listed
 under "Tools can be edited" below.
 
+### Four more alerts, and the metrics behind them
+
+With `metrics.prometheusRule.enabled=true` the chart now also ships
+`SupermcpKMSUnreachable`, `SupermcpAuditExportLag`,
+`SupermcpDBConnPoolSaturated` and `SupermcpMigrationJobFailed`; the
+operations guide says what to do about each. They read new series:
+
+- `supermcp_kek_operations_total{provider,op,outcome}`: master key wraps
+  and unwraps. With AWS KMS each one is a KMS request.
+- `supermcp_audit_export_lag_seconds{kind}`: age of the oldest event a
+  destination of that kind has not accepted. Every replica runs one query
+  a minute to measure it.
+- `supermcp_db_pool_*{pool}`: acquired, idle, total and maximum
+  connections, acquires, and acquires that had to wait, for the `app` and
+  `maint` pools.
+
+`SupermcpMigrationJobFailed` reads `kube_job_failed` from
+kube-state-metrics. Without kube-state-metrics it never fires.
+
 ### A password maximum age now applies
 
 A workspace could set one and nothing enforced it. It is enforced now,

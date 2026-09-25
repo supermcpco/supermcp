@@ -1,0 +1,148 @@
+package telemetry_test
+
+import (
+	"errors"
+	"testing"
+	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
+
+	"github.com/supermcpco/supermcp/internal/telemetry"
+)
+
+// The series the chart's alert rules read. Each test pins the values a
+// rule depends on and the ceiling on how many series the metric can grow
+// to, because a label that can take any value is the one that takes the
+// scrape down.
+
+func TestKEKOperationsCountByOutcome(t *testing.T) {
+	t.Parallel()
+	reg := prometheus.NewRegistry()
+	m := telemetry.NewMetrics(telemetry.MetricsOptions{Registry: reg})
+
+	m.ObserveKEK(telemetry.KEKProviderAWSKMS, telemetry.KEKUnwrap, nil)
+	m.ObserveKEK(telemetry.KEKProviderAWSKMS, telemetry.KEKUnwrap, errors.New("kms: connection refused"))
+	m.ObserveKEK(telemetry.KEKProviderAWSKMS, telemetry.KEKUnwrap, errors.New("kms: connection refused"))
+	m.ObserveKEK(telemetry.KEKProviderAWSKMS, telemetry.KEKWrap, nil)
+	m.ObserveKEK(telemetry.KEKProviderLocal, telemetry.KEKWrap, nil)
+
+	tests := []struct {
+		provider, op, outcome string
+		want                  float64
+	}{
+		{"awskms", "unwrap", "ok", 1},
+		{"awskms", "unwrap", "error", 2},
+		{"awskms", "wrap", "ok", 1},
+		{"local", "wrap", "ok", 1},
+	}
+	for _, tc := range tests {
+		got := value(t, reg, "supermcp_kek_operations_total",
+			map[string]string{"provider": tc.provider, "op": tc.op, "outcome": tc.outcome})
+		if got != tc.want {
+			t.Errorf("kek_operations_total{%s,%s,%s} = %v, want %v", tc.provider, tc.op, tc.outcome, got, tc.want)
+		}
+	}
+}
+
+func TestKEKOperationsCardinalityIsFixed(t *testing.T) {
+	t.Parallel()
+	reg := prometheus.NewRegistry()
+	m := telemetry.NewMetrics(telemetry.MetricsOptions{Registry: reg})
+
+	// Every provider and op a caller could invent, each with both outcomes.
+	for _, provider := range []string{"awskms", "local", "gcpkms", "", "awskms:eu-west-1/alias/x"} {
+		for _, op := range []string{"wrap", "unwrap", "rewrap", ""} {
+			m.ObserveKEK(provider, op, nil)
+			m.ObserveKEK(provider, op, errors.New("x"))
+		}
+	}
+	// provider local|awskms|other, op wrap|unwrap|other, outcome ok|error.
+	if got, limit := seriesCount(t, reg, "supermcp_kek_operations_total"), 3*3*2; got > limit {
+		t.Errorf("kek_operations_total has %d series, want at most %d", got, limit)
+	}
+	if got := value(t, reg, "supermcp_kek_operations_total",
+		map[string]string{"provider": "other", "op": "other", "outcome": "error"}); got != 6 {
+		t.Errorf("unknown providers and ops recorded %v errors under other/other, want 6", got)
+	}
+}
+
+func TestAuditExportLagTakesTheWorstPerKind(t *testing.T) {
+	t.Parallel()
+	reg := prometheus.NewRegistry()
+	m := telemetry.NewMetrics(telemetry.MetricsOptions{Registry: reg})
+
+	m.SetAuditExportLag(map[string]time.Duration{
+		"webhook":  20 * time.Minute,
+		"splunk":   0,
+		"carrier":  3 * time.Minute, // not a kind this build knows
+		"pigeon":   7 * time.Minute,
+		"syslog":   90 * time.Second,
+		"otlp":     0,
+		"":         time.Minute,
+		"webhook2": time.Second,
+	})
+	want := map[string]float64{"webhook": 1200, "syslog": 90, "splunk": 0, "otlp": 0, "other": 420}
+	for kind, v := range want {
+		if got := value(t, reg, "supermcp_audit_export_lag_seconds", map[string]string{"kind": kind}); got != v {
+			t.Errorf("audit_export_lag_seconds{kind=%q} = %v, want %v", kind, got, v)
+		}
+	}
+	if got := seriesCount(t, reg, "supermcp_audit_export_lag_seconds"); got != len(want) {
+		t.Errorf("audit_export_lag_seconds has %d series, want %d", got, len(want))
+	}
+
+	// Everything caught up, and the webhook destination switched off: no
+	// kind may keep reporting the lag it had.
+	m.SetAuditExportLag(map[string]time.Duration{"syslog": 0})
+	for kind := range want {
+		if got := value(t, reg, "supermcp_audit_export_lag_seconds", map[string]string{"kind": kind}); got != 0 {
+			t.Errorf("after catching up, audit_export_lag_seconds{kind=%q} = %v, want 0", kind, got)
+		}
+	}
+}
+
+func TestDBPoolStatsAreReadAtScrape(t *testing.T) {
+	t.Parallel()
+	reg := prometheus.NewRegistry()
+	m := telemetry.NewMetrics(telemetry.MetricsOptions{Registry: reg})
+
+	// Nothing watched yet: the collector is registered and publishes nothing.
+	if got := seriesCount(t, reg, "supermcp_db_pool_acquired_connections"); got != 0 {
+		t.Fatalf("with no pool watched there are %d series, want 0", got)
+	}
+
+	app := telemetry.DBPoolStats{Acquired: 9, Idle: 1, Total: 10, Max: 10, Acquires: 100, EmptyAcquires: 4, EmptyAcquireWait: 1500 * time.Millisecond}
+	m.WatchDBPool(telemetry.PoolApp, func() telemetry.DBPoolStats { return app })
+	m.WatchDBPool(telemetry.PoolMaint, func() telemetry.DBPoolStats { return telemetry.DBPoolStats{Max: 4, Idle: 2, Total: 2} })
+	m.WatchDBPool("tenant_42", func() telemetry.DBPoolStats { return telemetry.DBPoolStats{Max: 1} })
+
+	tests := []struct {
+		metric, pool string
+		want         float64
+	}{
+		{"supermcp_db_pool_acquired_connections", "app", 9},
+		{"supermcp_db_pool_idle_connections", "app", 1},
+		{"supermcp_db_pool_total_connections", "app", 10},
+		{"supermcp_db_pool_max_connections", "app", 10},
+		{"supermcp_db_pool_acquires_total", "app", 100},
+		{"supermcp_db_pool_empty_acquires_total", "app", 4},
+		{"supermcp_db_pool_empty_acquire_wait_seconds_total", "app", 1.5},
+		{"supermcp_db_pool_max_connections", "maint", 4},
+		{"supermcp_db_pool_acquired_connections", "maint", 0},
+		{"supermcp_db_pool_max_connections", "other", 1},
+	}
+	for _, tc := range tests {
+		if got := value(t, reg, tc.metric, map[string]string{"pool": tc.pool}); got != tc.want {
+			t.Errorf("%s{pool=%q} = %v, want %v", tc.metric, tc.pool, got, tc.want)
+		}
+	}
+	if got := seriesCount(t, reg, "supermcp_db_pool_max_connections"); got != 3 {
+		t.Errorf("db_pool_max_connections has %d series, want app, maint and other", got)
+	}
+
+	// The reading is taken at scrape time, not when the pool was watched.
+	app.Acquired = 3
+	if got := value(t, reg, "supermcp_db_pool_acquired_connections", map[string]string{"pool": "app"}); got != 3 {
+		t.Errorf("after the pool changed, acquired = %v, want 3", got)
+	}
+}

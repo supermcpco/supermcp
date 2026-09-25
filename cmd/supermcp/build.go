@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/supermcpco/supermcp/internal/audit"
 	"github.com/supermcpco/supermcp/internal/authz"
@@ -49,6 +50,14 @@ func newID() string {
 func build(ctx context.Context, cfg *config.Config, log *slog.Logger, st *store.Store, cat *catalog.Catalog) (httpapi.Deps, sweeps, func(), error) {
 	db := &tenant.DB{App: st.App, Maint: st.Maint, Log: log}
 
+	metrics := telemetry.NewMetrics(telemetry.MetricsOptions{
+		PerTool: cfg.Metrics.PerTool, PerToolCap: cfg.Metrics.PerToolCap, GoCollectors: true,
+	})
+	// A saturated pool looks like everything being slow at once; the
+	// pool's own numbers are what say it is the pool.
+	metrics.WatchDBPool(telemetry.PoolApp, poolStats(st.App))
+	metrics.WatchDBPool(telemetry.PoolMaint, poolStats(st.Maint))
+
 	// Master key selection happens once, here, so a misconfigured provider
 	// is a boot failure and never a silent downgrade to a weaker one. The
 	// context bounds the provider's own start-up: building the AWS client
@@ -59,7 +68,14 @@ func build(ctx context.Context, cfg *config.Config, log *slog.Logger, st *store.
 	}
 	// The decrypt-only keys are what let a rotation roll without a window:
 	// a pod on the new master key still opens what the old one wrapped.
-	sealer := secrets.New(keks.Active, &store.KeyStore{DB: db}, keks.Previous...)
+	// Every master key is observed, so a KMS that has stopped answering
+	// shows as itself rather than as a scatter of failing tool calls.
+	observeKEK := secrets.KEKObserver(metrics.ObserveKEK)
+	previous := make([]secrets.KEK, 0, len(keks.Previous))
+	for _, k := range keks.Previous {
+		previous = append(previous, secrets.Observed(k, observeKEK))
+	}
+	sealer := secrets.New(secrets.Observed(keks.Active, observeKEK), &store.KeyStore{DB: db}, previous...)
 
 	policy := ssrf.FromEnv(os.Getenv)
 	if cfg.Dev {
@@ -84,9 +100,6 @@ func build(ctx context.Context, cfg *config.Config, log *slog.Logger, st *store.
 		Service: "supermcp", Version: cfg.Version, Log: log,
 	})
 
-	metrics := telemetry.NewMetrics(telemetry.MetricsOptions{
-		PerTool: cfg.Metrics.PerTool, PerToolCap: cfg.Metrics.PerToolCap, GoCollectors: true,
-	})
 	var limiter *hardening.Limiter
 	if cfg.RateLimit.Enabled {
 		l, err := hardening.New(ctx, hardening.Options{
@@ -208,6 +221,7 @@ func build(ctx context.Context, cfg *config.Config, log *slog.Logger, st *store.
 		// Syslog destinations open a socket of their own, so they dial
 		// through the guard the HTTP destinations already go through.
 		exporters: audit.NewExporters(db, sealer, exportClient, log).WithDial(dialer.DialContext),
+		exportLag: metrics.SetAuditExportLag,
 		depth: func() {
 			metrics.SetAuditQueueDepth(auditor.QueueDepth())
 			metrics.SetAuditSpoolDepth(auditor.SpoolDepth())
@@ -237,4 +251,16 @@ func build(ctx context.Context, cfg *config.Config, log *slog.Logger, st *store.
 		}
 		pools.Close()
 	}, nil
+}
+
+// poolStats copies a pgx pool's statistics into the shape telemetry
+// publishes, which keeps the driver out of the telemetry package.
+func poolStats(p *pgxpool.Pool) func() telemetry.DBPoolStats {
+	return func() telemetry.DBPoolStats {
+		s := p.Stat()
+		return telemetry.DBPoolStats{
+			Acquired: s.AcquiredConns(), Idle: s.IdleConns(), Total: s.TotalConns(), Max: s.MaxConns(),
+			Acquires: s.AcquireCount(), EmptyAcquires: s.EmptyAcquireCount(), EmptyAcquireWait: s.EmptyAcquireWaitTime(),
+		}
+	}
 }
