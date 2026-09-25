@@ -38,6 +38,8 @@ var (
 	ErrNoAccount      = errors.New("no account here matches that identity, and provisioning is off")
 	ErrEmailMissing   = errors.New("the identity provider did not return a verified email address")
 	ErrProviderFailed = errors.New("the identity provider rejected the sign-in")
+	// ErrInvalid wraps a configuration the administrator has to correct.
+	ErrInvalid = errors.New("the provider configuration is not valid")
 	// ErrSecretRequired refuses a change that would send the stored client
 	// secret somewhere it has not been sent before.
 	ErrSecretRequired = errors.New("this change points the provider at a different issuer or host, " +
@@ -73,6 +75,9 @@ type Provider struct {
 	DefaultRoleID         string     `json:"defaultRoleId,omitempty"`
 	GroupsClaim           string     `json:"groupsClaim,omitempty"`
 	Enabled               bool       `json:"enabled"`
+	// MFA decides whether a sign-in through the provider had a second
+	// factor. Always empty for plain OAuth 2.0, which has no ID token.
+	MFA MFARule `json:"mfa"`
 
 	secretEnc []byte
 }
@@ -103,6 +108,13 @@ type Result struct {
 	// Replaces is the session this sign-in was started to re-authenticate,
 	// as recorded by Begin; empty for an ordinary sign-in.
 	Replaces string
+	// MultiFactor is true when the verified ID token met the provider's
+	// second-factor rule. Always false without a rule or an ID token.
+	MultiFactor bool
+	// AuthMethods is the amr claim of the verified ID token, bounded; nil
+	// when there was no ID token or it carried no amr. ACR is its acr.
+	AuthMethods []string
+	ACR         string
 }
 
 // Service handles provider configuration and the sign-in exchange.
@@ -154,15 +166,23 @@ type Input struct {
 	TokenEndpoint         string
 	UserinfoEndpoint      string
 	JWKSURI               string
+
+	// MFA is the second-factor rule. Nil gives a new OpenID Connect
+	// provider DefaultMFARule and leaves an existing provider's rule as it
+	// is; an empty rule is no rule.
+	MFA *MFARule
 }
 
 // Create stores a provider for an organisation.
 func (s *Service) Create(ctx context.Context, orgID, actorID string, in Input) (*Provider, error) {
 	p, err := s.fromInput(orgID, in)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %w", ErrInvalid, err)
 	}
 	p.ID = s.NewID()
+	if in.MFA == nil && p.Protocol == "oidc" {
+		p.MFA = DefaultMFARule()
+	}
 	var enc []byte
 	if in.ClientSecret != "" {
 		if enc, err = s.sealSecret(ctx, orgID, p.ID, in.ClientSecret); err != nil {
@@ -173,11 +193,12 @@ func (s *Service) Create(ctx context.Context, orgID, actorID string, in Input) (
 		_, err := tx.Exec(ctx, `INSERT INTO identity_providers
 			(id, organization_id, name, preset, protocol, issuer, client_id, client_secret_enc, scopes,
 			 authorization_endpoint, token_endpoint, userinfo_endpoint, jwks_uri,
-			 allowed_domains, jit_provisioning, default_role_id, groups_claim, enabled, created_by)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,NULLIF($16,''),$17,$18,$19)`,
+			 allowed_domains, jit_provisioning, default_role_id, groups_claim, enabled, created_by, mfa_amr, mfa_acr)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,NULLIF($16,''),$17,$18,$19,$20,$21)`,
 			p.ID, orgID, p.Name, p.Preset, p.Protocol, p.Issuer, p.ClientID, enc, p.Scopes,
 			p.AuthorizationEndpoint, p.TokenEndpoint, p.UserinfoEndpoint, p.JWKSURI,
-			p.AllowedDomains, p.JITProvisioning, p.DefaultRoleID, p.GroupsClaim, p.Enabled, actorID)
+			p.AllowedDomains, p.JITProvisioning, p.DefaultRoleID, p.GroupsClaim, p.Enabled, actorID,
+			p.MFA.AMR, p.MFA.ACR)
 		if err != nil {
 			return err
 		}
@@ -200,7 +221,7 @@ func (s *Service) Create(ctx context.Context, orgID, actorID string, in Input) (
 func (s *Service) Update(ctx context.Context, orgID, id, actorID string, in Input) (*Provider, *Provider, error) {
 	p, err := s.fromInput(orgID, in)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("%w: %w", ErrInvalid, err)
 	}
 	p.ID = id
 	var enc []byte
@@ -218,16 +239,21 @@ func (s *Service) Update(ctx context.Context, orgID, id, actorID string, in Inpu
 		if in.ClientSecret == "" && repointed(before, p) {
 			return ErrSecretRequired
 		}
+		if in.MFA == nil && p.Protocol == "oidc" {
+			p.MFA = before.MFA
+		}
 		if _, err := tx.Exec(ctx, `UPDATE identity_providers SET
 			name=$3, preset=$4, protocol=$5, issuer=$6, client_id=$7,
 			client_secret_enc = COALESCE($8, client_secret_enc),
 			scopes=$9, authorization_endpoint=$10, token_endpoint=$11, userinfo_endpoint=$12, jwks_uri=$13,
 			allowed_domains=$14, jit_provisioning=$15, default_role_id=NULLIF($16,''), groups_claim=$17,
-			enabled=$18, discovered_at = CASE WHEN issuer = $6 THEN discovered_at END, updated_at = now()
+			enabled=$18, mfa_amr=$19, mfa_acr=$20,
+			discovered_at = CASE WHEN issuer = $6 THEN discovered_at END, updated_at = now()
 			WHERE id = $1 AND organization_id = $2`,
 			id, orgID, p.Name, p.Preset, p.Protocol, p.Issuer, p.ClientID, enc, p.Scopes,
 			p.AuthorizationEndpoint, p.TokenEndpoint, p.UserinfoEndpoint, p.JWKSURI,
-			p.AllowedDomains, p.JITProvisioning, p.DefaultRoleID, p.GroupsClaim, p.Enabled); err != nil {
+			p.AllowedDomains, p.JITProvisioning, p.DefaultRoleID, p.GroupsClaim, p.Enabled,
+			p.MFA.AMR, p.MFA.ACR); err != nil {
 			return err
 		}
 		snap := SnapshotOf(p)
@@ -305,11 +331,13 @@ func lockProvider(ctx context.Context, tx pgx.Tx, orgID, id string) (*Provider, 
 	var p Provider
 	err := tx.QueryRow(ctx, `SELECT id, organization_id, name, preset, protocol, issuer, client_id, scopes,
 		authorization_endpoint, token_endpoint, userinfo_endpoint, jwks_uri, discovered_at,
-		allowed_domains, jit_provisioning, COALESCE(default_role_id,''), groups_claim, enabled
+		allowed_domains, jit_provisioning, COALESCE(default_role_id,''), groups_claim, enabled,
+		COALESCE(mfa_amr,'{}'), COALESCE(mfa_acr,'{}')
 		FROM identity_providers WHERE id = $1 AND organization_id = $2 FOR UPDATE`, id, orgID).
 		Scan(&p.ID, &p.OrgID, &p.Name, &p.Preset, &p.Protocol, &p.Issuer, &p.ClientID, &p.Scopes,
 			&p.AuthorizationEndpoint, &p.TokenEndpoint, &p.UserinfoEndpoint, &p.JWKSURI, &p.DiscoveredAt,
-			&p.AllowedDomains, &p.JITProvisioning, &p.DefaultRoleID, &p.GroupsClaim, &p.Enabled)
+			&p.AllowedDomains, &p.JITProvisioning, &p.DefaultRoleID, &p.GroupsClaim, &p.Enabled,
+			&p.MFA.AMR, &p.MFA.ACR)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -341,7 +369,8 @@ func (s *Service) List(ctx context.Context, orgID string) ([]Provider, error) {
 	err := s.DB.Tx(tenant.WithOrg(ctx, orgID), func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `SELECT id, organization_id, name, preset, protocol, issuer, client_id, scopes,
 			authorization_endpoint, token_endpoint, userinfo_endpoint, jwks_uri, discovered_at,
-			allowed_domains, jit_provisioning, COALESCE(default_role_id,''), groups_claim, enabled
+			allowed_domains, jit_provisioning, COALESCE(default_role_id,''), groups_claim, enabled,
+			COALESCE(mfa_amr,'{}'), COALESCE(mfa_acr,'{}')
 			FROM identity_providers WHERE organization_id = $1 ORDER BY name`, orgID)
 		if err != nil {
 			return err
@@ -351,7 +380,8 @@ func (s *Service) List(ctx context.Context, orgID string) ([]Provider, error) {
 			var p Provider
 			if err := rows.Scan(&p.ID, &p.OrgID, &p.Name, &p.Preset, &p.Protocol, &p.Issuer, &p.ClientID, &p.Scopes,
 				&p.AuthorizationEndpoint, &p.TokenEndpoint, &p.UserinfoEndpoint, &p.JWKSURI, &p.DiscoveredAt,
-				&p.AllowedDomains, &p.JITProvisioning, &p.DefaultRoleID, &p.GroupsClaim, &p.Enabled); err != nil {
+				&p.AllowedDomains, &p.JITProvisioning, &p.DefaultRoleID, &p.GroupsClaim, &p.Enabled,
+				&p.MFA.AMR, &p.MFA.ACR); err != nil {
 				return err
 			}
 			out = append(out, p)
@@ -415,6 +445,20 @@ func (s *Service) fromInput(orgID string, in Input) (*Provider, error) {
 	if err := checkIssuerScheme(p.Issuer); err != nil {
 		return nil, err
 	}
+	p.MFA = MFARule{AMR: []string{}, ACR: []string{}}
+	if in.MFA != nil {
+		rule, err := in.MFA.normalized()
+		if err != nil {
+			return nil, err
+		}
+		// Plain OAuth 2.0 issues no ID token, so there is nothing a rule
+		// could be compared with.
+		if p.Protocol != "oidc" && !rule.Empty() {
+			return nil, errors.New("a second-factor rule needs an OpenID Connect provider: " +
+				"this one issues no ID token to read it from")
+		}
+		p.MFA = rule
+	}
 	return p, nil
 }
 
@@ -461,12 +505,13 @@ func (s *Service) load(ctx context.Context, id string) (*Provider, error) {
 	err := s.DB.Pre(ctx, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx, `SELECT id, organization_id, name, preset, protocol, issuer, client_id,
 			client_secret_enc, scopes, authorization_endpoint, token_endpoint, userinfo_endpoint, jwks_uri,
-			discovered_at, allowed_domains, jit_provisioning, COALESCE(default_role_id,''), groups_claim, enabled
-			FROM auth_idp($1)`, id).
+			discovered_at, allowed_domains, jit_provisioning, COALESCE(default_role_id,''), groups_claim, enabled,
+			mfa_amr, mfa_acr
+			FROM auth_idp_load($1)`, id).
 			Scan(&p.ID, &p.OrgID, &p.Name, &p.Preset, &p.Protocol, &p.Issuer, &p.ClientID,
 				&p.secretEnc, &p.Scopes, &p.AuthorizationEndpoint, &p.TokenEndpoint, &p.UserinfoEndpoint,
 				&p.JWKSURI, &p.DiscoveredAt, &p.AllowedDomains, &p.JITProvisioning, &p.DefaultRoleID,
-				&p.GroupsClaim, &p.Enabled)
+				&p.GroupsClaim, &p.Enabled, &p.MFA.AMR, &p.MFA.ACR)
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
@@ -599,6 +644,8 @@ func (s *Service) Callback(ctx context.Context, state, code, binding string) (*R
 	}
 	res.RedirectAfter = redirectAfter
 	res.AuthTime = claims.AuthTime
+	res.AuthMethods, res.ACR = claims.AMR, claims.ACR
+	res.MultiFactor = p.Protocol == "oidc" && p.MFA.Satisfied(claims.AMR, claims.ACR)
 	if replaces != nil {
 		res.Replaces = *replaces
 	}
@@ -662,6 +709,10 @@ type identityClaims struct {
 	// endpoint's answer is not signed and says nothing about when anybody
 	// authenticated.
 	AuthTime *time.Time
+	// AMR and ACR are the amr and acr claims, from the verified ID token
+	// only, for the same reason: a second factor is judged on them.
+	AMR []string
+	ACR string
 }
 
 // identify turns a token response into claims, verifying the ID token when
@@ -669,6 +720,8 @@ type identityClaims struct {
 func (s *Service) identify(ctx context.Context, p *Provider, tok *tokenResponse, nonce string) (*identityClaims, error) {
 	var claims map[string]any
 	var authTime *time.Time
+	var amr []string
+	var acr string
 	if tok.IDToken != "" {
 		verified, err := s.keys.verify(ctx, p, tok.IDToken)
 		if err != nil {
@@ -680,6 +733,12 @@ func (s *Service) identify(ctx context.Context, p *Provider, tok *tokenResponse,
 		claims = verified
 		if t, ok := claimTime(verified, "auth_time"); ok && t.Unix() > 0 {
 			authTime = &t
+		}
+		// Read before the user endpoint's answer is merged in below,
+		// which fills in the claims the token left out.
+		amr = reportedMethods(verified)
+		if a, ok := verified["acr"].(string); ok && len(a) <= maxRuleValueLen {
+			acr = a
 		}
 	}
 	// Ask the user endpoint when the ID token carried no address, and
@@ -705,6 +764,8 @@ func (s *Service) identify(ctx context.Context, p *Provider, tok *tokenResponse,
 		Name:     firstNonEmpty(claimString(claims, "name"), claimString(claims, "preferred_username")),
 		Groups:   claimStrings(claims, p.GroupsClaim),
 		AuthTime: authTime,
+		AMR:      amr,
+		ACR:      acr,
 	}
 	if out.Subject == "" {
 		return nil, fmt.Errorf("%w: no subject claim", ErrProviderFailed)

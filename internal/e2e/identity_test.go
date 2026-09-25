@@ -42,6 +42,14 @@ type fakeIdP struct {
 	// authTime, when set, is the auth_time the ID token asserts. Nil
 	// leaves the claim out, as a provider that does not say would.
 	authTime func() int64
+	// amr and acr, when set, are the ID token's amr and acr claims.
+	amr []string
+	acr string
+	// omitEmail leaves the address out of the ID token, so the user
+	// endpoint is asked, and it answers with userinfo besides the
+	// address.
+	omitEmail bool
+	userinfo  map[string]any
 }
 
 func newFakeIdP(t *testing.T) *fakeIdP {
@@ -86,6 +94,13 @@ func newFakeIdP(t *testing.T) *fakeIdP {
 			"id_token": f.idToken(t),
 		})
 	})
+	mux.HandleFunc("/userinfo", func(w http.ResponseWriter, _ *http.Request) {
+		out := map[string]any{"sub": f.subject, "email": f.email, "email_verified": true}
+		for k, v := range f.userinfo {
+			out[k] = v
+		}
+		writeJSON(w, out)
+	})
 	mux.HandleFunc("/jwks", func(w http.ResponseWriter, _ *http.Request) {
 		pub := f.key.Public().(*rsa.PublicKey)
 		writeJSON(w, map[string]any{"keys": []any{map[string]any{
@@ -110,6 +125,16 @@ func (f *fakeIdP) idToken(t *testing.T) string {
 	}
 	if f.authTime != nil {
 		claims["auth_time"] = f.authTime()
+	}
+	if f.amr != nil {
+		claims["amr"] = f.amr
+	}
+	if f.acr != "" {
+		claims["acr"] = f.acr
+	}
+	if f.omitEmail {
+		delete(claims, "email")
+		delete(claims, "email_verified")
 	}
 	seg := func(v any) string {
 		b, err := json.Marshal(v)

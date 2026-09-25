@@ -210,7 +210,7 @@ func (d Deps) startSession(ctx context.Context, u *identity.User, o *identity.Or
 	}
 	ip, _ := ctx.Value(ipKey).(string)
 	ua, _ := ctx.Value(uaKey).(string)
-	sess, err := d.Identity.CreateSession(ctx, u.ID, orgID, "password", "", time.Now(), ip, ua)
+	sess, err := d.Identity.CreateSession(ctx, u.ID, orgID, "password", "", nil, time.Now(), ip, ua)
 	if err != nil {
 		return nil, err
 	}

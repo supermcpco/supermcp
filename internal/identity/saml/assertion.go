@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -35,6 +36,10 @@ type Claims struct {
 	// than one factor. We issue no factor of our own, so this is the only
 	// evidence a policy requiring one can read.
 	MultiFactor bool
+	// Methods are the RFC 8176 methods the assertion's authentication
+	// context classes name, such as pwd for PasswordProtectedTransport;
+	// empty when no class names one.
+	Methods []string
 	// AuthnInstant is the latest AuthnInstant among the assertion's
 	// authentication statements: when the provider authenticated the
 	// person. Nil when the assertion carried none.
@@ -144,6 +149,7 @@ func (v *verifier) claims(a *crewjam.Assertion) (*Claims, error) {
 		Name:        firstAttribute(a, v.mapping.name, nameAttributes),
 		Groups:      allAttributes(a, v.mapping.groups, groupAttributes),
 		MultiFactor: multiFactor(a),
+		Methods:     contextMethods(a),
 	}
 	if a.Conditions != nil {
 		c.NotOnOrAfter = a.Conditions.NotOnOrAfter
@@ -267,6 +273,33 @@ var multiFactorContexts = map[string]bool{
 	"urn:oasis:names:tc:SAML:2.0:ac:classes:SmartcardPKI":              true,
 	"urn:oasis:names:tc:SAML:2.0:ac:classes:TimeSyncToken":             true,
 	"http://schemas.microsoft.com/claims/multipleauthn":                true,
+}
+
+// methodOfContext maps the authentication context classes that name one
+// method onto its RFC 8176 value. MultiFactorAuthentication names none:
+// that a second factor was checked is MultiFactor's to say.
+var methodOfContext = map[string]string{
+	"urn:oasis:names:tc:SAML:2.0:ac:classes:Password":                   "pwd",
+	"urn:oasis:names:tc:SAML:2.0:ac:classes:PasswordProtectedTransport": "pwd",
+	"urn:oasis:names:tc:SAML:2.0:ac:classes:Smartcard":                  "sc",
+	"urn:oasis:names:tc:SAML:2.0:ac:classes:SmartcardPKI":               "sc",
+	"urn:oasis:names:tc:SAML:2.0:ac:classes:TimeSyncToken":              "otp",
+}
+
+// contextMethods returns the methods the assertion's authentication
+// context classes name, in the order they appear, without repeats.
+func contextMethods(a *crewjam.Assertion) []string {
+	out := []string{}
+	for _, stmt := range a.AuthnStatements {
+		ref := stmt.AuthnContext.AuthnContextClassRef
+		if ref == nil {
+			continue
+		}
+		if m, ok := methodOfContext[ref.Value]; ok && !slices.Contains(out, m) {
+			out = append(out, m)
+		}
+	}
+	return out
 }
 
 // multiFactorAMR are the authentication method references that mean a

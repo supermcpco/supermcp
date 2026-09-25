@@ -210,7 +210,7 @@ func (s *Service) link(ctx context.Context, p *Provider, c *Claims) (*Result, er
 		return nil, ErrNoAccount
 	}
 	res := &Result{UserID: *userID, OrgID: p.OrgID, Email: c.Email, Name: c.Name, Groups: c.Groups,
-		ProviderID: p.ID, ProviderName: p.Name, MultiFactor: c.MultiFactor}
+		ProviderID: p.ID, ProviderName: p.Name, MultiFactor: c.MultiFactor, Methods: c.Methods}
 	if err := s.syncRoles(ctx, p, *userID, c.Groups); err != nil {
 		return nil, err
 	}

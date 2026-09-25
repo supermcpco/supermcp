@@ -53,6 +53,77 @@ analytics; see "Usage analytics read an index of their own" below. Migration
 holds; see "Disabling a service account cuts it off" below. The chart can mount the master key as a file; see "The chart can mount the master key as a file" below.
 Migration 00027 adds a search index to `audit_events`; see "The audit
 trail can be searched" below. Migration 00028 lets the history keep data-loss policies, approval policies and sign-in providers; see "Policies and sign-in providers have a history" below.
+Migration 00030 stops counting every OpenID Connect sign-in as a second factor; see "OpenID Connect sign-ins count a second factor only by a rule" below.
+
+### OpenID Connect sign-ins count a second factor only by a rule
+
+A sign-in through an OpenID Connect provider used to be recorded as
+having a second factor whatever the provider did, so a password at the
+provider was enough for the session's principal to carry the MFA flag.
+Now each
+OpenID Connect provider has a second-factor rule, `mfa` on
+`/api/v1/idps` and on the Single sign-on settings screen: the `amr`
+values (RFC 8176) and `acr` values that count. A sign-in has a second
+factor only when its verified ID token names one of them
+(`docs/api.md`, "The second-factor rule"). SAML is unchanged.
+
+What changes when you upgrade:
+
+- **Existing OpenID Connect providers have no rule**, so from the
+  upgrade no sign-in through them counts as having a second factor.
+  Give each a rule; the one a new provider gets is `amr`
+  `["mfa", "otp", "hwk", "sc"]`. Google reports neither claim, so a
+  rule changes nothing for it.
+- **Existing OpenID Connect sessions stop counting as verified** at
+  once, whatever their provider's rule, because nothing recorded what
+  the provider said when they signed in. They count again after the
+  person signs in afresh, or re-authenticates, through a provider whose
+  rule the ID token meets.
+- **What reads the flag.** No built-in check in this release refuses a
+  request for want of a second factor. What changes is the `mfa` in
+  the `amr` of access tokens consented from those sessions, and in
+  what `/oauth/introspect` returns for them. If a resource server or
+  anything else of yours acts on it, set the rules before you upgrade,
+  or right after, and expect people to sign in again before their
+  tokens say `mfa`.
+- **Access tokens say more.** `amr` in a token consented from a single
+  sign-on session now repeats the registered methods the provider
+  reported (`pwd`, `otp`, `hwk`, `sc` and so on), and `mfa` when the
+  sign-in met the rule. A SAML session's token now carries `pwd`, `sc`
+  or `otp` when the assertion's authentication context names one.
+  Tokens issued before the upgrade keep the `amr` they had.
+- **An invalid provider configuration is `400`**, not `500`, on
+  `POST` and `PUT /api/v1/idps`.
+- The `session.create` audit event of an OpenID Connect sign-in
+  carries `meta.mfa`, and `meta.amr` and `meta.acr` when the ID token
+  had them, so you can see what your provider sends.
+
+What migration 00030 does:
+
+- Adds two nullable `text[]` columns to `identity_providers`, `mfa_amr`
+  and `mfa_acr`, and one to `sessions`, `auth_methods`: the methods the
+  provider reported for a single sign-on session. None has a default,
+  so adding them rewrites no row and each table is locked only for the
+  catalogue change. The migration runs outside a transaction, so the
+  lock on `sessions` is not held while the rest runs. If it is
+  interrupted, run it again.
+- Adds three functions, `auth_idp_load`, an `auth_session_open` taking
+  the methods, and `auth_session_get`, which reads an OpenID Connect
+  session that has no `auth_methods` as having no second factor. It
+  changes no existing function and no row.
+
+**Rollout order does not matter.** A replica of the previous release
+still reads providers, opens sessions and reads them through the
+functions it used before. Sessions it opens during the roll still count
+a second factor there, and not on this release's replicas, which see no
+`auth_methods` on them. A provider rule set during the roll applies on
+this release's replicas only.
+
+Migrating down drops the functions and columns, with every provider's
+rule and every session's methods. The previous release reads whether a
+session was verified as it is stored: sessions this release opened keep
+what it judged, and OpenID Connect sessions from before the upgrade
+count as verified again.
 
 ### The audit trail can be searched
 

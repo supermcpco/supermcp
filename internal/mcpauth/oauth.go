@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -116,21 +117,37 @@ const (
 )
 
 // AMR returns the RFC 8176 authentication method references for a browser
-// session: "pwd" for a password sign-in, and "mfa" when the session has a
-// verified second factor on record. The session keeps nothing more of
-// what a provider reported, so a single sign-on session gets "mfa" or
-// nothing. An OpenID Connect session is recorded as verified whatever the
-// provider did, so for it the record says nothing about a second factor
-// and no "mfa" is claimed. The result is nil when nothing is known.
+// session. A password session says "pwd". A single sign-on session
+// repeats the registered values its provider reported, in the provider's
+// order, except "mfa". "mfa" is added when mfa is true: the session has a
+// second factor on record, which for single sign-on means the provider's
+// answer met the rule configured for it (an OpenID Connect ID token) or
+// named one (a SAML assertion). A provider that reports "mfa" without
+// meeting that rule does not get it repeated. The result is nil when
+// nothing is known.
 func AMR(signIn authz.SignIn, mfa bool) []string {
 	var out []string
 	if signIn.Method == "password" {
 		out = append(out, "pwd")
 	}
-	if mfa && signIn.Method != "sso" {
+	for _, m := range signIn.Methods {
+		if m != "mfa" && registeredAMR[m] && !slices.Contains(out, m) {
+			out = append(out, m)
+		}
+	}
+	if mfa {
 		out = append(out, "mfa")
 	}
 	return out
+}
+
+// registeredAMR are the values in the IANA registry RFC 8176 set up. A
+// provider's own values (Entra's "rsa" or "ngcmfa", say) mean nothing to
+// a client reading our tokens, so they are not repeated.
+var registeredAMR = map[string]bool{
+	"face": true, "fpt": true, "geo": true, "hwk": true, "iris": true, "kba": true, "mca": true,
+	"mfa": true, "otp": true, "pin": true, "pop": true, "pwd": true, "rba": true, "retina": true,
+	"sc": true, "sms": true, "swk": true, "tel": true, "user": true, "vbm": true, "wia": true,
 }
 
 // ClientLimiter rate limits dynamic registration.

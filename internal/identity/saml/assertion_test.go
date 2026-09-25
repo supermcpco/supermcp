@@ -2,6 +2,7 @@ package saml
 
 import (
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -215,6 +216,41 @@ func TestMultiFactorIsOnlyWhatTheAssertionSaid(t *testing.T) {
 			}
 			if claims.MultiFactor != tc.want {
 				t.Errorf("MultiFactor = %v, want %v", claims.MultiFactor, tc.want)
+			}
+		})
+	}
+}
+
+// TestContextMethods covers what a SAML session keeps of how the person
+// authenticated: the RFC 8176 method an authentication context class
+// names, and nothing for one that names none.
+func TestContextMethods(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name  string
+		class string
+		want  []string
+	}{
+		{"password-protected transport is a password", "", []string{"pwd"}},
+		{"a smart card", "urn:oasis:names:tc:SAML:2.0:ac:classes:SmartcardPKI", []string{"sc"}},
+		{"a time-synchronised token", "urn:oasis:names:tc:SAML:2.0:ac:classes:TimeSyncToken", []string{"otp"}},
+		{"multi-factor names no one method", "urn:oasis:names:tc:SAML:2.0:ac:classes:MultiFactorAuthentication", []string{}},
+		{"an unknown class names nothing", "urn:example:custom", []string{}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			h := newHarness(t)
+			a := h.assertion(time.Now())
+			if tc.class != "" {
+				a.AuthnStatements[0].AuthnContext.AuthnContextClassRef.Value = tc.class
+			}
+			claims, err := h.verifier.verify(h.respond(a), h.requestID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !slices.Equal(claims.Methods, tc.want) {
+				t.Errorf("Methods = %v, want %v", claims.Methods, tc.want)
 			}
 		})
 	}

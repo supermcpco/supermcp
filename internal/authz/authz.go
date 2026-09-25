@@ -133,6 +133,9 @@ type SignIn struct {
 	Method string
 	// ProviderID is the single sign-on provider for sso and saml.
 	ProviderID string
+	// Methods are the authentication methods the provider reported for
+	// sso and saml, as it spelled them; nil for a password.
+	Methods []string
 }
 
 // BindingPrincipal is the (kind, id) a binding refers to. API keys act as

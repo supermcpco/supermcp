@@ -107,14 +107,17 @@ type SignInOption struct {
 
 // Result is a completed sign-in.
 type Result struct {
-	UserID        string
-	OrgID         string
-	Email         string
-	Name          string
-	Groups        []string
-	ProviderID    string
-	ProviderName  string
-	MultiFactor   bool
+	UserID       string
+	OrgID        string
+	Email        string
+	Name         string
+	Groups       []string
+	ProviderID   string
+	ProviderName string
+	MultiFactor  bool
+	// Methods are the RFC 8176 methods the assertion's authentication
+	// context names; empty when it names none.
+	Methods       []string
 	RedirectAfter string
 	// AuthnInstant is when the identity provider says the person
 	// authenticated, from the assertion's AuthnStatement. Nil when it

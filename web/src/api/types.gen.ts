@@ -715,6 +715,7 @@ export type IdpDto = {
     issuer: string;
     jitProvisioning: boolean;
     jwksUri?: string;
+    mfa: MfaRule;
     name: string;
     organizationId: string;
     preset: string;
@@ -739,6 +740,10 @@ export type IdpInput = {
     issuer?: string;
     jitProvisioning?: boolean;
     jwksUri?: string;
+    /**
+     * Which answers from the provider count as a second factor. Left out, a new OpenID Connect provider gets amr [mfa, otp, hwk, sc] and an existing one keeps its rule; both lists empty counts nothing. Refused for GitHub, which issues no ID token.
+     */
+    mfa?: MfaRule;
     name?: string;
     preset: 'entra' | 'google' | 'okta' | 'auth0' | 'github' | 'generic';
     scopes?: Array<string> | null;
@@ -767,6 +772,7 @@ export type IdpRestoreDto = {
     issuer: string;
     jitProvisioning: boolean;
     jwksUri?: string;
+    mfa: MfaRule;
     name: string;
     organizationId: string;
     preset: string;
@@ -1069,6 +1075,17 @@ export type LoginRequest = {
     readonly $schema?: string;
     email: string;
     password: string;
+};
+
+export type MfaRule = {
+    /**
+     * Authentication context class references any of which, as the ID token's acr claim, counts as a second factor.
+     */
+    acr?: Array<string> | null;
+    /**
+     * Authentication method references (RFC 8176) any of which, in the ID token's amr claim, counts as a second factor. pwd is refused.
+     */
+    amr?: Array<string> | null;
 };
 
 export type MemberDto = {
@@ -2606,6 +2623,7 @@ export type IdpDtoWritable = {
     issuer: string;
     jitProvisioning: boolean;
     jwksUri?: string;
+    mfa: MfaRule;
     name: string;
     organizationId: string;
     preset: string;
@@ -2626,6 +2644,10 @@ export type IdpInputWritable = {
     issuer?: string;
     jitProvisioning?: boolean;
     jwksUri?: string;
+    /**
+     * Which answers from the provider count as a second factor. Left out, a new OpenID Connect provider gets amr [mfa, otp, hwk, sc] and an existing one keeps its rule; both lists empty counts nothing. Refused for GitHub, which issues no ID token.
+     */
+    mfa?: MfaRule;
     name?: string;
     preset: 'entra' | 'google' | 'okta' | 'auth0' | 'github' | 'generic';
     scopes?: Array<string> | null;
@@ -2650,6 +2672,7 @@ export type IdpRestoreDtoWritable = {
     issuer: string;
     jitProvisioning: boolean;
     jwksUri?: string;
+    mfa: MfaRule;
     name: string;
     organizationId: string;
     preset: string;

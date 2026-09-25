@@ -526,6 +526,15 @@ role in the new workspace.
 After this, add people through single sign-on or SCIM (see
 `docs/api.md`) rather than leaving open registration on.
 
+Single sign-on providers are added under Settings → Single sign-on.
+Each OpenID Connect provider has a second-factor rule there: which
+`amr` or `acr` values in the provider's ID token count as a second
+factor, which access tokens then report as `mfa` in their `amr`. A new provider counts `amr` `mfa`, `otp`,
+`hwk` and `sc`. Google reports neither claim, so sign-ins through it
+never count; Okta can also be counted by `acr` (`phr`, or
+`urn:okta:loa:2fa:any`). `docs/api.md`, "The second-factor rule", has
+the details for Entra ID, Okta, Auth0 and Google.
+
 To invite colleagues without an identity provider, go to Settings →
 Members, enter an address and pick a role. The server sends no email.
 It shows a link once, and you send it yourself. The link works for 7

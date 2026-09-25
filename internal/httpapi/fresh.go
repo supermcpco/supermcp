@@ -227,11 +227,15 @@ type providerSignIn struct {
 	At *time.Time
 	// Replaces is the session a re-authentication was started from.
 	Replaces string
-	// Verified says the provider vouched for the person's factors, which
-	// the session records for policies that require one.
+	// Verified says the provider vouched for a second factor, which the
+	// session records for policies that require one: an OpenID Connect ID
+	// token that met the provider's rule, or a SAML assertion naming one.
 	Verified bool
-	Next     string
-	Meta     map[string]any
+	// Methods are the authentication methods the provider reported, kept
+	// on the session so a token can say how its holder signed in.
+	Methods []string
+	Next    string
+	Meta    map[string]any
 }
 
 // vouchedTime is what a provider's authentication time is worth: its
@@ -298,7 +302,7 @@ func (d Deps) finishProviderSignIn(w http.ResponseWriter, r *http.Request, in pr
 		http.Redirect(w, r, "/reauth?error="+reason+"&next="+url.QueryEscape(next), http.StatusFound)
 		return
 	}
-	sess, err := d.Identity.CreateSession(ctx, in.UserID, in.OrgID, in.Method, in.ProviderID,
+	sess, err := d.Identity.CreateSession(ctx, in.UserID, in.OrgID, in.Method, in.ProviderID, in.Methods,
 		vouchedTime(in.At, now), ip, r.UserAgent())
 	if err != nil {
 		fail(err)

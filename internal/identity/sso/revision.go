@@ -48,6 +48,10 @@ type Snapshot struct {
 	DefaultRoleID   string    `json:"defaultRoleId,omitempty"`
 	GroupsClaim     string    `json:"groupsClaim,omitempty"`
 	Enabled         bool      `json:"enabled"`
+	// MFA is the second-factor rule. Nil in a revision recorded before
+	// providers had one, and restoring such a revision keeps the rule the
+	// provider has now.
+	MFA *MFARule `json:"mfa,omitempty"`
 }
 
 // Endpoints are the provider's URLs as configured. Empty ones are filled
@@ -66,7 +70,8 @@ func SnapshotOf(p *Provider) Snapshot {
 		Endpoints: Endpoints{Authorization: p.AuthorizationEndpoint, Token: p.TokenEndpoint,
 			Userinfo: p.UserinfoEndpoint, JWKS: p.JWKSURI},
 		AllowedDomains: nonNil(p.AllowedDomains), JITProvisioning: p.JITProvisioning,
-		DefaultRoleID: p.DefaultRoleID, GroupsClaim: p.GroupsClaim, Enabled: p.Enabled}
+		DefaultRoleID: p.DefaultRoleID, GroupsClaim: p.GroupsClaim, Enabled: p.Enabled,
+		MFA: &MFARule{AMR: nonNil(p.MFA.AMR), ACR: nonNil(p.MFA.ACR)}}
 }
 
 // Input is the snapshot as an update, with no client secret, so the one
@@ -76,7 +81,7 @@ func (s Snapshot) Input() Input {
 		AllowedDomains: s.AllowedDomains, JITProvisioning: s.JITProvisioning, DefaultRoleID: s.DefaultRoleID,
 		GroupsClaim: s.GroupsClaim, Enabled: s.Enabled,
 		AuthorizationEndpoint: s.Endpoints.Authorization, TokenEndpoint: s.Endpoints.Token,
-		UserinfoEndpoint: s.Endpoints.Userinfo, JWKSURI: s.Endpoints.JWKS}
+		UserinfoEndpoint: s.Endpoints.Userinfo, JWKSURI: s.Endpoints.JWKS, MFA: s.MFA}
 }
 
 func nonNil(in []string) []string {
