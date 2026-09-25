@@ -952,8 +952,11 @@ A restore goes through the path an edit takes, so it is checked like an
 edit, recorded as a further revision (the history of a mistake survives
 its correction) and audited twice: the ordinary change event (for
 example `dlp.policy.update`) and `<kind>.revision.restore` with the
-revision number in `meta.revision`. A refused restore is recorded as the
-same action with outcome `failure`.
+revision number in `meta.revision`. The change event's diff is taken
+from the entity as it stood under the row lock, before and after, and for
+a provider it is the history's snapshot, so it shows the issuer, the
+endpoints and (for SAML) the certificates trusted. A refused restore is
+recorded as the same action with outcome `failure`.
 
 What each kind puts back:
 
@@ -966,21 +969,28 @@ What each kind puts back:
   now holds.
 - **Approval policy.** Every setting. Rules are read on every tool call,
   not cached, so the next call is governed by the restored rule. A deleted
-  rule is recreated under its old id, so requests it raised before the
-  delete point at it again.
+  rule is recreated under its old id. Requests it raised before the delete
+  stay detached from it (the delete cleared their `policyId`) and keep its
+  name as it was.
 - **OIDC or OAuth 2.0 provider.** Everything but the client secret. The
   history never holds the secret, sealed or otherwise: one that an older
   version used may have been revoked at the provider since, and a copy in
   the history would be a place rotation does not reach. The secret stored
   when the restore runs is kept, and the answer says so with
-  `clientSecretKept: true`. A deleted provider cannot be restored (`404`):
-  its secret went with it.
+  `clientSecretKept: true`. The stored secret is only ever sent where it
+  was configured to go: a restore, or a `PUT /api/v1/idps/{id}`, that
+  changes the issuer or sets an endpoint on a host the provider does not
+  use now is `422` unless the request carries a new client secret (on a
+  restore, an optional body `{"clientSecret": "…"}`, after which
+  `clientSecretKept` is `false`). A deleted provider cannot be restored
+  (`404`): its secret went with it.
 - **SAML provider.** Everything but our signing key pair, including the
   identity provider's entity id, sign-in URL and certificates, which come
   from the snapshot rather than from fetching the metadata again. The key
   pair stays as it is, because the private key is not in the history and
   the identity provider trusts the certificate in use now; the answer says
-  so with `signingKeyKept: true`. A rotation is recorded as a revision, so
+  so with `signingKeyKept: true`. A version that names no identity
+  provider certificate is refused with `400`. A rotation is recorded as a revision, so
   it shows in the history. A deleted provider cannot be restored (`404`).
 
 A snapshot and a diff digest a top-level field whose name looks like a

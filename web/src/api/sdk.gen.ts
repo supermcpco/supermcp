@@ -1088,7 +1088,7 @@ export const idpsRevisionsGet = <ThrowOnError extends boolean = false>(options: 
 /**
  * Put an identity provider back the way an earlier revision found it
  *
- * Needs revisions:rollback and idp:manage, and a browser session must have signed in within the fresh-auth window. The client secret is not restored; the one stored now is kept. A deleted provider cannot be restored: its client secret went with it.
+ * Needs revisions:rollback and idp:manage, and a browser session must have signed in within the fresh-auth window. The client secret is not restored; the one stored now is kept, unless the revision points the provider at a different issuer or host, which is refused with 422 unless the request supplies a new clientSecret. A deleted provider cannot be restored: its client secret went with it.
  */
 export const idpsRevisionsRestore = <ThrowOnError extends boolean = false>(options: Options<IdpsRevisionsRestoreData, ThrowOnError>) => (options.client ?? client).post<IdpsRevisionsRestoreResponses, IdpsRevisionsRestoreErrors, ThrowOnError>({
     security: [{
@@ -1097,7 +1097,11 @@ export const idpsRevisionsRestore = <ThrowOnError extends boolean = false>(optio
             type: 'apiKey'
         }],
     url: '/api/v1/idps/{id}/revisions/{revision}/restore',
-    ...options
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
 });
 
 /**

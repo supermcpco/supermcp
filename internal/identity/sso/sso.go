@@ -38,6 +38,10 @@ var (
 	ErrNoAccount      = errors.New("no account here matches that identity, and provisioning is off")
 	ErrEmailMissing   = errors.New("the identity provider did not return a verified email address")
 	ErrProviderFailed = errors.New("the identity provider rejected the sign-in")
+	// ErrSecretRequired refuses a change that would send the stored client
+	// secret somewhere it has not been sent before.
+	ErrSecretRequired = errors.New("this change points the provider at a different issuer or host, " +
+		"so it needs the client secret for that provider: the stored one is only ever sent where it was configured to go")
 )
 
 // requestTTL bounds how long a sign-in may stay in flight.
@@ -186,24 +190,33 @@ func (s *Service) Create(ctx context.Context, orgID, actorID string, in Input) (
 	return p, nil
 }
 
-// Update replaces a provider's configuration. An empty client secret keeps
-// the stored one: the UI never receives it, so it cannot send it back.
-func (s *Service) Update(ctx context.Context, orgID, id, actorID string, in Input) (*Provider, error) {
+// Update replaces a provider's configuration, and returns it with the
+// configuration it replaced, read under the row lock. An empty client
+// secret keeps the stored one: the UI never receives it, so it cannot send
+// it back. It does so only while the provider still points where it did:
+// a change of issuer, or an endpoint on a host the provider did not use,
+// would otherwise hand the stored secret to whoever runs that host, so it
+// needs a secret of its own (ErrSecretRequired).
+func (s *Service) Update(ctx context.Context, orgID, id, actorID string, in Input) (*Provider, *Provider, error) {
 	p, err := s.fromInput(orgID, in)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	p.ID = id
 	var enc []byte
 	if in.ClientSecret != "" {
 		if enc, err = s.sealSecret(ctx, orgID, id, in.ClientSecret); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
+	var before *Provider
 	err = s.DB.Tx(tenant.WithOrg(ctx, orgID), func(tx pgx.Tx) error {
-		before, err := lockProvider(ctx, tx, orgID, id)
-		if err != nil {
+		var err error
+		if before, err = lockProvider(ctx, tx, orgID, id); err != nil {
 			return err
+		}
+		if in.ClientSecret == "" && repointed(before, p) {
+			return ErrSecretRequired
 		}
 		if _, err := tx.Exec(ctx, `UPDATE identity_providers SET
 			name=$3, preset=$4, protocol=$5, issuer=$6, client_id=$7,
@@ -224,9 +237,46 @@ func (s *Service) Update(ctx context.Context, orgID, id, actorID string, in Inpu
 		return s.record(ctx, tx, id, "update", snap, audit.Changes(SnapshotOf(before), snap), actorID)
 	})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return p, nil
+	return p, before, nil
+}
+
+// repointed reports whether an update would send the client secret
+// somewhere the stored configuration does not: a different issuer, or an
+// endpoint on a host that is neither the issuer's nor one of the stored
+// endpoints'. An endpoint left empty is filled from the issuer's own
+// discovery document, so it counts as the issuer's.
+func repointed(before, after *Provider) bool {
+	if after.Issuer != before.Issuer {
+		return true
+	}
+	known := map[string]bool{}
+	for _, u := range []string{before.Issuer, before.AuthorizationEndpoint, before.TokenEndpoint,
+		before.UserinfoEndpoint, before.JWKSURI} {
+		if h := hostOf(u); h != "" {
+			known[h] = true
+		}
+	}
+	for _, u := range []string{after.AuthorizationEndpoint, after.TokenEndpoint, after.UserinfoEndpoint, after.JWKSURI} {
+		if u == "" {
+			continue
+		}
+		if h := hostOf(u); h == "" || !known[h] {
+			return true
+		}
+	}
+	return false
+}
+
+// hostOf is a URL's host and port, lower-cased, or empty for one that does
+// not parse.
+func hostOf(raw string) string {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return ""
+	}
+	return strings.ToLower(u.Host)
 }
 
 // Delete removes a provider. The identities it created stay, so the people

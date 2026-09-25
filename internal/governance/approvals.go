@@ -655,13 +655,18 @@ func (a *Approvals) UpdatePolicy(ctx context.Context, orgID, id string, p Approv
 
 // RestorePolicy puts a rule back the way a revision recorded it, through
 // the statements an edit uses. A rule that has since been deleted is
-// recreated under its old id and with its old creator; the requests it
-// raised before the delete kept its id, so they point at it again.
-func (a *Approvals) RestorePolicy(ctx context.Context, orgID, id string, p ApprovalPolicy, actorID string) (*ApprovalPolicy, error) {
+// recreated under its old id and with its old creator. The requests it
+// raised before the delete do not point at it again: the delete set their
+// policy to nothing, and they keep the rule's name as it was.
+//
+// It returns the rule as restored and the one it replaced, read under the
+// row lock; the second is nil when the rule was recreated.
+func (a *Approvals) RestorePolicy(ctx context.Context, orgID, id string, p ApprovalPolicy, actorID string) (*ApprovalPolicy, *ApprovalPolicy, error) {
 	if err := p.normalise(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	p.ID, p.OrgID = id, orgID
+	var replaced *ApprovalPolicy
 	err := a.DB.Tx(tenant.WithOrg(ctx, orgID), func(tx pgx.Tx) error {
 		before, err := lockApprovalPolicy(ctx, tx, id)
 		switch {
@@ -679,12 +684,16 @@ func (a *Approvals) RestorePolicy(ctx context.Context, orgID, id string, p Appro
 		if err := a.baselinePolicy(ctx, tx, before); err != nil {
 			return err
 		}
-		return a.recordPolicy(ctx, tx, p, ActionUpdate, audit.Changes(before, p), actorID)
+		if err := a.recordPolicy(ctx, tx, p, ActionUpdate, audit.Changes(before, p), actorID); err != nil {
+			return err
+		}
+		replaced = &before
+		return nil
 	})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return &p, nil
+	return &p, replaced, nil
 }
 
 // DeletePolicy removes a rule. The requests it raised stay: what someone

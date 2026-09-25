@@ -250,14 +250,13 @@ func (d Deps) dlpRoutes(api huma.API) {
 			if err := snapInto(snapshot, "", &want); err != nil {
 				return nil, err
 			}
-			before, getErr := policies.Get(ctx, p.OrgID, in.ID)
-			got, err := policies.Restore(ctx, p.OrgID, in.ID, want, p.ID)
+			got, replaced, err := policies.Restore(ctx, p.OrgID, in.ID, want, p.ID)
 			if err != nil {
 				d.restoreFailed(ctx, dlpRevisions, in, err)
 				return nil, dlpErr(err)
 			}
-			if getErr == nil {
-				d.admin(ctx, "dlp.policy.update", "dlp_policy", got.ID, got.Name, audit.Changes(before, got))
+			if replaced != nil {
+				d.admin(ctx, "dlp.policy.update", "dlp_policy", got.ID, got.Name, audit.Changes(*replaced, got))
 			} else {
 				d.admin(ctx, "dlp.policy.create", "dlp_policy", got.ID, got.Name, audit.Created(got))
 			}

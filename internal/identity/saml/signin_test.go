@@ -313,7 +313,7 @@ func TestUnverifiedAssertionSpendsNothing(t *testing.T) {
 // told to ask for an invitation rather than quietly given an account.
 func TestJITProvisioningOff(t *testing.T) {
 	f := newDBFixture(t)
-	if _, err := f.svc.Update(t.Context(), f.orgID, f.provider.ID, "", Input{
+	if _, _, err := f.svc.Update(t.Context(), f.orgID, f.provider.ID, "", Input{
 		Name: "Test provider", MetadataXML: f.idpMetadataXML(), JITProvisioning: false, Enabled: true,
 	}); err != nil {
 		t.Fatal(err)
@@ -328,7 +328,7 @@ func TestJITProvisioningOff(t *testing.T) {
 // identity provider happens to trust.
 func TestAllowedDomains(t *testing.T) {
 	f := newDBFixture(t)
-	if _, err := f.svc.Update(t.Context(), f.orgID, f.provider.ID, "", Input{
+	if _, _, err := f.svc.Update(t.Context(), f.orgID, f.provider.ID, "", Input{
 		Name: "Test provider", MetadataXML: f.idpMetadataXML(),
 		AllowedDomains: []string{"corp.example"}, JITProvisioning: true, Enabled: true,
 	}); err != nil {

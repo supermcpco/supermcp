@@ -317,12 +317,13 @@ func (s samlAPI) register(api huma.API) {
 			if err != nil {
 				return nil, err
 			}
-			prov, err := s.svc.Update(ctx, p.OrgID, in.ID, p.ID, in.Body.toInput())
+			prov, before, err := s.svc.Update(ctx, p.OrgID, in.ID, p.ID, in.Body.toInput())
 			if err != nil {
 				s.adminFailed(ctx, "saml.update", "saml_provider", in.ID, err)
 				return nil, samlErr(err)
 			}
-			s.admin(ctx, "saml.update", "saml_provider", prov.ID, prov.Name, audit.Created(prov))
+			s.admin(ctx, "saml.update", "saml_provider", prov.ID, prov.Name,
+				audit.Changes(saml.SnapshotOf(before), saml.SnapshotOf(prov)))
 			return &struct{ Body samlDTO }{Body: s.dto(*prov)}, nil
 		})
 
@@ -394,7 +395,7 @@ func (s samlAPI) register(api huma.API) {
 			if err := snapInto(snapshot, "", &snap); err != nil {
 				return nil, err
 			}
-			prov, err := s.svc.Restore(ctx, p.OrgID, in.ID, p.ID, snap)
+			prov, before, err := s.svc.Restore(ctx, p.OrgID, in.ID, p.ID, snap)
 			if err != nil {
 				s.restoreFailed(ctx, samlRevisions, in, err)
 				if errors.Is(err, saml.ErrNotFound) {
@@ -403,7 +404,8 @@ func (s samlAPI) register(api huma.API) {
 				}
 				return nil, samlErr(err)
 			}
-			s.admin(ctx, "saml.update", "saml_provider", prov.ID, prov.Name, audit.Created(prov))
+			s.admin(ctx, "saml.update", "saml_provider", prov.ID, prov.Name,
+				audit.Changes(saml.SnapshotOf(before), saml.SnapshotOf(prov)))
 			s.restored(ctx, samlRevisions, in, prov.Name)
 			dto := s.dto(*prov)
 			return &struct{ Body samlRestoreDTO }{Body: samlRestoreDTO{Provider: dto.Provider, ACSURL: dto.ACSURL,

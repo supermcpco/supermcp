@@ -23,7 +23,7 @@ func TestRestoreFromHistory(t *testing.T) {
 	f.svc.Revisions = history
 	id := f.provider.ID
 
-	if _, err := f.svc.Update(ctx, f.orgID, id, "", Input{Name: "Version one", MetadataXML: f.idpMetadataXML(),
+	if _, _, err := f.svc.Update(ctx, f.orgID, id, "", Input{Name: "Version one", MetadataXML: f.idpMetadataXML(),
 		JITProvisioning: true, Enabled: true}); err != nil {
 		t.Fatal(err)
 	}
@@ -35,7 +35,7 @@ func TestRestoreFromHistory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.svc.Update(ctx, f.orgID, id, "", Input{Name: "Version two", MetadataXML: string(otherXML),
+	if _, _, err := f.svc.Update(ctx, f.orgID, id, "", Input{Name: "Version two", MetadataXML: string(otherXML),
 		JITProvisioning: true, Enabled: true}); err != nil {
 		t.Fatal(err)
 	}
@@ -71,9 +71,18 @@ func TestRestoreFromHistory(t *testing.T) {
 	if len(snap.IDPCertificates) == 0 {
 		t.Fatal("the snapshot does not keep the identity provider's certificates")
 	}
-	restored, err := f.svc.Restore(ctx, f.orgID, id, "", snap)
+	// A version that names no signer would be put back broken.
+	empty := snap
+	empty.IDPCertificates = nil
+	if _, _, err := f.svc.Restore(ctx, f.orgID, id, "", empty); !errors.Is(err, ErrMetadata) {
+		t.Errorf("restoring a version with no identity provider certificate: %v, want ErrMetadata", err)
+	}
+	restored, replaced, err := f.svc.Restore(ctx, f.orgID, id, "", snap)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if replaced.Name != "Version two" || replaced.IDPSSOURL != "https://other-idp.example/sso" {
+		t.Errorf("the restore reports it replaced %q trusting %s", replaced.Name, replaced.IDPSSOURL)
 	}
 	if restored.Name != "Version one" || restored.IDPSSOURL != idpBase+"/sso" {
 		t.Errorf("restored %q trusting %s", restored.Name, restored.IDPSSOURL)
@@ -100,7 +109,7 @@ func TestRestoreFromHistory(t *testing.T) {
 	if list, err = history.List(ctx, f.orgID, governance.KindSAMLProvider, id, 0, 0); err != nil || list[0].Action != governance.ActionDelete {
 		t.Fatalf("history after the delete: %v %+v", err, list)
 	}
-	if _, err := f.svc.Restore(ctx, f.orgID, id, "", snap); !errors.Is(err, ErrNotFound) {
+	if _, _, err := f.svc.Restore(ctx, f.orgID, id, "", snap); !errors.Is(err, ErrNotFound) {
 		t.Errorf("restoring a deleted provider: %v, want not found", err)
 	}
 }
