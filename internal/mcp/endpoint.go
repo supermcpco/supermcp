@@ -29,6 +29,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -156,8 +157,19 @@ type surface struct {
 	// way in so the HTTP layer can label the request with it once it knows
 	// the status the client was given. One surface serves one request,
 	// which is why the middleware writing it takes the surface and not the
-	// shared server.
-	method string
+	// shared server. It is atomic because the SDK writes it from the
+	// goroutine serving the message while the HTTP handler reads it after
+	// the transport returns, and a drained or cancelled request lets the
+	// two overlap.
+	method atomic.Pointer[string]
+}
+
+// methodName is the recorded JSON-RPC method, or "" before one was seen.
+func (s *surface) methodName() string {
+	if m := s.method.Load(); m != nil {
+		return *m
+	}
+	return ""
 }
 
 type visibleTool struct {
@@ -254,7 +266,7 @@ func (e *Endpoint) serve() http.HandlerFunc {
 				msg = reqid.Message(id)
 			}
 			writeRPCError(w, s.status, rpcCodeFor(s.status), msg)
-			e.Metrics.ObserveMCPRequest(routePattern(r), s.method, s.status)
+			e.Metrics.ObserveMCPRequest(routePattern(r), s.methodName(), s.status)
 			return
 		}
 		// The pattern, never the server id: an endpoint label taken from
@@ -265,7 +277,7 @@ func (e *Endpoint) serve() http.HandlerFunc {
 		if status == 0 {
 			status = http.StatusOK
 		}
-		e.Metrics.ObserveMCPRequest(routePattern(r), s.method, status)
+		e.Metrics.ObserveMCPRequest(routePattern(r), s.methodName(), status)
 	}
 }
 
@@ -870,7 +882,7 @@ func recordMethod() sdk.Middleware {
 	return func(next sdk.MethodHandler) sdk.MethodHandler {
 		return func(ctx context.Context, method string, req sdk.Request) (sdk.Result, error) {
 			if s, _ := ctx.Value(surfaceKey).(*surface); s != nil {
-				s.method = method
+				s.method.Store(&method)
 			}
 			return next(ctx, method, req)
 		}
