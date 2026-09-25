@@ -1,3 +1,5 @@
+-- supermcp:breaking (deletes every audit event and anchor and retypes three columns;
+-- docs/UPGRADING.md, "migration 00006" under 1.0.0)
 -- +goose Up
 -- +goose StatementBegin
 

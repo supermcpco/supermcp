@@ -1,3 +1,5 @@
+-- supermcp:breaking (deletes every audit event and anchor; docs/UPGRADING.md,
+-- "migration 00008" under 1.0.0)
 -- +goose Up
 -- +goose StatementBegin
 

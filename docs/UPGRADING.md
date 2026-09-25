@@ -4,6 +4,31 @@ This file records the changes that need something from you beyond running
 `supermcp migrate`. Versions with nothing here upgrade by applying the
 migrations, which the Helm chart does in a hook before the new pods start.
 
+## How migrations are checked
+
+Upgrades roll: the migration Job runs first, and pods of the previous
+release keep serving against the new schema until they are replaced. So a
+migration may only add. CI runs `scripts/check-migrations.sh` (locally,
+`make check-migrations`) on every pull request and on `main`. It refuses a
+migration whose `-- +goose Up` section drops a table, schema or column,
+renames anything, changes a column's type, sets a column `NOT NULL`, adds
+a `NOT NULL` column without a default, drops an index it did not create,
+or deletes rows with `DELETE FROM` or `TRUNCATE`.
+
+A migration that has to do one of those carries the line
+`-- supermcp:breaking`, and this file has a section naming its number that
+says what it does to your data and what to do; the check refuses either
+one without the other. So:
+
+- Unless a section here says a migration breaks the rule, it only adds,
+  and pods of the previous release keep working during the rollout.
+- If one says so, read it before you upgrade and follow it; it also says
+  whether migrating down undoes it.
+
+Two shipped migrations break the rule, both in 1.0.0: 00006 and 00008
+each delete the audit trail written by pre-release builds. Their sections
+are under 1.0.0 below.
+
 ## Unreleased
 
 Migration 00018 adds `tool_blobs` and needs nothing from you. Two fixes
@@ -439,3 +464,19 @@ them in the chain; rows are deleted only by a single contiguous cut across
 the whole instance, at the longest window any organisation still asks for.
 Deleting one tenant's events out of the middle of a shared sequence leaves
 a gap that no anchor can bridge, which is what the old behaviour did.
+
+### The audit trail is rebuilt again (migration 00008)
+
+The time an event was written was outside the hash chain. A row could be
+backdated through the maintenance role and still verify, and because
+retention cuts by age, one backdated row near the head could make a
+routine cut delete most of a stream. The application now writes the
+timestamp and the row's hash covers it.
+
+**What this means for you.** Like 00006, this migration deletes every
+audit event and anchor, because rows hashed without their time cannot be
+verified. No released version wrote such rows, so this affects
+development instances only. Migrating down does not bring them back: if
+you want to keep them, take a `pg_dump` of `audit_events` and
+`audit_anchors` first. After upgrading, `supermcp audit verify` starts
+from the first event written by the new code.
