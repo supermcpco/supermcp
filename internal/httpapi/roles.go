@@ -17,6 +17,7 @@ import (
 	"github.com/supermcpco/supermcp/internal/audit"
 	"github.com/supermcpco/supermcp/internal/authz"
 	"github.com/supermcpco/supermcp/internal/governance"
+	"github.com/supermcpco/supermcp/internal/identity"
 	"github.com/supermcpco/supermcp/internal/tenant"
 )
 
@@ -710,11 +711,16 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, 'manual', $8)`,
 }
 
 // deleteBinding revokes a role and returns what it revoked, so the audit
-// record names a person rather than an identifier.
+// record names a person rather than an identifier. Taking away an owner
+// binding follows the members API's rule: under the organisation's row
+// lock, and refused when it would leave no active owner.
 func (d Deps) deleteBinding(ctx context.Context, orgID, roleID, bindingID string) (bindingDTO, string, error) {
 	var out bindingDTO
 	var name string
 	err := d.DB.Tx(tenant.WithOrg(ctx, orgID), func(tx pgx.Tx) error {
+		if err := identity.LockOrganization(ctx, tx, orgID); err != nil {
+			return err
+		}
 		var err error
 		if name, err = roleName(ctx, tx, roleID); err != nil {
 			return err
@@ -726,19 +732,18 @@ func (d Deps) deleteBinding(ctx context.Context, orgID, roleID, bindingID string
 		if err != nil {
 			return err
 		}
-		if roleID == ownerRoleID {
-			var owners int
-			if err := tx.QueryRow(ctx, `SELECT count(*) FROM role_bindings WHERE role_id = $1`, ownerRoleID).Scan(&owners); err != nil {
-				return err
-			}
-			// Removing the last owner leaves nobody who can grant the role
-			// back, and no support path short of editing the database.
-			if owners <= 1 {
-				return errLastOwner
-			}
+		remove := func() error {
+			_, err := tx.Exec(ctx, `DELETE FROM role_bindings WHERE id = $1`, bindingID)
+			return err
 		}
-		_, err = tx.Exec(ctx, `DELETE FROM role_bindings WHERE id = $1`, bindingID)
-		return err
+		// Only a person's organisation-wide owner binding can make someone
+		// an active owner; KeepOwner decides whether this one did.
+		if roleID != ownerRoleID || out.PrincipalKind != "user" {
+			return remove()
+		}
+		// Removing the last owner leaves nobody who can grant the role
+		// back, and no support path short of editing the database.
+		return identity.KeepOwner(ctx, tx, orgID, out.PrincipalID, remove)
 	})
 	if err != nil {
 		return bindingDTO{}, "", err
@@ -755,7 +760,6 @@ var (
 	errNoSuchScope       = errors.New("that server, connector or tool is not in this organisation")
 	errScopeNeeded       = errors.New("a role limited to a server, connector or tool needs the id of one")
 	errAlreadyHeld       = errors.New("they already hold this role here")
-	errLastOwner         = errors.New("an organisation needs at least one owner")
 	errBuiltInRole       = errors.New("a built-in role is the same in every workspace and cannot be changed here")
 	errRoleNameNeeded    = errors.New("a role needs a name")
 	errRoleAllowsNothing = errors.New("a role has to allow at least one thing")
@@ -792,8 +796,11 @@ func bindingErr(err error) error {
 		return huma.Error404NotFound(err.Error())
 	case errors.Is(err, errNoSuchPrincipal), errors.Is(err, errNoSuchScope), errors.Is(err, errScopeNeeded):
 		return huma.Error400BadRequest(err.Error())
-	case errors.Is(err, errAlreadyHeld), errors.Is(err, errLastOwner):
+	case errors.Is(err, errAlreadyHeld):
 		return huma.Error409Conflict(err.Error())
+	case errors.Is(err, identity.ErrLastOwner):
+		// The same reply, code included, as the members API gives.
+		return memberErr(err)
 	}
 	return err
 }
