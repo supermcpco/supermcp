@@ -11,7 +11,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	neturl "net/url"
 	"os"
 	"reflect"
 	"strconv"
@@ -80,33 +79,7 @@ func liveDB(ctx context.Context, t *testing.T) *tenant.DB {
 // costs a second, and a developer who wants it gone can drop it.
 func ownDatabase(ctx context.Context, t *testing.T) string {
 	t.Helper()
-	url := os.Getenv("DATABASE_URL")
-	if url == "" {
-		t.Skip("DATABASE_URL is not set; the audit chain can only be tested against a live Postgres")
-	}
-	u, err := neturl.Parse(url)
-	if err != nil {
-		t.Fatalf("DATABASE_URL is not a URL: %v", err)
-	}
-	admin := *u
-	admin.Path = "/postgres"
-	conn, err := pgx.Connect(ctx, admin.String())
-	if err != nil {
-		t.Skipf("could not reach Postgres to make this package's own database: %v", err)
-	}
-	defer func() { _ = conn.Close(ctx) }()
-	var exists bool
-	if err := conn.QueryRow(ctx, `SELECT true FROM pg_database WHERE datname = $1`, auditTestDB).Scan(&exists); err != nil {
-		// CREATE DATABASE cannot run in a transaction, and racing runs
-		// both try: whoever loses sees "already exists", which is fine.
-		if _, err := conn.Exec(ctx, `CREATE DATABASE `+auditTestDB); err != nil &&
-			!strings.Contains(err.Error(), "already exists") {
-			t.Fatalf("could not create %s: %v", auditTestDB, err)
-		}
-	}
-	own := *u
-	own.Path = "/" + auditTestDB
-	return own.String()
+	return testdb.Own(ctx, t, os.Getenv("DATABASE_URL"), auditTestDB)
 }
 
 // stream is one test's slice of the shared audit_events table: its own

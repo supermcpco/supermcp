@@ -6,7 +6,6 @@ import (
 	"encoding/base64"
 	"fmt"
 	"log/slog"
-	neturl "net/url"
 	"os"
 	"strings"
 	"testing"
@@ -50,42 +49,7 @@ func testDB(t *testing.T) (*tenant.DB, *pgxpool.Pool) {
 // migrates it, and returns its URL.
 func ownDatabase(t *testing.T) string {
 	t.Helper()
-	url := os.Getenv("DATABASE_URL")
-	if url == "" {
-		t.Skip("DATABASE_URL not set")
-	}
-	ctx := context.Background()
-	u, err := neturl.Parse(url)
-	if err != nil {
-		t.Fatalf("DATABASE_URL is not a URL: %v", err)
-	}
-	admin := *u
-	admin.Path = "/postgres"
-	conn, err := pgx.Connect(ctx, admin.String())
-	if err != nil {
-		t.Skipf("could not reach Postgres to make this package's own database: %v", err)
-	}
-	defer func() { _ = conn.Close(ctx) }()
-	var exists bool
-	if err := conn.QueryRow(ctx, `SELECT true FROM pg_database WHERE datname = $1`, rotateTestDB).Scan(&exists); err != nil {
-		// CREATE DATABASE cannot run inside a transaction, and two runs
-		// race: whoever loses sees "already exists", which is fine.
-		if _, err := conn.Exec(ctx, `CREATE DATABASE `+rotateTestDB); err != nil &&
-			!strings.Contains(err.Error(), "already exists") {
-			t.Fatalf("could not create %s: %v", rotateTestDB, err)
-		}
-	}
-	own := *u
-	own.Path = "/" + rotateTestDB
-	st, err := store.Open(ctx, own.String(), own.String(), slog.New(slog.DiscardHandler), store.Options{})
-	if err != nil {
-		t.Fatalf("open %s: %v", rotateTestDB, err)
-	}
-	defer st.Close()
-	if err := st.Migrate(ctx, true); err != nil {
-		t.Fatalf("migrate %s: %v", rotateTestDB, err)
-	}
-	return own.String()
+	return testdb.Own(context.Background(), t, os.Getenv("DATABASE_URL"), rotateTestDB)
 }
 
 // testKEK is this file's master key. It is the same on every run so a

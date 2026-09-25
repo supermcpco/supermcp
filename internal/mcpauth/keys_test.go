@@ -10,7 +10,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"log/slog"
-	neturl "net/url"
 	"os"
 	"strings"
 	"testing"
@@ -99,36 +98,7 @@ func testKeyring(ctx context.Context, t *testing.T) (*mcpauth.Keyring, *tenant.D
 // developer who wants it gone can drop it.
 func ownDatabase(ctx context.Context, t *testing.T) string {
 	t.Helper()
-	url := os.Getenv("DATABASE_URL")
-	if url == "" {
-		t.Skip("DATABASE_URL is not set; key rotation can only be tested against a live Postgres")
-	}
-	u, err := neturl.Parse(url)
-	if err != nil {
-		t.Fatalf("DATABASE_URL is not a URL: %v", err)
-	}
-	admin := *u
-	admin.Path = "/postgres"
-	conn, err := pgx.Connect(ctx, admin.String())
-	if err != nil {
-		t.Skipf("could not reach Postgres to make this package's own database: %v", err)
-	}
-	defer func() { _ = conn.Close(ctx) }()
-	var exists bool
-	if err := conn.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = $1)`, keysTestDB).Scan(&exists); err != nil {
-		t.Fatalf("could not look for %s: %v", keysTestDB, err)
-	}
-	if !exists {
-		// CREATE DATABASE cannot run in a transaction, and racing runs
-		// both try: whoever loses sees "already exists", which is fine.
-		if _, err := conn.Exec(ctx, `CREATE DATABASE `+keysTestDB); err != nil &&
-			!strings.Contains(err.Error(), "already exists") {
-			t.Fatalf("could not create %s: %v", keysTestDB, err)
-		}
-	}
-	own := *u
-	own.Path = "/" + keysTestDB
-	return own.String()
+	return testdb.Own(ctx, t, os.Getenv("DATABASE_URL"), keysTestDB)
 }
 
 func statuses(ctx context.Context, t *testing.T, db *tenant.DB) map[string]int {

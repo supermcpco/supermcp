@@ -5,8 +5,6 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"log/slog"
-	neturl "net/url"
 	"os"
 	"strings"
 	"testing"
@@ -14,7 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/supermcpco/supermcp/internal/store"
+	"github.com/supermcpco/supermcp/internal/testdb"
 )
 
 // Everything rotate-signing refuses before it opens a database.
@@ -87,7 +85,7 @@ func TestKeysRotateSigningOutput(t *testing.T) {
 // signingCmdTestDB is this test's own database. signing_keys is
 // instance-wide, so a test that rotates it runs beside DATABASE_URL, not
 // in it (see keysTestDB in internal/mcpauth).
-const signingCmdTestDB = "supermcp_cmd_signing_tests"
+var signingCmdTestDB = testdb.Name("supermcp_cmd_signing_tests")
 
 // The command end to end: a revoke leaves one active key, and the audit
 // trail says who did it and that it was a revoke.
@@ -163,36 +161,5 @@ func TestKeysRotateSigningRevokesAndAudits(t *testing.T) {
 // the other packages' own databases are.
 func ownTestDatabase(ctx context.Context, t *testing.T, base, name string) string {
 	t.Helper()
-	u, err := neturl.Parse(base)
-	if err != nil {
-		t.Fatalf("DATABASE_URL is not a URL: %v", err)
-	}
-	admin := *u
-	admin.Path = "/postgres"
-	conn, err := pgx.Connect(ctx, admin.String())
-	if err != nil {
-		t.Skipf("could not reach Postgres to make this test's own database: %v", err)
-	}
-	defer func() { _ = conn.Close(ctx) }()
-	var exists bool
-	if err := conn.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = $1)`, name).Scan(&exists); err != nil {
-		t.Fatal(err)
-	}
-	if !exists {
-		if _, err := conn.Exec(ctx, `CREATE DATABASE `+name); err != nil && !strings.Contains(err.Error(), "already exists") {
-			t.Fatalf("could not create %s: %v", name, err)
-		}
-	}
-	own := *u
-	own.Path = "/" + name
-	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
-	st, err := store.Open(ctx, own.String(), own.String(), log, store.Options{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
-	if err := st.Migrate(ctx, true); err != nil {
-		t.Fatalf("could not apply the schema to %s: %v", name, err)
-	}
-	return own.String()
+	return testdb.Own(ctx, t, base, name)
 }
