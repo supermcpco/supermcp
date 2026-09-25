@@ -56,10 +56,20 @@ The audit list and export take `q`, a free-text search over each event's
 action, actor, target and the string values of its `meta`, never its
 `diff` or `payload` (docs/api.md, "Audit search"); the audit screen has a
 search box. Migration 00027 adds what it reads: a function,
-`audit_search_document`, and a GIN index over it,
-`audit_events_search_idx`. It adds no column, so nothing about the rows
-changes: the hash chain, `supermcp audit verify`, retention, scrubbing
-and legal holds work on them as before.
+`audit_search_document`, a GIN index over it, `audit_events_search_idx`,
+and a function the list calls to search, `audit_search`. It adds no
+column, so nothing about the rows changes: the hash chain,
+`supermcp audit verify`, retention, scrubbing and legal holds work on
+them as before.
+
+`audit_search` is `SECURITY DEFINER`: it runs as the role that ran the
+migration, because under the row-level security on `audit_events` the
+application role's own query could not use the index. It reads the
+workspace from the same setting the policy does, so it answers for no
+workspace the caller could not already read, and only `supermcp_app` may
+call it. That role is the one in `SUPERMCP_MAINT_DATABASE_URL`, which
+the chart already expects to have `BYPASSRLS`. If yours does not,
+searches still answer correctly, only slowly.
 
 The index is built with `CREATE INDEX CONCURRENTLY`, so `audit_events`
 keeps taking writes and nothing needs a maintenance window. What that
@@ -97,8 +107,31 @@ means for you:
 - **Rollout order does not matter.** Replicas of the previous version
   never read the index and write to it without knowing; the new version
   answers a search whichever replica took the write.
-- **Migrating down** drops the index and the function; searches then
+- **Migrating down** drops the index and both functions; searches then
   fail, so roll the application back first.
+
+Three things change with it that you may notice:
+
+- **A failed tool call's error is redacted before it is kept,** on the
+  tool-call row, in the audit event's `meta.error` and in the answer to
+  the MCP client. A URL in it is cut to scheme, host and path: until
+  now a connector whose API key travels in the query string recorded the
+  key in plain text whenever a call failed before an answer came back
+  (connection refused, timeout, TLS). Rows written before this release
+  keep what they recorded; if you have such connectors, look for the key
+  in `tool_invocations.error` and in the audit trail, and rotate it if it
+  is there. The audit events cannot be edited without breaking the
+  chain; retention removes them in time.
+- **An audit exporter's URL is shown cut down** in the API, the audit
+  screen and its `audit.exporter.*` events: scheme, host and path, the
+  query as `?***`, and a path segment that looks like a token (as in a
+  Slack or Discord webhook) as `***`. Only the display changes; what is
+  delivered to is what you configured.
+- **An audit export is bounded** to 100,000 events and ten minutes. One
+  cut short ends with a `{"truncated": true, "afterSeq": N, ...}` line;
+  export again with `afterSeq=N` for the rest (docs/api.md, "Audit
+  search"). A tool that reads exports should stop at that line rather
+  than treat it as an event.
 
 ### The chart can mount the master key as a file
 

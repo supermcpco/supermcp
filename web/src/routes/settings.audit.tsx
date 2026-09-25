@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button, Input, Text } from "@cloudflare/kumo";
@@ -41,6 +41,7 @@ function AuditTrail() {
   const search = Route.useSearch();
   const navigate = useNavigate({ from: Route.fullPath });
   const allowed = can("audit:read");
+  const searchHint = useId();
 
   // The two text filters are typed into drafts and reach the address, and
   // the server, once typing pauses. The address is where they are read
@@ -74,8 +75,10 @@ function AuditTrail() {
     // The writer batches, so an event lands a moment after the action that
     // caused it. A screen that only loads once shows an empty trail to
     // someone who just did something, which reads as "nothing was
-    // recorded".
-    refetchInterval: 5_000,
+    // recorded". A search is not repeated on a timer: it is the costly
+    // query, and whoever is searching is looking back, not waiting for
+    // what comes next.
+    refetchInterval: filters.q ? false : 5_000,
     refetchOnWindowFocus: true,
   });
 
@@ -122,16 +125,22 @@ function AuditTrail() {
             placeholder="User id"
           />
         </label>
-        <label className="grid flex-[2] gap-1.5">
-          <Text as="span">Search</Text>
-          <Input
-            type="search"
-            value={draft.q}
-            maxLength={auditSearchMax}
-            onChange={(e) => setDraft((d) => ({ ...d, q: e.target.value }))}
-            placeholder='connector.created, "quarterly review", -denied'
-          />
-        </label>
+        <div className="grid flex-[2] gap-1.5">
+          <label className="grid gap-1.5">
+            <Text as="span">Search</Text>
+            <Input
+              type="search"
+              value={draft.q}
+              maxLength={auditSearchMax}
+              onChange={(e) => setDraft((d) => ({ ...d, q: e.target.value }))}
+              placeholder='connector.created, "quarterly review", -denied'
+              aria-describedby={searchHint}
+            />
+          </label>
+          <Text as="span" variant="secondary" id={searchHint}>
+            Whole words, any case. An export records its search in the trail, so do not search for a secret.
+          </Text>
+        </div>
         <a className="rounded-md px-4 py-2 ring ring-kumo-line hover:bg-kumo-tint" href={auditExportHref(filters)}>
           <Text as="span">Export</Text>
         </a>

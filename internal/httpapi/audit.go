@@ -25,6 +25,21 @@ import (
 // keep a transaction alive for the length of a download.
 const auditExportPage = 500
 
+// An export stops at whichever of these comes first, and says so in a last
+// line: {"truncated": true, "afterSeq": N, "reason": "..."}. Each page is
+// a query, a search included, so an export of everything a common word
+// matches would otherwise hold a connection and repeat the search for as
+// long as the client kept reading. The rest is taken by exporting again
+// with afterSeq=N, or by narrowing the filters.
+const (
+	auditExportMaxRows = 100_000
+	auditExportMaxTime = 10 * time.Minute
+)
+
+// errAuditTimeout is what a list page that ran out of time answers.
+var errAuditTimeout = huma.Error503ServiceUnavailable(
+	"the audit query took too long; narrow it with a time range, an action or more specific search words")
+
 // AuditFilter is what both the list and the export ask of the stream, so
 // an operator can narrow a screen and then export exactly what they saw.
 // The type is exported because huma finds query parameters by walking
@@ -49,6 +64,7 @@ type auditListInput struct {
 
 type auditExportInput struct {
 	AuditFilter
+	AfterSeq int64 `query:"afterSeq" doc:"Continue below this sequence number, taken from the afterSeq of a previous export that was cut short"`
 }
 
 type auditListOutput struct {
@@ -120,6 +136,9 @@ func (d Deps) auditRoutes(api huma.API) {
 			q := in.query(p.OrgID)
 			q.AfterSeq, q.Limit = in.AfterSeq, in.Limit
 			events, err := d.AuditReader.List(ctx, q)
+			if errors.Is(err, audit.ErrTimeout) {
+				return nil, errAuditTimeout
+			}
 			if err != nil {
 				return nil, err
 			}
@@ -168,7 +187,8 @@ func (d Deps) auditRoutes(api huma.API) {
 	huma.Register(api, huma.Operation{OperationID: "audit-export", Method: http.MethodGet, Path: "/api/v1/audit/export",
 		Summary: "Export audit events as newline-delimited JSON", Tags: []string{"audit"}, Security: sessionSecurity,
 		Responses: map[string]*huma.Response{
-			"200": {Description: "One event per line, newest first",
+			"200": {Description: "One event per line, newest first. At most 100,000 events and ten minutes; " +
+				`an export cut short ends with the line {"truncated": true, "afterSeq": N, "reason": "..."}`,
 				Content: map[string]*huma.MediaType{"application/x-ndjson": {}}},
 		}},
 		func(ctx context.Context, in *auditExportInput) (*huma.StreamResponse, error) {
@@ -180,7 +200,7 @@ func (d Deps) auditRoutes(api huma.API) {
 				return nil, huma.Error503ServiceUnavailable("the audit stream is not configured")
 			}
 			q := in.query(p.OrgID)
-			q.Limit = auditExportPage
+			q.AfterSeq = in.AfterSeq
 			filename := "audit-" + time.Now().UTC().Format("20060102T150405Z") + ".ndjson"
 
 			// A copy of the record leaving the instance is itself an event,
@@ -198,8 +218,22 @@ func (d Deps) auditRoutes(api huma.API) {
 				hc.SetHeader("Content-Type", "application/x-ndjson")
 				hc.SetHeader("Content-Disposition", `attachment; filename="`+filename+`"`)
 				enc := json.NewEncoder(hc.BodyWriter())
-				for {
-					batch, err := reader.List(hc.Context(), q)
+				ctx, cancel := context.WithTimeout(hc.Context(), auditExportMaxTime)
+				defer cancel()
+				truncated := func(reason string) {
+					_ = enc.Encode(map[string]any{"truncated": true, "afterSeq": q.AfterSeq, "reason": reason})
+				}
+				for sent := 0; ; {
+					if sent >= auditExportMaxRows {
+						truncated("the export reached its limit of 100,000 events")
+						return
+					}
+					q.Limit = min(auditExportPage, auditExportMaxRows-sent)
+					batch, err := reader.List(ctx, q)
+					if errors.Is(err, audit.ErrTimeout) && hc.Context().Err() == nil {
+						truncated("the export ran out of time; narrow it with a time range or more specific search words")
+						return
+					}
 					if err != nil {
 						log.Error("audit export stopped early", "org", orgID, "after_seq", q.AfterSeq, "err", err)
 						return
@@ -209,6 +243,7 @@ func (d Deps) auditRoutes(api huma.API) {
 							return
 						}
 					}
+					sent += len(batch)
 					if len(batch) < q.Limit {
 						return
 					}

@@ -3760,6 +3760,10 @@ export type AuditExportData = {
          * Only events at or before this RFC3339 time
          */
         to?: string;
+        /**
+         * Continue below this sequence number, taken from the afterSeq of a previous export that was cut short
+         */
+        afterSeq?: number;
     };
     url: '/api/v1/audit/export';
 };
@@ -3775,7 +3779,7 @@ export type AuditExportError = AuditExportErrors[keyof AuditExportErrors];
 
 export type AuditExportResponses = {
     /**
-     * One event per line, newest first
+     * One event per line, newest first. At most 100,000 events and ten minutes; an export cut short ends with the line {"truncated": true, "afterSeq": N, "reason": "..."}
      */
     200: unknown;
 };

@@ -682,16 +682,47 @@ What is searched:
 
 What is deliberately not: `diff` and `payload`, which can hold what a
 tool was sent and returned and are governed by the payload policy; the
-caller's IP and user agent; request and session ids. An event whose
-`meta` holds a NUL character (`\u0000`) is found by its other fields
-but not by its `meta`, because Postgres cannot read that text.
+caller's IP and user agent; request and session ids.
+
+One `meta` string is kept whatever the payload policy says, and so is
+searched: a failed tool call's `meta.error`, which says why it failed.
+Before it is recorded (and on the tool-call row, which keeps the same
+text) a URL in it is cut to scheme, host and path, a password in a URL
+or connection string and a query parameter named like a secret are
+replaced with `***`, and what the `masked` policy removes from payloads
+(card numbers, email addresses, IBANs, US social security numbers,
+API-key shaped tokens) is replaced with `<redacted>`. A plain word the
+caller sent that the upstream quoted back in its error can still be
+there.
+
+The first 100,000 characters of an event's text are searched: its own
+fields first, then `meta.target`, `server`, `connector`, `tool` and
+`reason`, then the rest of `meta`. An event whose `meta` is longer is
+still listed, but a word past that point does not find it.
 
 `q` longer than 200 characters is `422`. A `q` that is empty or only
 spaces is no search at all. A `q` with no word in it, such as `!!!` or
 `-`, matches nothing, not everything: an empty list, not the whole trail.
 
+A page of the list, search included, has ten seconds. One that takes
+longer is `503`, with `detail` saying so; a time range (`from`, `to`) or
+more specific words bring it back within bounds.
+
+An export sends at most 100,000 events and runs for at most ten
+minutes. One cut short by either ends with a line that is not an event:
+
+```json
+{"truncated": true, "afterSeq": 81234, "reason": "the export reached its limit of 100,000 events"}
+```
+
+Export again with the same filters and `afterSeq` set to that number to
+take the next part. An export that ends without that line is complete.
+
 An export records `audit.exported` with the `category`, `action` and `q`
-it was asked for.
+it was asked for. So a search is only as private as the trail: a secret
+pasted into `q` to see where it leaked is written into the trail, where
+every reader of it can see it, the moment that search is exported. Search
+for part of it, or look for it outside the application.
 
 ## Audit retention
 
