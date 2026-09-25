@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { errorRate, formatMs, groupName, parseAnalyticsSearch, ranges, usageWindow } from "./analytics";
+import {
+  allowedDimensions,
+  errorRate,
+  formatMs,
+  groupName,
+  parseAnalyticsSearch,
+  ranges,
+  refreshInterval,
+  refreshLabel,
+  usageWindow,
+} from "./analytics";
 
 describe("parseAnalyticsSearch", () => {
   it("keeps a known range and dimension", () => {
@@ -59,5 +69,24 @@ describe("formatting", () => {
     expect(groupName("server", "", "")).toBe("No MCP server");
     expect(groupName("server", "srv_gone", "")).toBe("srv_gone (deleted)");
     expect(groupName("connector", "", "")).toBe("Unknown");
+  });
+});
+
+describe("refreshInterval", () => {
+  it("asks less often the longer the period", () => {
+    expect(refreshInterval("24h")).toBe(30_000);
+    expect(refreshInterval("7d")).toBe(60_000);
+    expect(refreshInterval("30d")).toBe(300_000);
+    expect(refreshInterval("90d")).toBe(300_000);
+    expect(refreshLabel("24h")).toBe("30 seconds");
+    expect(refreshLabel("7d")).toBe("minute");
+    expect(refreshLabel("90d")).toBe("5 minutes");
+  });
+});
+
+describe("allowedDimensions", () => {
+  it("offers the server breakdown only to those who may read servers", () => {
+    expect(allowedDimensions(true)).toEqual(["tool", "connector", "server"]);
+    expect(allowedDimensions(false)).toEqual(["tool", "connector"]);
   });
 });

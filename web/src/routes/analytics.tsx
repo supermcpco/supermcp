@@ -9,8 +9,10 @@ import {
   bucketLabel,
   defaultDimension,
   defaultRange,
+  allowedDimensions,
+  refreshInterval,
+  refreshLabel,
   dimensionLabels,
-  dimensions,
   errorRate,
   formatMs,
   groupName,
@@ -36,8 +38,9 @@ function Analytics() {
   const search = Route.useSearch();
   const navigate = useNavigate({ from: Route.fullPath });
   const range = search.range ?? defaultRange;
-  const by = search.by ?? defaultDimension;
   const allowed = can("connectors:read");
+  const choices = allowedDimensions(can("servers:read"));
+  const by = search.by && choices.includes(search.by) ? search.by : defaultDimension;
 
   // The window is worked out when the request is made, not when the
   // screen renders, so each refresh moves it forward to the present.
@@ -53,7 +56,7 @@ function Analytics() {
     },
     enabled: signedIn && allowed,
     retry: false,
-    refetchInterval: 30_000,
+    refetchInterval: refreshInterval(range),
     placeholderData: keepPreviousData,
   });
 
@@ -106,14 +109,14 @@ function Analytics() {
       {usage.isPending && <Loading />}
       {report && report.totals.calls === 0 && (
         <Text variant="secondary">
-          No tool calls in this period. This screen checks again every 30 seconds.
+          No tool calls in this period. This screen checks again every {refreshLabel(range)}.
         </Text>
       )}
       {report && report.totals.calls > 0 && (
         <>
           <Totals report={report} />
           <Charts report={report} />
-          <Top report={report} by={by} onBy={(next) => setSearch({ by: next })} />
+          <Top report={report} by={by} choices={choices} onBy={(next) => setSearch({ by: next })} />
         </>
       )}
     </div>
@@ -213,7 +216,17 @@ function chartOptions(report: UsageReport): { volume: ChartOption; latency: Char
   };
 }
 
-function Top({ report, by, onBy }: { report: UsageReport; by: Dimension; onBy: (by: Dimension) => void }) {
+function Top({
+  report,
+  by,
+  choices,
+  onBy,
+}: {
+  report: UsageReport;
+  by: Dimension;
+  choices: readonly Dimension[];
+  onBy: (by: Dimension) => void;
+}) {
   const noun = dimensionLabels[by];
   return (
     <section aria-labelledby="top-heading" className="grid gap-3">
@@ -222,7 +235,7 @@ function Top({ report, by, onBy }: { report: UsageReport; by: Dimension; onBy: (
           Busiest by {noun.toLowerCase()}
         </Text>
         <div role="radiogroup" aria-label="Break down by" className="flex gap-1">
-          {dimensions.map((d) => (
+          {choices.map((d) => (
             <button
               key={d}
               type="button"

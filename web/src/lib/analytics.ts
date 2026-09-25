@@ -104,3 +104,34 @@ export function groupName(by: Dimension, id: string, name: string): string {
   if (by === "server" && !id) return "No MCP server";
   return id ? `${id} (deleted)` : "Unknown";
 }
+
+/**
+ * How often the screen asks again. A day's figures move by the minute; a
+ * quarter's barely move in an hour, and each read of one is a heavy query.
+ */
+export function refreshInterval(range: Range): number {
+  switch (range) {
+    case "24h":
+      return 30_000;
+    case "7d":
+      return 60_000;
+    default:
+      return 5 * 60_000;
+  }
+}
+
+/** refreshInterval in words, for "checks again every …". */
+export function refreshLabel(range: Range): string {
+  const seconds = refreshInterval(range) / 1000;
+  if (seconds < 60) return `${seconds} seconds`;
+  return seconds === 60 ? "minute" : `${seconds / 60} minutes`;
+}
+
+/**
+ * The breakdowns a viewer may pick. The server breakdown names MCP
+ * servers, which only servers:read may see, so without it the choice is
+ * not offered and a link asking for it falls back to the default.
+ */
+export function allowedDimensions(canReadServers: boolean): readonly Dimension[] {
+  return canReadServers ? dimensions : dimensions.filter((d) => d !== "server");
+}

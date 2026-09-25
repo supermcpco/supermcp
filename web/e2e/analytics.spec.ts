@@ -46,8 +46,10 @@ test("the analytics screen counts a workspace's calls, and another workspace see
   test.setTimeout(90_000);
 
   // Before any call, the screen says there is nothing to show rather than
-  // drawing empty charts.
-  await page.goto("/analytics");
+  // drawing empty charts. It is asked about the last 90 days here and the
+  // default seven below, because the server keeps an answer for a minute
+  // and the calls in between would not be in this one.
+  await page.goto("/analytics?range=90d");
   await expect(page.getByRole("heading", { name: "Analytics" })).toBeVisible();
   await expect(page.getByText("No tool calls in this period.", { exact: false })).toBeVisible();
   await expectAccessible(page);
