@@ -247,8 +247,8 @@ func (d Deps) toolRoutes(api huma.API) {
 			// just read. The service refuses the write unless the stored
 			// version still equals expectedVersion, so insisting that they
 			// agree here ties the decision to the row that gets replaced.
-			if in.Body.ExpectedVersion != before.Version {
-				return nil, humaErr(connector.ErrVersionConflict)
+			if err := connector.CheckVersion("tool", in.Body.ExpectedVersion, before.Version); err != nil {
+				return nil, humaErr(err)
 			}
 			def, err := parseDefinition(in.Body.Definition)
 			if err != nil {
@@ -582,7 +582,7 @@ func toolConflict(err error) error {
 	var pgErr *pgconn.PgError
 	switch {
 	case errors.Is(err, connector.ErrVersionConflict):
-		code, loc = conflictVersion, "body.expectedVersion"
+		return versionConflict(err)
 	case errors.Is(err, connector.ErrToolNameTaken),
 		errors.As(err, &invalid) && onlyNameTaken(invalid.Issues),
 		errors.As(err, &pgErr) && pgErr.Code == pgUniqueViolation && pgErr.ConstraintName == toolNameConstraint:
@@ -596,6 +596,19 @@ func toolConflict(err error) error {
 		return nil
 	}
 	return huma.Error409Conflict(err.Error(), &huma.ErrorDetail{Location: loc, Message: err.Error(), Value: code})
+}
+
+// versionConflict is the 409 for a tool, connector or server write made
+// against a version somebody has since replaced. Beside the code it
+// carries the version stored now, at location "version", so a client can
+// tell what it would be reloading to.
+func versionConflict(err error) error {
+	details := []error{&huma.ErrorDetail{Location: "body.expectedVersion", Message: err.Error(), Value: conflictVersion}}
+	var stale *connector.VersionConflictError
+	if errors.As(err, &stale) {
+		details = append(details, &huma.ErrorDetail{Location: "version", Message: "the version stored now", Value: stale.Current})
+	}
+	return huma.Error409Conflict(err.Error(), details...)
 }
 
 func onlyNameTaken(issues []adapter.Issue) bool {

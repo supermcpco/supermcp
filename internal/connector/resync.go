@@ -202,12 +202,17 @@ func (s *Service) PlanResync(ctx context.Context, orgID, id string, bundled Bund
 func (s *Service) ApplyResync(ctx context.Context, orgID, id string, bundled BundledFunc, in ResyncInput) (*ResyncPlan, error) {
 	var plan *ResyncPlan
 	err := s.DB.Tx(tenant.WithOrg(ctx, orgID), func(tx pgx.Tx) error {
-		c, err := lockConnector(ctx, tx, id)
+		// A re-sync is only ever applied to the version that was
+		// reviewed, so unlike an edit it has no "not said".
+		if in.ExpectedVersion == 0 {
+			return ErrResyncStale
+		}
+		c, err := lockConnectorAt(ctx, tx, id, in.ExpectedVersion)
+		if errors.Is(err, ErrVersionConflict) {
+			return ErrResyncStale
+		}
 		if err != nil {
 			return err
-		}
-		if c.Version != in.ExpectedVersion {
-			return ErrResyncStale
 		}
 		plan, err = planResyncTx(ctx, tx, c, bundled, " FOR NO KEY UPDATE")
 		if err != nil {

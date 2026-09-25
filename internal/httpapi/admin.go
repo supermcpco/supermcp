@@ -326,14 +326,15 @@ func (d Deps) connectorRoutes(api huma.API) {
 		func(ctx context.Context, in *struct {
 			ID   string `path:"id"`
 			Body struct {
-				Credentials map[string]string `json:"credentials"`
+				Credentials     map[string]string `json:"credentials"`
+				ExpectedVersion int64             `json:"expectedVersion,omitempty" doc:"The connector version that was read. A mismatch is a 409. Optional for now; a later release requires it"`
 			}
 		}) (*struct{ Body connectorDTO }, error) {
 			p, err := d.requireFresh(ctx, authz.ConnectorsAuth, authz.Resource{ConnectorID: in.ID})
 			if err != nil {
 				return nil, err
 			}
-			if err := d.Connectors.SetCredentials(ctx, p.OrgID, in.ID, in.Body.Credentials); err != nil {
+			if err := d.Connectors.SetCredentials(ctx, p.OrgID, in.ID, in.Body.Credentials, in.Body.ExpectedVersion); err != nil {
 				d.adminFailed(ctx, "connector.credentials.update", "connector", in.ID, err)
 				return nil, humaErr(err)
 			}
@@ -363,6 +364,9 @@ func (d Deps) connectorRoutes(api huma.API) {
 				Instructions *string `json:"instructions,omitempty"`
 				ReadOnly     *bool   `json:"readOnly,omitempty"`
 				Enabled      *bool   `json:"enabled,omitempty"`
+				// ExpectedVersion is optional for one release, then required
+				// as it is on a tool update.
+				ExpectedVersion int64 `json:"expectedVersion,omitempty" doc:"The connector version that was read. A mismatch is a 409. Optional for now; a later release requires it"`
 			}
 		}) (*struct{ Body connectorDTO }, error) {
 			p, err := d.require(ctx, authz.ConnectorsUpdate, authz.Resource{ConnectorID: in.ID})
@@ -370,7 +374,8 @@ func (d Deps) connectorRoutes(api huma.API) {
 				return nil, err
 			}
 			before, _ := d.Connectors.Get(ctx, p.OrgID, in.ID)
-			c, err := d.Connectors.Update(ctx, p.OrgID, in.ID, connector.UpdateInput{Name: in.Body.Name, Instructions: in.Body.Instructions, ReadOnly: in.Body.ReadOnly, Enabled: in.Body.Enabled, ActorID: p.ID})
+			c, err := d.Connectors.Update(ctx, p.OrgID, in.ID, connector.UpdateInput{Name: in.Body.Name, Instructions: in.Body.Instructions,
+				ReadOnly: in.Body.ReadOnly, Enabled: in.Body.Enabled, ExpectedVersion: in.Body.ExpectedVersion, ActorID: p.ID})
 			if err != nil {
 				d.adminFailed(ctx, "connector.update", "connector", in.ID, err)
 				return nil, humaErr(err)
@@ -481,7 +486,7 @@ type connectorDTO struct {
 	CatalogOutdated bool                       `json:"catalogOutdated" doc:"The adapter this server carries differs from the one the connector was installed or last re-synced from"`
 	ReadOnly        bool                       `json:"readOnly"`
 	Enabled         bool                       `json:"enabled"`
-	Version         int64                      `json:"version"`
+	Version         int64                      `json:"version" doc:"Send back as expectedVersion when updating"`
 	ToolCount       int                        `json:"toolCount"`
 	Credentials     []connector.CredentialInfo `json:"credentials"`
 	CreatedAt       time.Time                  `json:"createdAt"`
@@ -594,6 +599,9 @@ func (d Deps) serverRoutes(api huma.API) {
 				Instructions *string   `json:"instructions,omitempty"`
 				Enabled      *bool     `json:"enabled,omitempty"`
 				ConnectorIDs *[]string `json:"connectorIds,omitempty"`
+				// ExpectedVersion is optional for one release, then required
+				// as it is on a tool update.
+				ExpectedVersion int64 `json:"expectedVersion,omitempty" doc:"The server version that was read. A mismatch is a 409. Optional for now; a later release requires it"`
 			}
 		}) (*struct{ Body *mcpserver.Server }, error) {
 			r := authz.Resource{ServerID: in.ID}
@@ -607,7 +615,8 @@ func (d Deps) serverRoutes(api huma.API) {
 				}
 			}
 			before, _ := d.Servers.Get(ctx, p.OrgID, in.ID)
-			srv, err := d.Servers.Update(ctx, p.OrgID, in.ID, mcpserver.UpdateInput{Name: in.Body.Name, Instructions: in.Body.Instructions, Enabled: in.Body.Enabled, ConnectorIDs: in.Body.ConnectorIDs, ActorID: p.ID})
+			srv, err := d.Servers.Update(ctx, p.OrgID, in.ID, mcpserver.UpdateInput{Name: in.Body.Name, Instructions: in.Body.Instructions,
+				Enabled: in.Body.Enabled, ConnectorIDs: in.Body.ConnectorIDs, ExpectedVersion: in.Body.ExpectedVersion, ActorID: p.ID})
 			if err != nil {
 				d.adminFailed(ctx, "server.update", "server", in.ID, err)
 				return nil, humaErr(err)

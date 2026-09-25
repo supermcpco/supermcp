@@ -27,7 +27,7 @@ type Server struct {
 	Name         string    `json:"name"`
 	Instructions string    `json:"instructions,omitempty"`
 	Enabled      bool      `json:"enabled"`
-	Version      int64     `json:"version"`
+	Version      int64     `json:"version" doc:"Send back as expectedVersion when updating"`
 	ConnectorIDs []string  `json:"connectorIds" nullable:"false"`
 	CreatedAt    time.Time `json:"createdAt"`
 	UpdatedAt    time.Time `json:"updatedAt"`
@@ -76,6 +76,9 @@ func (s *Service) Create(ctx context.Context, orgID, name, slug, instructions st
 		if err := s.setConnectorsTx(ctx, tx, srv, connectorIDs); err != nil {
 			return err
 		}
+		if _, err := tx.Exec(ctx, `UPDATE mcp_servers SET version = version + 1, updated_at = now() WHERE id = $1`, srv.ID); err != nil {
+			return err
+		}
 		srv.ConnectorIDs = connectorIDs
 		return s.record(ctx, tx, srv.ID, "create", srv, audit.Created(srv), createdBy)
 	})
@@ -88,6 +91,9 @@ func (s *Service) Create(ctx context.Context, orgID, name, slug, instructions st
 	return s.Get(ctx, orgID, srv.ID)
 }
 
+// setConnectorsTx replaces the connectors attached to a server. It leaves
+// the version to its caller: an update bumps it once for everything it
+// changes, so a client that sent expectedVersion N reads N+1 back.
 func (s *Service) setConnectorsTx(ctx context.Context, tx pgx.Tx, srv *Server, ids []string) error {
 	if _, err := tx.Exec(ctx, `DELETE FROM mcp_server_connectors WHERE server_id = $1`, srv.ID); err != nil {
 		return err
@@ -99,8 +105,7 @@ func (s *Service) setConnectorsTx(ctx context.Context, tx pgx.Tx, srv *Server, i
 			return err
 		}
 	}
-	_, err := tx.Exec(ctx, `UPDATE mcp_servers SET version = version + 1, updated_at = now() WHERE id = $1`, srv.ID)
-	return err
+	return nil
 }
 
 func slugify(s string) string {
@@ -205,6 +210,9 @@ type UpdateInput struct {
 	Instructions *string
 	Enabled      *bool
 	ConnectorIDs *[]string
+	// ExpectedVersion, when not zero, must equal the stored version; see
+	// connector.CheckVersion.
+	ExpectedVersion int64
 	// ActorID names who made the change, for the revision it produces.
 	ActorID string
 }
@@ -214,6 +222,9 @@ func (s *Service) Update(ctx context.Context, orgID, id string, in UpdateInput) 
 	err := s.DB.Tx(tenant.WithOrg(ctx, orgID), func(tx pgx.Tx) error {
 		srv, err := scan(tx.QueryRow(ctx, selectServer+` WHERE s.id = $1 FOR UPDATE OF s`, id))
 		if err != nil {
+			return err
+		}
+		if err := connector.CheckVersion("server", in.ExpectedVersion, srv.Version); err != nil {
 			return err
 		}
 		before := *srv

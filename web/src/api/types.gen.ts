@@ -326,6 +326,9 @@ export type ConnectorDto = {
         [key: string]: unknown;
     };
     updatedAt: string;
+    /**
+     * Send back as expectedVersion when updating
+     */
     version: number;
 };
 
@@ -337,6 +340,10 @@ export type ConnectorsCredentialsRequest = {
     credentials: {
         [key: string]: string;
     };
+    /**
+     * The connector version that was read. A mismatch is a 409. Optional for now; a later release requires it
+     */
+    expectedVersion?: number;
 };
 
 export type ConnectorsInstallRequest = {
@@ -364,6 +371,10 @@ export type ConnectorsUpdateRequest = {
      */
     readonly $schema?: string;
     enabled?: boolean;
+    /**
+     * The connector version that was read. A mismatch is a 409. Optional for now; a later release requires it
+     */
+    expectedVersion?: number;
     instructions?: string;
     name?: string;
     readOnly?: boolean;
@@ -1540,6 +1551,9 @@ export type Server = {
     organizationId: string;
     slug: string;
     updatedAt: string;
+    /**
+     * Send back as expectedVersion when updating
+     */
     version: number;
 };
 
@@ -1561,6 +1575,10 @@ export type ServersUpdateRequest = {
     readonly $schema?: string;
     connectorIds?: Array<string>;
     enabled?: boolean;
+    /**
+     * The server version that was read. A mismatch is a 409. Optional for now; a later release requires it
+     */
+    expectedVersion?: number;
     instructions?: string;
     name?: string;
 };
@@ -2027,6 +2045,17 @@ export type VerifyResult = {
     valid: boolean;
 };
 
+export type VersionedRestoreInputBody = {
+    /**
+     * A URL to the JSON Schema for this object.
+     */
+    readonly $schema?: string;
+    /**
+     * The version that was read. A mismatch is a 409. Optional for now; a later release requires it
+     */
+    expectedVersion?: number;
+};
+
 export type AcceptInviteInputBodyWritable = {
     name?: string;
     /**
@@ -2238,6 +2267,9 @@ export type ConnectorDtoWritable = {
         [key: string]: unknown;
     };
     updatedAt: string;
+    /**
+     * Send back as expectedVersion when updating
+     */
     version: number;
 };
 
@@ -2245,6 +2277,10 @@ export type ConnectorsCredentialsRequestWritable = {
     credentials: {
         [key: string]: string;
     };
+    /**
+     * The connector version that was read. A mismatch is a 409. Optional for now; a later release requires it
+     */
+    expectedVersion?: number;
 };
 
 export type ConnectorsInstallRequestWritable = {
@@ -2260,6 +2296,10 @@ export type ConnectorsOauthRedirectUriResponseWritable = {
 
 export type ConnectorsUpdateRequestWritable = {
     enabled?: boolean;
+    /**
+     * The connector version that was read. A mismatch is a 409. Optional for now; a later release requires it
+     */
+    expectedVersion?: number;
     instructions?: string;
     name?: string;
     readOnly?: boolean;
@@ -2977,6 +3017,9 @@ export type ServerWritable = {
     organizationId: string;
     slug: string;
     updatedAt: string;
+    /**
+     * Send back as expectedVersion when updating
+     */
     version: number;
 };
 
@@ -2990,6 +3033,10 @@ export type ServersCreateRequestWritable = {
 export type ServersUpdateRequestWritable = {
     connectorIds?: Array<string>;
     enabled?: boolean;
+    /**
+     * The server version that was read. A mismatch is a 409. Optional for now; a later release requires it
+     */
+    expectedVersion?: number;
     instructions?: string;
     name?: string;
 };
@@ -3217,6 +3264,13 @@ export type VerifyResultWritable = {
     scrubbed?: number;
     unsigned?: number;
     valid: boolean;
+};
+
+export type VersionedRestoreInputBodyWritable = {
+    /**
+     * The version that was read. A mismatch is a 409. Optional for now; a later release requires it
+     */
+    expectedVersion?: number;
 };
 
 export type AnalyticsUsageData = {
@@ -4736,7 +4790,7 @@ export type ConnectorsRevisionsGetResponses = {
 export type ConnectorsRevisionsGetResponse = ConnectorsRevisionsGetResponses[keyof ConnectorsRevisionsGetResponses];
 
 export type ConnectorsRevisionsRestoreData = {
-    body?: never;
+    body?: VersionedRestoreInputBodyWritable;
     path: {
         id: string;
         revision: number;
@@ -6125,7 +6179,7 @@ export type ServersRevisionsGetResponses = {
 export type ServersRevisionsGetResponse = ServersRevisionsGetResponses[keyof ServersRevisionsGetResponses];
 
 export type ServersRevisionsRestoreData = {
-    body?: never;
+    body?: VersionedRestoreInputBodyWritable;
     path: {
         id: string;
         revision: number;

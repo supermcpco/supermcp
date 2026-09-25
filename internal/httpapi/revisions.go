@@ -204,7 +204,8 @@ func (d Deps) connectorRestoreRoute(api huma.API) {
 		Summary:     "Put a connector back the way an earlier revision found it",
 		Description: "A browser session must have signed in within the fresh-auth window.", Tags: []string{"connectors"},
 		Security: sessionSecurity},
-		func(ctx context.Context, in *revisionGetInput) (*struct{ Body connectorDTO }, error) {
+		func(ctx context.Context, restore *versionedRestoreInput) (*struct{ Body connectorDTO }, error) {
+			in := restore.revision()
 			p, snapshot, err := d.snapshotToRestore(ctx, connectorRevisions, in)
 			if err != nil {
 				return nil, err
@@ -214,6 +215,9 @@ func (d Deps) connectorRestoreRoute(api huma.API) {
 				Instructions: snapString(snapshot, "instructions"),
 				ReadOnly:     snapBool(snapshot, "readOnly"),
 				Enabled:      snapBool(snapshot, "enabled"),
+				// The check is made under the row lock in the service, not
+				// here: a restore is the write most likely to race.
+				ExpectedVersion: restore.expectedVersion(),
 			}
 			var transport adapter.Transport
 			if err := snapInto(snapshot, "transport", &transport); err != nil {
@@ -241,16 +245,18 @@ func (d Deps) serverRestoreRoute(api huma.API) {
 		Summary:     "Put an MCP server back the way an earlier revision found it",
 		Description: "A browser session must have signed in within the fresh-auth window.", Tags: []string{"servers"},
 		Security: sessionSecurity},
-		func(ctx context.Context, in *revisionGetInput) (*struct{ Body *mcpserver.Server }, error) {
+		func(ctx context.Context, restore *versionedRestoreInput) (*struct{ Body *mcpserver.Server }, error) {
+			in := restore.revision()
 			p, snapshot, err := d.snapshotToRestore(ctx, serverRevisions, in)
 			if err != nil {
 				return nil, err
 			}
 			srv, err := d.Servers.Update(ctx, p.OrgID, in.ID, mcpserver.UpdateInput{
-				Name:         snapString(snapshot, "name"),
-				Instructions: snapString(snapshot, "instructions"),
-				Enabled:      snapBool(snapshot, "enabled"),
-				ConnectorIDs: snapStrings(snapshot, "connectorIds"),
+				Name:            snapString(snapshot, "name"),
+				Instructions:    snapString(snapshot, "instructions"),
+				Enabled:         snapBool(snapshot, "enabled"),
+				ConnectorIDs:    snapStrings(snapshot, "connectorIds"),
+				ExpectedVersion: restore.expectedVersion(),
 			})
 			if err != nil {
 				d.restoreFailed(ctx, serverRevisions, in, err)
@@ -336,6 +342,28 @@ func (d Deps) toolRestoreRoute(api huma.API) {
 			d.restored(ctx, toolRevisions, in, t.Name)
 			return &struct{ Body toolDTO }{Body: toolToDTO(t, c)}, nil
 		})
+}
+
+// versionedRestoreInput is a connector or server restore. The body is
+// optional, as expectedVersion is for one release; a restore sent without
+// one is not checked against a version.
+type versionedRestoreInput struct {
+	ID       string `path:"id"`
+	Revision int    `path:"revision" minimum:"1"`
+	Body     *struct {
+		ExpectedVersion int64 `json:"expectedVersion,omitempty" doc:"The version that was read. A mismatch is a 409. Optional for now; a later release requires it"`
+	}
+}
+
+func (in *versionedRestoreInput) revision() *revisionGetInput {
+	return &revisionGetInput{ID: in.ID, Revision: in.Revision}
+}
+
+func (in *versionedRestoreInput) expectedVersion() int64 {
+	if in.Body == nil {
+		return 0
+	}
+	return in.Body.ExpectedVersion
 }
 
 type toolRestoreInput struct {

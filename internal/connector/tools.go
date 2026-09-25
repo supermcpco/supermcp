@@ -25,7 +25,9 @@ var (
 	// ErrToolNameTaken means another tool on the same connector already
 	// has the name.
 	ErrToolNameTaken = errors.New("a tool with this name already exists on this connector")
-	// ErrVersionConflict means the tool changed since the caller read it.
+	// ErrVersionConflict means the tool, connector or server changed since
+	// the caller read it. The error returned is a *VersionConflictError,
+	// which matches it under errors.Is.
 	ErrVersionConflict = errors.New("the tool was changed by someone else; reload it and try again")
 	// ErrToolNotDeletable means the tool came from the catalog or an
 	// import. Those can only be disabled.
@@ -35,6 +37,35 @@ var (
 	// not say it accepts that.
 	ErrReferencesNotAcknowledged = errors.New("approval policies refer to this tool by name; acknowledge the references to continue")
 )
+
+// VersionConflictError is a write refused because the row is no longer at
+// the version the caller read. It matches ErrVersionConflict under
+// errors.Is; Current is the version stored now, for the caller to read
+// again.
+type VersionConflictError struct {
+	// Kind is what changed: "tool", "connector" or "server".
+	Kind    string
+	Current int64
+}
+
+func (e *VersionConflictError) Error() string {
+	return "the " + e.Kind + " was changed by someone else; reload it and try again"
+}
+
+// Is makes errors.Is(err, ErrVersionConflict) hold.
+func (e *VersionConflictError) Is(target error) bool { return target == ErrVersionConflict }
+
+// CheckVersion refuses a write made against a version other than the one
+// stored. Every guarded write calls it on the row it has locked, inside
+// the transaction that writes. An expected of zero means the caller did
+// not say, and is let through: expectedVersion is optional on connectors
+// and servers for one release.
+func CheckVersion(kind string, expected, current int64) error {
+	if expected == 0 || expected == current {
+		return nil
+	}
+	return &VersionConflictError{Kind: kind, Current: current}
+}
 
 // Tool sources: where a stored tool came from.
 const (
@@ -295,8 +326,8 @@ func (s *Service) UpdateTool(ctx context.Context, orgID, toolID string, in ToolI
 		if err != nil {
 			return err
 		}
-		if in.ExpectedVersion != 0 && in.ExpectedVersion != before.Version {
-			return ErrVersionConflict
+		if err := CheckVersion("tool", in.ExpectedVersion, before.Version); err != nil {
+			return err
 		}
 		issues, err := checkToolTx(ctx, tx, c, toolID, before.Definition, in.Definition)
 		if err != nil {
@@ -533,6 +564,22 @@ func lockConnector(ctx context.Context, tx pgx.Tx, connectorID string) (*Connect
 		return nil, ErrNotFound
 	}
 	if err != nil {
+		return nil, err
+	}
+	return c, nil
+}
+
+// lockConnectorAt locks a connector and refuses, with a
+// *VersionConflictError, when it is no longer at expected (zero: not
+// checked). Every connector write that takes the version it was read at
+// goes through it, the re-sync included, so the lock and the comparison
+// cannot drift apart between them.
+func lockConnectorAt(ctx context.Context, tx pgx.Tx, connectorID string, expected int64) (*Connector, error) {
+	c, err := lockConnector(ctx, tx, connectorID)
+	if err != nil {
+		return nil, err
+	}
+	if err := CheckVersion("connector", expected, c.Version); err != nil {
 		return nil, err
 	}
 	return c, nil
