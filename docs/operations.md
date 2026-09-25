@@ -141,7 +141,9 @@ rows are deleted only by one contiguous cut across the whole instance, at
 the longest window any workspace still asks for. A legal hold stops that
 cut where it sits. Deleting one tenant's rows out of the middle of a
 shared sequence would leave a gap no anchor can bridge, which is why it is
-not offered.
+not offered. A whole month past the cut goes by dropping its partition
+(below); the part of a month the cut runs into is deleted row by row. It
+is the same cut either way, and `audit verify` bridges it the same way.
 
 A workspace sets its window, 90 to 36 500 days and 365 by default, under
 **Settings → Audit trail → How long it is kept**, or with
@@ -150,6 +152,47 @@ screen and `GET /api/v1/audit/retention` also show the instance-wide
 cut, which is the longest window any workspace keeps; one workspace
 choosing ten years therefore keeps every workspace's scrubbed rows for
 ten years.
+
+### Monthly partitions
+
+`audit_events` is partitioned by calendar month (UTC) on the event's
+time, one table per month named `audit_events_pYYYYMM`, plus
+`audit_events_default` for an event whose month has no table of its own.
+Nothing about reading or writing the trail changes; what it buys is
+retention: a month past the cut is dropped in a moment instead of deleted
+row by row, which on a large trail wrote the whole month to the WAL and
+left it for autovacuum.
+
+The `audit-partition-maint` job runs hourly, on one replica at a time
+under the same lock as the other sweeps, and creates the current month and
+the three after it where they are missing. Creating a month does not stop
+appends. `supermcp_audit_partition_months_ahead` is how many months ahead
+exist; it is 3 in a healthy instance. If the job stops, nothing is lost:
+events for a month with no table land in `audit_events_default`, and the
+job moves them into the month's table when it creates it. But a month
+that is not a table of its own cannot be dropped whole, and a large
+default table slows every month the job adds, so the alert below fires
+before that happens.
+
+To see the months and what each holds:
+
+```sql
+SELECT partition, lower_bound, upper_bound, pg_size_pretty(pg_total_relation_size(partition))
+FROM audit_partition_bounds('audit_events');
+SELECT count(*) FROM audit_events_default;   -- normally 0
+```
+
+Dropping a month needs `audit_events` to itself for a moment. The cut
+waits at most three seconds for that; if a long `audit verify`, an export
+or a report is reading the table, the whole cut is rolled back, the
+sweep logs `background sweep failed` with `job=audit-retention` and says
+the table was busy, and the next hour tries again. Appends wait while
+the cut waits, so for up to those three seconds, and then for the drop
+itself, which is milliseconds.
+
+Never drop a month by hand. Retention records where it cut, so `audit
+verify` can tell a lawful cut from a deletion; a month dropped any other
+way is reported as removed rows, which is what it is.
 
 ## Rotating the master key
 
@@ -517,7 +560,7 @@ reconnect.
 
 ## What the alerts mean
 
-The chart ships eleven rules with `metrics.prometheusRule.enabled=true`.
+The chart ships twelve rules with `metrics.prometheusRule.enabled=true`.
 Each is a symptom rather than a cause.
 
 - **Nothing answering.** No replica responded. Clients cannot reach any tool.
@@ -552,6 +595,20 @@ Each is a symptom rather than a cause.
   `SELECT id, organization_id, consecutive_failures, last_error FROM
   audit_exporters WHERE enabled ORDER BY consecutive_failures DESC` finds
   it across all of them.
+- **Audit partitions running out.** `audit_events` has no table for next
+  month: the `audit-partition-maint` job has not run successfully for
+  weeks (it keeps three months ahead, and this waits an hour,
+  `metrics.prometheusRule.for.partitions`). Nothing is refused and
+  nothing is lost; events for a month without a table go to
+  `audit_events_default`. Find the reason in the log line
+  `background sweep failed` with `job=audit-partition-maint`: usually
+  `lock timeout` (something held `audit_events`, such as an index build
+  or a long transaction; it retries hourly), or a permission error if
+  `SUPERMCP_MAINT_DATABASE_URL` no longer names the role that owns the
+  table. Once it is fixed the next run creates the missing months and
+  moves their events out of the default table; to not wait the hour, run
+  `SELECT audit_partition_ensure('audit_events', now(), now() + interval '3 months');`
+  as that role.
 - **A database pool saturated.** A replica has used more than nine in ten
   of the `app` or `maint` pool's connections for ten minutes and requests
   are queueing for one. Look for slow queries and long transactions
@@ -588,13 +645,14 @@ this instance to a vendor who never asked for it.
 
 `metrics.dashboard.enabled=true` ships a Grafana dashboard as a ConfigMap
 carrying the label the Grafana sidecar watches, so it appears without
-anybody importing anything. Thirteen panels, in the order an incident is
+anybody importing anything. Fourteen panels, in the order an incident is
 usually read: what the instance is doing, what is failing and why,
 latency end to end beside the time spent waiting on the upstream (when
 those two move together the problem is outside this system), the surface
 build, MCP methods, refusals, open breakers, the audit queue, whether
-the rate limiter is degraded, master key calls, audit export lag and how
-full the database pools are.
+the rate limiter is degraded, master key calls, audit export lag, how
+full the database pools are, and how many months ahead the audit trail is
+partitioned.
 
 The JSON is `charts/supermcp/dashboards/supermcp.json` for anyone not
 running that sidecar.

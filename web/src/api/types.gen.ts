@@ -2291,6 +2291,7 @@ export type VerifyResult = {
     explanation?: string;
     firstSeq: number;
     lastSeq: number;
+    retentionCut?: number;
     scrubbed?: number;
     unsigned?: number;
     valid: boolean;
@@ -3709,6 +3710,7 @@ export type VerifyResultWritable = {
     explanation?: string;
     firstSeq: number;
     lastSeq: number;
+    retentionCut?: number;
     scrubbed?: number;
     unsigned?: number;
     valid: boolean;

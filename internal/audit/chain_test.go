@@ -499,8 +499,8 @@ func TestCutLeavesTheRemainingChainVerifiable(t *testing.T) {
 	r := &audit.Reader{DB: db}
 	// Retention runs on a timer against streams where nothing has aged out
 	// yet, so the empty case has to be a quiet no-op.
-	if deleted, err := r.Cut(ctx, time.Now().Add(-100*365*24*time.Hour)); err != nil || deleted != 0 {
-		t.Fatalf("cutting at a date no event predates removed %d rows (err %v); it should have found nothing to do", deleted, err)
+	if cut, err := r.Cut(ctx, time.Now().Add(-100*365*24*time.Hour)); err != nil || cut.Deleted != 0 {
+		t.Fatalf("cutting at a date no event predates removed %d rows (err %v); it should have found nothing to do", cut.Deleted, err)
 	}
 
 	// The timestamp is covered by the hash, so a stream that needs to look
@@ -518,12 +518,12 @@ func TestCutLeavesTheRemainingChainVerifiable(t *testing.T) {
 	lo, hi := s.bounds(ctx)
 	cut := seqs[4]
 
-	deleted, err := r.Cut(ctx, time.Now().Add(-24*time.Hour))
+	result, err := r.Cut(ctx, time.Now().Add(-24*time.Hour))
 	if err != nil {
 		t.Fatalf("cutting events older than 24h failed: %v", err)
 	}
-	if deleted < 5 {
-		t.Fatalf("Cut removed %d events, but the 5 events up to seq %d were aged past the 24h window", deleted, cut)
+	if result.Deleted < 5 {
+		t.Fatalf("Cut removed %d events, but the 5 events up to seq %d were aged past the 24h window", result.Deleted, cut)
 	}
 
 	var kind string
@@ -577,12 +577,12 @@ func TestCutStopsAtALegalHold(t *testing.T) {
 	// Skipping the held row and deleting around it would tear the chain, so
 	// the cut has to stop at it and leave the newer rows alone as well.
 	r := &audit.Reader{DB: db}
-	deleted, err := r.Cut(ctx, time.Now().Add(-24*time.Hour))
+	result, err := r.Cut(ctx, time.Now().Add(-24*time.Hour))
 	if err != nil {
 		t.Fatalf("cutting a stream with a row under legal hold failed: %v", err)
 	}
-	if deleted != 3 {
-		t.Errorf("Cut removed %d events; it should have stopped below the legal hold at seq %d and removed the 3 rows before it", deleted, held)
+	if result.Deleted != 3 {
+		t.Errorf("Cut removed %d events; it should have stopped below the legal hold at seq %d and removed the 3 rows before it", result.Deleted, held)
 	}
 
 	survivors := s.seqs(ctx)

@@ -227,6 +227,9 @@ metrics:
       down: 5m
       errors: 10m
       latency: 15m
+      # audit_events is partitioned three months ahead, so running short
+      # is weeks in the making and an hour's wait costs nothing.
+      partitions: 1h
     # Each replica listens for cache invalidations on
     # SUPERMCP_MAINT_DATABASE_URL, which the install guide says must reach
     # Postgres directly. Behind PgBouncer in transaction mode the listener

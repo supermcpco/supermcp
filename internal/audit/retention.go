@@ -108,12 +108,13 @@ func (r *Retention) Run(ctx context.Context) error {
 	}
 	// Nothing is deleted until every organisation has given up on it.
 	if longest > 0 {
-		deleted, err := reader.Cut(ctx, now.Add(-longest))
+		cut, err := reader.Cut(ctx, now.Add(-longest))
 		if err != nil {
 			errs = append(errs, fmt.Errorf("cut: %w", err))
-		} else if deleted > 0 {
+		} else if cut.Deleted > 0 {
 			r.logger().Info("audit retention cut the stream",
-				"deleted", deleted, "days", int64(longest/(24*time.Hour)))
+				"deleted", cut.Deleted, "seq", cut.Seq, "partitions", cut.Partitions,
+				"days", int64(longest/(24*time.Hour)))
 		}
 	}
 	return errors.Join(errs...)

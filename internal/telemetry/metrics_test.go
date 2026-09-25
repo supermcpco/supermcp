@@ -32,6 +32,7 @@ func TestInstrumentNamesAndLabels(t *testing.T) {
 	m.SetRateLimitDegraded(true)
 	m.ObserveCacheInvalidation(telemetry.CacheAuthz, telemetry.InvalidationNotify)
 	m.SetCacheListenerConnected(true)
+	m.SetAuditPartitionMonthsAhead(3)
 
 	tests := []struct {
 		name       string
@@ -50,6 +51,7 @@ func TestInstrumentNamesAndLabels(t *testing.T) {
 		{name: "ratelimit degraded", metric: "supermcp_ratelimit_degraded", wantLabels: []string{}},
 		{name: "cache invalidations", metric: "supermcp_cache_invalidations_total", wantLabels: []string{"cache", "source"}},
 		{name: "cache listener", metric: "supermcp_cache_listener_connected", wantLabels: []string{}},
+		{name: "audit partitions ahead", metric: "supermcp_audit_partition_months_ahead", wantLabels: []string{}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -108,6 +110,12 @@ func TestGaugesCarryTheValueSet(t *testing.T) {
 			record: func(m *telemetry.Metrics) { m.SetRateLimitDegraded(true) },
 			metric: "supermcp_ratelimit_degraded",
 			want:   1,
+		},
+		{
+			name:   "audit partitions ahead",
+			record: func(m *telemetry.Metrics) { m.SetAuditPartitionMonthsAhead(3) },
+			metric: "supermcp_audit_partition_months_ahead",
+			want:   3,
 		},
 		{
 			name:   "ratelimit healthy",
@@ -269,6 +277,7 @@ func TestNilMetricsRecordsNothing(t *testing.T) {
 	m.SetRateLimitDegraded(true)
 	m.ObserveKEK(telemetry.KEKProviderAWSKMS, telemetry.KEKKeyActive, telemetry.KEKUnwrap, errors.New("down"))
 	m.SetAuditExportLag(map[string]time.Duration{telemetry.ExportKindWebhook: time.Hour})
+	m.SetAuditPartitionMonthsAhead(3)
 	m.WatchDBPool(telemetry.PoolApp, func() telemetry.DBPoolStats { return telemetry.DBPoolStats{} })
 	if m.Registry() != nil {
 		t.Error("Registry on a nil Metrics returned a registry")

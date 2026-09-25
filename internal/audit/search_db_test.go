@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/supermcpco/supermcp/internal/audit"
+	"github.com/supermcpco/supermcp/internal/tenant"
 )
 
 // TestListSearches checks the q filter: what it finds, what it must not
@@ -241,12 +242,69 @@ func TestSearchReadsTheIndex(t *testing.T) {
 	if inner == "" {
 		t.Fatalf("auto_explain reported no plan for the search inside audit_search; it reported:\n%s", plans)
 	}
-	if !strings.Contains(inner, "audit_events_search_idx") {
-		t.Errorf("the search inside audit_search does not read audit_events_search_idx:\n%s", inner)
+	// audit_events is partitioned by month (migration 00033), so the plan
+	// reads each partition's own copy of audit_events_search_idx. What
+	// matters is the partitions holding the workspace's events: each reads
+	// its search index and none tests documents one by one. A partition the
+	// planner knows to be empty may be walked instead; that tests nothing.
+	for _, part := range partitionsOf(ctx, t, db, s.org()) {
+		if !strings.Contains(inner, "Bitmap Index Scan on "+part+"_audit_search_document_idx") {
+			t.Errorf("the search inside audit_search does not read %s's copy of audit_events_search_idx:\n%s", part, inner)
+		}
+		for _, node := range planNodes(inner) {
+			if strings.Contains(node, " on "+part+" ") && strings.Contains(node, "Filter: (audit_search_document") {
+				t.Errorf("the plan tests every document in %s instead of reading the index:\n%s", part, inner)
+			}
+		}
 	}
 	for _, p := range notices {
-		if strings.Contains(p, "Filter: (audit_search_document") {
+		if p != inner && strings.Contains(p, "Filter: (audit_search_document") {
 			t.Errorf("a plan tests every event's document instead of reading the index:\n%s", p)
 		}
 	}
+}
+
+// partitionsOf names the partitions of audit_events holding an
+// organisation's events.
+func partitionsOf(ctx context.Context, t *testing.T, db *tenant.DB, org string) []string {
+	t.Helper()
+	var out []string
+	err := db.Bypass(ctx, "audit test partitions", func(tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, `SELECT DISTINCT tableoid::regclass::text FROM audit_events WHERE organization_id = $1 ORDER BY 1`, org)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var name string
+			if err := rows.Scan(&name); err != nil {
+				return err
+			}
+			out = append(out, name)
+		}
+		return rows.Err()
+	})
+	if err != nil {
+		t.Fatalf("could not find which partitions hold %s's events: %v", org, err)
+	}
+	if len(out) == 0 {
+		t.Fatalf("no partition holds %s's events", org)
+	}
+	return out
+}
+
+// planNodes splits an EXPLAIN text plan into its nodes, each with the
+// lines (conditions, filters) that belong to it.
+func planNodes(plan string) []string {
+	var nodes []string
+	var cur strings.Builder
+	for _, line := range strings.Split(plan, "\n") {
+		if strings.Contains(line, "->") && cur.Len() > 0 {
+			nodes = append(nodes, cur.String())
+			cur.Reset()
+		}
+		cur.WriteString(line)
+		cur.WriteString("\n")
+	}
+	return append(nodes, cur.String())
 }

@@ -95,6 +95,11 @@ func auditVerify(args []string) error {
 		} else {
 			fmt.Printf("checked %d events (sequence %d to %d)\n", res.Checked, res.FirstSeq, res.LastSeq)
 		}
+		// Retention removes the oldest events, row by row or a month at a
+		// time with its partition, and anchors where it stopped.
+		if res.RetentionCut > 0 {
+			fmt.Printf("starts after the retention cut at sequence %d\n", res.RetentionCut)
+		}
 		if res.Anchors > 0 {
 			fmt.Printf("matched %d checkpoints", res.Anchors)
 			if res.Unsigned > 0 {
