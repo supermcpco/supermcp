@@ -244,3 +244,36 @@ func breakTool(tl *adapter.Tool, i int) {
 		tl.Operation.Value = nil
 	}
 }
+
+// TestMalformedAuthPlaceholderDoesNotEchoTheValue guards the one message
+// that could carry a literal credential out of a local adapter and into
+// a terminal or a CI log: an auth value with a broken placeholder is
+// reported by place, never by content.
+func TestMalformedAuthPlaceholderDoesNotEchoTheValue(t *testing.T) {
+	t.Parallel()
+	files, err := adapter.LoadFS(adapters.FS, ".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) == 0 {
+		t.Fatal("no catalog adapters")
+	}
+	f := *files[0]
+	a := *f.Adapter
+	a.Auth = adapter.Auth{Type: adapter.AuthBasic, Username: "svc", Password: "hunter2 {{ oops"}
+	a.Transport.Headers = adapter.OrderedMap[string]{Keys: []string{"Authorization"}, Values: map[string]string{"Authorization": "Bearer t0ps3cret {{"}}
+	f.Adapter = &a
+	issues := adapter.Validate(&f)
+	syntax := 0
+	for _, is := range issues {
+		if strings.Contains(is.Message, "hunter2") || strings.Contains(is.Message, "t0ps3cret") {
+			t.Errorf("issue echoes a credential: %s", is.Message)
+		}
+		if is.Rule == "placeholder-syntax" {
+			syntax++
+		}
+	}
+	if syntax < 2 {
+		t.Errorf("got %d placeholder-syntax issues, want one for the password and one for the header", syntax)
+	}
+}
