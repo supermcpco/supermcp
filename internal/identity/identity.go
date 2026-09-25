@@ -484,10 +484,12 @@ func (s *Service) RevokeSession(ctx context.Context, id, reason string) (int, er
 
 // ReplaceSession ends a session that a re-authentication replaced with
 // another for the same person. The refresh tokens the old session
-// consented to move to the new one instead of ending with it.
-func (s *Service) ReplaceSession(ctx context.Context, oldID, newID, reason string) error {
+// consented to move to the new one instead of ending with it, and take
+// amr, the new session's authentication methods, so they say how the
+// session they now belong to signed in.
+func (s *Service) ReplaceSession(ctx context.Context, oldID, newID, reason string, amr []string) error {
 	return s.DB.Pre(ctx, func(tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, "SELECT auth_session_replace($1,$2,$3)", oldID, newID, reason)
+		_, err := tx.Exec(ctx, "SELECT auth_session_replace($1,$2,$3,$4)", oldID, newID, reason, amr)
 		return err
 	})
 }

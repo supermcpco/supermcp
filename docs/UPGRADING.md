@@ -91,7 +91,22 @@ What changes when you upgrade:
   reported (`pwd`, `otp`, `hwk`, `sc` and so on), and `mfa` when the
   sign-in met the rule. A SAML session's token now carries `pwd`, `sc`
   or `otp` when the assertion's authentication context names one.
-  Tokens issued before the upgrade keep the `amr` they had.
+  Tokens issued before the upgrade keep the `amr` they had until the
+  session re-authenticates.
+- **A re-authentication rewrites the `amr` of refresh tokens.** When a
+  single sign-on re-authentication replaces a session, the refresh
+  tokens it moves to the new session take that session's `amr`, where
+  they used to keep the one from consent. A re-authentication without a
+  second factor therefore removes `mfa` from the next refreshed token
+  and from introspection.
+- **The rule has a route of its own**, `PATCH /api/v1/idps/{id}/mfa`,
+  which the settings screen uses, so saving the rule cannot undo a
+  concurrent change to the rest of the provider. `PUT` is unchanged,
+  except that it and the new route answer `404` for a provider that
+  does not exist, where `PUT` used to answer `500`.
+- **The data export** (`sessions.json`) reports `mfaVerifiedAt` as the
+  server reads it, so empty for an OpenID Connect session from before
+  the upgrade, and adds `authMethods`.
 - **An invalid provider configuration is `400`**, not `500`, on
   `POST` and `PUT /api/v1/idps`.
 - The `session.create` audit event of an OpenID Connect sign-in
@@ -107,16 +122,19 @@ What migration 00030 does:
   catalogue change. The migration runs outside a transaction, so the
   lock on `sessions` is not held while the rest runs. If it is
   interrupted, run it again.
-- Adds three functions, `auth_idp_load`, an `auth_session_open` taking
-  the methods, and `auth_session_get`, which reads an OpenID Connect
-  session that has no `auth_methods` as having no second factor. It
-  changes no existing function and no row.
+- Adds four functions: `auth_idp_load`; an `auth_session_open` taking
+  the methods; `auth_session_get`, which reads an OpenID Connect
+  session that has no `auth_methods` as having no second factor; and an
+  `auth_session_replace` taking the new session's `amr`, which it gives
+  the refresh tokens it moves. The existing versions of these functions
+  stay as they were, and no row is changed.
 
 **Rollout order does not matter.** A replica of the previous release
 still reads providers, opens sessions and reads them through the
 functions it used before. Sessions it opens during the roll still count
 a second factor there, and not on this release's replicas, which see no
-`auth_methods` on them. A provider rule set during the roll applies on
+`auth_methods` on them. A re-authentication it handles moves refresh
+tokens with their `amr` unchanged, as before. A provider rule set during the roll applies on
 this release's replicas only.
 
 Migrating down drops the functions and columns, with every provider's

@@ -268,6 +268,45 @@ func (s *Service) Update(ctx context.Context, orgID, id, actorID string, in Inpu
 	return p, before, nil
 }
 
+// SetMFARule changes a provider's second-factor rule and nothing else,
+// and returns the provider with the one it replaced, read under the row
+// lock. Unlike Update it carries no copy of the rest of the
+// configuration, so it cannot undo a change made since the caller read
+// it. A provider without ID tokens (GitHub) cannot have a rule.
+func (s *Service) SetMFARule(ctx context.Context, orgID, id, actorID string, rule MFARule) (*Provider, *Provider, error) {
+	rule, err := rule.normalized()
+	if err != nil {
+		return nil, nil, fmt.Errorf("%w: %w", ErrInvalid, err)
+	}
+	var before, after *Provider
+	err = s.DB.Tx(tenant.WithOrg(ctx, orgID), func(tx pgx.Tx) error {
+		var err error
+		if before, err = lockProvider(ctx, tx, orgID, id); err != nil {
+			return err
+		}
+		if before.Protocol != "oidc" {
+			return fmt.Errorf("%w: a second-factor rule needs an OpenID Connect provider: "+
+				"this one issues no ID token to read it from", ErrInvalid)
+		}
+		if _, err := tx.Exec(ctx, `UPDATE identity_providers SET mfa_amr = $3, mfa_acr = $4, updated_at = now()
+			WHERE id = $1 AND organization_id = $2`, id, orgID, rule.AMR, rule.ACR); err != nil {
+			return err
+		}
+		p := *before
+		p.MFA = rule
+		after = &p
+		snap := SnapshotOf(after)
+		if err := s.baseline(ctx, tx, SnapshotOf(before)); err != nil {
+			return err
+		}
+		return s.record(ctx, tx, id, "update", snap, audit.Changes(SnapshotOf(before), snap), actorID)
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return after, before, nil
+}
+
 // repointed reports whether an update would send the client secret
 // somewhere the stored configuration does not: a different issuer, or an
 // endpoint on a host that is neither the issuer's nor one of the stored

@@ -13,6 +13,7 @@ import (
 	"github.com/supermcpco/supermcp/internal/authz"
 	"github.com/supermcpco/supermcp/internal/config"
 	"github.com/supermcpco/supermcp/internal/identity"
+	"github.com/supermcpco/supermcp/internal/mcpauth"
 )
 
 // reauthRequired is the stable code a client reads from errors[].value,
@@ -310,7 +311,11 @@ func (d Deps) finishProviderSignIn(w http.ResponseWriter, r *http.Request, in pr
 	}
 	meta := in.Meta
 	if old != nil {
-		if err := d.Identity.ReplaceSession(ctx, old.ID, sess.ID, "replaced by re-authentication"); err != nil && d.Log != nil {
+		// The moved refresh tokens take the new session's amr: a
+		// re-authentication without a second factor must not leave them
+		// claiming the one the old session had.
+		amr := mcpauth.AMR(authz.SignIn{Method: in.Method, Methods: in.Methods}, in.Verified)
+		if err := d.Identity.ReplaceSession(ctx, old.ID, sess.ID, "replaced by re-authentication", amr); err != nil && d.Log != nil {
 			// The new session is open and fresh; the old one still
 			// expires on its own.
 			d.Log.Warn("could not end the session a re-authentication replaced", "err", err)
