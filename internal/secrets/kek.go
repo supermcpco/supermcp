@@ -64,6 +64,12 @@ func (s *KEKSet) Find(ref string) (KEK, bool) {
 			return k, true
 		}
 	}
+	// The same key in another region, as the Sealer would pick it.
+	for _, k := range append([]KEK{s.Active}, s.Previous...) {
+		if o, ok := openerFor(k, ref); ok {
+			return o, true
+		}
+	}
 	return nil, false
 }
 

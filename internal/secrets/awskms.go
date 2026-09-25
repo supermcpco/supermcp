@@ -54,9 +54,18 @@ type KMSClient interface {
 // place where configuration is resolved and validated.
 type AWSKMSConfig struct {
 	// KeyID is a key id, key ARN, alias name ("alias/supermcp") or alias
-	// ARN. An alias is the usual choice: it survives replacing the key
-	// underneath, and it is what makes AWS's own yearly key rotation
-	// invisible to this process.
+	// ARN.
+	//
+	// An alias is not a way to replace the key underneath. KMS resolves it
+	// when it wraps, and the blob it returns opens only under the key the
+	// alias pointed at then, so re-pointing the alias strands every data
+	// key already wrapped: decryption names the alias, which now resolves
+	// to a key that did not make the blob. Replacing the key is a master
+	// key rotation (keys rotate-kek), and SUPERMCP_KEK_PREVIOUS names only
+	// local keys today, so there is no rotation from one KMS key to
+	// another yet. AWS's own automatic rotation is different: it changes
+	// the key material behind one key id, keeps the old material, and
+	// needs nothing from this process.
 	KeyID string
 	// Region is required even when KeyID is an ARN, because it is also the
 	// endpoint the client talks to and a silent mismatch between the two
@@ -86,8 +95,13 @@ type AWSKMS struct {
 	client     KMSClient
 	keyID      string
 	deployment string
-	ref        string
-	timeout    time.Duration
+	// deploymentSet records that Deployment was configured rather than
+	// defaulted to the reference. A defaulted one changes with the region,
+	// and opening a data key wrapped in another region needs the one it
+	// was wrapped with.
+	deploymentSet bool
+	ref           string
+	timeout       time.Duration
 }
 
 var _ KEK = (*AWSKMS)(nil)
@@ -120,7 +134,8 @@ func NewAWSKMSFromConfig(ctx context.Context, cfg AWSKMSConfig) (*AWSKMS, error)
 	if a.timeout <= 0 {
 		a.timeout = defaultKMSTimeout
 	}
-	if a.deployment == "" {
+	a.deploymentSet = a.deployment != ""
+	if !a.deploymentSet {
 		a.deployment = a.ref
 	}
 	if a.client == nil {
@@ -298,4 +313,98 @@ func awsKMSRef(keyID, region string) string {
 		return "awskms:" + keyID
 	}
 	return "awskms:" + region + "/" + keyID
+}
+
+// forRef returns a key that opens the data keys recorded under ref, when
+// ref is this key's multi-Region relative in another region. That is what
+// a database restored into another region holds: every data key names
+// the region it was wrapped in, and this process talks to its own.
+//
+// AWS's rules decide what counts as related. A multi-Region key and its
+// replicas share one key id, "mrk-" followed by the same characters, and
+// the same key material, in one account and one partition; they differ
+// only in region. A ciphertext made by one of them can be decrypted by
+// any of the others, in that other's region. A single-Region key exists
+// in one region only, so a single-Region id elsewhere is never the same
+// key. So ref must differ from this key's reference in the region alone:
+// same key id, which must start with "mrk-", and the same account and
+// partition where both spell them out.
+//
+// An alias counts when its name is the same. Aliases are not replicated,
+// so the one in this region is whatever the operator pointed it at; KMS
+// then refuses to decrypt unless that is a replica of the key that made
+// the blob, so a wrong alias fails cleanly rather than opening anything.
+//
+// The key this returns still pins decryption to the configured key, so a
+// blob substituted in data_keys gets no further than it would in the
+// region it came from. Only the encryption context changes: a deployment
+// that was never configured defaulted to the reference, which is ref.
+func (a *AWSKMS) forRef(ref string) (KEK, bool) {
+	stored, ok := parseKMSRef(ref)
+	if !ok {
+		return nil, false
+	}
+	own, ok := parseKMSRef(a.ref)
+	if !ok || !own.relatedTo(stored) {
+		return nil, false
+	}
+	other := *a
+	if !a.deploymentSet {
+		other.deployment = ref
+	}
+	return &other, true
+}
+
+// kmsRef is a stored reference taken apart.
+type kmsRef struct {
+	region    string
+	partition string // empty unless the key was named by ARN
+	account   string // empty unless the key was named by ARN
+	// resource is the key id ("mrk-…", or a single-Region id) or the
+	// alias ("alias/…"), without the region.
+	resource string
+}
+
+// parseKMSRef reads what awsKMSRef writes: "awskms:<region>/<key>" or
+// "awskms:<ARN>".
+func parseKMSRef(ref string) (kmsRef, bool) {
+	rest, ok := strings.CutPrefix(ref, "awskms:")
+	if !ok {
+		return kmsRef{}, false
+	}
+	if strings.HasPrefix(rest, "arn:") {
+		// arn:<partition>:kms:<region>:<account>:key/<id> or :alias/<name>
+		f := strings.SplitN(rest, ":", 6)
+		if len(f) != 6 || f[2] != "kms" || f[3] == "" || f[5] == "" {
+			return kmsRef{}, false
+		}
+		res := f[5]
+		if id, ok := strings.CutPrefix(res, "key/"); ok {
+			res = id
+		}
+		return kmsRef{region: f[3], partition: f[1], account: f[4], resource: res}, true
+	}
+	region, key, ok := strings.Cut(rest, "/")
+	if !ok || region == "" || key == "" {
+		return kmsRef{}, false
+	}
+	return kmsRef{region: region, resource: key}, true
+}
+
+// relatedTo reports whether o names a multi-Region relative of r in
+// another region, or the same alias name there. See forRef.
+func (r kmsRef) relatedTo(o kmsRef) bool {
+	if r.region == o.region || r.resource != o.resource {
+		return false
+	}
+	if !strings.HasPrefix(r.resource, "mrk-") && !strings.HasPrefix(r.resource, "alias/") {
+		return false
+	}
+	if r.partition != "" && o.partition != "" && r.partition != o.partition {
+		return false
+	}
+	if r.account != "" && o.account != "" && r.account != o.account {
+		return false
+	}
+	return true
 }

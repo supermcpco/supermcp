@@ -187,6 +187,21 @@ the KMS encryption context. Set it through `extraEnv` when staging and
 production share an AWS account or a KMS key: without it, a wrapped key
 lifted from one database can be unwrapped against the other.
 
+An alias does not let you swap the key behind it. KMS resolves the alias
+to a key when it wraps a data key, and the wrapped data key opens only
+under that key. Point the alias at another key and every data key
+wrapped so far stops opening, even though the alias name has not
+changed. Replacing the key is a master key rotation (`keys rotate-kek`
+with the old key named in `SUPERMCP_KEK_PREVIOUS`), and
+`SUPERMCP_KEK_PREVIOUS` accepts only local keys today, so moving from
+one KMS key to another is not supported yet. Leave the alias where it
+is. AWS automatic key rotation is fine: it changes the material behind
+one key id, keeps the old material, and needs nothing from supermcp.
+
+To be able to restore into another region, use a multi-Region key
+(`mrk-…`) and give each region a replica. See "The master key a restore
+needs" in `docs/compliance/dr-runbook.md`.
+
 `local` and `awskms` are the only providers the binary implements, and
 they are the only ones the chart accepts: any other value fails the
 render with a message naming the setting, rather than producing a pod
@@ -314,7 +329,7 @@ probes are never counted or limited.
 | `SUPERMCP_KEK_PROVIDER` | `local` | `local` or `awskms`. Any other value fails the boot. A provider that cannot be built is an error, never a silent downgrade to a weaker one. |
 | `ENCRYPTION_KEK_FILE` | empty | Reads the local key from a file instead of the environment. Takes precedence over `ENCRYPTION_KEK`. |
 | `SUPERMCP_KEK_PREVIOUS` | empty | Comma-separated master keys that may decrypt and never seal, for a rolling key rotation. An entry is either the base64 material or `<reference>|<base64>`. |
-| `SUPERMCP_KMS_KEY_ID` | none, for `awskms` | A key id, key ARN, alias name (`alias/supermcp`) or alias ARN. |
+| `SUPERMCP_KMS_KEY_ID` | none, for `awskms` | A key id, key ARN, alias name (`alias/supermcp`) or alias ARN. An alias is resolved when a data key is wrapped; re-pointing it strands the data keys already wrapped. |
 | `SUPERMCP_KMS_REGION` | `AWS_REGION`, then `AWS_DEFAULT_REGION` | The region holding the key. Required even when the key is an ARN. |
 | `SUPERMCP_KMS_DEPLOYMENT` | the key reference | Names this installation in the KMS encryption context. |
 | `SUPERMCP_KMS_TIMEOUT` | `10s` | Bounds a single KMS round trip. |

@@ -123,6 +123,11 @@ func RotateKEK(ctx context.Context, r KEKRotation) (KEKReport, error) {
 		}
 		old, ok := unwrap[dk.KEKRef]
 		if !ok {
+			// The same key in another region: a restore elsewhere moves
+			// its data keys onto the reference this region spells.
+			old, ok = relatedOpener(dk.KEKRef, r.To, r.From)
+		}
+		if !ok {
 			return rep, fmt.Errorf("data key %x is wrapped by %q, which was not supplied to the rotation", dk.ID[:4], dk.KEKRef)
 		}
 		if err := rewrapOne(ctx, r.Store, dk, old, r.To); err != nil {
@@ -613,4 +618,15 @@ func loggerOr(l *slog.Logger) *slog.Logger {
 		return l
 	}
 	return slog.New(slog.DiscardHandler)
+}
+
+// relatedOpener finds, among the target and the decrypt-only keys, one
+// that opens what ref wrapped although it spells its reference otherwise.
+func relatedOpener(ref string, to KEK, from []KEK) (KEK, bool) {
+	for _, k := range append([]KEK{to}, from...) {
+		if o, ok := openerFor(k, ref); ok {
+			return o, true
+		}
+	}
+	return nil, false
 }

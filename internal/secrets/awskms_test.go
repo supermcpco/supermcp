@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"maps"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 
@@ -25,8 +26,16 @@ type kmsBlob struct {
 // fakeKMS behaves like KMS for the properties this package depends on: a
 // blob is opaque, it remembers the key and the encryption context it was
 // made with, and decrypting with either one different is refused.
+//
+// It also knows the two things a restore into another region depends on.
+// A multi-Region key and its replicas share a key id ("mrk-…") and differ
+// in region only, so a blob made by one opens under another. An alias is
+// per region: aliases maps "<region>/<alias>" to the key it points at
+// there, and a client made with in(region) resolves through it. An alias
+// with no entry stands for itself, which is what the older tests rely on.
 type fakeKMS struct {
 	mu      sync.Mutex
+	aliases map[string]string
 	blobs   map[string]kmsBlob
 	n       int
 	encErr  error
@@ -38,6 +47,56 @@ type fakeKMS struct {
 func newFakeKMS() *fakeKMS { return &fakeKMS{blobs: map[string]kmsBlob{}} }
 
 func (f *fakeKMS) Encrypt(_ context.Context, in *kms.EncryptInput, _ ...func(*kms.Options)) (*kms.EncryptOutput, error) {
+	return f.encrypt("", in)
+}
+
+func (f *fakeKMS) Decrypt(_ context.Context, in *kms.DecryptInput, _ ...func(*kms.Options)) (*kms.DecryptOutput, error) {
+	return f.decrypt("", in)
+}
+
+// regionalKMS is the fake seen from one region.
+type regionalKMS struct {
+	f      *fakeKMS
+	region string
+}
+
+func (f *fakeKMS) in(region string) *regionalKMS { return &regionalKMS{f: f, region: region} }
+
+func (r *regionalKMS) Encrypt(_ context.Context, in *kms.EncryptInput, _ ...func(*kms.Options)) (*kms.EncryptOutput, error) {
+	return r.f.encrypt(r.region, in)
+}
+
+func (r *regionalKMS) Decrypt(_ context.Context, in *kms.DecryptInput, _ ...func(*kms.Options)) (*kms.DecryptOutput, error) {
+	return r.f.decrypt(r.region, in)
+}
+
+// resolve turns an alias into the key it points at in region. Caller
+// holds f.mu.
+func (f *fakeKMS) resolve(region, keyID string) string {
+	if k, ok := f.aliases[region+"/"+keyID]; ok {
+		return k
+	}
+	return keyID
+}
+
+// fakeSameKey is AWS's rule for which key may open a blob: the key that
+// made it, or a multi-Region relative, which has the same "mrk-" id, the
+// same account and partition, and any region.
+func fakeSameKey(a, b string) bool {
+	if a == b {
+		return true
+	}
+	mrk := func(k string) string {
+		f := strings.Split(k, ":")
+		if len(f) == 6 && strings.HasPrefix(f[5], "key/mrk-") {
+			return f[1] + ":" + f[4] + ":" + f[5]
+		}
+		return ""
+	}
+	return mrk(a) != "" && mrk(a) == mrk(b)
+}
+
+func (f *fakeKMS) encrypt(region string, in *kms.EncryptInput) (*kms.EncryptOutput, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.encCall++
@@ -48,13 +107,13 @@ func (f *fakeKMS) Encrypt(_ context.Context, in *kms.EncryptInput, _ ...func(*km
 	blob := "blob-" + strconv.Itoa(f.n)
 	f.blobs[blob] = kmsBlob{
 		plaintext: bytes.Clone(in.Plaintext),
-		keyID:     *in.KeyId,
+		keyID:     f.resolve(region, *in.KeyId),
 		encCtx:    maps.Clone(in.EncryptionContext),
 	}
 	return &kms.EncryptOutput{CiphertextBlob: []byte(blob), KeyId: in.KeyId}, nil
 }
 
-func (f *fakeKMS) Decrypt(_ context.Context, in *kms.DecryptInput, _ ...func(*kms.Options)) (*kms.DecryptOutput, error) {
+func (f *fakeKMS) decrypt(region string, in *kms.DecryptInput) (*kms.DecryptOutput, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.decCall++
@@ -65,7 +124,7 @@ func (f *fakeKMS) Decrypt(_ context.Context, in *kms.DecryptInput, _ ...func(*km
 	if !ok {
 		return nil, errors.New("InvalidCiphertextException: unknown blob")
 	}
-	if in.KeyId != nil && *in.KeyId != rec.keyID {
+	if in.KeyId != nil && !fakeSameKey(f.resolve(region, *in.KeyId), rec.keyID) {
 		return nil, fmt.Errorf("IncorrectKeyException: blob was made with %s", rec.keyID)
 	}
 	if !maps.Equal(in.EncryptionContext, rec.encCtx) {

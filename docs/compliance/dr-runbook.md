@@ -19,8 +19,9 @@ The restore fails without any one of these, so check them now:
   `local`, that is the base64 value of `ENCRYPTION_KEK` at the time of the backup,
   plus every older key its data keys may still be wrapped by. With `awskms`, it is
   access to the same KMS key in the same region, and the value of
-  `SUPERMCP_KMS_DEPLOYMENT` if you set one. "The master key a restore needs" below
-  says why each part matters.
+  `SUPERMCP_KMS_DEPLOYMENT` if you set one. For a restore into another region,
+  the key must be a multi-Region key with a replica there. "The master key a
+  restore needs" below says why each part matters.
 - **The configuration.** Keep a current `supermcp compliance config-snapshot`
   (secrets appear only as digests) so you can rebuild the same settings.
 - **The audit spool volume, if you run `audit.onUnavailable: spool`.** It is a
@@ -42,9 +43,9 @@ You cannot promise any of these:
   (`audit append failed`, with a count) and lost. The trail itself shows only a
   quiet period.
 - Revocations made after the backup was taken. "What a restore undoes" covers this.
-- A restore into another AWS region under `awskms`. The key reference records the
-  region, so data keys wrapped in one region do not open under a key in another,
-  even a multi-Region replica.
+- A restore into another AWS region under `awskms` with a single-Region key. The
+  key exists in one region only. A multi-Region key works; see "The master key a
+  restore needs".
 
 ## Restoring from a dump
 
@@ -126,11 +127,31 @@ data_keys` lists what a dump needs.
 - **`local` through `ENCRYPTION_KEK_FILE`** has the reference
   `local:file:<path>`. The same key at another path is a different reference.
 - **`awskms`** has the reference `awskms:<region>/<key id>`, or `awskms:<ARN>` when
-  `SUPERMCP_KMS_KEY_ID` is an ARN. Use the same spelling of the key and the same
-  region. Unwrapping also checks the encryption context, which includes
+  `SUPERMCP_KMS_KEY_ID` is an ARN. In the same region, use the same spelling of
+  the key. Unwrapping also checks the encryption context, which includes
   `SUPERMCP_KMS_DEPLOYMENT`: set it as it was, or leave it unset if it was. KMS
-  refuses to decrypt if an alias now points at a different key, or if the key is
-  disabled or pending deletion.
+  refuses to decrypt if an alias now points at a different key from the one that
+  wrapped the data keys, or if the key is disabled or pending deletion.
+
+**A restore into another region** works only with a multi-Region key. Its replicas
+share the key id (`mrk-` and the same characters) and the key material, in the
+same account, and each can decrypt what the others encrypted. A single-Region key
+cannot be used outside its region, and nothing supermcp can do changes that. For
+the restore:
+
+- Create a replica of the key in the new region before you need it, and grant the
+  new region's pods `kms:Encrypt` and `kms:Decrypt` on it.
+- Set `SUPERMCP_KMS_REGION` to the new region, and name the replica the way the old
+  setting named the key: the same `mrk-` key id, the replica's ARN (which differs
+  only in the region), or the same alias name. An alias is not replicated, so
+  create it in the new region and point it at the replica.
+- Keep `SUPERMCP_KMS_DEPLOYMENT` exactly as it was: the same value, or unset if it
+  was unset. It is part of what every data key was wrapped with.
+
+A data key whose reference names another region is then opened with the key
+configured here, when the two differ in the region alone. `keys verify` checks
+them the same way. New data keys are wrapped under the new region's reference.
+`keys rotate-kek` moves the old ones onto it too, which is optional.
 
 **A dump taken before a master key rotation** carries data keys wrapped by the key
 you rotated away from. Name that key in `SUPERMCP_KEK_PREVIOUS`, which may decrypt
@@ -138,7 +159,9 @@ and never seals. A bare base64 value takes the reference
 `local:env:ENCRYPTION_KEK`. For any other reference, write `<reference>|<base64>`.
 Then run `supermcp keys rotate-kek`, `keys verify` again, and remove the old key.
 `SUPERMCP_KEK_PREVIOUS` accepts only local keys: data keys wrapped by a KMS key
-other than the configured one open only by pointing the instance at that key.
+other than the configured one (or its replica in another region) open only by
+pointing the instance at that key. That includes a key an alias pointed at before
+it was moved.
 
 Keep every master key for as long as you keep a backup sealed under it. Data keys
 retired by `keys rotate-dek` are never deleted, so an old dump still needs the key
