@@ -1,4 +1,3 @@
-import { useEffect, useState } from "react";
 import { keepPreviousData, useQuery, type QueryClient } from "@tanstack/react-query";
 import { toolsDraftDryRun } from "../api";
 import {
@@ -10,6 +9,7 @@ import {
   toolsRevisionsListQueryKey,
 } from "../api/@tanstack/react-query.gen";
 import { details, status } from "./errors";
+import { useDebounced } from "./debounce";
 import { isObject, parseJson, type Json, type Transport } from "./tool-definition";
 
 // What the tool screens share with each other: how to tell the server's
@@ -101,16 +101,6 @@ export function readArguments(text: string): { ok: true; value: Record<string, u
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }
-}
-
-/** A value that only changes once it has stopped changing for a moment. */
-function useDebounced<T>(value: T, ms: number): T {
-  const [settled, setSettled] = useState(value);
-  useEffect(() => {
-    const timer = setTimeout(() => setSettled(value), ms);
-    return () => clearTimeout(timer);
-  }, [value, ms]);
-  return settled;
 }
 
 /**
