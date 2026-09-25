@@ -1,6 +1,6 @@
 apiVersion: v2
 name: supermcp
-description: Turn REST, GraphQL, SQL, SOAP and MCP systems into MCP tools for Claude, ChatGPT and Copilot.
+description: Turn REST, GraphQL and SQL systems into MCP tools for Claude, ChatGPT and Copilot.
 type: application
 version: 1.3.0
 appVersion: "1.2.0"

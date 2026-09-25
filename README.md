@@ -1,12 +1,12 @@
 # supermcp
 
-Give Claude, ChatGPT and Copilot governed access to the systems your company already runs. One static Go binary turns REST, GraphQL, SQL, SOAP and other MCP servers into MCP tools, with enterprise controls built in rather than bolted on.
+Give Claude, ChatGPT and Copilot governed access to the systems your company already runs. One static Go binary turns REST, GraphQL and SQL systems into MCP tools, with enterprise controls built in rather than bolted on.
 
 > Status: released. `docs/UPGRADING.md` says what each release needs from an operator; `docs/plan.md` is the roadmap.
 
 ## Why
 
-supermcp keeps what worked in the first generation of MCP gateways (255 pre-built adapters, OAuth 2.1 for MCP clients, SSRF-guarded upstream calls, response shaping) and rebuilds what enterprises could not deploy: row-level tenant isolation on from day one, envelope encryption with KMS providers, a hash-chained audit stream with SIEM export, fail-closed permissions, per-server token audiences, Helm as the primary deployment.
+supermcp keeps what worked in the first generation of MCP gateways (a catalog of pre-built adapters for more than 250 APIs, OAuth 2.1 for MCP clients, SSRF-guarded upstream calls, response shaping) and rebuilds what enterprises could not deploy: row-level tenant isolation on from day one, envelope encryption with KMS providers, a hash-chained audit stream with SIEM export, fail-closed permissions, per-server token audiences, Helm as the primary deployment.
 
 ## Run it
 
@@ -57,7 +57,7 @@ An adapter is one YAML file describing an upstream and its tools:
 adapters/<region>/<slug>/adapter.yaml
 ```
 
-The format is `apiVersion: supermcp.dev/v2`, validated by the JSON Schema at `/schema/adapter/v2.json` and by `supermcp adapter validate --strict`. The 255 adapters were converted from the v1 format with `supermcp adapter convert` and are checked in; `make adapters` regenerates them from the vendored v1 corpus and CI fails if the tree drifts. The corpus holds 257; the two whose authentication is not implemented (`immobilienscout24`, OAuth 1.0a, and `sorare`, a bcrypt-salted login) stay in it for the converter tests and are left out of the catalog.
+The format is `apiVersion: supermcp.dev/v2`, validated by the JSON Schema at `/schema/adapter/v2.json` and by `supermcp adapter validate --strict`. The adapters were converted from the v1 format with `supermcp adapter convert` and are checked in; `make adapters` regenerates them from the vendored v1 corpus and CI fails if the tree drifts. The corpus holds 257; the two whose authentication is not implemented (`immobilienscout24`, OAuth 1.0a, and `sorare`, a bcrypt-salted login) stay in it for the converter tests and are left out of the catalog.
 
 ```bash
 supermcp adapter validate --strict adapters
