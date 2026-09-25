@@ -73,6 +73,39 @@ for tpl in deployment.yaml job-migrate.yaml; do
   has   "$tpl" awskms 'name: SUPERMCP_KEK_PREVIOUS$' "$out"
 done
 
+# The migrate Job is a pre-install hook, so it runs before the release's
+# ServiceAccount exists. It must run as its own hook account, created
+# ahead of it, or as one the operator made before installing.
+key=(--set encryption.local.existingSecret=kek-env)
+out=$(render job-migrate.yaml "${key[@]}")
+has   job-migrate.yaml own-sa 'serviceAccountName: supermcp-migrate$' "$out"
+has   job-migrate.yaml own-sa 'automountServiceAccountToken: false$' "$out"
+out=$(render serviceaccount-migrate.yaml "${key[@]}")
+has   serviceaccount-migrate.yaml own-sa 'name: supermcp-migrate$' "$out"
+has   serviceaccount-migrate.yaml own-sa 'helm.sh/hook: pre-install,pre-upgrade$' "$out"
+# Created before the Job, whose hook weight is -5.
+has   serviceaccount-migrate.yaml own-sa 'helm.sh/hook-weight: "-10"$' "$out"
+lacks serviceaccount-migrate.yaml own-sa 'eks.amazonaws.com' "$(render serviceaccount-migrate.yaml "${key[@]}" \
+        --set 'serviceAccount.annotations.eks\.amazonaws\.com/role-arn=arn:aws:iam::000000000000:role/x')"
+out=$(render job-migrate.yaml "${key[@]}" --set serviceAccount.create=false --set serviceAccount.name=ops-made)
+has   job-migrate.yaml operator-sa 'serviceAccountName: ops-made$' "$out"
+checks=$((checks + 1))
+if helm template supermcp "$chart" "${base[@]}" "${key[@]}" --set serviceAccount.create=false \
+     | grep -q '^kind: ServiceAccount$'; then
+  fail "serviceAccount.create=false still renders a ServiceAccount"
+fi
+
+# A terminating pod keeps serving until the Service has let go of it,
+# unless the operator turned the pause off.
+# The sleep action does not exist on 1.29, where the API server refuses
+# the Deployment that names it.
+out=$(render deployment.yaml "${key[@]}" --kube-version 1.30.0)
+has   deployment.yaml prestop 'seconds: 5$' "$out"
+out=$(render deployment.yaml "${key[@]}" --kube-version 1.30.0 --set preStopSleepSeconds=0)
+lacks deployment.yaml prestop-off 'preStop' "$out"
+out=$(render deployment.yaml "${key[@]}" --kube-version 1.29.14)
+lacks deployment.yaml prestop-1.29 'preStop' "$out"
+
 # Neither form of the local key is a render error that names both values.
 checks=$((checks + 1))
 if out=$(render deployment.yaml 2>&1); then

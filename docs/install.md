@@ -162,8 +162,9 @@ start.
 
 | Object | Notes |
 |---|---|
-| `Deployment` | `serve`, rolling update with `maxUnavailable: 0`. Liveness on `/healthz`, readiness on `/readyz`. Runs as UID 65532, non-root, read-only root filesystem, all capabilities dropped, with an `emptyDir` at `/tmp`. |
+| `Deployment` | `serve`, rolling update with `maxUnavailable: 0`. Liveness on `/healthz`, readiness on `/readyz`. Runs as UID 65532, non-root, read-only root filesystem, all capabilities dropped, with an `emptyDir` at `/tmp`. A stopping pod keeps serving for `preStopSleepSeconds` (default 5) before it closes its listener, so a rolling upgrade does not drop the requests the Service was still sending it; on 1.29, which has no sleep action, the chart leaves the pause out and a rollout can drop a request. |
 | `Job` (migrate) | A `pre-install,pre-upgrade` Helm hook running `supermcp migrate --wait-lock`. Disable with `database.migrate.enabled=false` if you apply migrations yourself. |
+| `ServiceAccount` (migrate) | `<release>-migrate`, a hook created just before the migrate Job and deleted once it succeeds; it has no annotations and mounts no token, because migrations only talk to Postgres. With `serviceAccount.create=false` it is not rendered and the Job runs as `serviceAccount.name`, which must exist before you install. If an admission policy lists the accounts allowed in the namespace, add this one. |
 | `Service` | Port 80 to the HTTP port, plus the admin port when `metrics.enabled` is true. |
 | `Ingress` | Only when `ingress.enabled` is true. Routes `/` to the HTTP port; the admin port is never routed. |
 | `ServiceAccount` | Created by default. `serviceAccount.annotations` is where an IRSA, GKE workload identity or Azure workload identity annotation goes. |
