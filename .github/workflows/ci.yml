@@ -124,17 +124,15 @@ jobs:
           bin/supermcp migrate
           bin/supermcp migrate --wait-lock=false
           bin/supermcp migrate --status
+      # The same checks the helm-install job makes against the chart on
+      # kind: hack/smoke.sh.
       - name: serve smoke
         run: |
           # The log is what explains a refused connection, so it is
           # printed whatever happens rather than after the first curl.
           trap 'cat serve.log' EXIT
           bin/supermcp serve > serve.log 2>&1 &
-          for i in $(seq 1 30); do curl -fs localhost:18080/readyz && break; sleep 1; done
-          curl -fs localhost:18080/readyz
-          curl -fs 'localhost:18080/api/v1/catalog?keyless=true' | jq -e '.count > 0'
-          curl -fs localhost:18080/api/v1/catalog/kaufland | jq -e '.auth.type == "hmac"'
-          curl -fs localhost:18080/api/openapi.json | jq -e '.openapi'
+          hack/smoke.sh http://localhost:18080
           kill %1; wait %1 || true
 
   security:
@@ -280,12 +278,67 @@ jobs:
       - name: kubeconform
         run: |
           curl -sSL https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz | tar xz
+          # Rendered for the version it is checked against: the chart
+          # leaves out what an older API server would refuse.
           for v in 1.29.0 1.31.0; do
-            helm template supermcp charts/supermcp --set publicUrl=https://mcp.example.com --set database.existingSecret=db --set encryption.local.existingSecret=kek \
+            helm template supermcp charts/supermcp --kube-version $v --set publicUrl=https://mcp.example.com --set database.existingSecret=db --set encryption.local.existingSecret=kek \
               | ./kubeconform -strict -kubernetes-version $v -summary -ignore-missing-schemas
             # The master key as a file, with a previous key: the volume and
             # mount only exist in this render.
-            helm template supermcp charts/supermcp --set publicUrl=https://mcp.example.com --set database.existingSecret=db \
+            helm template supermcp charts/supermcp --kube-version $v --set publicUrl=https://mcp.example.com --set database.existingSecret=db \
               --set encryption.local.file.secretName=kek --set encryption.previous.secretName=kek-previous \
               | ./kubeconform -strict -kubernetes-version $v -summary -ignore-missing-schemas
+            # What helm-install puts on kind.
+            helm template supermcp charts/supermcp --kube-version $v -f hack/kind/values.yaml --set image.repository=supermcp --set image.tag=ci \
+              | ./kubeconform -strict -kubernetes-version $v -summary -ignore-missing-schemas
           done
+
+  helm-install:
+    # A chart that renders can still fail to start. This installs it on a
+    # kind cluster against a real Postgres, in a namespace that enforces
+    # the restricted Pod Security Standard, checks the migrate hook ran and
+    # the instance serves, then upgrades it in place and checks /readyz
+    # answered 200 for the whole rollout. hack/kind/test.sh says what each
+    # step proves; `make kind-test` runs the same script locally.
+    # One replica: the two-replica audit chain and cache invalidation are
+    # not exercised here.
+    #
+    # It waits for the docker job so that it installs the image that job
+    # built and scanned, from the same commit, rather than whatever main
+    # last published: a pull request that changes the binary and the chart
+    # together is tested together. A job cannot hand another a loaded
+    # image, so it is rebuilt here from the layer cache the docker job just
+    # wrote, which takes seconds.
+    needs: docker
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        # The chart's floor (kubeVersion >=1.29), where the chart renders
+        # differently, and the node kind currently ships.
+        include:
+          - { kubernetes: "1.29", node_image: "kindest/node:v1.29.14" }
+          - { kubernetes: current, node_image: "" }
+    name: helm-install (${{ matrix.kubernetes }})
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: image from the docker job's cache
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: supermcp:ci
+          cache-from: type=gha
+      - uses: azure/setup-helm@v4
+      - uses: helm/kind-action@v1
+        with:
+          cluster_name: supermcp
+          node_image: ${{ matrix.node_image }}
+      - name: install, smoke, upgrade
+        env:
+          KIND_CLUSTER: supermcp
+          IMAGE: supermcp:ci
+          BUILD_IMAGE: "0"
+        run: hack/kind/test.sh

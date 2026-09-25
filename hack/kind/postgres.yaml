@@ -1,0 +1,49 @@
+# A throwaway Postgres 17 for the kind install test (hack/kind/test.sh).
+# Not a way to run Postgres: no volume, no backup, and a password that is
+# the user name. It lives in its own namespace so the chart's namespace
+# can enforce the restricted Pod Security Standard, which the official
+# postgres image does not meet.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  labels: { app: postgres }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: postgres }
+  template:
+    metadata:
+      labels: { app: postgres }
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:17-alpine
+          env:
+            - { name: POSTGRES_USER, value: supermcp }
+            - { name: POSTGRES_PASSWORD, value: supermcp }
+            - { name: POSTGRES_DB, value: supermcp }
+          ports:
+            - { name: postgres, containerPort: 5432 }
+          # Over TCP: while the image initialises the database it runs a
+          # temporary server on the socket only, which a socket check
+          # would call ready just before it shuts down.
+          readinessProbe:
+            exec: { command: [pg_isready, -h, 127.0.0.1, -U, supermcp, -d, supermcp] }
+            periodSeconds: 2
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+          volumeMounts:
+            - { name: data, mountPath: /var/lib/postgresql/data }
+      volumes:
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+spec:
+  selector: { app: postgres }
+  ports:
+    - { name: postgres, port: 5432, targetPort: postgres }

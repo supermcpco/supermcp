@@ -1,0 +1,35 @@
+# Values for the kind install test (hack/kind/test.sh, `make kind-test`,
+# the helm-install CI job). The script creates the two Secrets named here
+# before installing: supermcp-db from the Postgres in hack/kind/postgres.yaml,
+# supermcp-kek from a key generated for the run and thrown away with the
+# cluster. Nothing here is a credential.
+
+# Loopback, which the binary accepts over plain http: the test reaches the
+# pods through a port-forward and there is no ingress.
+publicUrl: http://localhost:8080
+
+# The image is loaded into the cluster by `kind load`, never pulled; the
+# script sets repository and tag to whatever it loaded.
+image:
+  pullPolicy: Never
+
+database:
+  existingSecret: supermcp-db
+  migrate:
+    enabled: true
+
+encryption:
+  provider: local
+  local:
+    existingSecret: supermcp-kek
+
+# One replica keeps the job inside its time budget. The rolling upgrade
+# still surges a second pod; what one replica does not prove is two pods
+# sharing the audit chain and cache invalidation under load.
+replicaCount: 1
+
+# Text rather than JSON so the pod logs the job prints on failure can be
+# read in the Actions log.
+config:
+  logLevel: info
+  logFormat: text

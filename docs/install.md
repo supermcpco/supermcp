@@ -318,6 +318,20 @@ SUPERMCP_SSRF_ALLOWED_HOSTS=erp.internal,*.corp.example.com
 and `SUPERMCP_SSRF_GUARD=disabled` turns the guard off entirely. Neither
 belongs in production.
 
+**How the chart is tested.** Every pull request installs this chart on
+a kind cluster (the `helm-install` job, `hack/kind/test.sh`): the image
+built from that commit, a throwaway Postgres 17, one replica, the key
+in a Secret, and the chart's namespace enforcing the restricted Pod
+Security Standard. It passes only if `helm install --wait` completes,
+the migrate hook ran, the schema matches the binary, and `/readyz`, the
+catalog and the OpenAPI document answer. It then runs `helm upgrade
+--wait` with one changed pod annotation and fails if the migrate hook
+did not run again, any old pod survived, or a `/readyz` poll through the
+Service did not answer 200 during the rollout. It does not test two
+replicas, Redis, an ingress, AWS KMS or an upgrade from the previous
+chart release; treat those as yours to rehearse. To run the same test
+on your machine: `make kind-test` (needs kind, kubectl, helm and Docker).
+
 ## Two database roles
 
 Migration `00002` creates a Postgres role `supermcp_app` with
