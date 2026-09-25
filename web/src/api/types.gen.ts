@@ -755,7 +755,7 @@ export type IdpRestoreDto = {
     authorizationEndpoint?: string;
     clientId: string;
     /**
-     * Always true: the history never holds the client secret, so a restore keeps the one stored now. Set a new one with an ordinary update if the restored configuration needs a different secret.
+     * True when the restore kept the client secret stored now, which it does unless the request supplied a new one. The history never holds a client secret.
      */
     clientSecretKept: boolean;
     clientSecretSet: boolean;
@@ -774,6 +774,17 @@ export type IdpRestoreDto = {
     scopes: Array<string> | null;
     tokenEndpoint?: string;
     userinfoEndpoint?: string;
+};
+
+export type IdpRestoreInputBody = {
+    /**
+     * A URL to the JSON Schema for this object.
+     */
+    readonly $schema?: string;
+    /**
+     * The client secret to use from now on. Needed when the revision points the provider at a different issuer or host than it uses now; otherwise leave it out to keep the stored one.
+     */
+    clientSecret?: string;
 };
 
 export type ImportFinding = {
@@ -2627,7 +2638,7 @@ export type IdpRestoreDtoWritable = {
     authorizationEndpoint?: string;
     clientId: string;
     /**
-     * Always true: the history never holds the client secret, so a restore keeps the one stored now. Set a new one with an ordinary update if the restored configuration needs a different secret.
+     * True when the restore kept the client secret stored now, which it does unless the request supplied a new one. The history never holds a client secret.
      */
     clientSecretKept: boolean;
     clientSecretSet: boolean;
@@ -2646,6 +2657,13 @@ export type IdpRestoreDtoWritable = {
     scopes: Array<string> | null;
     tokenEndpoint?: string;
     userinfoEndpoint?: string;
+};
+
+export type IdpRestoreInputBodyWritable = {
+    /**
+     * The client secret to use from now on. Needed when the revision points the provider at a different issuer or host than it uses now; otherwise leave it out to keep the stored one.
+     */
+    clientSecret?: string;
 };
 
 export type ImportInputBodyWritable = {
@@ -5609,7 +5627,7 @@ export type IdpsRevisionsGetResponses = {
 export type IdpsRevisionsGetResponse = IdpsRevisionsGetResponses[keyof IdpsRevisionsGetResponses];
 
 export type IdpsRevisionsRestoreData = {
-    body?: never;
+    body?: IdpRestoreInputBodyWritable;
     path: {
         id: string;
         revision: number;

@@ -345,14 +345,13 @@ func (d Deps) approvalPolicyRoutes(api huma.API) {
 			if err := snapInto(snapshot, "", &want); err != nil {
 				return nil, err
 			}
-			before, getErr := svc.GetPolicy(ctx, p.OrgID, in.ID)
-			after, err := svc.RestorePolicy(ctx, p.OrgID, in.ID, want, p.ID)
+			after, replaced, err := svc.RestorePolicy(ctx, p.OrgID, in.ID, want, p.ID)
 			if err != nil {
 				d.restoreFailed(ctx, approvalPolicyRevisions, in, err)
 				return nil, approvalErr(err)
 			}
-			if getErr == nil {
-				d.admin(ctx, "approval.policy.update", "approval_policy", after.ID, after.Name, audit.Changes(before, after))
+			if replaced != nil {
+				d.admin(ctx, "approval.policy.update", "approval_policy", after.ID, after.Name, audit.Changes(replaced, after))
 			} else {
 				d.admin(ctx, "approval.policy.create", "approval_policy", after.ID, after.Name, audit.Created(after))
 			}

@@ -36,6 +36,7 @@ import (
 	"github.com/supermcpco/supermcp/internal/httpapi"
 	"github.com/supermcpco/supermcp/internal/httpclient"
 	"github.com/supermcpco/supermcp/internal/identity"
+	"github.com/supermcpco/supermcp/internal/identity/saml"
 	"github.com/supermcpco/supermcp/internal/identity/sso"
 	"github.com/supermcpco/supermcp/internal/invoke"
 	mcpendpoint "github.com/supermcpco/supermcp/internal/mcp"
@@ -180,10 +181,13 @@ func startWith(t *testing.T, opts harnessOptions) *harness {
 	provisioning.Audit = auditor
 	ssoSvc := sso.New(db, sealer, idpClient, newID, cfg.PublicURL)
 	ssoSvc.Revisions = revisions
+	samlSvc := saml.New(db, sealer, idpClient, newID, cfg.PublicURL)
+	samlSvc.Revisions = revisions
 	deps := httpapi.Deps{Config: cfg, Log: log, Store: st, Catalog: cat, DB: db, Identity: ids,
 		Authz: az, Keys: keys, Connectors: conns, Servers: servers, MCP: endpoint, OAuth: oauth, OpenRegistration: true,
 		Executor: exec, Revisions: revisions,
 		SSO:   ssoSvc,
+		SAML:  samlSvc,
 		SCIM:  provisioning,
 		Audit: auditor, AuditReader: &audit.Reader{DB: db}, AuditPolicies: policies,
 		AuditRetention: audit.NewRetention(db, log)}

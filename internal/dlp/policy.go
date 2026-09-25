@@ -403,14 +403,18 @@ func (p *Policies) Update(ctx context.Context, orgID, id string, v ScanPolicy, a
 // under its old id, with its old creator, and the revision says so; one
 // that still exists is updated. The scope is checked again either way: a
 // rule for a connector that has gone cannot come back.
-func (p *Policies) Restore(ctx context.Context, orgID, id string, v ScanPolicy, actorID string) (ScanPolicy, error) {
+//
+// It returns the policy as restored and the one it replaced, read under
+// the row lock; the second is nil when the policy was recreated.
+func (p *Policies) Restore(ctx context.Context, orgID, id string, v ScanPolicy, actorID string) (ScanPolicy, *ScanPolicy, error) {
 	if err := v.Validate(); err != nil {
-		return ScanPolicy{}, err
+		return ScanPolicy{}, nil, err
 	}
 	v.ID, v.OrgID = id, orgID
 	if v.Detectors == nil {
 		v.Detectors = []string{}
 	}
+	var replaced *ScanPolicy
 	err := p.DB.Tx(tenant.WithOrg(ctx, orgID), func(tx pgx.Tx) error {
 		before, err := lockPolicy(ctx, tx, orgID, id)
 		switch {
@@ -434,13 +438,17 @@ func (p *Policies) Restore(ctx context.Context, orgID, id string, v ScanPolicy, 
 		if err := p.baseline(ctx, tx, before); err != nil {
 			return err
 		}
-		return p.record(ctx, tx, v, revisionUpdate, audit.Changes(before, v), actorID)
+		if err := p.record(ctx, tx, v, revisionUpdate, audit.Changes(before, v), actorID); err != nil {
+			return err
+		}
+		replaced = &before
+		return nil
 	})
 	if err != nil {
-		return ScanPolicy{}, scopeConflict(err)
+		return ScanPolicy{}, nil, scopeConflict(err)
 	}
 	p.invalidate(orgID)
-	return v, nil
+	return v, replaced, nil
 }
 
 // Delete removes a policy. Its history stays, with the policy as it was

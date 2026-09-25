@@ -285,7 +285,25 @@ func TestDLPPolicyRevisions(t *testing.T) {
 		return err == nil && found && got.Action == "refuse"
 	})
 
-	// Somebody who may roll back but not manage the rules may not do this.
+	if code := h.do(t, http.MethodGet, path+"/revisions", nil, nil); code != http.StatusOK {
+		t.Errorf("reading the history: %d, want 200", code)
+	}
+}
+
+// TestPolicyRestoreNeedsTheEditPermission: revisions:rollback alone does
+// not let somebody change what a tool call may carry, which calls need a
+// person, or how people sign in. Each restore also asks for the permission
+// that edits the thing, and it asks before it looks anything up.
+func TestPolicyRestoreNeedsTheEditPermission(t *testing.T) {
+	h := start(t)
+	admin := h.register(t, "E2E rollback only")
+	ctx := context.Background()
+	t.Cleanup(func() {
+		_ = h.db.Bypass(ctx, "e2e cleanup", func(tx pgx.Tx) error {
+			_, err := tx.Exec(ctx, `DELETE FROM organizations WHERE id = $1`, admin.Org.ID)
+			return err
+		})
+	})
 	var role struct {
 		ID string `json:"id"`
 	}
@@ -293,12 +311,22 @@ func TestDLPPolicyRevisions(t *testing.T) {
 		"permissions": []string{"org:read", "connectors:read", "revisions:rollback"}}, &role); code != http.StatusOK && code != http.StatusCreated {
 		t.Fatalf("create role: %d", code)
 	}
-	m := h.member(t, s.orgID, role.ID)
-	if code := m.do(t, http.MethodPost, path+"/revisions/2/restore", nil, nil); code != http.StatusForbidden {
-		t.Errorf("a restore without dlp:manage: %d, want 403", code)
-	}
-	if code := m.do(t, http.MethodGet, path+"/revisions", nil, nil); code != http.StatusOK {
-		t.Errorf("reading the history with connectors:read: %d, want 200", code)
+	m := h.member(t, admin.Org.ID, role.ID)
+	for _, c := range []struct{ kind, path string }{
+		{"dlp policy", "/api/v1/dlp/policies/"},
+		{"approval policy", "/api/v1/approval-policies/"},
+		{"OIDC provider", "/api/v1/idps/"},
+		{"SAML provider", "/api/v1/saml-providers/"},
+	} {
+		id := newID()
+		if code := m.do(t, http.MethodPost, c.path+id+"/revisions/1/restore", nil, nil); code != http.StatusForbidden {
+			t.Errorf("a %s restore with revisions:rollback alone: %d, want 403", c.kind, code)
+		}
+		// The owner holds both, so the same request gets as far as the
+		// history, which has no such revision.
+		if code := h.do(t, http.MethodPost, c.path+id+"/revisions/1/restore", nil, nil); code != http.StatusNotFound {
+			t.Errorf("a %s restore by the owner: %d, want 404", c.kind, code)
+		}
 	}
 }
 
@@ -498,4 +526,116 @@ func diffMaps(d *audit.Diff) any {
 		return nil
 	}
 	return map[string]any{"before": d.Before, "after": d.After}
+}
+
+// TestIdentityProviderRestoreToAnotherIssuerNeedsASecret: the stored
+// client secret is only ever sent where it was configured to go. A
+// restore, or an edit, that points the provider at another issuer or at an
+// endpoint on another host is refused unless it brings a secret of its
+// own.
+func TestIdentityProviderRestoreToAnotherIssuerNeedsASecret(t *testing.T) {
+	h := start(t)
+	admin := h.register(t, "E2E repointed provider")
+	ctx := context.Background()
+	t.Cleanup(func() {
+		_ = h.db.Bypass(ctx, "e2e cleanup", func(tx pgx.Tx) error {
+			_, err := tx.Exec(ctx, `DELETE FROM organizations WHERE id = $1`, admin.Org.ID)
+			return err
+		})
+	})
+	provider := func(host, secret string) map[string]any {
+		body := map[string]any{"name": "Company SSO", "preset": "generic", "issuer": "https://" + host,
+			"clientId": "supermcp", "enabled": true, "jitProvisioning": true,
+			"authorizationEndpoint": "https://" + host + "/authorize", "tokenEndpoint": "https://" + host + "/token"}
+		if secret != "" {
+			body["clientSecret"] = secret
+		}
+		return body
+	}
+	var created struct {
+		ID string `json:"id"`
+	}
+	if code := h.do(t, http.MethodPost, "/api/v1/idps", provider("old-idp.example.test", "old-secret-value"), &created); code != http.StatusCreated {
+		t.Fatalf("create: %d", code)
+	}
+	path := "/api/v1/idps/" + created.ID
+	sealed := func() []byte {
+		var enc []byte
+		if err := h.db.Bypass(ctx, "e2e read secret", func(tx pgx.Tx) error {
+			return tx.QueryRow(ctx, `SELECT client_secret_enc FROM identity_providers WHERE id = $1`, created.ID).Scan(&enc)
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return enc
+	}
+
+	// An edit to a new issuer without a secret is refused; with one it
+	// goes through.
+	var refused refusal
+	if code := h.do(t, http.MethodPut, path, provider("new-idp.example.test", ""), &refused); code != http.StatusUnprocessableEntity ||
+		!strings.Contains(refused.Detail, "client secret") {
+		t.Fatalf("repointing without a secret: %d %+v, want 422 naming the secret", code, refused)
+	}
+	// So is keeping the issuer but moving the token endpoint to another host.
+	moved := provider("old-idp.example.test", "")
+	moved["tokenEndpoint"] = "https://collector.example.test/token"
+	if code := h.do(t, http.MethodPut, path, moved, nil); code != http.StatusUnprocessableEntity {
+		t.Errorf("moving the token endpoint without a secret: %d, want 422", code)
+	}
+	if code := h.do(t, http.MethodPut, path, provider("new-idp.example.test", "new-secret-value"), nil); code != http.StatusOK {
+		t.Fatalf("repointing with a secret: %d", code)
+	}
+	current := sealed()
+
+	// Restoring the old issuer would send the new secret there.
+	refused = refusal{}
+	if code := h.do(t, http.MethodPost, path+"/revisions/1/restore", nil, &refused); code != http.StatusUnprocessableEntity ||
+		!strings.Contains(refused.Detail, "client secret") {
+		t.Fatalf("restoring another issuer without a secret: %d %+v, want 422 naming the secret", code, refused)
+	}
+	var now struct {
+		Providers []struct {
+			ID     string `json:"id"`
+			Issuer string `json:"issuer"`
+		} `json:"providers"`
+	}
+	h.do(t, http.MethodGet, "/api/v1/idps", nil, &now)
+	if len(now.Providers) != 1 || now.Providers[0].Issuer != "https://new-idp.example.test" || !bytes.Equal(sealed(), current) {
+		t.Errorf("a refused restore changed the provider: %+v", now.Providers)
+	}
+	if h.restoreEvent(t, admin.Org.ID, "identity_provider", created.ID, 1) != nil {
+		t.Error("a refused restore is recorded as a success")
+	}
+
+	// With a secret for the old issuer it goes through, and the answer
+	// says the stored secret was not kept.
+	var restored struct {
+		Issuer           string `json:"issuer"`
+		ClientSecretKept bool   `json:"clientSecretKept"`
+	}
+	if code := h.do(t, http.MethodPost, path+"/revisions/1/restore", map[string]any{"clientSecret": "old-secret-again"}, &restored); code != http.StatusOK {
+		t.Fatalf("restoring another issuer with a secret: %d", code)
+	}
+	if restored.Issuer != "https://old-idp.example.test" || restored.ClientSecretKept || bytes.Equal(sealed(), current) {
+		t.Errorf("restore with a secret answered %+v", restored)
+	}
+
+	// The audit trail shows where sign-in was pointed, before and after:
+	// the issuer, and the token endpoint the secret is sent to.
+	shown := false
+	for _, e := range h.auditEvents(t, ctx, admin.Org.ID) {
+		if e.Action != "idp.update" || e.Outcome != audit.Success {
+			continue
+		}
+		before, _ := e.Diff["before"].(map[string]any)
+		after, _ := e.Diff["after"].(map[string]any)
+		ep, _ := after["endpoints"].(map[string]any)
+		if before["issuer"] == "https://new-idp.example.test" && after["issuer"] == "https://old-idp.example.test" &&
+			ep["token"] == "https://old-idp.example.test/token" {
+			shown = true
+		}
+	}
+	if !shown {
+		t.Error("no idp.update on the audit trail shows the issuer and token endpoint moving back")
+	}
 }

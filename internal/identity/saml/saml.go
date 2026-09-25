@@ -231,17 +231,28 @@ func (s *Service) Create(ctx context.Context, orgID, actorID string, in Input) (
 // Update replaces a provider's configuration. The key pair is left alone:
 // the certificate is registered with the identity provider, and replacing
 // it on every edit would break every sign-in until someone re-uploaded
-// it. Rotate is the deliberate way to replace it.
-func (s *Service) Update(ctx context.Context, orgID, id, actorID string, in Input) (*Provider, error) {
+// it. Rotate is the deliberate way to replace it. It returns the provider
+// as stored and the one it replaced, read under the row lock.
+func (s *Service) Update(ctx context.Context, orgID, id, actorID string, in Input) (*Provider, *Provider, error) {
 	p, err := s.fromInput(ctx, orgID, id, in)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	if err := s.write(ctx, orgID, id, actorID, p); err != nil {
-		return nil, err
+	return s.writeAndRead(ctx, orgID, id, actorID, p)
+}
+
+// writeAndRead writes and then reports the provider as stored, with the
+// certificate actually in use rather than a new one.
+func (s *Service) writeAndRead(ctx context.Context, orgID, id, actorID string, p *Provider) (*Provider, *Provider, error) {
+	before, err := s.write(ctx, orgID, id, actorID, p)
+	if err != nil {
+		return nil, nil, err
 	}
-	// Report the certificate that is actually in use, not a new one.
-	return s.Get(ctx, orgID, id)
+	after, err := s.Get(ctx, orgID, id)
+	if err != nil {
+		return nil, nil, err
+	}
+	return after, before, nil
 }
 
 // Restore puts a provider back the way a revision recorded it. The
@@ -251,22 +262,30 @@ func (s *Service) Update(ctx context.Context, orgID, id, actorID string, in Inpu
 // as it is on every edit: the certificate a snapshot names may be one
 // the identity provider no longer trusts, and its private half is not in
 // the history.
-func (s *Service) Restore(ctx context.Context, orgID, id, actorID string, snap Snapshot) (*Provider, error) {
+//
+// It returns the provider as stored and the one it replaced, read under
+// the row lock. A snapshot that names no identity provider certificate is
+// refused: a provider that trusts no signer accepts no sign-in, and one
+// written that way would be put back broken.
+func (s *Service) Restore(ctx context.Context, orgID, id, actorID string, snap Snapshot) (*Provider, *Provider, error) {
 	p := snap.provider(orgID, id)
 	if p.EntityID == "" || p.IDPEntityID == "" || p.IDPSSOURL == "" {
-		return nil, fmt.Errorf("%w: this version does not say which identity provider it trusted", ErrMetadata)
+		return nil, nil, fmt.Errorf("%w: this version does not say which identity provider it trusted", ErrMetadata)
 	}
-	if err := s.write(ctx, orgID, id, actorID, p); err != nil {
-		return nil, err
+	if len(p.IDPCertificates) == 0 {
+		return nil, nil, fmt.Errorf("%w: this version names no certificate of the identity provider's, "+
+			"so nothing it signs could be accepted", ErrMetadata)
 	}
-	return s.Get(ctx, orgID, id)
+	return s.writeAndRead(ctx, orgID, id, actorID, p)
 }
 
-// write stores everything but the key pair, and records the revision.
-func (s *Service) write(ctx context.Context, orgID, id, actorID string, p *Provider) error {
-	return s.DB.Tx(tenant.WithOrg(ctx, orgID), func(tx pgx.Tx) error {
-		before, err := lockProvider(ctx, tx, orgID, id)
-		if err != nil {
+// write stores everything but the key pair, records the revision, and
+// returns the provider as it was before.
+func (s *Service) write(ctx context.Context, orgID, id, actorID string, p *Provider) (*Provider, error) {
+	var before *Provider
+	err := s.DB.Tx(tenant.WithOrg(ctx, orgID), func(tx pgx.Tx) error {
+		var err error
+		if before, err = lockProvider(ctx, tx, orgID, id); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx, `UPDATE saml_providers SET
@@ -288,6 +307,10 @@ func (s *Service) write(ctx context.Context, orgID, id, actorID string, p *Provi
 		}
 		return s.record(ctx, tx, id, "update", snap, audit.Changes(SnapshotOf(before), snap), actorID)
 	})
+	if err != nil {
+		return nil, err
+	}
+	return before, nil
 }
 
 // Rotate replaces the signing key pair. The new certificate has to be

@@ -156,6 +156,15 @@ What changes for callers of the API:
   provider keeps the client secret stored when the restore runs; a SAML
   provider keeps its signing key pair. A deleted provider cannot be
   restored from its history.
+- `PUT /api/v1/idps/{id}` without a `clientSecret` is now refused with
+  `422` when it changes the issuer or sets an endpoint on a host the
+  provider does not use yet, and so is a restore that would. The stored
+  secret is only ever sent where it was configured to go; send the secret
+  for the new provider with the change.
+- The `idp.update` and `saml.update` audit events now carry a before and
+  after diff of the provider, including its endpoints and the identity
+  provider certificates it trusts, instead of the provider as it stood
+  afterwards.
 - A deleted data-loss or approval policy can be restored, and comes back
   under its old id.
 - Restores ask for `revisions:rollback` and the permission that edits the
