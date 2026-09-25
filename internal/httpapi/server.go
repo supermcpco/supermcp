@@ -101,7 +101,7 @@ func New(d Deps) (http.Handler, huma.API) {
 	r := chi.NewRouter()
 	r.Use(requestID)
 	r.Use(requestLogger(d.Log))
-	r.Use(middleware.Recoverer)
+	r.Use(recoverer(d.Log))
 	// Inside Recoverer, so a panic is counted as the 500 it becomes.
 	r.Use(httpMetrics(d.Metrics))
 	r.Use(middleware.Timeout(60 * time.Second))
@@ -279,31 +279,41 @@ func loggedPath(p string) string {
 // readyz fails when the database is unreachable or the schema is older
 // than this binary expects, so a rolling upgrade never serves traffic from
 // a pod whose migration hook has not finished.
+//
+// It is unauthenticated, so the body says only which of the two it is.
+// The driver's error names the database user, the database and the host,
+// and the schema versions say which release is running; both go to the
+// log with the request id.
 func readyz(d Deps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 		defer cancel()
 		w.Header().Set("Content-Type", "text/plain")
+		notReady := func(ctx context.Context, answer, why string, attrs ...any) {
+			attrs = append(attrs, "req_id", middleware.GetReqID(ctx))
+			d.logger().WarnContext(ctx, "not ready: "+why, attrs...)
+			http.Error(w, answer, http.StatusServiceUnavailable)
+		}
 		if d.Store == nil {
-			http.Error(w, "no database", http.StatusServiceUnavailable)
+			http.Error(w, "database unavailable", http.StatusServiceUnavailable)
 			return
 		}
 		if err := d.Store.App.Ping(ctx); err != nil {
-			http.Error(w, "database: "+err.Error(), http.StatusServiceUnavailable)
+			notReady(r.Context(), "database unavailable", "the database did not answer", "err", err)
 			return
 		}
 		have, err := d.Store.SchemaVersion(ctx)
 		if err != nil {
-			http.Error(w, "schema: "+err.Error(), http.StatusServiceUnavailable)
+			notReady(r.Context(), "schema not ready", "the schema version could not be read", "err", err)
 			return
 		}
 		want, err := store.LatestVersion()
 		if err != nil {
-			http.Error(w, "schema: "+err.Error(), http.StatusServiceUnavailable)
+			notReady(r.Context(), "schema not ready", "this binary's schema version could not be read", "err", err)
 			return
 		}
 		if have < want {
-			http.Error(w, fmt.Sprintf("schema behind: have %d, want %d", have, want), http.StatusServiceUnavailable)
+			notReady(r.Context(), "schema not ready", "the schema is behind this binary", "have", have, "want", want)
 			return
 		}
 		_, _ = w.Write([]byte("ok\n"))

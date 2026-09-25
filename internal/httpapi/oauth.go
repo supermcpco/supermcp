@@ -16,6 +16,7 @@ import (
 	"github.com/supermcpco/supermcp/internal/audit"
 	"github.com/supermcpco/supermcp/internal/authz"
 	"github.com/supermcpco/supermcp/internal/mcpauth"
+	"github.com/supermcpco/supermcp/internal/reqid"
 )
 
 // oauthRoutes mounts the authorization server. The consent pages are
@@ -44,7 +45,7 @@ func (d Deps) metadata(w http.ResponseWriter, _ *http.Request) {
 func (d Deps) jwks(w http.ResponseWriter, r *http.Request) {
 	doc, err := d.OAuth.Keys.JWKS(r.Context())
 	if err != nil {
-		writeJSONError(w, http.StatusInternalServerError, "keyring unavailable")
+		d.oauthError(w, r, err)
 		return
 	}
 	w.Header().Set("Content-Type", "application/jwk-set+json")
@@ -66,7 +67,7 @@ func (d Deps) protectedResource(w http.ResponseWriter, r *http.Request) {
 func (d Deps) authorize(w http.ResponseWriter, r *http.Request) {
 	req, err := d.OAuth.BeginAuthorization(r.Context(), r.URL.Query())
 	if err != nil {
-		writeOAuthError(w, err)
+		d.oauthError(w, r, err)
 		return
 	}
 	p, signedIn := authz.From(r.Context())
@@ -110,7 +111,7 @@ func (d Deps) consent(w http.ResponseWriter, r *http.Request) {
 	}
 	req, err := d.OAuth.LoadAuthRequest(r.Context(), r.FormValue("request_id"))
 	if err != nil {
-		writeOAuthError(w, err)
+		d.oauthError(w, r, err)
 		return
 	}
 	// The page may have sat open past the window since authorize checked.
@@ -173,7 +174,7 @@ func (d Deps) token(w http.ResponseWriter, r *http.Request) {
 	res, err := d.OAuth.Token(r.Context(), r.PostForm, clientID, clientSecret)
 	if err != nil {
 		d.tokenRefused(r.Context(), grant, clientID, err)
-		writeOAuthError(w, err)
+		d.oauthError(w, r, err)
 		return
 	}
 	d.tokenIssued(r.Context(), res.Issued)
@@ -189,16 +190,9 @@ func (d Deps) register(w http.ResponseWriter, r *http.Request) {
 	}
 	out, err := d.OAuth.Register(r.Context(), in, clientIP(r))
 	if err != nil {
-		var oe *mcpauth.OAuthError
-		if !asOAuth(err, &oe) {
-			// writeOAuthError answers this with a bare 500; the cause is
-			// kept here, once, under the request id the audit event names.
-			d.Log.ErrorContext(r.Context(), "oauth client registration failed", "err", err,
-				"req_id", middleware.GetReqID(r.Context()))
-		}
 		d.emit(r.Context(), audit.Event{Category: audit.CategoryAuth, Action: "oauth.client.register", Outcome: audit.Failure,
 			TargetKind: "oauth_client", TargetDisplay: in.Name, Meta: errorMeta(r.Context(), nil, "error", err)})
-		writeOAuthError(w, err)
+		d.oauthError(w, r, err)
 		return
 	}
 	d.emit(r.Context(), audit.Event{Category: audit.CategoryAuth, Action: "oauth.client.register", Outcome: audit.Success,
@@ -318,12 +312,24 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-func writeOAuthError(w http.ResponseWriter, err error) {
+// oauthError answers an OAuth endpoint's failure. An OAuth error is the
+// RFC 6749 body it describes. Anything else is a server_error whose
+// description is reqid.Message, and the error is logged here, once, with
+// the request id the caller and any audit event were given.
+func (d Deps) oauthError(w http.ResponseWriter, r *http.Request, err error) {
 	var oe *mcpauth.OAuthError
 	if !asOAuth(err, &oe) {
-		writeJSONError(w, http.StatusInternalServerError, "authorization server error")
+		id := middleware.GetReqID(r.Context())
+		d.logger().ErrorContext(r.Context(), "oauth request failed", "req_id", id, "path", r.URL.Path, "err", err)
+		w.Header().Set("Cache-Control", "no-store")
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "server_error", "error_description": reqid.Message(id)})
 		return
 	}
+	writeOAuthError(w, oe)
+}
+
+// writeOAuthError writes an OAuth error as RFC 6749 describes it.
+func writeOAuthError(w http.ResponseWriter, oe *mcpauth.OAuthError) {
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, oe.Status, map[string]string{"error": oe.Code, "error_description": oe.Description})
 }

@@ -3,11 +3,17 @@ package httpapi
 import (
 	"context"
 	"crypto/rand"
+	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
+	"runtime/debug"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/go-chi/chi/v5/middleware"
+
+	"github.com/supermcpco/supermcp/internal/connector"
+	"github.com/supermcpco/supermcp/internal/reqid"
 )
 
 // requestIDHeader is the response header that carries the request id.
@@ -29,42 +35,84 @@ func requestID(next http.Handler) http.Handler {
 	})
 }
 
-// internalMessage is all a client learns about an error the API has no
-// answer for. Driver and upstream errors name hosts, DSN fragments and
-// SQL; the request id is how an operator finds them in the log.
-func internalMessage(reqID string) string {
-	return "something went wrong; the request id is " + reqID
-}
-
 // hideInternalErrors is a response transformer that replaces every 500
-// with internalMessage and logs what it replaced, once, with the request
+// with reqid.Message and logs what it replaced, once, with the request
 // id. A handler that returns an error huma does not recognise gets a 500
 // whose errors list carries the error's text; so does one that returns
-// humaErr's fallback. Both end here.
+// humaErr's fallback. Both end here. The logged text goes through
+// connector.RedactText first: a driver error can quote a DSN with its
+// password.
 func hideInternalErrors(log *slog.Logger) huma.Transformer {
 	if log == nil {
 		log = slog.Default()
 	}
 	return func(ctx huma.Context, _ string, v any) (any, error) {
-		e, ok := v.(*huma.ErrorModel)
-		if !ok || e.Status != http.StatusInternalServerError {
+		err, ok := v.(error)
+		if !ok {
 			return v, nil
+		}
+		var se huma.StatusError
+		if !errors.As(err, &se) || se.GetStatus() != http.StatusInternalServerError {
+			return v, nil
+		}
+		causes := []string{}
+		var model *huma.ErrorModel
+		if errors.As(err, &model) {
+			for _, d := range model.Errors {
+				if d != nil {
+					causes = append(causes, connector.RedactText(d.Message))
+				}
+			}
 		}
 		rctx := ctx.Context()
 		id := middleware.GetReqID(rctx)
-		causes := make([]string, 0, len(e.Errors))
-		for _, d := range e.Errors {
-			if d != nil {
-				causes = append(causes, d.Message)
-			}
-		}
 		log.ErrorContext(rctx, "request failed",
 			"req_id", id, "method", ctx.Method(), "path", loggedPath(ctx.URL().Path),
-			"detail", e.Detail, "err", causes)
+			"detail", connector.RedactText(se.Error()), "err", causes)
 		return &huma.ErrorModel{
 			Status: http.StatusInternalServerError,
 			Title:  http.StatusText(http.StatusInternalServerError),
-			Detail: internalMessage(id),
+			Detail: reqid.Message(id),
 		}, nil
 	}
+}
+
+// recoverer turns a panic into the same 500 an unmapped error gets: the
+// panic and its stack go to the log with the request id, and the client
+// gets reqid.Message. It stands where chi's Recoverer did, and like it
+// lets http.ErrAbortHandler through and writes nothing on an upgraded
+// connection.
+func recoverer(log *slog.Logger) func(http.Handler) http.Handler {
+	if log == nil {
+		log = slog.Default()
+	}
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			defer func(ctx context.Context) {
+				rec := recover()
+				if rec == nil {
+					return
+				}
+				if rec == http.ErrAbortHandler { //nolint:errorlint // the sentinel is compared as net/http does
+					panic(rec)
+				}
+				id := middleware.GetReqID(ctx)
+				log.ErrorContext(ctx, "request panicked",
+					"req_id", id, "method", r.Method, "path", loggedPath(r.URL.Path),
+					"panic", connector.RedactText(fmt.Sprint(rec)), "stack", string(debug.Stack()))
+				if r.Header.Get("Connection") != "Upgrade" {
+					writeJSONError(w, http.StatusInternalServerError, reqid.Message(id))
+				}
+			}(r.Context())
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// logger is d.Log, or slog.Default for a Deps a test built by hand.
+func (d Deps) logger() *slog.Logger {
+	if d.Log == nil {
+		return slog.Default()
+	}
+	return d.Log
 }

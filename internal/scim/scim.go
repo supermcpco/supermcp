@@ -27,6 +27,7 @@ import (
 	"github.com/supermcpco/supermcp/internal/audit"
 	"github.com/supermcpco/supermcp/internal/authz"
 	"github.com/supermcpco/supermcp/internal/identity"
+	"github.com/supermcpco/supermcp/internal/reqid"
 	"github.com/supermcpco/supermcp/internal/tenant"
 )
 
@@ -112,6 +113,12 @@ func (s *Service) require(next http.Handler) http.Handler {
 			return
 		}
 		if err := s.Authz.Require(r.Context(), authz.ScimManage, authz.Resource{OrgID: p.OrgID}); err != nil {
+			if !errors.Is(err, authz.ErrDenied) {
+				// The decision could not be made. The provider is still
+				// refused, but the cause is the operator's to see.
+				s.logger().ErrorContext(r.Context(), "scim authorisation failed",
+					"req_id", middleware.GetReqID(r.Context()), "path", r.URL.Path, "err", err)
+			}
 			writeErr(w, http.StatusForbidden, "this credential may not provision users")
 			return
 		}
@@ -411,7 +418,7 @@ func (s *Service) setActive(ctx context.Context, orgID, userID string, active bo
 		// request id.
 		id := middleware.GetReqID(ctx)
 		s.emit(ctx, "scim.user.deactivate", audit.Failure, "user", userID, "",
-			map[string]any{"error": internalMessage(id), "requestId": id})
+			map[string]any{"error": reqid.Message(id), "requestId": id})
 		return err
 	}
 	s.emit(ctx, "scim.user.deactivate", audit.Success, "user", userID, "",
@@ -892,25 +899,21 @@ func writeErr(w http.ResponseWriter, status int, detail string) {
 	writeScimErr(w, status, "", detail)
 }
 
-// internalMessage is all a provider learns about an error this package
-// has no answer for. Driver errors name hosts, DSN fragments and SQL; the
-// request id is how an operator finds them in the log. The admin API
-// words its 500s the same way.
-func internalMessage(reqID string) string {
-	return "something went wrong; the request id is " + reqID
+// logger is s.Log, or slog.Default when none was set.
+func (s *Service) logger() *slog.Logger {
+	if s.Log == nil {
+		return slog.Default()
+	}
+	return s.Log
 }
 
-// fail answers a 500 with internalMessage and logs err, once, with the
+// fail answers a 500 with reqid.Message and logs err, once, with the
 // request id.
 func (s *Service) fail(w http.ResponseWriter, r *http.Request, err error) {
-	log := s.Log
-	if log == nil {
-		log = slog.Default()
-	}
 	id := middleware.GetReqID(r.Context())
-	log.ErrorContext(r.Context(), "scim request failed",
+	s.logger().ErrorContext(r.Context(), "scim request failed",
 		"req_id", id, "method", r.Method, "path", r.URL.Path, "err", err)
-	writeErr(w, http.StatusInternalServerError, internalMessage(id))
+	writeErr(w, http.StatusInternalServerError, reqid.Message(id))
 }
 
 func writeScimErr(w http.ResponseWriter, status int, typ, detail string) {

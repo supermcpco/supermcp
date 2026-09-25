@@ -8,9 +8,11 @@ import (
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
+	"github.com/go-chi/chi/v5/middleware"
 
 	"github.com/supermcpco/supermcp/internal/audit"
 	"github.com/supermcpco/supermcp/internal/authz"
+	"github.com/supermcpco/supermcp/internal/reqid"
 )
 
 // --- audit -----------------------------------------------------------------
@@ -235,7 +237,11 @@ func (d Deps) auditRoutes(api huma.API) {
 						return
 					}
 					if err != nil {
-						log.Error("audit export stopped early", "org", orgID, "after_seq", q.AfterSeq, "err", err)
+						// The status line has gone, so the reader learns it
+						// from the last line, as for the other early stops.
+						id := middleware.GetReqID(ctx)
+						log.ErrorContext(ctx, "audit export stopped early", "req_id", id, "org", orgID, "after_seq", q.AfterSeq, "err", err)
+						truncated(reqid.Message(id))
 						return
 					}
 					for i := range batch {

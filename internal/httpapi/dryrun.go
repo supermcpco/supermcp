@@ -2,13 +2,17 @@ package httpapi
 
 import (
 	"context"
+	"errors"
 	"net/http"
 
 	"github.com/danielgtaylor/huma/v2"
 
 	"github.com/supermcpco/supermcp/internal/authz"
+	"github.com/supermcpco/supermcp/internal/connector"
 	"github.com/supermcpco/supermcp/internal/engine"
+	"github.com/supermcpco/supermcp/internal/engine/database"
 	"github.com/supermcpco/supermcp/internal/invoke"
+	"github.com/supermcpco/supermcp/pkg/tmpl"
 )
 
 // Seeing the request a tool would send is how somebody decides whether to
@@ -57,10 +61,34 @@ func (d Deps) dryRunRoutes(api huma.API) {
 					Principal: p, Tool: t, Connector: conn, Args: in.Body.Arguments,
 				})
 				if err != nil {
-					return nil, huma.Error422UnprocessableEntity("the request could not be rendered: " + err.Error())
+					return nil, dryRunErr(err)
 				}
 				return &dryRunOutput{Body: preview}, nil
 			}
 			return nil, huma.Error404NotFound("no such tool on this connector")
 		})
+}
+
+// dryRunErr is the answer for a dry run that failed: 422 when the
+// renderer refused, else humaErr's.
+func dryRunErr(err error) error {
+	if msg, ok := renderRefusal(err); ok {
+		return huma.Error422UnprocessableEntity(msg)
+	}
+	return humaErr(err)
+}
+
+// renderRefusal is what the caller is told when the renderer itself
+// refused a preview: a placeholder with no value, a credential that is not
+// stored, a write statement on a read-only connector, or a transport or
+// auth type it cannot render. ok is false for anything else. A dry run
+// also reads the connector and opens its credentials, and those errors
+// name the database or the key service; they go through humaErr.
+func renderRefusal(err error) (msg string, ok bool) {
+	switch {
+	case errors.Is(err, tmpl.ErrUnset), errors.Is(err, connector.ErrMissingCredential),
+		errors.Is(err, database.ErrNotReadOnly), errors.Is(err, engine.ErrUnsupported):
+		return "the request could not be rendered: " + err.Error(), true
+	}
+	return "", false
 }

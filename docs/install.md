@@ -478,7 +478,7 @@ entry in the allowed-hosts list.
 | A KMS entry in `SUPERMCP_KEK_PREVIOUS` has no region to use | Boot fails. Add `@<region>` to the entry or set `SUPERMCP_KMS_REGION`. |
 | A rate-limit budget is malformed | Boot fails. A limit nobody notices is off is worse than no limit: the dashboard says the route is protected and it is not. |
 | `SUPERMCP_LOG_FORMAT` is neither `json` nor `text` | Boot fails. |
-| The schema is older than the binary | `/readyz` returns 503 saying "schema behind: have N, want M", so a rolling upgrade never serves traffic from a pod whose migration hook has not finished. |
+| The schema is older than the binary | `/readyz` returns 503 saying "schema not ready", so a rolling upgrade never serves traffic from a pod whose migration hook has not finished. The pod's log says `not ready: the schema is behind this binary` with both versions. |
 | `supermcp migrate` has never run | The server fails to start with "SET ROLE supermcp_app (run `supermcp migrate` first)". |
 | Two branches added migrations with the same number | `supermcp migrate` refuses. One of them needs renumbering. |
 | Redis is configured but unreachable | The service keeps running. Rate-limit budgets fall back to per-replica, a `system` warning is logged, and the `supermcp_ratelimit_degraded` gauge goes to 1. The response cache falls back the same way and resolves errors to misses. |

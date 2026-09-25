@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/supermcpco/supermcp/internal/authz"
+	"github.com/supermcpco/supermcp/internal/reqid"
 	"github.com/supermcpco/supermcp/internal/tenant"
 )
 
@@ -54,8 +55,8 @@ func TestUnmappedErrorAnswersTheRequestID(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if body.Detail != internalMessage(id) || body.Status != "500" || len(body.Schemas) != 1 || body.Schemas[0] != schemaError {
-		t.Errorf("body %s, want a SCIM error with detail %q", rec.Body.String(), internalMessage(id))
+	if body.Detail != reqid.Message(id) || body.Status != "500" || len(body.Schemas) != 1 || body.Schemas[0] != schemaError {
+		t.Errorf("body %s, want a SCIM error with detail %q", rec.Body.String(), reqid.Message(id))
 	}
 	for _, leak := range []string{"127.0.0.1", "scim_leak_user", "scim_leak_db", "SELECT", "dial"} {
 		if strings.Contains(rec.Body.String(), leak) {

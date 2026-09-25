@@ -17,6 +17,7 @@ import (
 	"github.com/supermcpco/supermcp/internal/authz"
 	"github.com/supermcpco/supermcp/internal/connector"
 	"github.com/supermcpco/supermcp/internal/httpclient"
+	"github.com/supermcpco/supermcp/internal/reqid"
 	"github.com/supermcpco/supermcp/internal/ssrf"
 	"github.com/supermcpco/supermcp/internal/upstreamauth"
 )
@@ -240,7 +241,7 @@ func (d Deps) connectorAuthFailed(ctx context.Context, w http.ResponseWriter, r 
 	}
 	recorded := reason
 	if reason == "connect_failed" {
-		recorded = internalMessage(id)
+		recorded = reqid.Message(id)
 	}
 	d.emit(ctx, audit.Event{OrgID: orgID, Category: audit.CategorySecrets, Action: "connector.oauth.connect",
 		Outcome: audit.Failure, TargetKind: "connector", TargetID: connectorID,

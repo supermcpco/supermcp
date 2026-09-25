@@ -31,6 +31,7 @@ import (
 	"github.com/supermcpco/supermcp/internal/engine"
 	"github.com/supermcpco/supermcp/internal/invoke"
 	"github.com/supermcpco/supermcp/internal/mcpserver"
+	"github.com/supermcpco/supermcp/internal/reqid"
 	"github.com/supermcpco/supermcp/internal/telemetry"
 	"github.com/supermcpco/supermcp/internal/tool"
 	"github.com/supermcpco/supermcp/pkg/adapter"
@@ -165,7 +166,20 @@ func (e *Endpoint) serve() http.HandlerFunc {
 				resource := "/.well-known/oauth-protected-resource/mcp/" + chi.URLParam(r, "server")
 				w.Header().Set("WWW-Authenticate", `Bearer realm="supermcp", resource_metadata="`+e.PublicURL+resource+`"`)
 			}
-			writeRPCError(w, s.status, rpcCodeFor(s.status), s.err.Error())
+			msg := s.err.Error()
+			if s.status >= http.StatusInternalServerError {
+				// A lookup that failed, not a refusal: its text can name
+				// the database, so it goes to the log and the caller gets
+				// the request id.
+				id := middleware.GetReqID(ctx)
+				log := e.Log
+				if log == nil {
+					log = slog.Default()
+				}
+				log.ErrorContext(ctx, "mcp request failed", "req_id", id, "path", r.URL.Path, "err", s.err)
+				msg = reqid.Message(id)
+			}
+			writeRPCError(w, s.status, rpcCodeFor(s.status), msg)
 			e.Metrics.ObserveMCPRequest(routePattern(r), s.method, s.status)
 			return
 		}

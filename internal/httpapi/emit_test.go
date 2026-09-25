@@ -17,6 +17,7 @@ import (
 	"github.com/supermcpco/supermcp/internal/authz"
 	"github.com/supermcpco/supermcp/internal/identity"
 	"github.com/supermcpco/supermcp/internal/mcpauth"
+	"github.com/supermcpco/supermcp/internal/reqid"
 	"github.com/supermcpco/supermcp/internal/secrets"
 	"github.com/supermcpco/supermcp/internal/store"
 	"github.com/supermcpco/supermcp/internal/tenant"
@@ -37,7 +38,7 @@ func TestErrorMeta(t *testing.T) {
 		wantCode    string
 		wantMessage string // "" means no message is recorded
 	}{
-		{name: "a wrapped pgx error", err: pgFailure(), wantCode: internalMessage(id)},
+		{name: "a wrapped pgx error", err: pgFailure(), wantCode: reqid.Message(id)},
 		{name: "a refusal", err: fmt.Errorf("%w: roles:create (no binding)", authz.ErrDenied),
 			wantCode: "forbidden", wantMessage: "permission denied: roles:create (no binding)"},
 		{name: "a refusal with a code of its own", err: fmt.Errorf("remove member: %w", identity.ErrLastOwner),
@@ -50,8 +51,10 @@ func TestErrorMeta(t *testing.T) {
 			wantCode: "invalid_redirect_uri", wantMessage: "redirect_uris must be https"},
 		{name: "the key service", err: fmt.Errorf("seal: %w", secrets.ErrKeyServiceUnavailable),
 			wantCode: "service_unavailable", wantMessage: keyServiceMessage},
+		{name: "a long message is cut", err: huma.Error400BadRequest(strings.Repeat("é", 300)),
+			wantCode: "bad_request", wantMessage: strings.Repeat("é", maxAuditMessage) + "…"},
 		{name: "a 500 built by hand", err: huma.Error500InternalServerError("dial tcp " + leakyHost),
-			wantCode: internalMessage(id)},
+			wantCode: reqid.Message(id)},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -80,7 +83,9 @@ func TestErrorMeta(t *testing.T) {
 // change that failed with a wrapped pgx error, and reads it back from
 // the database: meta.error is the generic message, meta.requestId and
 // the event's request_id are the request's, and neither the SQL nor the
-// host is anywhere in the row. Requires DATABASE_URL.
+// host is anywhere in the row. It also writes a refused import, whose
+// message quotes the uploaded document: only the code is kept. Requires
+// DATABASE_URL.
 func TestAdminFailedRecordsNoErrorText(t *testing.T) {
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
@@ -125,6 +130,8 @@ func TestAdminFailedRecordsNoErrorText(t *testing.T) {
 	rctx := context.WithValue(ctx, middleware.RequestIDKey, id)
 	rctx = authz.WithPrincipal(rctx, &authz.Principal{Kind: authz.KindUser, ID: "u_errtext", OrgID: org, AuthMethod: "session"})
 	Deps{Audit: w}.adminFailed(rctx, "role.create", "role", "", pgFailure())
+	Deps{Audit: w}.adminFailed(rctx, "connector.import", "connector", "doc",
+		huma.Error400BadRequest("the document cannot be imported: line 3: "+leakySQL))
 	if err := w.Flush(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -145,8 +152,8 @@ func TestAdminFailedRecordsNoErrorText(t *testing.T) {
 	if err := json.Unmarshal(raw, &row); err != nil {
 		t.Fatal(err)
 	}
-	if row.Meta["error"] != internalMessage(id) {
-		t.Errorf("meta.error %q, want %q", row.Meta["error"], internalMessage(id))
+	if row.Meta["error"] != reqid.Message(id) {
+		t.Errorf("meta.error %q, want %q", row.Meta["error"], reqid.Message(id))
 	}
 	if row.Meta["requestId"] != id {
 		t.Errorf("meta.requestId %v, want %q", row.Meta["requestId"], id)
@@ -158,5 +165,20 @@ func TestAdminFailedRecordsNoErrorText(t *testing.T) {
 		if strings.Contains(string(raw), leak) {
 			t.Errorf("the event %s leaks %q", raw, leak)
 		}
+	}
+
+	var imported []byte
+	if err := db.Bypass(ctx, "errtext read", func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT meta FROM audit_events
+			WHERE organization_id = $1 AND action = 'connector.import'`, org).Scan(&imported)
+	}); err != nil {
+		t.Fatalf("reading the import event back: %v", err)
+	}
+	var meta map[string]any
+	if err := json.Unmarshal(imported, &meta); err != nil {
+		t.Fatal(err)
+	}
+	if meta["error"] != "bad_request" || meta["message"] != nil || meta["requestId"] != id {
+		t.Errorf("import meta %s, want only the code and the request id", imported)
 	}
 }
