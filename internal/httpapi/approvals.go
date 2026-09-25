@@ -291,7 +291,7 @@ func (d Deps) approvalPolicyRoutes(api huma.API) {
 			if err != nil {
 				return nil, approvalErr(err)
 			}
-			after, err := svc.UpdatePolicy(ctx, p.OrgID, in.ID, in.Body.toPolicy())
+			after, err := svc.UpdatePolicy(ctx, p.OrgID, in.ID, in.Body.toPolicy(), p.ID)
 			if err != nil {
 				d.adminFailed(ctx, "approval.policy.update", "approval_policy", in.ID, err)
 				return nil, approvalErr(err)
@@ -316,12 +316,48 @@ func (d Deps) approvalPolicyRoutes(api huma.API) {
 			if err != nil {
 				return nil, approvalErr(err)
 			}
-			if err := svc.DeletePolicy(ctx, p.OrgID, in.ID); err != nil {
+			if err := svc.DeletePolicy(ctx, p.OrgID, in.ID, p.ID); err != nil {
 				d.adminFailed(ctx, "approval.policy.delete", "approval_policy", in.ID, err)
 				return nil, approvalErr(err)
 			}
 			d.admin(ctx, "approval.policy.delete", "approval_policy", before.ID, before.Name, audit.Deleted(before))
 			return nil, nil //nolint:nilnil // huma's no-content shape
+		})
+
+	// The rules are read from the table on every tool call, not cached,
+	// so a restore applies to the next call on every replica.
+	huma.Register(api, huma.Operation{OperationID: "approval-policies-revisions-restore", Method: http.MethodPost,
+		Path:    "/api/v1/approval-policies/{id}/revisions/{revision}/restore",
+		Summary: "Put an approval policy back the way an earlier revision found it",
+		Description: "Needs revisions:rollback and org:settings:manage, and a browser session must have signed in " +
+			"within the fresh-auth window. A deleted policy is recreated under its old id.",
+		Tags: []string{"approvals"}, Security: sessionSecurity},
+		func(ctx context.Context, in *revisionGetInput) (*approvalPolicyOutput, error) {
+			p, snapshot, err := d.snapshotToRestore(ctx, approvalPolicyRevisions, in)
+			if err != nil {
+				return nil, err
+			}
+			svc := d.approvals()
+			if svc == nil {
+				return nil, errApprovalsUnconfigured
+			}
+			var want governance.ApprovalPolicy
+			if err := snapInto(snapshot, "", &want); err != nil {
+				return nil, err
+			}
+			before, getErr := svc.GetPolicy(ctx, p.OrgID, in.ID)
+			after, err := svc.RestorePolicy(ctx, p.OrgID, in.ID, want, p.ID)
+			if err != nil {
+				d.restoreFailed(ctx, approvalPolicyRevisions, in, err)
+				return nil, approvalErr(err)
+			}
+			if getErr == nil {
+				d.admin(ctx, "approval.policy.update", "approval_policy", after.ID, after.Name, audit.Changes(before, after))
+			} else {
+				d.admin(ctx, "approval.policy.create", "approval_policy", after.ID, after.Name, audit.Created(after))
+			}
+			d.restored(ctx, approvalPolicyRevisions, in, after.Name)
+			return &approvalPolicyOutput{Body: *after}, nil
 		})
 }
 
@@ -340,6 +376,7 @@ func (d Deps) approvals() *governance.Approvals {
 	if d.Audit != nil {
 		svc.Audit = d.Audit
 	}
+	svc.Revisions = d.Revisions
 	return svc
 }
 

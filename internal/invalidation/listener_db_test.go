@@ -256,7 +256,7 @@ func TestChangedDLPPolicyReachesOtherReplicas(t *testing.T) {
 	// Now cached on the listening replica. Tighten the rule elsewhere.
 	start := time.Now()
 	if _, err := writer.Update(ctx, f.org, rule.ID, dlp.ScanPolicy{Name: "refuse", Scan: dlp.StageBoth,
-		Action: dlp.ActionRefuse, Enabled: true}); err != nil {
+		Action: dlp.ActionRefuse, Enabled: true}, ""); err != nil {
 		t.Fatal(err)
 	}
 	eventually(t, propagation, "the listening replica refuses", func() bool {
@@ -265,7 +265,7 @@ func TestChangedDLPPolicyReachesOtherReplicas(t *testing.T) {
 	})
 	t.Logf("policy change reached the other replica in %s", time.Since(start))
 
-	if err := writer.Delete(ctx, f.org, rule.ID); err != nil {
+	if err := writer.Delete(ctx, f.org, rule.ID, ""); err != nil {
 		t.Fatal(err)
 	}
 	eventually(t, propagation, "the listening replica drops the deleted rule", func() bool {

@@ -155,6 +155,9 @@ func build(ctx context.Context, cfg *config.Config, log *slog.Logger, st *store.
 	conns.Revisions = revisions
 	servers := mcpserver.New(db, conns, newID)
 	servers.Revisions = revisions
+	// The sign-in providers are versioned too: who may sign in, and how,
+	// is worth being able to put back.
+	sso.Revisions = revisions
 	// Read-only tool results are remembered for as long as the adapter said
 	// they stay true. Redis when there is one, per replica otherwise.
 	responses, err := invoke.NewCache(ctx, invoke.CacheOptions{
@@ -191,6 +194,7 @@ func build(ctx context.Context, cfg *config.Config, log *slog.Logger, st *store.
 	// a data-loss rule may mask or refuse what crosses, and an approval
 	// rule may hold a call until a person agrees to it.
 	dlpPolicies := dlp.NewPolicies(db, newID)
+	dlpPolicies.Revisions = revisions
 	dlpPolicies.OnInvalidate = func(source string) { metrics.ObserveCacheInvalidation(telemetry.CacheDLP, source) }
 	// Both caches above are per replica. The database notifies every
 	// replica when what they hold changes; this holds the connection that
@@ -216,6 +220,7 @@ func build(ctx context.Context, cfg *config.Config, log *slog.Logger, st *store.
 	// SAML shares the guarded client with the OIDC path: an identity
 	// provider's metadata URL comes from whoever configured it.
 	samlSvc := saml.New(db, sealer, importClient, newID, cfg.PublicURL)
+	samlSvc.Revisions = revisions
 
 	retention := audit.NewRetention(db, log)
 	deps := httpapi.Deps{

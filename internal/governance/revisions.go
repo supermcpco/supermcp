@@ -1,6 +1,6 @@
 // Package governance keeps the history of a configuration: what each
-// connector, tool and MCP server looked like after every change, who made
-// it, and how to put an earlier version back.
+// connector, tool, MCP server, role and policy looked like after every
+// change, who made it, and how to put an earlier version back.
 package governance
 
 import (
@@ -19,7 +19,8 @@ import (
 // Kind names what a revision is about.
 type Kind string
 
-// The four kinds a revision can describe.
+// The kinds a revision can describe. The table's check constraint lists
+// the same set (00028); a kind added here needs a migration there.
 const (
 	KindConnector Kind = "connector"
 	KindTool      Kind = "tool"
@@ -27,6 +28,14 @@ const (
 	// KindRole is versioned for the same reason a connector is: somebody
 	// needs to see what a role allowed last week.
 	KindRole Kind = "role"
+	// The policies decide what a tool call may carry and which calls
+	// need a person; a rule loosened by mistake is worth putting back.
+	KindDLPPolicy      Kind = "dlp_policy"
+	KindApprovalPolicy Kind = "approval_policy"
+	// OIDC and SAML providers live in two tables with two id spaces, so
+	// they are two kinds.
+	KindIdentityProvider Kind = "identity_provider"
+	KindSAMLProvider     Kind = "saml_provider"
 )
 
 // What a revision says happened. A rollback is an update: it puts an
@@ -320,7 +329,12 @@ func lockSequence(ctx context.Context, tx pgx.Tx, kind Kind, entityID string) er
 }
 
 func validKind(k Kind) bool {
-	return k == KindConnector || k == KindTool || k == KindServer || k == KindRole
+	switch k {
+	case KindConnector, KindTool, KindServer, KindRole,
+		KindDLPPolicy, KindApprovalPolicy, KindIdentityProvider, KindSAMLProvider:
+		return true
+	}
+	return false
 }
 
 func validAction(a string) bool {

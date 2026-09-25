@@ -746,6 +746,36 @@ export type IdpInput = {
     userinfoEndpoint?: string;
 };
 
+export type IdpRestoreDto = {
+    /**
+     * A URL to the JSON Schema for this object.
+     */
+    readonly $schema?: string;
+    allowedDomains: Array<string> | null;
+    authorizationEndpoint?: string;
+    clientId: string;
+    /**
+     * Always true: the history never holds the client secret, so a restore keeps the one stored now. Set a new one with an ordinary update if the restored configuration needs a different secret.
+     */
+    clientSecretKept: boolean;
+    clientSecretSet: boolean;
+    defaultRoleId?: string;
+    discoveredAt?: string;
+    enabled: boolean;
+    groupsClaim?: string;
+    id: string;
+    issuer: string;
+    jitProvisioning: boolean;
+    jwksUri?: string;
+    name: string;
+    organizationId: string;
+    preset: string;
+    protocol: string;
+    scopes: Array<string> | null;
+    tokenEndpoint?: string;
+    userinfoEndpoint?: string;
+};
+
 export type ImportFinding = {
     level: string;
     message: string;
@@ -1366,7 +1396,7 @@ export type RevisionDto = {
     diff?: Diff;
     entityId: string;
     id: string;
-    kind: 'connector' | 'tool' | 'server' | 'role';
+    kind: 'connector' | 'tool' | 'server' | 'role' | 'dlp_policy' | 'approval_policy' | 'identity_provider' | 'saml_provider';
     revision: number;
     /**
      * The entity as it stood after this change; only on a single revision. A connector's secret auth and transport values read ***
@@ -1505,6 +1535,35 @@ export type SamlProbeBody = {
     readonly $schema?: string;
     metadataUrl?: string;
     metadataXml?: string;
+};
+
+export type SamlRestoreDto = {
+    /**
+     * A URL to the JSON Schema for this object.
+     */
+    readonly $schema?: string;
+    acsUrl: string;
+    allowedDomains: Array<string> | null;
+    certificatePem: string;
+    defaultRoleId?: string;
+    emailAttribute?: string;
+    enabled: boolean;
+    entityId: string;
+    groupsAttribute?: string;
+    id: string;
+    idpEntityId: string;
+    idpSsoUrl: string;
+    jitProvisioning: boolean;
+    loginUrl: string;
+    metadataFetchedAt?: string;
+    name: string;
+    nameAttribute?: string;
+    organizationId: string;
+    /**
+     * Always true: a restore leaves our signing key pair as it is, because the history does not hold the private key and the identity provider trusts the certificate in use now. Rotate the key to replace it.
+     */
+    signingKeyKept: boolean;
+    spMetadataUrl: string;
 };
 
 export type SamlSignInBody = {
@@ -2563,6 +2622,32 @@ export type IdpInputWritable = {
     userinfoEndpoint?: string;
 };
 
+export type IdpRestoreDtoWritable = {
+    allowedDomains: Array<string> | null;
+    authorizationEndpoint?: string;
+    clientId: string;
+    /**
+     * Always true: the history never holds the client secret, so a restore keeps the one stored now. Set a new one with an ordinary update if the restored configuration needs a different secret.
+     */
+    clientSecretKept: boolean;
+    clientSecretSet: boolean;
+    defaultRoleId?: string;
+    discoveredAt?: string;
+    enabled: boolean;
+    groupsClaim?: string;
+    id: string;
+    issuer: string;
+    jitProvisioning: boolean;
+    jwksUri?: string;
+    name: string;
+    organizationId: string;
+    preset: string;
+    protocol: string;
+    scopes: Array<string> | null;
+    tokenEndpoint?: string;
+    userinfoEndpoint?: string;
+};
+
 export type ImportInputBodyWritable = {
     /**
      * Values for the credentials the document implies
@@ -2884,7 +2969,7 @@ export type RevisionDtoWritable = {
     diff?: Diff;
     entityId: string;
     id: string;
-    kind: 'connector' | 'tool' | 'server' | 'role';
+    kind: 'connector' | 'tool' | 'server' | 'role' | 'dlp_policy' | 'approval_policy' | 'identity_provider' | 'saml_provider';
     revision: number;
     /**
      * The entity as it stood after this change; only on a single revision. A connector's secret auth and transport values read ***
@@ -2983,6 +3068,31 @@ export type SamlListBodyWritable = {
 export type SamlProbeBodyWritable = {
     metadataUrl?: string;
     metadataXml?: string;
+};
+
+export type SamlRestoreDtoWritable = {
+    acsUrl: string;
+    allowedDomains: Array<string> | null;
+    certificatePem: string;
+    defaultRoleId?: string;
+    emailAttribute?: string;
+    enabled: boolean;
+    entityId: string;
+    groupsAttribute?: string;
+    id: string;
+    idpEntityId: string;
+    idpSsoUrl: string;
+    jitProvisioning: boolean;
+    loginUrl: string;
+    metadataFetchedAt?: string;
+    name: string;
+    nameAttribute?: string;
+    organizationId: string;
+    /**
+     * Always true: a restore leaves our signing key pair as it is, because the history does not hold the private key and the identity provider trusts the certificate in use now. Rotate the key to replace it.
+     */
+    signingKeyKept: boolean;
+    spMetadataUrl: string;
 };
 
 export type SamlSignInBodyWritable = {
@@ -3526,6 +3636,95 @@ export type ApprovalPoliciesUpdateResponses = {
 };
 
 export type ApprovalPoliciesUpdateResponse = ApprovalPoliciesUpdateResponses[keyof ApprovalPoliciesUpdateResponses];
+
+export type ApprovalPoliciesRevisionsListData = {
+    body?: never;
+    path: {
+        id: string;
+    };
+    query?: {
+        /**
+         * Continue below this revision number, taken from the previous page's nextBefore
+         */
+        before?: number;
+        limit?: number;
+    };
+    url: '/api/v1/approval-policies/{id}/revisions';
+};
+
+export type ApprovalPoliciesRevisionsListErrors = {
+    /**
+     * Error
+     */
+    default: ErrorModel;
+};
+
+export type ApprovalPoliciesRevisionsListError = ApprovalPoliciesRevisionsListErrors[keyof ApprovalPoliciesRevisionsListErrors];
+
+export type ApprovalPoliciesRevisionsListResponses = {
+    /**
+     * OK
+     */
+    200: RevisionListOutputBody;
+};
+
+export type ApprovalPoliciesRevisionsListResponse = ApprovalPoliciesRevisionsListResponses[keyof ApprovalPoliciesRevisionsListResponses];
+
+export type ApprovalPoliciesRevisionsGetData = {
+    body?: never;
+    path: {
+        id: string;
+        revision: number;
+    };
+    query?: never;
+    url: '/api/v1/approval-policies/{id}/revisions/{revision}';
+};
+
+export type ApprovalPoliciesRevisionsGetErrors = {
+    /**
+     * Error
+     */
+    default: ErrorModel;
+};
+
+export type ApprovalPoliciesRevisionsGetError = ApprovalPoliciesRevisionsGetErrors[keyof ApprovalPoliciesRevisionsGetErrors];
+
+export type ApprovalPoliciesRevisionsGetResponses = {
+    /**
+     * OK
+     */
+    200: RevisionDto;
+};
+
+export type ApprovalPoliciesRevisionsGetResponse = ApprovalPoliciesRevisionsGetResponses[keyof ApprovalPoliciesRevisionsGetResponses];
+
+export type ApprovalPoliciesRevisionsRestoreData = {
+    body?: never;
+    path: {
+        id: string;
+        revision: number;
+    };
+    query?: never;
+    url: '/api/v1/approval-policies/{id}/revisions/{revision}/restore';
+};
+
+export type ApprovalPoliciesRevisionsRestoreErrors = {
+    /**
+     * Error
+     */
+    default: ErrorModel;
+};
+
+export type ApprovalPoliciesRevisionsRestoreError = ApprovalPoliciesRevisionsRestoreErrors[keyof ApprovalPoliciesRevisionsRestoreErrors];
+
+export type ApprovalPoliciesRevisionsRestoreResponses = {
+    /**
+     * OK
+     */
+    200: ApprovalPolicy;
+};
+
+export type ApprovalPoliciesRevisionsRestoreResponse = ApprovalPoliciesRevisionsRestoreResponses[keyof ApprovalPoliciesRevisionsRestoreResponses];
 
 export type ApprovalsListData = {
     body?: never;
@@ -5103,6 +5302,95 @@ export type DlpPolicyUpdateResponses = {
 
 export type DlpPolicyUpdateResponse = DlpPolicyUpdateResponses[keyof DlpPolicyUpdateResponses];
 
+export type DlpPoliciesRevisionsListData = {
+    body?: never;
+    path: {
+        id: string;
+    };
+    query?: {
+        /**
+         * Continue below this revision number, taken from the previous page's nextBefore
+         */
+        before?: number;
+        limit?: number;
+    };
+    url: '/api/v1/dlp/policies/{id}/revisions';
+};
+
+export type DlpPoliciesRevisionsListErrors = {
+    /**
+     * Error
+     */
+    default: ErrorModel;
+};
+
+export type DlpPoliciesRevisionsListError = DlpPoliciesRevisionsListErrors[keyof DlpPoliciesRevisionsListErrors];
+
+export type DlpPoliciesRevisionsListResponses = {
+    /**
+     * OK
+     */
+    200: RevisionListOutputBody;
+};
+
+export type DlpPoliciesRevisionsListResponse = DlpPoliciesRevisionsListResponses[keyof DlpPoliciesRevisionsListResponses];
+
+export type DlpPoliciesRevisionsGetData = {
+    body?: never;
+    path: {
+        id: string;
+        revision: number;
+    };
+    query?: never;
+    url: '/api/v1/dlp/policies/{id}/revisions/{revision}';
+};
+
+export type DlpPoliciesRevisionsGetErrors = {
+    /**
+     * Error
+     */
+    default: ErrorModel;
+};
+
+export type DlpPoliciesRevisionsGetError = DlpPoliciesRevisionsGetErrors[keyof DlpPoliciesRevisionsGetErrors];
+
+export type DlpPoliciesRevisionsGetResponses = {
+    /**
+     * OK
+     */
+    200: RevisionDto;
+};
+
+export type DlpPoliciesRevisionsGetResponse = DlpPoliciesRevisionsGetResponses[keyof DlpPoliciesRevisionsGetResponses];
+
+export type DlpPoliciesRevisionsRestoreData = {
+    body?: never;
+    path: {
+        id: string;
+        revision: number;
+    };
+    query?: never;
+    url: '/api/v1/dlp/policies/{id}/revisions/{revision}/restore';
+};
+
+export type DlpPoliciesRevisionsRestoreErrors = {
+    /**
+     * Error
+     */
+    default: ErrorModel;
+};
+
+export type DlpPoliciesRevisionsRestoreError = DlpPoliciesRevisionsRestoreErrors[keyof DlpPoliciesRevisionsRestoreErrors];
+
+export type DlpPoliciesRevisionsRestoreResponses = {
+    /**
+     * OK
+     */
+    200: ScanPolicy;
+};
+
+export type DlpPoliciesRevisionsRestoreResponse = DlpPoliciesRevisionsRestoreResponses[keyof DlpPoliciesRevisionsRestoreResponses];
+
 export type DlpPreviewData = {
     body: DlpPreviewInputBodyWritable;
     path?: never;
@@ -5258,6 +5546,95 @@ export type UpdateIdpResponses = {
 };
 
 export type UpdateIdpResponse = UpdateIdpResponses[keyof UpdateIdpResponses];
+
+export type IdpsRevisionsListData = {
+    body?: never;
+    path: {
+        id: string;
+    };
+    query?: {
+        /**
+         * Continue below this revision number, taken from the previous page's nextBefore
+         */
+        before?: number;
+        limit?: number;
+    };
+    url: '/api/v1/idps/{id}/revisions';
+};
+
+export type IdpsRevisionsListErrors = {
+    /**
+     * Error
+     */
+    default: ErrorModel;
+};
+
+export type IdpsRevisionsListError = IdpsRevisionsListErrors[keyof IdpsRevisionsListErrors];
+
+export type IdpsRevisionsListResponses = {
+    /**
+     * OK
+     */
+    200: RevisionListOutputBody;
+};
+
+export type IdpsRevisionsListResponse = IdpsRevisionsListResponses[keyof IdpsRevisionsListResponses];
+
+export type IdpsRevisionsGetData = {
+    body?: never;
+    path: {
+        id: string;
+        revision: number;
+    };
+    query?: never;
+    url: '/api/v1/idps/{id}/revisions/{revision}';
+};
+
+export type IdpsRevisionsGetErrors = {
+    /**
+     * Error
+     */
+    default: ErrorModel;
+};
+
+export type IdpsRevisionsGetError = IdpsRevisionsGetErrors[keyof IdpsRevisionsGetErrors];
+
+export type IdpsRevisionsGetResponses = {
+    /**
+     * OK
+     */
+    200: RevisionDto;
+};
+
+export type IdpsRevisionsGetResponse = IdpsRevisionsGetResponses[keyof IdpsRevisionsGetResponses];
+
+export type IdpsRevisionsRestoreData = {
+    body?: never;
+    path: {
+        id: string;
+        revision: number;
+    };
+    query?: never;
+    url: '/api/v1/idps/{id}/revisions/{revision}/restore';
+};
+
+export type IdpsRevisionsRestoreErrors = {
+    /**
+     * Error
+     */
+    default: ErrorModel;
+};
+
+export type IdpsRevisionsRestoreError = IdpsRevisionsRestoreErrors[keyof IdpsRevisionsRestoreErrors];
+
+export type IdpsRevisionsRestoreResponses = {
+    /**
+     * OK
+     */
+    200: IdpRestoreDto;
+};
+
+export type IdpsRevisionsRestoreResponse = IdpsRevisionsRestoreResponses[keyof IdpsRevisionsRestoreResponses];
 
 export type InviteAcceptData = {
     body: AcceptInviteInputBodyWritable;
@@ -5970,6 +6347,95 @@ export type UpdateSamlProviderResponses = {
 };
 
 export type UpdateSamlProviderResponse = UpdateSamlProviderResponses[keyof UpdateSamlProviderResponses];
+
+export type SamlProvidersRevisionsListData = {
+    body?: never;
+    path: {
+        id: string;
+    };
+    query?: {
+        /**
+         * Continue below this revision number, taken from the previous page's nextBefore
+         */
+        before?: number;
+        limit?: number;
+    };
+    url: '/api/v1/saml-providers/{id}/revisions';
+};
+
+export type SamlProvidersRevisionsListErrors = {
+    /**
+     * Error
+     */
+    default: ErrorModel;
+};
+
+export type SamlProvidersRevisionsListError = SamlProvidersRevisionsListErrors[keyof SamlProvidersRevisionsListErrors];
+
+export type SamlProvidersRevisionsListResponses = {
+    /**
+     * OK
+     */
+    200: RevisionListOutputBody;
+};
+
+export type SamlProvidersRevisionsListResponse = SamlProvidersRevisionsListResponses[keyof SamlProvidersRevisionsListResponses];
+
+export type SamlProvidersRevisionsGetData = {
+    body?: never;
+    path: {
+        id: string;
+        revision: number;
+    };
+    query?: never;
+    url: '/api/v1/saml-providers/{id}/revisions/{revision}';
+};
+
+export type SamlProvidersRevisionsGetErrors = {
+    /**
+     * Error
+     */
+    default: ErrorModel;
+};
+
+export type SamlProvidersRevisionsGetError = SamlProvidersRevisionsGetErrors[keyof SamlProvidersRevisionsGetErrors];
+
+export type SamlProvidersRevisionsGetResponses = {
+    /**
+     * OK
+     */
+    200: RevisionDto;
+};
+
+export type SamlProvidersRevisionsGetResponse = SamlProvidersRevisionsGetResponses[keyof SamlProvidersRevisionsGetResponses];
+
+export type SamlProvidersRevisionsRestoreData = {
+    body?: never;
+    path: {
+        id: string;
+        revision: number;
+    };
+    query?: never;
+    url: '/api/v1/saml-providers/{id}/revisions/{revision}/restore';
+};
+
+export type SamlProvidersRevisionsRestoreErrors = {
+    /**
+     * Error
+     */
+    default: ErrorModel;
+};
+
+export type SamlProvidersRevisionsRestoreError = SamlProvidersRevisionsRestoreErrors[keyof SamlProvidersRevisionsRestoreErrors];
+
+export type SamlProvidersRevisionsRestoreResponses = {
+    /**
+     * OK
+     */
+    200: SamlRestoreDto;
+};
+
+export type SamlProvidersRevisionsRestoreResponse = SamlProvidersRevisionsRestoreResponses[keyof SamlProvidersRevisionsRestoreResponses];
 
 export type RotateSamlKeyData = {
     body?: never;

@@ -24,6 +24,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/supermcpco/supermcp/internal/audit"
 	"github.com/supermcpco/supermcp/internal/secrets"
 	"github.com/supermcpco/supermcp/internal/tenant"
 )
@@ -107,6 +108,9 @@ type Service struct {
 	HTTP      Doer
 	NewID     func() string
 	PublicURL *url.URL
+	// Revisions records each change to a provider beside the change, in
+	// the same transaction. Nil records nothing.
+	Revisions Recorder
 
 	keys *jwksCache
 	now  func() time.Time
@@ -170,7 +174,11 @@ func (s *Service) Create(ctx context.Context, orgID, actorID string, in Input) (
 			p.ID, orgID, p.Name, p.Preset, p.Protocol, p.Issuer, p.ClientID, enc, p.Scopes,
 			p.AuthorizationEndpoint, p.TokenEndpoint, p.UserinfoEndpoint, p.JWKSURI,
 			p.AllowedDomains, p.JITProvisioning, p.DefaultRoleID, p.GroupsClaim, p.Enabled, actorID)
-		return err
+		if err != nil {
+			return err
+		}
+		snap := SnapshotOf(p)
+		return s.record(ctx, tx, p.ID, "create", snap, audit.Created(snap), actorID)
 	})
 	if err != nil {
 		return nil, err
@@ -180,7 +188,7 @@ func (s *Service) Create(ctx context.Context, orgID, actorID string, in Input) (
 
 // Update replaces a provider's configuration. An empty client secret keeps
 // the stored one: the UI never receives it, so it cannot send it back.
-func (s *Service) Update(ctx context.Context, orgID, id string, in Input) (*Provider, error) {
+func (s *Service) Update(ctx context.Context, orgID, id, actorID string, in Input) (*Provider, error) {
 	p, err := s.fromInput(orgID, in)
 	if err != nil {
 		return nil, err
@@ -193,7 +201,11 @@ func (s *Service) Update(ctx context.Context, orgID, id string, in Input) (*Prov
 		}
 	}
 	err = s.DB.Tx(tenant.WithOrg(ctx, orgID), func(tx pgx.Tx) error {
-		tag, err := tx.Exec(ctx, `UPDATE identity_providers SET
+		before, err := lockProvider(ctx, tx, orgID, id)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `UPDATE identity_providers SET
 			name=$3, preset=$4, protocol=$5, issuer=$6, client_id=$7,
 			client_secret_enc = COALESCE($8, client_secret_enc),
 			scopes=$9, authorization_endpoint=$10, token_endpoint=$11, userinfo_endpoint=$12, jwks_uri=$13,
@@ -202,14 +214,14 @@ func (s *Service) Update(ctx context.Context, orgID, id string, in Input) (*Prov
 			WHERE id = $1 AND organization_id = $2`,
 			id, orgID, p.Name, p.Preset, p.Protocol, p.Issuer, p.ClientID, enc, p.Scopes,
 			p.AuthorizationEndpoint, p.TokenEndpoint, p.UserinfoEndpoint, p.JWKSURI,
-			p.AllowedDomains, p.JITProvisioning, p.DefaultRoleID, p.GroupsClaim, p.Enabled)
-		if err != nil {
+			p.AllowedDomains, p.JITProvisioning, p.DefaultRoleID, p.GroupsClaim, p.Enabled); err != nil {
 			return err
 		}
-		if tag.RowsAffected() == 0 {
-			return ErrNotFound
+		snap := SnapshotOf(p)
+		if err := s.baseline(ctx, tx, SnapshotOf(before)); err != nil {
+			return err
 		}
-		return nil
+		return s.record(ctx, tx, id, "update", snap, audit.Changes(SnapshotOf(before), snap), actorID)
 	})
 	if err != nil {
 		return nil, err
@@ -218,18 +230,59 @@ func (s *Service) Update(ctx context.Context, orgID, id string, in Input) (*Prov
 }
 
 // Delete removes a provider. The identities it created stay, so the people
-// keep their accounts and their history.
-func (s *Service) Delete(ctx context.Context, orgID, id string) error {
+// keep their accounts and their history. The provider's own history stays
+// too, but its sealed client secret goes with the row.
+func (s *Service) Delete(ctx context.Context, orgID, id, actorID string) error {
 	return s.DB.Tx(tenant.WithOrg(ctx, orgID), func(tx pgx.Tx) error {
-		tag, err := tx.Exec(ctx, `DELETE FROM identity_providers WHERE id = $1 AND organization_id = $2`, id, orgID)
+		before, err := lockProvider(ctx, tx, orgID, id)
 		if err != nil {
 			return err
 		}
-		if tag.RowsAffected() == 0 {
-			return ErrNotFound
+		if _, err := tx.Exec(ctx, `DELETE FROM identity_providers WHERE id = $1 AND organization_id = $2`, id, orgID); err != nil {
+			return err
 		}
-		return nil
+		snap := SnapshotOf(before)
+		if err := s.baseline(ctx, tx, snap); err != nil {
+			return err
+		}
+		return s.record(ctx, tx, id, "delete", snap, audit.Deleted(snap), actorID)
 	})
+}
+
+// lockProvider reads a provider inside the writing transaction and holds
+// its row, so the before a revision records is the one the write replaced.
+func lockProvider(ctx context.Context, tx pgx.Tx, orgID, id string) (*Provider, error) {
+	var p Provider
+	err := tx.QueryRow(ctx, `SELECT id, organization_id, name, preset, protocol, issuer, client_id, scopes,
+		authorization_endpoint, token_endpoint, userinfo_endpoint, jwks_uri, discovered_at,
+		allowed_domains, jit_provisioning, COALESCE(default_role_id,''), groups_claim, enabled
+		FROM identity_providers WHERE id = $1 AND organization_id = $2 FOR UPDATE`, id, orgID).
+		Scan(&p.ID, &p.OrgID, &p.Name, &p.Preset, &p.Protocol, &p.Issuer, &p.ClientID, &p.Scopes,
+			&p.AuthorizationEndpoint, &p.TokenEndpoint, &p.UserinfoEndpoint, &p.JWKSURI, &p.DiscoveredAt,
+			&p.AllowedDomains, &p.JITProvisioning, &p.DefaultRoleID, &p.GroupsClaim, &p.Enabled)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &p, nil
+}
+
+// baseline records a provider as it stood before its first recorded
+// change, for one configured before providers had a history.
+func (s *Service) baseline(ctx context.Context, tx pgx.Tx, before Snapshot) error {
+	if s.Revisions == nil {
+		return nil
+	}
+	return s.Revisions.RecordBaseline(ctx, tx, RevisionKind, before.ID, before)
+}
+
+func (s *Service) record(ctx context.Context, tx pgx.Tx, id, action string, snap Snapshot, diff *audit.Diff, actorID string) error {
+	if s.Revisions == nil {
+		return nil
+	}
+	return s.Revisions.Record(ctx, tx, RevisionKind, id, action, snap, diff, actorID)
 }
 
 // List returns an organisation's providers, without secrets.

@@ -441,13 +441,13 @@ func TestPolicyResolutionAcrossTheFourScopes(t *testing.T) {
 	// Switching the exemption off leaves the connector's rule governing.
 	disabled := *tool
 	disabled.Enabled = false
-	if _, err := f.svc.UpdatePolicy(ctx, f.orgID, tool.ID, disabled); err != nil {
+	if _, err := f.svc.UpdatePolicy(ctx, f.orgID, tool.ID, disabled, ""); err != nil {
 		t.Fatal(err)
 	}
 	if got := f.governing(ctx, t, c); got.ID == tool.ID {
 		t.Error("a rule that was switched off still governed the call")
 	}
-	if err := f.svc.DeletePolicy(ctx, f.orgID, "no such policy"); !errors.Is(err, governance.ErrPolicyNotFound) {
+	if err := f.svc.DeletePolicy(ctx, f.orgID, "no such policy", ""); !errors.Is(err, governance.ErrPolicyNotFound) {
 		t.Errorf("deleting nothing: %v", err)
 	}
 }

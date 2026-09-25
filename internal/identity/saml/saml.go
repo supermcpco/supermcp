@@ -26,6 +26,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/supermcpco/supermcp/internal/audit"
 	"github.com/supermcpco/supermcp/internal/secrets"
 	"github.com/supermcpco/supermcp/internal/tenant"
 )
@@ -131,6 +132,9 @@ type Service struct {
 	HTTP      Doer
 	NewID     func() string
 	PublicURL *url.URL
+	// Revisions records each change to a provider beside the change, in
+	// the same transaction. Nil records nothing.
+	Revisions Recorder
 
 	now func() time.Time
 }
@@ -212,7 +216,11 @@ func (s *Service) Create(ctx context.Context, orgID, actorID string, in Input) (
 			p.IDPEntityID, p.IDPSSOURL, p.IDPCertificates, p.MetadataURL, p.MetadataFetchedAt,
 			p.EmailAttribute, p.NameAttribute, p.GroupsAttribute, p.AllowedDomains,
 			p.JITProvisioning, p.DefaultRoleID, p.Enabled, actorID)
-		return err
+		if err != nil {
+			return err
+		}
+		snap := SnapshotOf(p)
+		return s.record(ctx, tx, id, "create", snap, audit.Created(snap), actorID)
 	})
 	if err != nil {
 		return nil, err
@@ -224,13 +232,44 @@ func (s *Service) Create(ctx context.Context, orgID, actorID string, in Input) (
 // the certificate is registered with the identity provider, and replacing
 // it on every edit would break every sign-in until someone re-uploaded
 // it. Rotate is the deliberate way to replace it.
-func (s *Service) Update(ctx context.Context, orgID, id string, in Input) (*Provider, error) {
+func (s *Service) Update(ctx context.Context, orgID, id, actorID string, in Input) (*Provider, error) {
 	p, err := s.fromInput(ctx, orgID, id, in)
 	if err != nil {
 		return nil, err
 	}
-	err = s.DB.Tx(tenant.WithOrg(ctx, orgID), func(tx pgx.Tx) error {
-		tag, err := tx.Exec(ctx, `UPDATE saml_providers SET
+	if err := s.write(ctx, orgID, id, actorID, p); err != nil {
+		return nil, err
+	}
+	// Report the certificate that is actually in use, not a new one.
+	return s.Get(ctx, orgID, id)
+}
+
+// Restore puts a provider back the way a revision recorded it. The
+// identity provider's side is put back from the snapshot itself rather
+// than fetched again, because the metadata at the URL today is not the
+// metadata that version was working with. Our key pair is left alone,
+// as it is on every edit: the certificate a snapshot names may be one
+// the identity provider no longer trusts, and its private half is not in
+// the history.
+func (s *Service) Restore(ctx context.Context, orgID, id, actorID string, snap Snapshot) (*Provider, error) {
+	p := snap.provider(orgID, id)
+	if p.EntityID == "" || p.IDPEntityID == "" || p.IDPSSOURL == "" {
+		return nil, fmt.Errorf("%w: this version does not say which identity provider it trusted", ErrMetadata)
+	}
+	if err := s.write(ctx, orgID, id, actorID, p); err != nil {
+		return nil, err
+	}
+	return s.Get(ctx, orgID, id)
+}
+
+// write stores everything but the key pair, and records the revision.
+func (s *Service) write(ctx context.Context, orgID, id, actorID string, p *Provider) error {
+	return s.DB.Tx(tenant.WithOrg(ctx, orgID), func(tx pgx.Tx) error {
+		before, err := lockProvider(ctx, tx, orgID, id)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `UPDATE saml_providers SET
 			name=$3, entity_id=$4, idp_entity_id=$5, idp_sso_url=$6, idp_certificates=$7,
 			metadata_url=$8, metadata_fetched_at=$9, email_attribute=$10, name_attribute=$11,
 			groups_attribute=$12, allowed_domains=$13, jit_provisioning=$14,
@@ -238,30 +277,23 @@ func (s *Service) Update(ctx context.Context, orgID, id string, in Input) (*Prov
 			WHERE id = $1 AND organization_id = $2`,
 			id, orgID, p.Name, p.EntityID, p.IDPEntityID, p.IDPSSOURL, p.IDPCertificates,
 			p.MetadataURL, p.MetadataFetchedAt, p.EmailAttribute, p.NameAttribute,
-			p.GroupsAttribute, p.AllowedDomains, p.JITProvisioning, p.DefaultRoleID, p.Enabled)
-		if err != nil {
+			p.GroupsAttribute, p.AllowedDomains, p.JITProvisioning, p.DefaultRoleID, p.Enabled); err != nil {
 			return err
 		}
-		if tag.RowsAffected() == 0 {
-			return ErrNotFound
+		p.certDER = before.certDER
+		p.CertificatePEM = certificatePEM(before.certDER)
+		snap := SnapshotOf(p)
+		if err := s.baseline(ctx, tx, SnapshotOf(before)); err != nil {
+			return err
 		}
-		return nil
+		return s.record(ctx, tx, id, "update", snap, audit.Changes(SnapshotOf(before), snap), actorID)
 	})
-	if err != nil {
-		return nil, err
-	}
-	// Report the certificate that is actually in use, not a new one.
-	stored, err := s.Get(ctx, orgID, id)
-	if err != nil {
-		return nil, err
-	}
-	return stored, nil
 }
 
 // Rotate replaces the signing key pair. The new certificate has to be
 // given to the identity provider before anything we sign with it will be
 // accepted, so this is a separate, deliberate step.
-func (s *Service) Rotate(ctx context.Context, orgID, id string) (*Provider, error) {
+func (s *Service) Rotate(ctx context.Context, orgID, id, actorID string) (*Provider, error) {
 	p, err := s.Get(ctx, orgID, id)
 	if err != nil {
 		return nil, err
@@ -275,15 +307,22 @@ func (s *Service) Rotate(ctx context.Context, orgID, id string) (*Provider, erro
 		return nil, err
 	}
 	err = s.DB.Tx(tenant.WithOrg(ctx, orgID), func(tx pgx.Tx) error {
-		tag, err := tx.Exec(ctx, `UPDATE saml_providers SET signing_cert=$3, signing_key_enc=$4,
-			updated_at = now() WHERE id = $1 AND organization_id = $2`, id, orgID, cert.Raw, enc)
+		before, err := lockProvider(ctx, tx, orgID, id)
 		if err != nil {
 			return err
 		}
-		if tag.RowsAffected() == 0 {
-			return ErrNotFound
+		if _, err := tx.Exec(ctx, `UPDATE saml_providers SET signing_cert=$3, signing_key_enc=$4,
+			updated_at = now() WHERE id = $1 AND organization_id = $2`, id, orgID, cert.Raw, enc); err != nil {
+			return err
 		}
-		return nil
+		after := *before
+		after.certDER = cert.Raw
+		after.CertificatePEM = certificatePEM(cert.Raw)
+		snap := SnapshotOf(&after)
+		if err := s.baseline(ctx, tx, SnapshotOf(before)); err != nil {
+			return err
+		}
+		return s.record(ctx, tx, id, "update", snap, audit.Changes(SnapshotOf(before), snap), actorID)
 	})
 	if err != nil {
 		return nil, err
@@ -294,18 +333,55 @@ func (s *Service) Rotate(ctx context.Context, orgID, id string) (*Provider, erro
 }
 
 // Delete removes a provider. The identities it created stay, so the
-// people keep their accounts and their history.
-func (s *Service) Delete(ctx context.Context, orgID, id string) error {
+// people keep their accounts and their history. The provider's own
+// history stays too, but its signing key goes with the row.
+func (s *Service) Delete(ctx context.Context, orgID, id, actorID string) error {
 	return s.DB.Tx(tenant.WithOrg(ctx, orgID), func(tx pgx.Tx) error {
-		tag, err := tx.Exec(ctx, `DELETE FROM saml_providers WHERE id = $1 AND organization_id = $2`, id, orgID)
+		before, err := lockProvider(ctx, tx, orgID, id)
 		if err != nil {
 			return err
 		}
-		if tag.RowsAffected() == 0 {
-			return ErrNotFound
+		if _, err := tx.Exec(ctx, `DELETE FROM saml_providers WHERE id = $1 AND organization_id = $2`, id, orgID); err != nil {
+			return err
 		}
-		return nil
+		snap := SnapshotOf(before)
+		if err := s.baseline(ctx, tx, snap); err != nil {
+			return err
+		}
+		return s.record(ctx, tx, id, "delete", snap, audit.Deleted(snap), actorID)
 	})
+}
+
+// lockProvider reads a provider inside the writing transaction and holds
+// its row, so the before a revision records is the one the write replaced.
+func lockProvider(ctx context.Context, tx pgx.Tx, orgID, id string) (*Provider, error) {
+	var p Provider
+	err := scanProvider(tx.QueryRow(ctx, `SELECT `+providerColumns+
+		` FROM saml_providers WHERE id = $1 AND organization_id = $2 FOR UPDATE`, id, orgID), &p)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	p.CertificatePEM = certificatePEM(p.certDER)
+	return &p, nil
+}
+
+// baseline records a provider as it stood before its first recorded
+// change, for one configured before providers had a history.
+func (s *Service) baseline(ctx context.Context, tx pgx.Tx, before Snapshot) error {
+	if s.Revisions == nil {
+		return nil
+	}
+	return s.Revisions.RecordBaseline(ctx, tx, RevisionKind, before.ID, before)
+}
+
+func (s *Service) record(ctx context.Context, tx pgx.Tx, id, action string, snap Snapshot, diff *audit.Diff, actorID string) error {
+	if s.Revisions == nil {
+		return nil
+	}
+	return s.Revisions.Record(ctx, tx, RevisionKind, id, action, snap, diff, actorID)
 }
 
 const providerColumns = `id, organization_id, name, entity_id, signing_cert, idp_entity_id, idp_sso_url,

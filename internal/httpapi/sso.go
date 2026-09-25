@@ -100,6 +100,15 @@ type idpDTO struct {
 	SecretSet bool `json:"clientSecretSet"`
 }
 
+// idpRestoreDTO is a restored provider, and says what a restore does not
+// put back. It repeats idpDTO's field rather than embedding it: the schema
+// generator does not see through an unexported embedded type.
+type idpRestoreDTO struct {
+	sso.Provider
+	SecretSet        bool `json:"clientSecretSet"`
+	ClientSecretKept bool `json:"clientSecretKept" doc:"Always true: the history never holds the client secret, so a restore keeps the one stored now. Set a new one with an ordinary update if the restored configuration needs a different secret."`
+}
+
 type idpInput struct {
 	Name                  string   `json:"name,omitempty"`
 	Preset                string   `json:"preset" enum:"entra,google,okta,auth0,github,generic"`
@@ -237,7 +246,7 @@ func (d Deps) ssoRoutes(api huma.API) {
 			if err != nil {
 				return nil, err
 			}
-			prov, err := d.SSO.Update(ctx, p.OrgID, in.ID, in.Body.toInput())
+			prov, err := d.SSO.Update(ctx, p.OrgID, in.ID, p.ID, in.Body.toInput())
 			if err != nil {
 				d.adminFailed(ctx, "idp.update", "identity_provider", in.ID, err)
 				return nil, humaErr(err)
@@ -258,12 +267,50 @@ func (d Deps) ssoRoutes(api huma.API) {
 			if err != nil {
 				return nil, err
 			}
-			if err := d.SSO.Delete(ctx, p.OrgID, in.ID); err != nil {
+			if err := d.SSO.Delete(ctx, p.OrgID, in.ID, p.ID); err != nil {
 				d.adminFailed(ctx, "idp.delete", "identity_provider", in.ID, err)
 				return nil, humaErr(err)
 			}
 			d.admin(ctx, "idp.delete", "identity_provider", in.ID, "", nil)
 			return nil, nil //nolint:nilnil // huma's no-content shape
+		})
+
+	// A restore is an update with no client secret in it, which is how an
+	// update keeps the stored one. The history never held the secret: a
+	// secret an earlier version used may have been revoked at the provider
+	// since, and a sealed copy in the history would be one more place a
+	// secret lives that rotating it does not reach.
+	huma.Register(api, huma.Operation{OperationID: "idps-revisions-restore", Method: http.MethodPost,
+		Path:    "/api/v1/idps/{id}/revisions/{revision}/restore",
+		Summary: "Put an identity provider back the way an earlier revision found it",
+		Description: "Needs revisions:rollback and idp:manage, and a browser session must have signed in within " +
+			"the fresh-auth window. The client secret is not restored; the one stored now is kept. A deleted " +
+			"provider cannot be restored: its client secret went with it.",
+		Tags: []string{"identity"}, Security: sessionSecurity},
+		func(ctx context.Context, in *revisionGetInput) (*struct{ Body idpRestoreDTO }, error) {
+			if err := d.ssoUnavailable(); err != nil {
+				return nil, err
+			}
+			p, snapshot, err := d.snapshotToRestore(ctx, idpRevisions, in)
+			if err != nil {
+				return nil, err
+			}
+			var snap sso.Snapshot
+			if err := snapInto(snapshot, "", &snap); err != nil {
+				return nil, err
+			}
+			prov, err := d.SSO.Update(ctx, p.OrgID, in.ID, p.ID, snap.Input())
+			if err != nil {
+				d.restoreFailed(ctx, idpRevisions, in, err)
+				if errors.Is(err, sso.ErrNotFound) {
+					return nil, huma.Error404NotFound("this identity provider has been deleted; a deleted provider " +
+						"cannot be restored from its history, because its client secret went with it")
+				}
+				return nil, humaErr(err)
+			}
+			d.admin(ctx, "idp.update", "identity_provider", prov.ID, prov.Name, audit.Created(prov))
+			d.restored(ctx, idpRevisions, in, prov.Name)
+			return &struct{ Body idpRestoreDTO }{Body: idpRestoreDTO{Provider: *prov, SecretSet: true, ClientSecretKept: true}}, nil
 		})
 
 	// Checking an issuer before saving turns a failed sign-in later into a
