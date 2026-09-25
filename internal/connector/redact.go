@@ -41,6 +41,14 @@ func RedactConfig(v any) any {
 	return redact(v, false)
 }
 
+// RedactText applies RedactConfig's rules for a string to free text: the
+// password in a URL or DSN, a password= setting, and a query parameter
+// whose name names a secret. It is for text built from a connector's
+// configuration, such as an error that quotes a URL.
+func RedactText(s string) string {
+	return redactString(s)
+}
+
 func redact(v any, secret bool) any {
 	switch x := v.(type) {
 	case nil:

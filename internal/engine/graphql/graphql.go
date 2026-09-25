@@ -156,7 +156,7 @@ func send(ctx context.Context, req *engine.Request, url string, body []byte, hea
 	var meta engine.Meta
 	hreq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
-		return nil, meta, err
+		return nil, meta, engine.ScrubURLError(err)
 	}
 	hreq.GetBody = func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(body)), nil }
 	for k, vs := range headers {
@@ -177,7 +177,7 @@ func send(ctx context.Context, req *engine.Request, url string, body []byte, hea
 	start := time.Now()
 	resp, err := req.HTTP.Do(hreq)
 	meta.UpstreamDurationMS = time.Since(start).Milliseconds()
-	return resp, meta, err
+	return resp, meta, engine.ScrubURLError(err)
 }
 
 // DryRun renders the POST body.

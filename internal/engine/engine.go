@@ -12,7 +12,11 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
 
+	"github.com/supermcpco/supermcp/internal/safeurl"
 	"github.com/supermcpco/supermcp/pkg/adapter"
 	"github.com/supermcpco/supermcp/pkg/tmpl"
 )
@@ -124,6 +128,44 @@ func (e *UpstreamError) Error() string {
 	}
 	return "upstream returned " + http.StatusText(e.Status)
 }
+
+// ScrubURLError returns err with the URL its *url.Error names reduced to
+// what may be shown (safeurl.Display), in the *url.Error itself and in the
+// message of every error wrapped around it.
+//
+// net/http names the full request URL in every transport error and
+// redacts only a password in it. By the time a request is sent its query
+// can carry an API key (an apiKey credential "in: query", or a template
+// that renders one), and the error goes on to the tool-call record, the
+// audit trail and the caller. So every engine passes a send error through
+// here before it goes anywhere.
+//
+// Rewriting the *url.Error alone is not enough: a wrapper made with
+// fmt.Errorf, such as the HTTP client's "upstream unavailable after N
+// attempts", fixed its message when it was made. So the returned error
+// carries the whole message with the URL replaced, and unwraps to err, so
+// errors.Is and errors.As see what they saw before.
+func ScrubURLError(err error) error {
+	var ue *url.Error
+	if !errors.As(err, &ue) || ue.URL == "" {
+		return err
+	}
+	raw := ue.URL
+	shown := safeurl.Display(raw)
+	ue.URL = shown
+	quoted := strconv.Quote(raw)
+	msg := strings.ReplaceAll(err.Error(), quoted[1:len(quoted)-1], shown)
+	msg = strings.ReplaceAll(msg, raw, shown)
+	return &scrubbedError{msg: msg, err: err}
+}
+
+type scrubbedError struct {
+	msg string
+	err error
+}
+
+func (e *scrubbedError) Error() string { return e.msg }
+func (e *scrubbedError) Unwrap() error { return e.err }
 
 // ErrUnsupported is returned by engines for operations they do not handle.
 var ErrUnsupported = errors.New("operation not supported by this engine")
