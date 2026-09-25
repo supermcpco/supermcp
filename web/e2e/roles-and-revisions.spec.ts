@@ -120,24 +120,32 @@ test("a role keeps a history that can be restored", async ({ page, workspace }) 
   await page.getByRole("button", { name: "Build a role" }).click();
   await page.getByLabel("Name", { exact: true }).fill("Rota keeper");
   await page.getByLabel("See the roles and who holds them").check();
-  await page.getByRole("button", { name: "Create this role" }).click();
+  const [created] = await Promise.all([
+    page.waitForResponse((r) => r.request().method() === "POST" && new URL(r.url()).pathname === "/api/v1/roles"),
+    page.getByRole("button", { name: "Create this role" }).click(),
+  ]);
+  expect(created.ok()).toBe(true);
+  const id: string = (await created.json()).id;
   await expect(page.getByText("Rota keeper")).toBeVisible();
 
   const role = page.getByRole("listitem").filter({ hasText: "Rota keeper" }).first();
   await role.getByRole("button", { name: "Change what it allows" }).click();
   await page.getByLabel("See the available tools and what each one expects").check();
-  // The save is awaited by its answer: the permission's label is already
-  // on screen inside the open editor, so waiting for text would let the
-  // history be opened before the change has reached the server.
-  await Promise.all([
-    page.waitForResponse((r) => /\/api\/v1\/roles\/[^/]+$/.test(r.url()) && r.request().method() !== "GET" && r.ok()),
+  // The save is awaited by its own answer, matched by method and by this
+  // role's address. Ticking the box also asks the server for a preview,
+  // POST /api/v1/roles/preview, and a looser match took that answer for
+  // the save's and opened the history before the change had landed.
+  const [saved] = await Promise.all([
+    page.waitForResponse((r) => r.request().method() === "PATCH" && new URL(r.url()).pathname === `/api/v1/roles/${id}`),
     page.getByRole("button", { name: "Save what it allows" }).click(),
   ]);
+  expect(saved.ok()).toBe(true);
+  expect((await saved.json()).permissions, "the save's answer carries the new permission").toHaveLength(2);
 
   // What the history holds is read from the answer itself, so the test
   // is not racing the panel that draws it.
   const [answer] = await Promise.all([
-    page.waitForResponse((r) => /\/api\/v1\/roles\/[^/]+\/revisions(\?|$)/.test(r.url())),
+    page.waitForResponse((r) => new URL(r.url()).pathname === `/api/v1/roles/${id}/revisions`),
     role.getByRole("button", { name: "History", exact: true }).click(),
   ]);
   const recorded: number = (await answer.json()).revisions.length;
@@ -161,6 +169,35 @@ test("a role keeps a history that can be restored", async ({ page, workspace }) 
   // third version appearing is what says the restore landed.
   const before = await versions.count();
   await role.getByRole("button", { name: "Restore this version" }).last().click();
+  await expect(versions).toHaveCount(before + 1);
+});
+
+test("an open history shows a change to the role as soon as it is saved", async ({ page, workspace }) => {
+  expect(workspace.email).toBeTruthy();
+  await page.goto("/settings/roles");
+  await page.getByRole("button", { name: "Build a role" }).click();
+  await page.getByLabel("Name", { exact: true }).fill("Shift lead");
+  await page.getByLabel("See the roles and who holds them").check();
+  await page.getByRole("button", { name: "Create this role" }).click();
+
+  const role = page.getByRole("listitem").filter({ hasText: "Shift lead" }).first();
+  const [first] = await Promise.all([
+    page.waitForResponse((r) => /\/api\/v1\/roles\/[^/]+\/revisions$/.test(new URL(r.url()).pathname)),
+    role.getByRole("button", { name: "History", exact: true }).click(),
+  ]);
+  const before: number = (await first.json()).revisions.length;
+  // A deployment whose history keeps no roles has nothing to show here;
+  // the first test covers what the screen says then.
+  test.skip(before === 0, "this deployment's history does not keep roles");
+  const versions = role.getByText(/^Version \d+$/);
+  await expect(versions).toHaveCount(before);
+
+  // The history stays open while the role is changed. The list it read
+  // is younger than the cache's freshness window, so only the save
+  // saying so makes the panel read it again.
+  await role.getByRole("button", { name: "Change what it allows" }).click();
+  await page.getByLabel("See the available tools and what each one expects").check();
+  await page.getByRole("button", { name: "Save what it allows" }).click();
   await expect(versions).toHaveCount(before + 1);
 });
 
