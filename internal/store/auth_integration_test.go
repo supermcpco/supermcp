@@ -81,7 +81,7 @@ func TestIdentityAuthzAPIKeys(t *testing.T) {
 	}
 
 	// Sessions.
-	sess, err := ids.CreateSession(ctx, u.ID, o.ID, "password", "", time.Now(), "203.0.113.5", "test")
+	sess, err := ids.CreateSession(ctx, u.ID, o.ID, "password", "", nil, time.Now(), "203.0.113.5", "test")
 	if err != nil {
 		t.Fatal(err)
 	}

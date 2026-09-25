@@ -270,10 +270,18 @@ came from:
   Tokens from a refresh keep it; after a re-authentication (below) they
   name the new session.
 - `amr`: how that session signed in, as RFC 8176 values. `pwd` for a
-  password sign-in; `mfa` when the session has a verified second
-  factor on record, which is a SAML sign-in whose assertion names one.
-  An OpenID Connect sign-in records no more than that the provider
-  signed the person in, so it claims neither and `amr` is left out.
+  password sign-in. For a single sign-on session, the registered RFC
+  8176 values the provider reported, in its order: the ID token's `amr`
+  for OpenID Connect, the method the authentication context class names
+  for SAML (`pwd`, `sc` or `otp`). A provider's own values, such as
+  Entra ID's `rsa`, are left out. `mfa` is added last when the session
+  has a second factor on record: an OpenID Connect sign-in whose ID
+  token met the provider's second-factor rule (see "Single sign-on
+  providers"), or a SAML sign-in whose assertion names one. A provider
+  that reports `mfa` without meeting the rule does not get it repeated.
+  So `["pwd", "mfa"]` from an OpenID Connect provider with the default
+  rule gives `["pwd", "mfa"]`, and `["pwd"]` gives `["pwd"]`. When
+  nothing is known, `amr` is left out.
   The value is fixed at consent and kept through refreshes and
   re-authentications, so it describes the sign-in the person consented
   from. If that sign-in had a second factor and a later
@@ -1014,7 +1022,9 @@ What each kind puts back:
   rule is recreated under its old id. Requests it raised before the delete
   stay detached from it (the delete cleared their `policyId`) and keep its
   name as it was.
-- **OIDC or OAuth 2.0 provider.** Everything but the client secret. The
+- **OIDC or OAuth 2.0 provider.** Everything but the client secret,
+  including the second-factor rule (a revision recorded before the rule
+  existed keeps the one the provider has now). The
   history never holds the secret, sealed or otherwise: one that an older
   version used may have been revoked at the provider since, and a copy in
   the history would be a place rotation does not reach. The secret stored
@@ -1216,6 +1226,70 @@ unregistered URI is never redirected to.
 
 A client that cannot do any of this uses an API key bound to the server,
 sent as `Authorization: Bearer smk_...`.
+
+## Single sign-on providers
+
+`GET /api/v1/idps` lists the workspace's OpenID Connect and OAuth 2.0
+providers, `POST /api/v1/idps` adds one and `PUT /api/v1/idps/{id}`
+replaces one's configuration; all need `idp:manage`. The fields are
+those of `IdpInput` in the OpenAPI document: `preset` (`entra`,
+`google`, `okta`, `auth0`, `github` or `generic`), `name`, `issuer`,
+`clientId`, `clientSecret` (write-only; left out of a `PUT`, the stored
+one is kept), `scopes`, `allowedDomains`, `jitProvisioning`,
+`defaultRoleId`, `groupsClaim`, `enabled`, the endpoints a `generic`
+provider without a discovery document needs, and `mfa`.
+
+### The second-factor rule
+
+We issue no second factor of our own. Whether a single sign-on session
+has one, which is what the `mfa` value in an access token's `amr`
+says, comes from what the identity provider said, and `mfa` says which
+of its answers count:
+
+```json
+"mfa": {"amr": ["mfa", "otp", "hwk", "sc"], "acr": []}
+```
+
+- `amr` lists RFC 8176 authentication method references. A sign-in
+  counts when the ID token's `amr` claim names any of them. `pwd` is
+  refused: a password is the first factor.
+- `acr` lists authentication context class references. A sign-in counts
+  when the ID token's `acr` claim is one of them.
+- Both are compared with the verified ID token only, never with the
+  user endpoint's answer, which is not signed. Values are compared
+  exactly, case included. Each list holds at most 32 values of at most
+  256 characters.
+- Both lists empty is no rule, and then no sign-in through the provider
+  counts as having a second factor.
+- Left out of a `POST`, an OpenID Connect provider gets the default,
+  `amr` `["mfa", "otp", "hwk", "sc"]`. `swk` is not in it: a key held in
+  software and used alone is one factor. Left out of a `PUT`, the stored
+  rule is kept. A GitHub provider issues no ID token, so its rule is
+  always empty and a `mfa` that names anything is refused with `400`.
+- The rule applies to a re-authentication as to a first sign-in: the
+  session that replaces the stale one has a second factor only if the
+  new ID token met the rule.
+
+What providers send differs, and a provider's configuration decides
+what it sends, so read a real ID token from yours (the `session.create`
+audit event records the `amr` and `acr` each sign-in carried) before
+you rely on a rule:
+
+| Provider | What to count |
+|---|---|
+| Entra ID | `amr` contains `mfa` when the sign-in satisfied multi-factor authentication, beside values of its own, such as `rsa` and `ngcmfa`, that the default leaves alone. Which token versions carry `amr` depends on the app registration, so check a decoded ID token from your tenant; a token without `amr` never counts under the default rule. |
+| Okta | `amr` names the factors (`pwd`, `mfa`, `otp`, `sms`, `hwk`, `swk`, ...). With the Identity Engine, `acr` can say the assurance level: `urn:okta:loa:2fa:any` for two factors, `phr` for phishing-resistant and `phrh` for phishing-resistant hardware. Do not count `urn:okta:loa:2fa:any:ifpossible`, which a single factor can satisfy. |
+| Auth0 | `amr` contains `mfa` when a second factor was used. The default rule covers it. |
+| Google | Its ID tokens carry neither `amr` nor `acr`, so no sign-in through Google counts as having a second factor here, whatever the Google Workspace enforces. Use SAML if you need that. |
+
+Providers that report `sms` or `tel`, which the default leaves out, can
+have them added.
+
+A change to the rule applies to the next sign-in; sessions already open
+keep what was recorded when they signed in. The rule is part of the
+provider's history, and a restore puts it back, except from a revision
+recorded before the rule existed, whose restore keeps the rule the
+provider has now.
 
 ## SCIM
 

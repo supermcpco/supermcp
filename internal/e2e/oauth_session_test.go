@@ -451,7 +451,7 @@ func TestRefreshRacingSessionEnd(t *testing.T) {
 	c := newOAuthClient(t, h, admin.Org.ID, admin.User.ID)
 
 	for i := range 25 {
-		sess, err := h.deps.Identity.CreateSession(ctx, admin.User.ID, admin.Org.ID, "password", "", time.Now(), "", "race")
+		sess, err := h.deps.Identity.CreateSession(ctx, admin.User.ID, admin.Org.ID, "password", "", nil, time.Now(), "", "race")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -503,7 +503,7 @@ func TestTokenOfMissingSessionRefused(t *testing.T) {
 	ctx := context.Background()
 	admin := h.register(t, "E2E OAuth missing session")
 	c := newOAuthClient(t, h, admin.Org.ID, admin.User.ID)
-	sess, err := h.deps.Identity.CreateSession(ctx, admin.User.ID, admin.Org.ID, "password", "", time.Now(), "", "prune")
+	sess, err := h.deps.Identity.CreateSession(ctx, admin.User.ID, admin.Org.ID, "password", "", nil, time.Now(), "", "prune")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -555,7 +555,7 @@ func TestSessionEndReachesUnboundChild(t *testing.T) {
 	ctx := context.Background()
 	admin := h.register(t, "E2E OAuth unbound child")
 	c := newOAuthClient(t, h, admin.Org.ID, admin.User.ID)
-	sess, err := h.deps.Identity.CreateSession(ctx, admin.User.ID, admin.Org.ID, "password", "", time.Now(), "", "roll")
+	sess, err := h.deps.Identity.CreateSession(ctx, admin.User.ID, admin.Org.ID, "password", "", nil, time.Now(), "", "roll")
 	if err != nil {
 		t.Fatal(err)
 	}

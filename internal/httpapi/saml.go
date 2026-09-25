@@ -116,7 +116,7 @@ func (s samlAPI) acs(w http.ResponseWriter, r *http.Request) {
 	s.finishProviderSignIn(w, r, providerSignIn{
 		UserID: res.UserID, OrgID: res.OrgID, Email: res.Email, ProviderID: res.ProviderID,
 		ProviderName: res.ProviderName, Method: "saml", At: res.AuthnInstant, Replaces: res.Replaces,
-		Verified: res.MultiFactor, Next: res.RedirectAfter,
+		Verified: res.MultiFactor, Methods: res.Methods, Next: res.RedirectAfter,
 		Meta: map[string]any{"method": "saml", "provider": res.ProviderName, "groups": res.Groups, "mfa": res.MultiFactor},
 	}, func(err error) { s.failed(w, r, err) })
 }

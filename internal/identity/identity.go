@@ -117,6 +117,10 @@ type Session struct {
 	// vouched for the time, as for a provider that does not say.
 	AuthenticatedAt time.Time
 	LastSeenAt      time.Time
+	// AuthMethods are the methods the provider reported for a single
+	// sign-on session (RFC 8176 amr values, as the provider spelled
+	// them), and nil for a password session.
+	AuthMethods []string
 }
 
 var reEmail = regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`)
@@ -333,11 +337,13 @@ func (s *Service) clear(ctx context.Context, keys ...string) {
 
 // CreateSession opens a session for a user in an organisation. provider
 // names the single sign-on provider for an sso or saml sign-in and is
-// empty for a password one. authenticatedAt is when the person proved who
+// empty for a password one; methods are what that provider reported about
+// how the person authenticated, and nil for a password. authenticatedAt is when the person proved who
 // they are: now for a password, and for single sign-on what the provider
 // said. The zero time records a sign-in nobody vouched the time of, which
 // is never fresh.
-func (s *Service) CreateSession(ctx context.Context, userID, orgID, method, provider string, authenticatedAt time.Time, ip, ua string) (*Session, error) {
+func (s *Service) CreateSession(ctx context.Context, userID, orgID, method, provider string, methods []string,
+	authenticatedAt time.Time, ip, ua string) (*Session, error) {
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
 		return nil, err
@@ -346,7 +352,7 @@ func (s *Service) CreateSession(ctx context.Context, userID, orgID, method, prov
 	secret := base64.RawURLEncoding.EncodeToString(raw)
 	sess := &Session{ID: SessionKey(secret), Secret: secret, UserID: userID, OrgID: orgID,
 		IdleExpiresAt: now.Add(s.Cfg.SessionIdle), AbsoluteExpiresAt: now.Add(s.Cfg.SessionAbsolute), AuthMethod: method,
-		AuthProviderID: provider, AuthenticatedAt: authenticatedAt, LastSeenAt: now}
+		AuthProviderID: provider, AuthenticatedAt: authenticatedAt, LastSeenAt: now, AuthMethods: methods}
 	var at *time.Time
 	if !authenticatedAt.IsZero() {
 		at = &authenticatedAt
@@ -356,8 +362,8 @@ func (s *Service) CreateSession(ctx context.Context, userID, orgID, method, prov
 		addr = &a
 	}
 	err := s.DB.Pre(ctx, func(tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, "SELECT auth_session_open($1,$2,NULLIF($3,''),$4,$5,$6,NULLIF($7,''),$8,$9,$10)",
-			sess.ID, userID, orgID, sess.IdleExpiresAt, sess.AbsoluteExpiresAt, method, provider, at, addr, ua)
+		_, err := tx.Exec(ctx, "SELECT auth_session_open($1,$2,NULLIF($3,''),$4,$5,$6,NULLIF($7,''),$8,$9,$10,$11)",
+			sess.ID, userID, orgID, sess.IdleExpiresAt, sess.AbsoluteExpiresAt, method, provider, at, addr, ua, methods)
 		return err
 	})
 	if err != nil {
@@ -408,9 +414,10 @@ func (s *Service) LoadSession(ctx context.Context, id string) (*Session, error) 
 	var authenticated *time.Time
 	err := s.DB.Pre(ctx, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx, `SELECT id, user_id, organization_id, idle_expires_at, absolute_expires_at, mfa_verified_at,
-				auth_method, revoked_at, last_seen_at, authenticated_at, auth_provider_id FROM auth_session_load($1)`, id).
+				auth_method, revoked_at, last_seen_at, authenticated_at, auth_provider_id, auth_methods
+				FROM auth_session_get($1)`, id).
 			Scan(&sess.ID, &sess.UserID, &org, &sess.IdleExpiresAt, &sess.AbsoluteExpiresAt, &sess.MFAVerifiedAt,
-				&sess.AuthMethod, &revoked, &sess.LastSeenAt, &authenticated, &provider)
+				&sess.AuthMethod, &revoked, &sess.LastSeenAt, &authenticated, &provider, &sess.AuthMethods)
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrSessionInvalid
@@ -503,7 +510,8 @@ func (s *Service) SessionEnded(ctx context.Context, publicID string) (bool, erro
 func (s *Service) Principal(sess *Session, email string) *authz.Principal {
 	return &authz.Principal{Kind: authz.KindUser, ID: sess.UserID, OrgID: sess.OrgID, SessionID: sess.ID, AuthMethod: "session",
 		MFA: sess.MFAVerifiedAt != nil, Email: email,
-		SignIn: authz.SignIn{At: sess.AuthenticatedAt, Method: sess.AuthMethod, ProviderID: sess.AuthProviderID}}
+		SignIn: authz.SignIn{At: sess.AuthenticatedAt, Method: sess.AuthMethod, ProviderID: sess.AuthProviderID,
+			Methods: sess.AuthMethods}}
 }
 
 // UserByID loads a user visible in the current tenant.
@@ -518,9 +526,10 @@ func (s *Service) UserByID(ctx context.Context, orgID, id string) (*User, error)
 	return &u, nil
 }
 
-// MarkVerified records that the identity provider verified this person,
-// including whatever second factor it enforces. We issue no factor of our
-// own, so this is what a policy requiring one reads.
+// MarkVerified records that the identity provider verified a second
+// factor for this person: for OpenID Connect, that the ID token met the
+// provider's rule; for SAML, that the assertion named one. We issue no
+// factor of our own, so this is what a policy requiring one reads.
 func (s *Service) MarkVerified(ctx context.Context, sessionID string) error {
 	return s.DB.Pre(ctx, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, "SELECT auth_session_verify($1)", sessionID)

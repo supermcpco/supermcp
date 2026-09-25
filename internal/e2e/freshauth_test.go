@@ -338,6 +338,13 @@ type ssoBrowser struct {
 
 func newSSOBrowser(t *testing.T, h *harness, orgName string) (*ssoBrowser, registered) {
 	t.Helper()
+	return newSSOBrowserWithRule(t, h, orgName, nil)
+}
+
+// newSSOBrowserWithRule is newSSOBrowser with the provider's second-factor
+// rule; nil gives it the default.
+func newSSOBrowserWithRule(t *testing.T, h *harness, orgName string, rule *sso.MFARule) (*ssoBrowser, registered) {
+	t.Helper()
 	idp := newFakeIdP(t)
 	idp.email = newID() + "@example.test"
 	idp.subject = "sub-" + newID()
@@ -346,6 +353,7 @@ func newSSOBrowser(t *testing.T, h *harness, orgName string) (*ssoBrowser, regis
 	prov, err := h.deps.SSO.Create(octx, admin.Org.ID, admin.User.ID, sso.Input{
 		Name: "Reauth IdP", Preset: "generic", Issuer: idp.URL, ClientID: idp.clientID,
 		ClientSecret: "test-secret", JITProvisioning: true, DefaultRoleID: "role_admin", Enabled: true,
+		MFA: rule,
 	})
 	if err != nil {
 		t.Fatal(err)

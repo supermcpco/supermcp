@@ -58,13 +58,22 @@ func (d Deps) ssoCallback(w http.ResponseWriter, r *http.Request) {
 		d.ssoFailed(w, r, err)
 		return
 	}
-	// The provider verified the person; the session records that, so a
-	// policy can require a factor we did not issue ourselves.
+	// A second factor is recorded only when the verified ID token met the
+	// provider's rule, for a re-authentication as for a first sign-in, so
+	// a password at the provider does not earn the session's MFA flag or
+	// the mfa its tokens claim. The audit event carries what the token said, which is
+	// what an administrator writing the rule needs to see.
+	meta := map[string]any{"method": "sso", "provider": res.ProviderName, "groups": res.Groups, "mfa": res.MultiFactor}
+	if res.AuthMethods != nil {
+		meta["amr"] = res.AuthMethods
+	}
+	if res.ACR != "" {
+		meta["acr"] = res.ACR
+	}
 	d.finishProviderSignIn(w, r, providerSignIn{
 		UserID: res.UserID, OrgID: res.OrgID, Email: res.Email, ProviderID: res.ProviderID,
 		ProviderName: res.ProviderName, Method: "sso", At: res.AuthTime, Replaces: res.Replaces,
-		Verified: true, Next: res.RedirectAfter,
-		Meta: map[string]any{"method": "sso", "provider": res.ProviderName, "groups": res.Groups},
+		Verified: res.MultiFactor, Methods: res.AuthMethods, Next: res.RedirectAfter, Meta: meta,
 	}, func(err error) { d.ssoFailed(w, r, err) })
 }
 
@@ -138,6 +147,9 @@ type idpInput struct {
 	TokenEndpoint         string   `json:"tokenEndpoint,omitempty"`
 	UserinfoEndpoint      string   `json:"userinfoEndpoint,omitempty"`
 	JWKSURI               string   `json:"jwksUri,omitempty"`
+	// MFA is a pointer so that leaving it out keeps what is stored, which
+	// a client written before the rule existed does.
+	MFA *sso.MFARule `json:"mfa,omitempty" doc:"Which answers from the provider count as a second factor. Left out, a new OpenID Connect provider gets amr [mfa, otp, hwk, sc] and an existing one keeps its rule; both lists empty counts nothing. Refused for GitHub, which issues no ID token."`
 }
 
 func (in idpInput) toInput() sso.Input {
@@ -146,7 +158,7 @@ func (in idpInput) toInput() sso.Input {
 		Scopes: in.Scopes, AllowedDomains: in.AllowedDomains, JITProvisioning: in.JITProvisioning,
 		DefaultRoleID: in.DefaultRoleID, GroupsClaim: in.GroupsClaim, Enabled: in.Enabled,
 		AuthorizationEndpoint: in.AuthorizationEndpoint, TokenEndpoint: in.TokenEndpoint,
-		UserinfoEndpoint: in.UserinfoEndpoint, JWKSURI: in.JWKSURI,
+		UserinfoEndpoint: in.UserinfoEndpoint, JWKSURI: in.JWKSURI, MFA: in.MFA,
 	}
 }
 
@@ -240,7 +252,7 @@ func (d Deps) ssoRoutes(api huma.API) {
 			prov, err := d.SSO.Create(ctx, p.OrgID, p.ID, in.Body.toInput())
 			if err != nil {
 				d.adminFailed(ctx, "idp.create", "identity_provider", "", err)
-				return nil, humaErr(err)
+				return nil, ssoErr(err)
 			}
 			d.admin(ctx, "idp.create", "identity_provider", prov.ID, prov.Name, audit.Created(prov))
 			return &struct{ Body idpDTO }{Body: idpDTO{Provider: *prov, SecretSet: in.Body.ClientSecret != ""}}, nil
@@ -362,10 +374,13 @@ func (d Deps) ssoRoutes(api huma.API) {
 
 // ssoErr maps the service's errors onto statuses; a change that would
 // send the stored secret somewhere new is one the caller can fix by
-// supplying a secret.
+// supplying a secret, and so is a configuration that is not valid.
 func ssoErr(err error) error {
 	if errors.Is(err, sso.ErrSecretRequired) {
 		return huma.Error422UnprocessableEntity(err.Error())
+	}
+	if errors.Is(err, sso.ErrInvalid) {
+		return huma.Error400BadRequest(err.Error())
 	}
 	return humaErr(err)
 }
