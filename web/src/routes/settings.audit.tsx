@@ -1,6 +1,6 @@
-import { useState } from "react";
-import { createFileRoute } from "@tanstack/react-router";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button, Input, Text } from "@cloudflare/kumo";
 import {
   auditGetPolicyOptions,
@@ -18,26 +18,59 @@ import {
   auditLegalHoldMutation,
   auditLegalHoldReleaseMutation,
 } from "../api/@tanstack/react-query.gen";
+import {
+  auditCategories,
+  auditExportHref,
+  auditSearchMax,
+  auditTypingMs,
+  parseAuditSearch,
+  type AuditSearch,
+} from "../lib/audit";
+import { useDebounced } from "../lib/debounce";
 import { useSession } from "../lib/session";
 import { Badge, Loading, SignInFirst } from "../lib/ui";
 import { message } from "../lib/errors";
 
 export const Route = createFileRoute("/settings/audit")({
   component: AuditTrail,
+  validateSearch: parseAuditSearch,
 });
-
-const categories = ["", "auth", "admin", "tool", "authz", "secrets", "system"] as const;
 
 function AuditTrail() {
   const { signedIn, can, loading } = useSession();
-  const [category, setCategory] = useState("");
-  const [actor, setActor] = useState("");
+  const search = Route.useSearch();
+  const navigate = useNavigate({ from: Route.fullPath });
   const allowed = can("audit:read");
 
+  // The two text filters are typed into drafts and reach the address, and
+  // the server, once typing pauses. The address is where they are read
+  // from when the screen opens, so a reload or a shared link shows the
+  // same narrowed trail.
+  const [draft, setDraft] = useState({ actor: search.actor ?? "", q: search.q ?? "" });
+  const settled = useDebounced(draft, auditTypingMs);
+  const actor = settled.actor.trim();
+  const q = settled.q.trim();
+  useEffect(() => {
+    if (actor === (search.actor ?? "") && q === (search.q ?? "")) return;
+    void navigate({
+      search: (prev) => parseAuditSearch({ ...prev, actor, q }),
+      replace: true,
+    });
+  }, [actor, q, search.actor, search.q, navigate]);
+  const setCategory = (category: string) =>
+    void navigate({
+      search: (prev) => parseAuditSearch({ ...prev, category }),
+      replace: true,
+    });
+  const filters: AuditSearch = { category: search.category, actor: actor || undefined, q: q || undefined };
+
   const events = useQuery({
-    ...auditListOptions({ query: { category: category || undefined, actorId: actor || undefined, limit: 100 } }),
+    ...auditListOptions({ query: { category: filters.category, actorId: filters.actor, q: filters.q, limit: 100 } }),
     enabled: signedIn && allowed,
     retry: false,
+    // A new search keeps the previous list on screen until its answer
+    // arrives, rather than blanking the table on every pause in typing.
+    placeholderData: keepPreviousData,
     // The writer batches, so an event lands a moment after the action that
     // caused it. A screen that only loads once shows an empty trail to
     // someone who just did something, which reads as "nothing was
@@ -71,10 +104,10 @@ function AuditTrail() {
           <Text as="span">Category</Text>
           <select
             className="rounded-md border border-kumo-line bg-kumo-base px-3 py-2"
-            value={category}
+            value={search.category ?? ""}
             onChange={(e) => setCategory(e.target.value)}
           >
-            {categories.map((c) => (
+            {["", ...auditCategories].map((c) => (
               <option key={c} value={c}>
                 {c === "" ? "Everything" : c}
               </option>
@@ -83,12 +116,23 @@ function AuditTrail() {
         </label>
         <label className="grid flex-1 gap-1.5">
           <Text as="span">Actor</Text>
-          <Input value={actor} onChange={(e) => setActor(e.target.value)} placeholder="User id" />
+          <Input
+            value={draft.actor}
+            onChange={(e) => setDraft((d) => ({ ...d, actor: e.target.value }))}
+            placeholder="User id"
+          />
         </label>
-        <a
-          className="rounded-md px-4 py-2 ring ring-kumo-line hover:bg-kumo-tint"
-          href={`/api/v1/audit/export${category ? `?category=${encodeURIComponent(category)}` : ""}`}
-        >
+        <label className="grid flex-[2] gap-1.5">
+          <Text as="span">Search</Text>
+          <Input
+            type="search"
+            value={draft.q}
+            maxLength={auditSearchMax}
+            onChange={(e) => setDraft((d) => ({ ...d, q: e.target.value }))}
+            placeholder='connector.created, "quarterly review", -denied'
+          />
+        </label>
+        <a className="rounded-md px-4 py-2 ring ring-kumo-line hover:bg-kumo-tint" href={auditExportHref(filters)}>
           <Text as="span">Export</Text>
         </a>
       </div>
@@ -149,7 +193,11 @@ function AuditTrail() {
           ))}
         </tbody>
       </table>
-      {events.data?.events?.length === 0 && <Text variant="secondary">Nothing recorded yet.</Text>}
+      {events.data?.events?.length === 0 && (
+        <Text variant="secondary">
+          {filters.category || filters.actor || filters.q ? "Nothing matches these filters." : "Nothing recorded yet."}
+        </Text>
+      )}
 
       <PayloadPolicy />
       <Retention />

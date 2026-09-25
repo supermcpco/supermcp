@@ -25,6 +25,31 @@ test("the audit trail records what the administrator just did", async ({ page, w
   await expect(page.getByText("apikey.create")).toHaveCount(0);
   await page.getByLabel("Category").selectOption("");
   await expect(page.getByText("apikey.create")).toBeVisible();
+
+  // The sign-up left events of its own, so the whole trail is more than
+  // the key. A search for the key's name narrows it to the key alone.
+  const rows = page.getByRole("row");
+  await expect(rows).not.toHaveCount(2);
+  const search = page.getByRole("searchbox", { name: "Search" });
+  await search.fill('"audited key"');
+  await expect(page).toHaveURL(/[?&]q=/);
+  await expect(rows).toHaveCount(2); // the header and the key
+  await expect(rows.nth(1)).toContainText("apikey.create");
+
+  // The search is kept in the address, so a reload shows the same trail.
+  await page.reload();
+  await expect(search).toHaveValue('"audited key"');
+  await expect(rows).toHaveCount(2);
+
+  // Words nothing carries say so, rather than showing an empty table.
+  await search.fill("nosuchwordanywhere");
+  await expect(page.getByText("Nothing matches these filters.")).toBeVisible();
+  await expect(page.getByText("apikey.create")).toHaveCount(0);
+  await expectAccessible(page);
+
+  await search.fill("");
+  await expect(page).not.toHaveURL(/[?&]q=/);
+  await expect(page.getByText("apikey.create")).toBeVisible();
 });
 
 test("the workspace's password rules are enforced on a real change", async ({ page, workspace }) => {
