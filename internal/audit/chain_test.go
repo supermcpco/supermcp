@@ -159,6 +159,15 @@ func (s *stream) seqs(ctx context.Context) []int64 {
 	if err != nil {
 		s.t.Fatalf("could not list the event sequences for %v: %v", s.orgs, err)
 	}
+	// Whatever was listed is part of the range cleanup has to cover: a cut
+	// after this leaves an anchor at a seq whose event is gone, and an
+	// anchor left behind would stand before the next test's first event.
+	if len(out) > 0 {
+		if s.lo == 0 || out[0] < s.lo {
+			s.lo = out[0]
+		}
+		s.hi = max(s.hi, out[len(out)-1])
+	}
 	return out
 }
 
