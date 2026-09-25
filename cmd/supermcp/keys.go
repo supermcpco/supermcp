@@ -645,14 +645,18 @@ func buildVerifyReport(set *secrets.KEKSet, checks []secrets.DataKeyCheck) verif
 		rep.Previous = append(rep.Previous, k.Ref())
 	}
 	for _, c := range checks {
+		// A row counts as under the active key only if it also opens
+		// there. Its reference is just a column: a blob swapped in beside
+		// the active reference must not help report the move finished.
 		res := keyCheck{
 			KeyID: shortKey(c.Key.ID), Scope: c.Key.Scope, KEKRef: c.Key.KEKRef,
-			Status: c.Key.Status, Active: c.Active, HeldBy: c.HeldBy,
+			Status: c.Key.Status, Active: c.Active && c.Err == nil, HeldBy: c.HeldBy,
 		}
-		if c.Active {
+		if res.Active {
 			rep.UnderActive++
 		}
 		if c.Err != nil {
+			res.HeldBy = ""
 			res.Error = c.Err.Error()
 			rep.Failed = append(rep.Failed, res)
 		}

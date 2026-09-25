@@ -40,4 +40,14 @@ func TestBuildVerifyReport(t *testing.T) {
 	if f := rep.Failed[0]; f.Scope != "org:b" || f.Error != "no key" {
 		t.Fatalf("failed = %+v", f)
 	}
+
+	// A row that names the active key but does not open under it (a blob
+	// swapped in beside the active reference) is not counted as moved.
+	spoof := buildVerifyReport(set, []secrets.DataKeyCheck{
+		{Key: &secrets.DataKey{ID: [16]byte{4}, Scope: "org:c", KEKRef: active.Ref(), Status: "active"},
+			Active: true, HeldBy: secrets.HeldByActive, Err: errors.New("does not open")},
+	})
+	if spoof.UnderActive != 0 || spoof.Keys[0].Active || spoof.Keys[0].HeldBy != "" || len(spoof.Failed) != 1 {
+		t.Fatalf("a key that does not open was reported under the active key: %+v", spoof)
+	}
 }
