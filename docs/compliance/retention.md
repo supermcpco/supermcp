@@ -75,9 +75,13 @@ A row marked `legal_hold` is never scrubbed, and a held row below the
 cut stops the cut where it sits rather than being skipped, which would
 tear the chain.
 
-**There is no API and no command to set the flag.** The column exists
-and the sweep honours it; putting a hold in place today means an
-`UPDATE` against the database.
+To place a hold on the calling workspace's events in a time window,
+call `POST /api/v1/audit/legal-hold`, which needs `audit:export`. To
+release it, call `DELETE` with the same body. Both are recorded in the
+stream. A hold covers the events that exist when it is placed, so call
+it again to cover events written since. No command places a hold on
+instance-level events. For those, run an `UPDATE` against the database,
+as described in `incident-response.md`.
 
 ## What a customer can change
 
@@ -129,8 +133,9 @@ asking about erasure.
 ## Backups
 
 This software takes no backups. Postgres backups, their retention, their
-encryption and their disposal are the operator's, and a backup taken
-without the master key is unreadable. See `shared-responsibility.md`.
+encryption and their disposal are the operator's, and a backup is
+unreadable without the master key. See `shared-responsibility.md`, and
+follow `dr-runbook.md` to restore.
 
 A restored backup must be verified before it is trusted:
 

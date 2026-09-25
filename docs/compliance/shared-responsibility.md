@@ -104,9 +104,8 @@ path.
   before it takes over, so a client that cached the key set can still
   verify what is signed after the change. The one it replaces keeps
   verifying for thirty days.
-- **Nothing rotates data keys.** `RotateDataKey` exists in the code and
-  no command or job calls it. Re-keying a workspace's stored values is
-  not an operation this release offers.
+- **Data keys rotate only when you run `supermcp keys rotate-dek`.**
+  Nothing schedules it. `docs/operations.md` has the procedure.
 
 ### Backups and recovery
 
@@ -121,8 +120,9 @@ CronJob for it.
   `supermcp keys verify` before trusting the instance.
 - Redis, where it is used, holds cached tool results and therefore
   business data. Decide whether it needs the same treatment.
-- There is no documented disaster-recovery procedure beyond the
-  paragraph above.
+- Follow `dr-runbook.md` to restore. It covers the master key a
+  dump needs, the audit spool, what a restore undoes, and a rehearsal
+  to run before you need it.
 
 ### Network
 
@@ -215,8 +215,8 @@ choose if an auditor will ask.
 
 ### Monitoring and response
 
-- Scrape `/metrics` and deliver the alerts. The chart ships six rules;
-  routing them to someone is yours.
+- Scrape `/metrics` and deliver the alerts. The chart ships eleven
+  rules; routing them to someone is yours.
 - Run `supermcp audit verify` on a schedule and after every restore. A
   broken chain means either a bug or someone editing the database
   directly, and both deserve the same attention.
@@ -225,8 +225,10 @@ choose if an auditor will ask.
   is a gap in the record; the default behaviour is to drop and record
   the gap, and `SUPERMCP_AUDIT_ON_UNAVAILABLE=block` changes it to make
   callers wait instead.
-- There is no incident-response runbook in this repository beyond the
-  troubleshooting section of `docs/operations.md`.
+- Respond to incidents yourself. `incident-response.md` lists who is
+  involved, the containment steps with their commands, the evidence to
+  keep and what to tell each workspace. Where no tooling exists, it
+  gives the manual step.
 
 ## What neither side has
 

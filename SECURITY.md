@@ -95,6 +95,11 @@ Out of scope:
   says what the software does about tenant isolation, encryption,
   authentication, the audit trail and outbound requests, and what is
   left to the operator.
+- [docs/compliance/incident-response.md](docs/compliance/incident-response.md)
+  is for the operator of an instance. It says how to contain and record
+  an incident, and when to report a flaw here.
+- [docs/compliance/dr-runbook.md](docs/compliance/dr-runbook.md) says how
+  to restore an instance from a Postgres backup.
 - [docs/compliance/controls.md](docs/compliance/controls.md) maps common
   control expectations to the mechanism that meets each, with the
   partial ones marked as partial.
