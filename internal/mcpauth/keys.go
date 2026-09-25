@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math/big"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -141,30 +142,7 @@ func (k *Keyring) load(ctx context.Context) error {
 // Rotate mints a new key. When activate is true it becomes active at once
 // (first boot); otherwise it is published as "next" and promoted later.
 func (k *Keyring) Rotate(ctx context.Context, activate bool) error {
-	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		return err
-	}
-	der, err := x509.MarshalECPrivateKey(priv)
-	if err != nil {
-		return err
-	}
-	// Bytes() gives the uncompressed point (0x04 || X || Y); the JWK
-	// coordinates are its two halves.
-	point, err := priv.PublicKey.Bytes()
-	if err != nil {
-		return err
-	}
-	if len(point) != 65 {
-		return fmt.Errorf("unexpected public key encoding of %d bytes", len(point))
-	}
-	x, y := point[1:33], point[33:65]
-	thumb := sha256.Sum256([]byte(`{"crv":"P-256","kty":"EC","x":"` + b64(x) + `","y":"` + b64(y) + `"}`))
-	kid := b64(thumb[:8])
-	jwk := map[string]any{"kty": "EC", "crv": "P-256", "alg": "ES256", "use": "sig", "kid": kid, "x": b64(x), "y": b64(y)}
-	jwkJSON, _ := json.Marshal(jwk)
-
-	sealed, err := k.Sealer.Seal(ctx, secrets.ScopeInstance, der, secrets.AAD{Table: "signing_keys", Column: "private_enc", RowID: kid})
+	nk, err := k.mint(ctx)
 	if err != nil {
 		return err
 	}
@@ -178,17 +156,191 @@ func (k *Keyring) Rotate(ctx context.Context, activate bool) error {
 				return err
 			}
 		}
-		_, err := tx.Exec(ctx, `INSERT INTO signing_keys (kid, alg, public_jwk, private_enc, status, activated_at)
-			VALUES ($1,'ES256',$2,$3,$4, CASE WHEN $4 = 'active' THEN now() END) ON CONFLICT (kid) DO NOTHING`, kid, jwkJSON, sealed, status)
-		return err
+		return nk.insert(ctx, tx, status)
 	})
 	if err != nil {
 		return err
 	}
-	k.mu.Lock()
-	k.loaded = time.Time{} // force a reload
-	k.mu.Unlock()
+	k.invalidate()
 	return nil
+}
+
+// newKey is a freshly minted key, sealed and ready to insert.
+type newKey struct {
+	kid    string
+	jwk    []byte
+	sealed []byte
+}
+
+// mint generates a key pair and seals its private half under the instance
+// data key.
+func (k *Keyring) mint(ctx context.Context) (newKey, error) {
+	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return newKey{}, err
+	}
+	der, err := x509.MarshalECPrivateKey(priv)
+	if err != nil {
+		return newKey{}, err
+	}
+	// Bytes() gives the uncompressed point (0x04 || X || Y); the JWK
+	// coordinates are its two halves.
+	point, err := priv.PublicKey.Bytes()
+	if err != nil {
+		return newKey{}, err
+	}
+	if len(point) != 65 {
+		return newKey{}, fmt.Errorf("unexpected public key encoding of %d bytes", len(point))
+	}
+	x, y := point[1:33], point[33:65]
+	thumb := sha256.Sum256([]byte(`{"crv":"P-256","kty":"EC","x":"` + b64(x) + `","y":"` + b64(y) + `"}`))
+	kid := b64(thumb[:8])
+	jwk := map[string]any{"kty": "EC", "crv": "P-256", "alg": "ES256", "use": "sig", "kid": kid, "x": b64(x), "y": b64(y)}
+	jwkJSON, _ := json.Marshal(jwk)
+
+	sealed, err := k.Sealer.Seal(ctx, secrets.ScopeInstance, der, secrets.AAD{Table: "signing_keys", Column: "private_enc", RowID: kid})
+	if err != nil {
+		return newKey{}, err
+	}
+	return newKey{kid: kid, jwk: jwkJSON, sealed: sealed}, nil
+}
+
+func (nk newKey) insert(ctx context.Context, tx pgx.Tx, status string) error {
+	_, err := tx.Exec(ctx, `INSERT INTO signing_keys (kid, alg, public_jwk, private_enc, status, activated_at)
+		VALUES ($1,'ES256',$2,$3,$4, CASE WHEN $4 = 'active' THEN now() END) ON CONFLICT (kid) DO NOTHING`, nk.kid, nk.jwk, nk.sealed, status)
+	return err
+}
+
+// invalidate makes the next use reload the keys from the table.
+func (k *Keyring) invalidate() {
+	k.mu.Lock()
+	k.loaded = time.Time{}
+	k.mu.Unlock()
+}
+
+// PrePublish is how long a key is published as "next" before Maintain
+// promotes it: long enough for every client that caches the key set to
+// have fetched it.
+const PrePublish = 24 * time.Hour
+
+// Replacement is what Replace did.
+type Replacement struct {
+	// KID is the key that signs from now on (revoke) or once promoted.
+	KID string
+	// Minted is false when a next key was already published and Replace
+	// left it as it was.
+	Minted bool
+	// Active reports that KID is active now rather than waiting as next.
+	Active bool
+	// PublishedAt is when KID entered the key set.
+	PublishedAt time.Time
+	// Replaced is the key that was active before, if any.
+	Replaced string
+	// Retired are the keys taken out of the key set. Only a revoke
+	// retires anything.
+	Retired []string
+}
+
+// Replace starts a replacement of the signing key on demand.
+//
+// Without revoke it does what Maintain does when the active key comes of
+// age: publish a next key, which Maintain promotes once it has been in
+// the key set for PrePublish, after which the old key keeps verifying for
+// thirty days. A next key already waiting is kept rather than replaced,
+// since it is the one clients have been fetching.
+//
+// With revoke it is the incident path: every key still in the key set is
+// retired at once, so the JWKS stops carrying it and Verify refuses what
+// it signed, and a new key is active in the same transaction with no
+// pre-publish. The keys that were retiring go too. They are sealed the
+// same way as the active one, so whatever exposed that one exposed them,
+// and they only vouch for tokens signed before the last promotion, which
+// have expired unless the promotion was within the hour.
+//
+// Other replicas notice within keyCacheTTL; a verifier outside the
+// instance, when its cached copy of the JWKS expires.
+func (k *Keyring) Replace(ctx context.Context, revoke bool) (Replacement, error) {
+	// Minted before the transaction because sealing may create the
+	// instance data key, which is a transaction of its own. A key minted
+	// and then not needed is thrown away unused.
+	nk, err := k.mint(ctx)
+	if err != nil {
+		return Replacement{}, err
+	}
+	var rep Replacement
+	err = k.DB.Bypass(ctx, "signing-key-replace", func(tx pgx.Tx) error {
+		rep = Replacement{}
+		// FOR UPDATE holds a concurrent Maintain's promotion until this
+		// commits, and the promotion then finds no next key to promote.
+		rows, err := tx.Query(ctx, `SELECT kid, status, created_at FROM signing_keys
+			WHERE status IN ('active','next') ORDER BY created_at FOR UPDATE`)
+		if err != nil {
+			return err
+		}
+		var next string
+		var nextAt time.Time
+		for rows.Next() {
+			var kid, status string
+			var at time.Time
+			if err := rows.Scan(&kid, &status, &at); err != nil {
+				rows.Close()
+				return err
+			}
+			switch status {
+			case "active":
+				rep.Replaced = kid
+			case "next":
+				next, nextAt = kid, at
+			}
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return err
+		}
+
+		if !revoke {
+			if next != "" {
+				rep.KID, rep.PublishedAt = next, nextAt
+				return nil
+			}
+			// With no active key there is no cached key set to protect,
+			// and no key to sign with until one is active.
+			status := "next"
+			if rep.Replaced == "" {
+				status = "active"
+			}
+			if err := nk.insert(ctx, tx, status); err != nil {
+				return err
+			}
+			rep.KID, rep.Minted, rep.Active = nk.kid, true, status == "active"
+			return tx.QueryRow(ctx, `SELECT created_at FROM signing_keys WHERE kid = $1`, nk.kid).Scan(&rep.PublishedAt)
+		}
+
+		retired, err := tx.Query(ctx, `UPDATE signing_keys SET status = 'retired', retire_at = now()
+			WHERE status <> 'retired' RETURNING kid`)
+		if err != nil {
+			return err
+		}
+		rep.Retired, err = pgx.CollectRows(retired, pgx.RowTo[string])
+		if err != nil {
+			return err
+		}
+		slices.Sort(rep.Retired)
+		if err := nk.insert(ctx, tx, "active"); err != nil {
+			return err
+		}
+		rep.KID, rep.Minted, rep.Active = nk.kid, true, true
+		return tx.QueryRow(ctx, `SELECT created_at FROM signing_keys WHERE kid = $1`, nk.kid).Scan(&rep.PublishedAt)
+	})
+	if err != nil {
+		return Replacement{}, err
+	}
+	k.invalidate()
+	if k.Log != nil && rep.Minted {
+		k.Log.Info("signing key replaced on demand", "kid", rep.KID, "active", rep.Active,
+			"replaced", rep.Replaced, "revoked", revoke, "retired", rep.Retired)
+	}
+	return rep, nil
 }
 
 // JWKS returns the public key set.
@@ -400,10 +552,7 @@ func splitN(s string, sep byte, n int) []string {
 // cached the key set before the rotation from rejecting tokens signed
 // after it.
 func (k *Keyring) Maintain(ctx context.Context) error {
-	const (
-		maxAge     = 90 * 24 * time.Hour
-		prePublish = 24 * time.Hour
-	)
+	const maxAge = 90 * 24 * time.Hour
 	var (
 		activeAge  time.Duration
 		nextAge    time.Duration
@@ -450,19 +599,26 @@ func (k *Keyring) Maintain(ctx context.Context) error {
 	}
 
 	switch {
-	case hasNext && nextAge >= prePublish:
+	case hasNext && nextAge >= PrePublish:
+		promoted := false
 		err = k.DB.Bypass(ctx, "signing-key-promote", func(tx pgx.Tx) error {
-			if _, err := tx.Exec(ctx, `UPDATE signing_keys SET status = 'retiring', retire_at = now() + interval '30 days'
-				WHERE status = 'active'`); err != nil {
+			// Promote only a key that is still next. Between the read above
+			// and here an operator may have revoked it (Replace), and a
+			// revoked key must not come back as the active one.
+			tag, err := tx.Exec(ctx, `UPDATE signing_keys SET status = 'active', activated_at = now()
+				WHERE kid = $1 AND status = 'next'`, nextKID)
+			if err != nil || tag.RowsAffected() == 0 {
 				return err
 			}
-			_, err := tx.Exec(ctx, `UPDATE signing_keys SET status = 'active', activated_at = now() WHERE kid = $1`, nextKID)
+			promoted = true
+			_, err = tx.Exec(ctx, `UPDATE signing_keys SET status = 'retiring', retire_at = now() + interval '30 days'
+				WHERE status = 'active' AND kid <> $1`, nextKID)
 			return err
 		})
 		if err != nil {
 			return err
 		}
-		if k.Log != nil {
+		if k.Log != nil && promoted {
 			k.Log.Info("signing key promoted", "kid", nextKID, "replaced", activeKID)
 		}
 	case hasActive && !hasNext && activeAge >= maxAge:
@@ -475,8 +631,6 @@ func (k *Keyring) Maintain(ctx context.Context) error {
 	case !retireSome:
 		return nil
 	}
-	k.mu.Lock()
-	k.loaded = time.Time{} // whatever changed, the cached set is stale
-	k.mu.Unlock()
+	k.invalidate() // whatever changed, the cached set is stale
 	return nil
 }

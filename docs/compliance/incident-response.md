@@ -133,13 +133,15 @@ With `awskms`, restrict the key policy first. Only a local key can be named in
 
 ### Replace the token signing key
 
-No command does this. The key rotates itself every ninety days, and `rotate-dek
--instance` re-seals it without replacing it. If it may be known, forged OAuth
-tokens and checkpoint signatures are possible. Scale to one replica and, as the
-maintenance user, run `UPDATE signing_keys SET status = 'retired' WHERE status <>
-'retired';`. Within a minute the replica mints a new key. Every access token
-issued so far stops verifying, clients refresh, and older checkpoints still
-verify. Record it, because it writes no audit event.
+If the key may be known, forged OAuth tokens and checkpoint signatures are
+possible. Run `supermcp keys rotate-signing -revoke -by <you>`. It retires every
+published key and makes a new one active in one transaction, so it is safe with
+every replica running. Every access token issued so far stops verifying within a
+minute on each replica, and within five minutes for a verifier outside the
+instance that cached the JWKS. Clients refresh, and older checkpoints still
+verify. The command records `signing_key.rotate` with `revoked: true`.
+`rotate-dek -instance` re-seals the key without replacing it, which is not
+enough here. `docs/operations.md` describes both forms of the command.
 
 ### Hold the audit trail
 

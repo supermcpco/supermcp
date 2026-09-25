@@ -8,6 +8,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/json"
 	"log/slog"
 	neturl "net/url"
 	"os"
@@ -279,5 +280,149 @@ func TestVerifyDigestOutlivesRotation(t *testing.T) {
 	}
 	if err := offline.VerifyDigest(ctx, hash, "no-separator"); err == nil {
 		t.Fatal("a malformed signature verified")
+	}
+}
+
+// jwksKIDs is the set of key ids the published key set carries.
+func jwksKIDs(ctx context.Context, t *testing.T, k *mcpauth.Keyring) map[string]bool {
+	t.Helper()
+	doc, err := k.JWKS(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var set struct {
+		Keys []struct {
+			Kid string `json:"kid"`
+		} `json:"keys"`
+	}
+	if err := json.Unmarshal(doc, &set); err != nil {
+		t.Fatal(err)
+	}
+	out := map[string]bool{}
+	for _, key := range set.Keys {
+		out[key.Kid] = true
+	}
+	return out
+}
+
+// Replacing the key on demand without revoking it follows the scheduled
+// rotation: the new key is published first and the old one keeps signing
+// until Maintain promotes the new one, because a verifier that cached the
+// key set a minute ago would refuse a token from a key it has not seen.
+func TestReplacePublishesLikeTheSchedule(t *testing.T) {
+	ctx := context.Background()
+	k, db := testKeyring(ctx, t)
+
+	before, err := k.Sign(ctx, map[string]any{"sub": "u1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rep, err := k.Replace(ctx, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !rep.Minted || rep.Active || rep.Replaced == "" || len(rep.Retired) != 0 {
+		t.Fatalf("a replacement without revoke reported %+v", rep)
+	}
+	if got := statuses(ctx, t, db); got["active"] != 1 || got["next"] != 1 {
+		t.Fatalf("after the replacement the table holds %v, wanted one active and one next key", got)
+	}
+	if kids := jwksKIDs(ctx, t, k); !kids[rep.KID] || !kids[rep.Replaced] {
+		t.Fatalf("the key set %v does not carry both the new key and the one it replaces", kids)
+	}
+	if _, err := k.Verify(ctx, before); err != nil {
+		t.Fatalf("a token signed before the replacement stopped verifying: %v", err)
+	}
+
+	// Asked again before the promotion, the waiting key is kept: it is the
+	// one clients have been fetching.
+	again, err := k.Replace(ctx, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.Minted || again.KID != rep.KID {
+		t.Fatalf("a second replacement replaced the waiting key: %+v, first %+v", again, rep)
+	}
+
+	// Maintain promotes it after the window, and the old key retires
+	// gracefully.
+	age(ctx, t, db, "next", "2 days")
+	if err := k.Maintain(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got := statuses(ctx, t, db); got["active"] != 1 || got["retiring"] != 1 || got["next"] != 0 {
+		t.Fatalf("after the window the table holds %v", got)
+	}
+	if _, err := k.Verify(ctx, before); err != nil {
+		t.Fatalf("a token signed by the retiring key stopped verifying: %v", err)
+	}
+}
+
+// The incident path: every key in the key set is retired in the same
+// transaction that makes a new one active, so what the old keys signed
+// stops verifying at once and nothing waits for a pre-publish window.
+func TestReplaceRevokeRefusesWhatTheOldKeysSigned(t *testing.T) {
+	ctx := context.Background()
+	k, db := testKeyring(ctx, t)
+
+	// One of each: retiring, active, next.
+	if err := k.Ensure(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := k.Rotate(ctx, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := k.Rotate(ctx, false); err != nil {
+		t.Fatal(err)
+	}
+	if got := statuses(ctx, t, db); got["retiring"] != 1 || got["active"] != 1 || got["next"] != 1 {
+		t.Fatalf("setup left %v", got)
+	}
+	old, err := k.Sign(ctx, map[string]any{"sub": "u1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	anchor, err := k.SignDigest(ctx, []byte("head"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rep, err := k.Replace(ctx, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !rep.Minted || !rep.Active || len(rep.Retired) != 3 || rep.Replaced == "" {
+		t.Fatalf("a revoke reported %+v, wanted three keys retired and a new active one", rep)
+	}
+	if got := statuses(ctx, t, db); got["active"] != 1 || got["retired"] != 3 || got["retiring"] != 0 || got["next"] != 0 {
+		t.Fatalf("after the revoke the table holds %v", got)
+	}
+	kids := jwksKIDs(ctx, t, k)
+	if len(kids) != 1 || !kids[rep.KID] {
+		t.Fatalf("the key set after a revoke is %v, wanted only %s", kids, rep.KID)
+	}
+	if _, err := k.Verify(ctx, old); err == nil {
+		t.Fatal("a token signed by the revoked key still verifies")
+	}
+	fresh, err := k.Sign(ctx, map[string]any{"sub": "u1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := k.Verify(ctx, fresh); err != nil {
+		t.Fatalf("a token signed by the new key does not verify: %v", err)
+	}
+	// Checkpoints keep verifying: they are checked against every key the
+	// table has ever held.
+	if err := k.VerifyDigest(ctx, []byte("head"), anchor); err != nil {
+		t.Fatalf("a checkpoint signed by the revoked key stopped verifying: %v", err)
+	}
+
+	// The scheduled job must not bring anything back.
+	age(ctx, t, db, "retired", "2 days")
+	if err := k.Maintain(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got := statuses(ctx, t, db); got["active"] != 1 || got["retired"] != 3 {
+		t.Fatalf("Maintain after a revoke left %v", got)
 	}
 }
