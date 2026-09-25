@@ -20,7 +20,7 @@ Four settings are difficult to change later. Decide them now.
 | Decision | Setting | Why it is hard to change |
 |---|---|---|
 | The externally visible URL | `SUPERMCP_PUBLIC_URL` | It is the OAuth issuer, the audience of every access token, the single sign-on redirect target and the base of every MCP endpoint address. Changing it invalidates every token that named the old value, and every client configuration that pointed at it. |
-| Where the master key lives | `SUPERMCP_KEK_PROVIDER` | Moving between a key in the environment and a key in AWS KMS is a rotation, not an edit. It is supported (see `docs/operations.md`) but it is a planned operation. |
+| Where the master key lives | `SUPERMCP_KEK_PROVIDER` | Moving from a local key to AWS KMS is a master key rotation, not an edit: keep the local key in `SUPERMCP_KEK_PREVIOUS` and run `keys rotate-kek` ("Rotating the master key" in `docs/operations.md`). Moving away from a KMS key, to another KMS key or back to a local one, is not possible yet, because `SUPERMCP_KEK_PREVIOUS` accepts only local keys. Re-pointing a KMS alias at another key is not a way round it: every data key wrapped so far stops opening. Choose the KMS key you mean to keep. |
 | The master key material itself | `ENCRYPTION_KEK` or the KMS key | Every stored credential is encrypted under a data key that this key wraps. A database backup without this key is unreadable. |
 | Whether anyone may create a workspace | `SUPERMCP_OPEN_REGISTRATION` | See the first-run note below: it also controls whether the sign-up form appears at all. |
 
@@ -223,8 +223,8 @@ wrapped so far stops opening, even though the alias name has not
 changed. Replacing the key is a master key rotation (`keys rotate-kek`
 with the old key named in `SUPERMCP_KEK_PREVIOUS`), and
 `SUPERMCP_KEK_PREVIOUS` accepts only local keys today, so moving from
-one KMS key to another is not supported yet. Leave the alias where it
-is. AWS automatic key rotation is fine: it changes the material behind
+one KMS key to another, or from KMS back to a local key, is not
+possible yet. Leave the alias where it is. AWS automatic key rotation is fine: it changes the material behind
 one key id, keeps the old material, and needs nothing from supermcp.
 
 To be able to restore into another region, use a multi-Region key

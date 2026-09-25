@@ -57,7 +57,7 @@ diffs, secret operations, tool calls and refused access.
 ### Outbound request control
 
 Every outbound connection — upstream calls, identity provider calls,
-audit webhook deliveries, OpenAPI imports — goes through a dialer that
+audit exporter deliveries, OpenAPI imports — goes through a dialer that
 resolves the name, classifies every address, refuses private, loopback,
 link-local and reserved ones unless policy allows, and then connects to
 an address it checked rather than to the name. Redirects are re-checked.
@@ -114,8 +114,9 @@ CronJob for it.
 
 - Back up Postgres yourself, with whatever your platform provides.
 - Encrypt the backups and decide how long they live. They contain the
-  ciphertext of every credential, the tool-call log with its arguments,
-  and the audit trail.
+  ciphertext of every credential, the tool-call log with whatever the
+  audit payload policy keeps of each call's arguments, and the audit
+  trail.
 - Test restores. After a restore, run `supermcp audit verify` and
   `supermcp keys verify` before trusting the instance.
 - Redis, where it is used, holds cached tool results and therefore
@@ -204,14 +205,16 @@ choose if an auditor will ask.
 
 - The audit payload policy, per workspace. The default keeps no values.
 - The audit retention window, per workspace, floor 90 days.
-- **Bounding `tool_invocations` yourself.** Nothing deletes it and it
-  holds full tool arguments. See `retention.md`.
+- **Bounding `tool_invocations` yourself.** Nothing deletes it, and each
+  row keeps what the audit payload policy allows of the call's arguments
+  and result. See `retention.md`.
 - Which connectors exist at all, and therefore which vendors receive
   your data. Every credential an administrator installs is a decision
   to send tool arguments to that vendor.
-- Whether to configure an audit webhook exporter, and to what. Note that
-  there is no API for this: exporter rows can only be created by writing
-  to the database directly.
+- Whether to ship the audit trail to an exporter, and to what: a
+  webhook, syslog, a Splunk HTTP Event Collector or an OTLP logs
+  endpoint. Create and delete them with `/api/v1/audit/exporters`
+  (`docs/api.md`); the settings screen offers webhooks only.
 
 ### Monitoring and response
 
@@ -234,16 +237,13 @@ choose if an auditor will ask.
 
 Stated so that nobody assumes otherwise:
 
-- No dry-run preview of a rendered request.
 - No TOTP, WebAuthn or recovery codes.
-- No distributed tracing.
 - No customer-managed key per workspace: the master key is per
   instance.
 - No physical separation between workspaces. Isolation is row-level
   security plus a data key per workspace. A customer requiring physical
   separation needs its own instance and database, which is the same
   binary.
-- No air-gapped installation bundle.
 - No `soap` or `mcp` upstream engines, and no `oauth1`, `wsSecurity` or
   `mtls` upstream authentication, although the adapter schema accepts
   all of them.
