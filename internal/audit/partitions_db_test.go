@@ -155,6 +155,9 @@ func TestMaintainCreatesTheMonthsAhead(t *testing.T) {
 	// The last day of a month is where adding three months overshoots:
 	// 31 January plus three months is 1 May.
 	parts := &audit.Partitions{DB: db, Now: func() time.Time { return date(2090, 1, 31, 22, 0, 0) }}
+	// Forget when audit_events was last analyzed (the migration did), so
+	// the run below has to.
+	maintExec(ctx, t, db, `SELECT pg_stat_reset_single_table_counters('audit_events'::regclass)`)
 	created, err := parts.Maintain(ctx)
 	if err != nil {
 		t.Fatalf("the maintenance run failed: %v", err)
@@ -169,6 +172,11 @@ func TestMaintainCreatesTheMonthsAhead(t *testing.T) {
 	}
 	if partitionExists(ctx, t, db, "audit_events_p209005") {
 		t.Errorf("audit_events_p209005 was created; that is %d months ahead, one too many", audit.PartitionsAhead+1)
+	}
+	// Autovacuum never analyzes a partitioned table; the job does.
+	var analyzed bool
+	if err := db.Maint.QueryRow(ctx, `SELECT pg_stat_get_last_analyze_time('audit_events'::regclass) IS NOT NULL`).Scan(&analyzed); err != nil || !analyzed {
+		t.Errorf("audit_events has not been analyzed after a maintenance run (err %v)", err)
 	}
 	if again, err := parts.Maintain(ctx); err != nil || again != 0 {
 		t.Errorf("a second run created %d partitions (err %v); it should find nothing to do", again, err)
@@ -404,5 +412,222 @@ func TestVerifyCatchesADroppedPartition(t *testing.T) {
 	}
 	if !strings.Contains(res.Explained, strconv.FormatInt(seqs[4], 10)) || !strings.Contains(res.Explained, "removed") {
 		t.Errorf("the verdict %q does not say which row lost its predecessor and that rows were removed", res.Explained)
+	}
+}
+
+// holdChainLock opens a transaction holding the lock the writer appends
+// under, as an append in flight would. The caller commits or rolls back.
+func holdChainLock(ctx context.Context, t *testing.T, db *tenant.DB) pgx.Tx {
+	t.Helper()
+	tx, err := db.Maint.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, audit.ChainLockID); err != nil {
+		t.Fatal(err)
+	}
+	return tx
+}
+
+// waitForChainLockWaiter returns once another session is waiting for the
+// chain lock: the cut has done everything it does before it.
+func waitForChainLockWaiter(ctx context.Context, t *testing.T, db *tenant.DB) {
+	t.Helper()
+	tick := time.NewTicker(5 * time.Millisecond)
+	defer tick.Stop()
+	deadline := time.After(2 * time.Second)
+	for {
+		var waiting bool
+		err := db.Maint.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_locks
+			WHERE locktype = 'advisory' AND NOT granted AND classid = 0 AND objid = $1 AND objsubid = 1)`,
+			audit.ChainLockID).Scan(&waiting)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if waiting {
+			return
+		}
+		select {
+		case <-tick.C:
+		case <-deadline:
+			t.Fatal("the cut never came to wait for the chain lock")
+		}
+	}
+}
+
+type cutOutcome struct {
+	res audit.CutResult
+	err error
+}
+
+func cutInBackground(ctx context.Context, db *tenant.DB, before time.Time) <-chan cutOutcome {
+	done := make(chan cutOutcome, 1)
+	go func() {
+		res, err := (&audit.Reader{DB: db}).Cut(ctx, before)
+		done <- cutOutcome{res, err}
+	}()
+	return done
+}
+
+// TestCutReadsMonthsBeforeItTakesTheTable stops a cut at the chain lock,
+// which it takes just before the table lock, and checks that by then it has
+// done its reading: audit_events is free for everyone else, and what it
+// finally reports removing is exact.
+func TestCutReadsMonthsBeforeItTakesTheTable(t *testing.T) {
+	ctx := context.Background()
+	db := liveDB(ctx, t)
+	names := monthsFor(ctx, t, db, date(2007, 1, 1, 0, 0, 0), date(2007, 1, 1, 0, 0, 0))
+	s := newStream(ctx, t, db)
+	writeAt(ctx, t, db, date(2007, 1, 10, 9, 0, 0), s.org(), 4)
+
+	inFlight := holdChainLock(ctx, t, db)
+	defer func() { _ = inFlight.Rollback(context.WithoutCancel(ctx)) }()
+	done := cutInBackground(ctx, db, date(2007, 3, 1, 0, 0, 0))
+	waitForChainLockWaiter(ctx, t, db)
+
+	var cutPID int32
+	var strongest string
+	err := db.Maint.QueryRow(ctx, `SELECT l.pid, max(l.mode) FROM pg_locks l
+		WHERE l.relation = 'audit_events'::regclass AND l.pid IN (
+			SELECT pid FROM pg_locks WHERE locktype = 'advisory' AND NOT granted AND objid = $1)
+		GROUP BY l.pid`, audit.ChainLockID).Scan(&cutPID, &strongest)
+	if err != nil {
+		t.Fatalf("could not read the waiting cut's locks: %v", err)
+	}
+	if strongest == "AccessExclusiveLock" {
+		t.Errorf("the cut holds %s on audit_events before it has the chain lock", strongest)
+	}
+	read, err := db.Maint.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := read.Exec(ctx, `SET LOCAL lock_timeout = '1s'`); err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	if err := read.QueryRow(ctx, `SELECT count(*) FROM audit_events`).Scan(&n); err != nil {
+		t.Errorf("reading audit_events while the cut waited for the chain lock: %v", err)
+	}
+	_ = read.Rollback(ctx)
+
+	if err := inFlight.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	out := <-done
+	if out.err != nil {
+		t.Fatalf("the cut failed once the chain lock was free: %v", out.err)
+	}
+	if !slices.Equal(out.res.Partitions, names) || out.res.Deleted < 4 {
+		t.Errorf("the cut dropped %v and counted %d events; want %v and the 4 events in it", out.res.Partitions, out.res.Deleted, names)
+	}
+}
+
+// TestCutRefusesARowWrittenAboveTheCutIntoAMonth writes an event above the
+// cut into a month the cut has already decided to drop, between that
+// decision and the table lock. Dropping the month then would take a row
+// above the cut with it and tear the chain.
+func TestCutRefusesARowWrittenAboveTheCutIntoAMonth(t *testing.T) {
+	ctx := context.Background()
+	db := liveDB(ctx, t)
+	names := monthsFor(ctx, t, db, date(2008, 1, 1, 0, 0, 0), date(2008, 1, 1, 0, 0, 0))
+	s := newStream(ctx, t, db)
+	writeAt(ctx, t, db, date(2008, 1, 10, 9, 0, 0), s.org(), 3)
+
+	inFlight := holdChainLock(ctx, t, db)
+	defer func() { _ = inFlight.Rollback(context.WithoutCancel(ctx)) }()
+	done := cutInBackground(ctx, db, date(2008, 3, 1, 0, 0, 0))
+	waitForChainLockWaiter(ctx, t, db)
+	// A row no writer would produce (its hash is not a link), but a row:
+	// what matters is that its number is above the cut and its month is
+	// the one being dropped.
+	if _, err := inFlight.Exec(ctx, `INSERT INTO audit_events (id, ts, organization_id, category, action, outcome,
+			actor_kind, prev_hash, hash, content_hash)
+		VALUES (gen_random_uuid(), $1, $2, 'admin', 'late.write', 'success', 'user', '\x00', '\x00', '\x00')`,
+		date(2008, 1, 20, 0, 0, 0), s.org()); err != nil {
+		t.Fatal(err)
+	}
+	if err := inFlight.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	out := <-done
+	if out.err == nil || !strings.Contains(out.err.Error(), "above the retention cut") {
+		t.Fatalf("the cut returned %+v, %v; it must refuse to drop %s once a row above the cut is in it", out.res, out.err, names[0])
+	}
+	if !partitionExists(ctx, t, db, names[0]) || len(s.seqs(ctx)) != 4 {
+		t.Errorf("a refused cut changed %s: partition there %v, %d of 4 rows", names[0], partitionExists(ctx, t, db, names[0]), len(s.seqs(ctx)))
+	}
+}
+
+// TestCutRefusesAHoldPlacedAfterItChose calls the cut's last step with a
+// cut above a row under legal hold, which is what it sees when the hold was
+// placed after Reader.Cut chose the cut. Nothing may go, whether the month
+// would have been dropped whole or row by row.
+func TestCutRefusesAHoldPlacedAfterItChose(t *testing.T) {
+	ctx := context.Background()
+	db := liveDB(ctx, t)
+	tests := []struct {
+		name   string
+		before time.Time
+	}{
+		{name: "month dropped whole", before: date(2009, 3, 1, 0, 0, 0)},
+		{name: "rows deleted one by one", before: date(2009, 1, 20, 0, 0, 0)},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			names := monthsFor(ctx, t, db, date(2009, 1, 1, 0, 0, 0), date(2009, 1, 1, 0, 0, 0))
+			s := newStream(ctx, t, db)
+			writeAt(ctx, t, db, date(2009, 1, 10, 9, 0, 0), s.org(), 3)
+			seqs := s.seqs(ctx)
+			maintExec(ctx, t, db, `UPDATE audit_events SET legal_hold = true WHERE seq = $1`, seqs[1])
+
+			err := db.Bypass(ctx, "audit test cut", func(tx pgx.Tx) error {
+				_, err := tx.Exec(ctx, `SELECT * FROM audit_events_cut($1, $2, $3, '3s')`, seqs[2], tc.before, audit.ChainLockID)
+				return err
+			})
+			if err == nil || !strings.Contains(err.Error(), "legal hold") {
+				t.Fatalf("cutting through a row under legal hold returned %v; it must refuse", err)
+			}
+			if !partitionExists(ctx, t, db, names[0]) || len(s.seqs(ctx)) != 3 {
+				t.Errorf("a refused cut changed %s: partition there %v, %d of 3 rows", names[0], partitionExists(ctx, t, db, names[0]), len(s.seqs(ctx)))
+			}
+		})
+	}
+}
+
+// TestVerifyBridgesACutFollowedByAnUnusedSequence leaves a sequence number
+// unused between the last event a cut removes and the first it keeps, as an
+// append the database refused does. The cut still explains the start of
+// the stream.
+func TestVerifyBridgesACutFollowedByAnUnusedSequence(t *testing.T) {
+	ctx := context.Background()
+	db := liveDB(ctx, t)
+	monthsFor(ctx, t, db, date(2010, 1, 1, 0, 0, 0), date(2010, 2, 1, 0, 0, 0))
+	s := newStream(ctx, t, db)
+	writeAt(ctx, t, db, date(2010, 1, 10, 9, 0, 0), s.org(), 3)
+	maintExec(ctx, t, db, `SELECT nextval(pg_get_serial_sequence('audit_events', 'seq'))`)
+	writeAt(ctx, t, db, date(2010, 2, 10, 9, 0, 0), s.org(), 2)
+	seqs := s.seqs(ctx)
+	lo, hi := s.bounds(ctx)
+	if seqs[3] != seqs[2]+2 {
+		t.Fatalf("the sequences are %v; the test needs one unused between the third and fourth", seqs)
+	}
+
+	r := &audit.Reader{DB: db}
+	cut, err := r.Cut(ctx, date(2010, 1, 20, 0, 0, 0))
+	if err != nil {
+		t.Fatalf("cutting at 20 January 2010 failed: %v", err)
+	}
+	if cut.Seq != seqs[2] {
+		t.Fatalf("the cut is at seq %d, want %d", cut.Seq, seqs[2])
+	}
+	for _, from := range []int64{0, lo} {
+		res, err := r.Verify(ctx, from, hi)
+		if err != nil {
+			t.Fatalf("Verify from %d to %d: %v", from, hi, err)
+		}
+		if !res.Valid || res.RetentionCut != cut.Seq || res.FirstSeq != seqs[3] {
+			t.Errorf("Verify from %d: %+v; want it valid, starting at seq %d after the retention cut at %d",
+				from, res, seqs[3], cut.Seq)
+		}
 	}
 }

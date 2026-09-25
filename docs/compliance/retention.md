@@ -64,9 +64,11 @@ the window and holds nothing above the cut is dropped as a partition; the
 month the cut runs into loses its rows at or below the cut one by one.
 Both happen in the same transaction as the anchor, so what goes is still
 exactly the prefix at or below it, and a month holding a row under legal
-hold is never dropped (the hold stops the cut below it). If the table
-cannot be had for a moment to drop a month, nothing is cut that hour and
-the next sweep tries again. Months are created three ahead by an hourly
+hold is never dropped (the hold stops the cut below it). A hold placed
+on an event below the cut while the cut is running makes it refuse, as
+does an event written into a month it is dropping; so does not getting
+the table for a moment to drop a month. In each case nothing is cut that
+hour and the next sweep tries again. Months are created three ahead by an hourly
 job; an event for a month that has no partition is kept in a default
 partition and cut row by row.
 

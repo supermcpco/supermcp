@@ -34,3 +34,6 @@ func (p *Partitions) Bounds(ctx context.Context) ([]PartitionBound, error) {
 
 // MonthsAheadOf is the arithmetic behind MonthsAhead.
 func MonthsAheadOf(now time.Time, bounds []PartitionBound) int { return monthsAhead(now, bounds) }
+
+// ChainLockID is the advisory lock appends and the partition drop share.
+const ChainLockID = chainLockID

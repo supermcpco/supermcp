@@ -26,11 +26,23 @@ const (
 	// quick; moving rows out of the default partition is what could take
 	// longer, and there should be none.
 	maintainTimeout = time.Minute
-	// maintainLockTimeout bounds the wait for audit_events. Attaching a
-	// partition takes a lock appends and reads do not conflict with, but a
-	// concurrent index build or VACUUM of the parent would hold it up, and
-	// the next run is soon enough.
-	maintainLockTimeout = "10s"
+	// maintainLockTimeout bounds each wait for a lock. Attaching a month
+	// takes SHARE UPDATE EXCLUSIVE on audit_events, which appends and reads
+	// do not conflict with, but also ACCESS EXCLUSIVE on
+	// audit_events_default while it checks that table holds nothing for
+	// the month; a query that cannot rule the default partition out (a
+	// read not bounded by time) queues behind that for as long as the
+	// attach waits. Analyzing takes SHARE UPDATE EXCLUSIVE too. The next
+	// run is an hour away, so waiting long is never worth it.
+	maintainLockTimeout = "3s"
+	// analyzeEvery is how often Maintain analyzes audit_events. Analyzing
+	// it samples every partition and computes the search index's
+	// expression for each sampled row, which took 25 seconds over a
+	// million events in 17 months; hourly would be most of the job's work
+	// for statistics that move slowly.
+	analyzeEvery = 24 * time.Hour
+	// analyzeTimeout bounds one analyze, which grows with the months kept.
+	analyzeTimeout = 10 * time.Minute
 )
 
 // Partitions keeps audit_events partitioned ahead of the clock.
@@ -55,9 +67,46 @@ func (p *Partitions) now() time.Time {
 // Maintain creates the partitions for the current month and the
 // PartitionsAhead months after it that do not exist yet, and reports how
 // many it created. Running it again creates nothing.
+//
+// It then analyzes audit_events if that was last done more than
+// analyzeEvery ago. Autovacuum analyzes each partition but never the
+// partitioned table itself, and the planner reads the parent's statistics
+// for anything that spans months. When it was last done is Postgres's own
+// record, so it holds whichever replica runs the job.
 func (p *Partitions) Maintain(ctx context.Context) (int, error) {
 	month := monthOf(p.now())
-	return p.ensure(ctx, month, month.AddDate(0, PartitionsAhead, 0))
+	created, err := p.ensure(ctx, month, month.AddDate(0, PartitionsAhead, 0))
+	if err != nil {
+		return 0, err
+	}
+	return created, p.analyze(ctx)
+}
+
+// analyze refreshes the statistics of audit_events and its partitions
+// when they are older than analyzeEvery.
+func (p *Partitions) analyze(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, analyzeTimeout)
+	defer cancel()
+	err := p.DB.Bypass(ctx, "audit-partition-analyze", func(tx pgx.Tx) error {
+		var due bool
+		if err := tx.QueryRow(ctx, `SELECT COALESCE(
+				pg_stat_get_last_analyze_time('public.audit_events'::regclass) < now() - $1::interval, true)`,
+			analyzeEvery.String()).Scan(&due); err != nil {
+			return err
+		}
+		if !due {
+			return nil
+		}
+		if _, err := tx.Exec(ctx, `SELECT set_config('lock_timeout', $1, true)`, maintainLockTimeout); err != nil {
+			return err
+		}
+		_, err := tx.Exec(ctx, `ANALYZE audit_events`)
+		return err
+	})
+	if err != nil {
+		return fmt.Errorf("analyze audit_events: %w", err)
+	}
+	return nil
 }
 
 // ensure creates the partitions for every month from the one holding from
