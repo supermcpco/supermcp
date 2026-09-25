@@ -645,6 +645,54 @@ refused. A write that goes through moves the version by one.
 `connectors-resync` checks the same version, through the same lock, but
 answers a mismatch with its own code, `resync_stale`.
 
+## Audit search
+
+`GET /api/v1/audit` (`audit:read`) and `GET /api/v1/audit/export`
+(`audit:export`) take the same filters: `category`, `action`, `actorId`,
+`targetId`, `outcome`, `from`, `to`, and `q`, a free-text search. They
+combine: an event is listed only if it passes every filter given. The
+list pages by `afterSeq` with a search as without one, and a workspace
+only ever finds its own events.
+
+`q` is read as Postgres
+[web search syntax](https://www.postgresql.org/docs/current/textsearch-controls.html#TEXTSEARCH-PARSING-QUERIES)
+(`websearch_to_tsquery`):
+
+| Written | Finds events that |
+|---|---|
+| `connector okta` | carry both words |
+| `"quarterly review"` | carry the words next to each other, in that order |
+| `saml or okta` | carry either |
+| `connector -denied` | carry `connector` and not `denied` |
+
+Matching is by whole word and ignores case; there is no prefix match, so
+`conn` does not find `connector`. Nothing is stemmed and no word is
+ignored (the `simple` configuration), because the trail is mostly ids,
+action names and slugs. A name with dots or an `@` matches written whole
+or by its parts: `connector.created` and `connector` both find a
+`connector.created` event, and `ada@example.com` and `ada` both find her.
+
+What is searched:
+
+- the action;
+- who acted: `actorId` and `actorDisplay` (a person's email is there);
+- what was acted on: `targetKind`, `targetId` and `targetDisplay`;
+- the string values in `meta`, at any depth. Not its keys, numbers or
+  booleans.
+
+What is deliberately not: `diff` and `payload`, which can hold what a
+tool was sent and returned and are governed by the payload policy; the
+caller's IP and user agent; request and session ids. An event whose
+`meta` holds a NUL character (`\u0000`) is found by its other fields
+but not by its `meta`, because Postgres cannot read that text.
+
+`q` longer than 200 characters is `422`. A `q` that is empty or only
+spaces is no search at all. A `q` with no word in it, such as `!!!` or
+`-`, matches nothing, not everything: an empty list, not the whole trail.
+
+An export records `audit.exported` with the `category`, `action` and `q`
+it was asked for.
+
 ## Audit retention
 
 `GET /api/v1/audit/retention` (`audit:read`) reads the current
