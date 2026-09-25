@@ -214,6 +214,7 @@ func budgetsFromEnv() (hardening.Budgets, error) {
 		{"SUPERMCP_RATELIMIT_INVITE", "5/1h", &b.Invite},
 		{"SUPERMCP_RATELIMIT_DCR", "10/1h", &b.DCR},
 		{"SUPERMCP_RATELIMIT_TOOL_CALL", "600/1m", &b.ToolCall},
+		{"SUPERMCP_RATELIMIT_ANALYTICS", "30/1m", &b.Analytics},
 		{"SUPERMCP_RATELIMIT_API", "300/1m", &b.API},
 	} {
 		burst, window, err := parseBudget(getenv(s.key, s.def))

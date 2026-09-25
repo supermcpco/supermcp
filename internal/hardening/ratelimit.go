@@ -47,6 +47,9 @@ type Budgets struct {
 	DCR Limit
 	// ToolCall covers MCP tools/call, the one hot path here.
 	ToolCall Limit
+	// Analytics covers the usage analytics, whose every request runs
+	// aggregates over up to 90 days on the pool that records tool calls.
+	Analytics Limit
 	// API covers the rest of the admin API.
 	API Limit
 }
@@ -188,12 +191,13 @@ return {allowed, remaining, reset}
 // calls are large and short-windowed: they are legitimate traffic.
 func DefaultBudgets() Budgets {
 	return Budgets{
-		SignIn:   Limit{Name: "signin", Burst: 10, Window: time.Minute},
-		Register: Limit{Name: "register", Burst: 5, Window: time.Hour},
-		Invite:   Limit{Name: "invite", Burst: 5, Window: time.Hour},
-		DCR:      Limit{Name: "dcr", Burst: 10, Window: time.Hour},
-		ToolCall: Limit{Name: "tool_call", Burst: 600, Window: time.Minute},
-		API:      Limit{Name: "api", Burst: 300, Window: time.Minute},
+		SignIn:    Limit{Name: "signin", Burst: 10, Window: time.Minute},
+		Register:  Limit{Name: "register", Burst: 5, Window: time.Hour},
+		Invite:    Limit{Name: "invite", Burst: 5, Window: time.Hour},
+		DCR:       Limit{Name: "dcr", Burst: 10, Window: time.Hour},
+		ToolCall:  Limit{Name: "tool_call", Burst: 600, Window: time.Minute},
+		Analytics: Limit{Name: "analytics", Burst: 30, Window: time.Minute},
+		API:       Limit{Name: "api", Burst: 300, Window: time.Minute},
 	}
 }
 

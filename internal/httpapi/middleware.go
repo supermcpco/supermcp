@@ -66,6 +66,10 @@ func (d Deps) budgetFor(path string) hardening.Limit {
 		return d.Budgets.DCR
 	case strings.HasPrefix(path, "/mcp/"):
 		return d.Budgets.ToolCall
+	// Each analytics request aggregates up to 90 days of calls, so it
+	// draws on a budget smaller than the rest of the API's.
+	case strings.HasPrefix(path, "/api/v1/analytics/"):
+		return d.Budgets.Analytics
 	}
 	return d.Budgets.API
 }

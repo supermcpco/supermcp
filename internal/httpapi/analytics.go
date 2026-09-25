@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -90,7 +91,9 @@ func (d Deps) analyticsRoutes(api huma.API) {
 	huma.Register(api, huma.Operation{OperationID: "analytics-usage", Method: http.MethodGet,
 		Path: "/api/v1/analytics/usage", Summary: "Tool call volume, errors and latency over time",
 		Description: "Aggregates this workspace's tool calls into a series of buckets and a top list. " +
-			"The window is at most 90 days; a wider or reversed one is refused with 422.",
+			"The window is at most 90 days; a wider or reversed one is refused with 422. " +
+			"by=server also needs servers:read. A workspace may have two of these queries running per replica; " +
+			"a third is refused with 429. Answers are reused for 60 seconds.",
 		Tags: []string{"observability"}, Security: sessionSecurity},
 		func(ctx context.Context, in *usageInput) (*usageOutput, error) {
 			// The same permission the tool-call list asks for: this is
@@ -99,22 +102,38 @@ func (d Deps) analyticsRoutes(api huma.API) {
 			if err != nil {
 				return nil, err
 			}
-			w, err := usageWindowFor(time.Now(), in.From, in.To, in.Bucket)
-			if err != nil {
-				return nil, huma.Error422UnprocessableEntity(err.Error())
-			}
 			by := in.By
 			if by == "" {
 				by = "tool"
+			}
+			// The server breakdown names servers, which the server list
+			// shows only to servers:read.
+			if by == "server" {
+				if _, err := d.require(ctx, authz.ServersRead, authz.Resource{}); err != nil {
+					return nil, err
+				}
+			}
+			w, err := usageWindowFor(time.Now(), in.From, in.To, in.Bucket)
+			if err != nil {
+				return nil, huma.Error422UnprocessableEntity(err.Error())
 			}
 			limit := in.Limit
 			if limit <= 0 {
 				limit = 10
 			}
+			key := usageKey{org: p.OrgID, from: w.From.UnixNano(), to: w.To.UnixNano(), bucket: w.Bucket, by: by, limit: limit}
+			if rep, ok := d.analytics.get(key); ok {
+				return &usageOutput{Body: rep}, nil
+			}
+			if !d.analytics.acquire(p.OrgID) {
+				return nil, huma.Error429TooManyRequests("this workspace already has two analytics queries running; try again when they finish")
+			}
+			defer d.analytics.release(p.OrgID)
 			rep, err := usage(ctx, d.DB, p.OrgID, w, by, limit)
 			if err != nil {
 				return nil, err
 			}
+			d.analytics.put(key, rep)
 			return &usageOutput{Body: rep}, nil
 		})
 }
@@ -184,18 +203,19 @@ FROM (
 ) calls
 GROUP BY GROUPING SETS ((bucket), ())`
 
-// usageTopSQL is the top list for one dimension. The names are looked up
-// after the aggregate, so the join touches at most $5 rows. A tool is
-// keyed by its id and falls back to the name it was called by, which is
-// also its label once the tool has been deleted.
+// usageTopSQL is the top list for one dimension. The aggregate reads only
+// columns the covering index carries, so it is an index-only scan. The
+// names are looked up afterwards for at most $5 rows, each in its own
+// workspace: a tool, connector or server by id, and a deleted tool by the
+// name its latest call recorded, which the (tool_id, created_at) index
+// finds in one step. Calls with no tool id are one row with an empty id.
 const usageTopSQL = `
 WITH agg AS (
     SELECT CASE $4::text
-               WHEN 'tool' THEN COALESCE(NULLIF(tool_id, ''), tool_name)
+               WHEN 'tool' THEN NULLIF(tool_id, '')
                WHEN 'connector' THEN connector_id
                ELSE server_id
            END AS key,
-           max(tool_name) AS tool_name,
            count(*) AS calls,
            count(*) FILTER (WHERE status <> 'success') AS errors,
            percentile_cont(0.5)  WITHIN GROUP (ORDER BY duration_ms) AS p50,
@@ -210,15 +230,18 @@ WITH agg AS (
 )
 SELECT COALESCE(a.key, ''),
        COALESCE(CASE $4::text
-                    WHEN 'tool' THEN COALESCE(t.name, a.tool_name)
+                    WHEN 'tool' THEN COALESCE(t.name, (
+                        SELECT i.tool_name FROM tool_invocations i
+                        WHERE i.tool_id = a.key AND i.organization_id = $1
+                        ORDER BY i.created_at DESC LIMIT 1))
                     WHEN 'connector' THEN c.name
                     ELSE s.name
                 END, ''),
        a.calls, a.errors, a.p50, a.p95, a.up50, a.up95
 FROM agg a
-LEFT JOIN tools t ON $4::text = 'tool' AND t.id = a.key
-LEFT JOIN connectors c ON $4::text = 'connector' AND c.id = a.key
-LEFT JOIN mcp_servers s ON $4::text = 'server' AND s.id = a.key
+LEFT JOIN tools t ON $4::text = 'tool' AND t.id = a.key AND t.organization_id = $1
+LEFT JOIN connectors c ON $4::text = 'connector' AND c.id = a.key AND c.organization_id = $1
+LEFT JOIN mcp_servers s ON $4::text = 'server' AND s.id = a.key AND s.organization_id = $1
 ORDER BY a.calls DESC, a.key`
 
 // usage reads the report for one organisation under its row-level
@@ -230,6 +253,12 @@ func usage(ctx context.Context, db *tenant.DB, orgID string, w usageWindow, by s
 	defer cancel()
 	byStart := map[int64]UsageStats{}
 	err := db.Tx(tenant.WithOrg(ctx, orgID), func(tx pgx.Tx) error {
+		// The context deadline stops this side; the statement timeout makes
+		// Postgres stop too, rather than finish a sort nobody will read.
+		if _, err := tx.Exec(ctx, `SELECT set_config('statement_timeout', $1, true)`,
+			strconv.FormatInt(usageQueryTimeout.Milliseconds(), 10)); err != nil {
+			return fmt.Errorf("usage: statement timeout: %w", err)
+		}
 		rows, err := tx.Query(ctx, usageSeriesSQL, orgID, w.From, w.To, w.Bucket)
 		if err != nil {
 			return fmt.Errorf("usage series: %w", err)

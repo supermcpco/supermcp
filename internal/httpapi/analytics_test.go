@@ -10,6 +10,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/supermcpco/supermcp/internal/authz"
+	"github.com/supermcpco/supermcp/internal/hardening"
 	"github.com/supermcpco/supermcp/internal/store"
 	"github.com/supermcpco/supermcp/internal/tenant"
 )
@@ -82,11 +84,16 @@ func TestUsageWindowFor(t *testing.T) {
 // calls sit in the same window as A's, so any leak shows up in A's counts.
 const usageSeed = `
 INSERT INTO users (id, email, name) VALUES
-    ('an_u_a','a@analytics.test','A'), ('an_u_b','b@analytics.test','B'), ('an_u_none','none@analytics.test','N');
+    ('an_u_a','a@analytics.test','A'), ('an_u_b','b@analytics.test','B'), ('an_u_none','none@analytics.test','N'),
+    ('an_u_conn','conn@analytics.test','C');
 INSERT INTO organizations (id, slug, name) VALUES ('an_a','an-a','A'), ('an_b','an-b','B');
-INSERT INTO organization_members (user_id, organization_id) VALUES ('an_u_a','an_a'), ('an_u_b','an_b'), ('an_u_none','an_a');
+INSERT INTO organization_members (user_id, organization_id) VALUES ('an_u_a','an_a'), ('an_u_b','an_b'), ('an_u_none','an_a'), ('an_u_conn','an_a');
 INSERT INTO role_bindings (id, organization_id, principal_kind, principal_id, role_id)
     VALUES ('an_rb_a','an_a','user','an_u_a','role_viewer'), ('an_rb_b','an_b','user','an_u_b','role_viewer');
+-- May read connectors and their calls, but not the MCP servers.
+INSERT INTO roles (id, organization_id, name, permissions) VALUES ('an_r_conn','an_a','connectors only','{connectors:read}');
+INSERT INTO role_bindings (id, organization_id, principal_kind, principal_id, role_id)
+    VALUES ('an_rb_conn','an_a','user','an_u_conn','an_r_conn');
 INSERT INTO connectors (id, organization_id, name, transport, auth)
     VALUES ('an_c1','an_a','First','{}','{}'), ('an_c2','an_a','Second','{}','{}'), ('an_cb','an_b','Theirs','{}','{}');
 INSERT INTO tools (id, connector_id, organization_id, name, definition)
@@ -115,7 +122,7 @@ INSERT INTO tool_invocations (id, organization_id, server_id, connector_id, tool
 const usageCleanup = `
 DELETE FROM tool_invocations WHERE organization_id IN ('an_a','an_b');
 DELETE FROM organizations WHERE id IN ('an_a','an_b');
-DELETE FROM users WHERE id IN ('an_u_a','an_u_b','an_u_none');
+DELETE FROM users WHERE id IN ('an_u_a','an_u_b','an_u_none','an_u_conn');
 `
 
 // TestUsageAgainstPostgres checks the buckets, error counts, percentiles
@@ -156,8 +163,22 @@ func TestUsageAgainstPostgres(t *testing.T) {
 	exec(usageSeed)
 	t.Cleanup(func() { exec(usageCleanup) })
 
+	// The guard's clock is the test's, so the cache can be expired
+	// without waiting for it.
+	var clockMu sync.Mutex
+	clock := time.Date(2026, 1, 12, 0, 0, 0, 0, time.UTC)
+	guard := newAnalyticsGuard(func() time.Time {
+		clockMu.Lock()
+		defer clockMu.Unlock()
+		return clock
+	})
+	advance := func(d time.Duration) {
+		clockMu.Lock()
+		defer clockMu.Unlock()
+		clock = clock.Add(d)
+	}
 	_, api := humatest.New(t)
-	Deps{DB: db, Authz: authz.New(db), Log: log}.analyticsRoutes(api)
+	Deps{DB: db, Authz: authz.New(db), Log: log, analytics: guard}.analyticsRoutes(api)
 
 	get := func(t *testing.T, user, org string, q url.Values, wantStatus int) usageReport {
 		t.Helper()
@@ -248,6 +269,55 @@ func TestUsageAgainstPostgres(t *testing.T) {
 			{ID: "an_m1", Name: "Main", UsageStats: UsageStats{Calls: 6, Errors: 1}},
 			{ID: "", Name: "", UsageStats: UsageStats{Calls: 2, Errors: 1}},
 		})
+	})
+
+	t.Run("the server breakdown needs servers:read", func(t *testing.T) {
+		get(t, "an_u_conn", "an_a", with("by", "server"), http.StatusForbidden)
+		// The same caller may still count calls by tool and connector.
+		if rep := get(t, "an_u_conn", "an_a", with("by", "connector"), http.StatusOK); rep.Totals.Calls != 8 {
+			t.Errorf("by connector: %d calls, want 8", rep.Totals.Calls)
+		}
+	})
+
+	t.Run("a third concurrent query from one workspace is refused", func(t *testing.T) {
+		// Two queries of A's are in flight; a new question (one the cache
+		// cannot answer) is refused rather than queued behind them.
+		q := with("bucket", "day", "limit", "7")
+		for range usageInflightPerOrg {
+			if !guard.acquire("an_a") {
+				t.Fatal("could not take a slot that should be free")
+			}
+		}
+		get(t, "an_u_a", "an_a", q, http.StatusTooManyRequests)
+		// Another workspace is not held up by A's queries.
+		get(t, "an_u_b", "an_b", q, http.StatusOK)
+		guard.release("an_a")
+		if rep := get(t, "an_u_a", "an_a", q, http.StatusOK); rep.Totals.Calls != 8 {
+			t.Errorf("after a slot was freed: %d calls, want 8", rep.Totals.Calls)
+		}
+		guard.release("an_a")
+	})
+
+	t.Run("an answer is reused for a minute", func(t *testing.T) {
+		q := with("bucket", "day", "limit", "3")
+		if rep := get(t, "an_u_a", "an_a", q, http.StatusOK); rep.Totals.Calls != 8 {
+			t.Fatalf("%d calls, want 8", rep.Totals.Calls)
+		}
+		exec(`INSERT INTO tool_invocations (id, organization_id, tool_name, principal_kind, auth_method, status, duration_ms, created_at)
+			VALUES ('an_i14','an_a','late','user','api_key','success',1,'2026-01-11T13:00:00Z')`)
+		if rep := get(t, "an_u_a", "an_a", q, http.StatusOK); rep.Totals.Calls != 8 {
+			t.Errorf("within the minute: %d calls, want the cached 8", rep.Totals.Calls)
+		}
+		// Another workspace asking the same question gets its own answer.
+		if rep := get(t, "an_u_b", "an_b", q, http.StatusOK); rep.Totals.Calls != 3 {
+			t.Errorf("B asking A's question: %d calls, want its own 3", rep.Totals.Calls)
+		}
+		advance(usageCacheTTL)
+		if rep := get(t, "an_u_a", "an_a", q, http.StatusOK); rep.Totals.Calls != 9 {
+			t.Errorf("after the minute: %d calls, want 9", rep.Totals.Calls)
+		}
+		exec(`DELETE FROM tool_invocations WHERE id = 'an_i14'`)
+		advance(usageCacheTTL)
 	})
 
 	t.Run("limit", func(t *testing.T) {
@@ -346,5 +416,60 @@ func wantTop(t *testing.T, got, want []usageGroup) {
 			t.Errorf("top[%d] = %s %q %d calls %d errors, want %s %q %d calls %d errors",
 				i, g.ID, g.Name, g.Calls, g.Errors, w.ID, w.Name, w.Calls, w.Errors)
 		}
+	}
+}
+
+func TestAnalyticsGuard(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	g := newAnalyticsGuard(func() time.Time { return now })
+
+	for i := range usageInflightPerOrg {
+		if !g.acquire("a") {
+			t.Fatalf("slot %d refused", i+1)
+		}
+	}
+	if g.acquire("a") {
+		t.Error("a third slot was granted")
+	}
+	if !g.acquire("b") {
+		t.Error("another organisation was refused because of the first")
+	}
+	g.release("a")
+	if !g.acquire("a") {
+		t.Error("a released slot was not granted again")
+	}
+	g.release("a")
+	g.release("a")
+	g.release("b")
+	if len(g.inflight) != 0 {
+		t.Errorf("idle organisations left behind: %v", g.inflight)
+	}
+
+	k := usageKey{org: "a", bucket: "day", by: "tool", limit: 10}
+	g.put(k, usageReport{Totals: UsageStats{Calls: 1}})
+	if rep, ok := g.get(k); !ok || rep.Totals.Calls != 1 {
+		t.Errorf("fresh entry: %v %v", rep, ok)
+	}
+	other := k
+	other.org = "b"
+	if _, ok := g.get(other); ok {
+		t.Error("an entry was served to another organisation")
+	}
+	now = now.Add(usageCacheTTL)
+	if _, ok := g.get(k); ok {
+		t.Error("an expired entry was served")
+	}
+}
+
+func TestAnalyticsBudget(t *testing.T) {
+	t.Parallel()
+	d := Deps{Budgets: hardening.DefaultBudgets()}
+	got := d.budgetFor("/api/v1/analytics/usage")
+	if got.Name != "analytics" {
+		t.Fatalf("analytics draws on the %q budget", got.Name)
+	}
+	if api := d.budgetFor("/api/v1/tool-calls"); got.Burst >= api.Burst {
+		t.Errorf("analytics budget %d is not below the API's %d", got.Burst, api.Burst)
 	}
 }

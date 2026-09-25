@@ -21,7 +21,7 @@ export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends 
 /**
  * Tool call volume, errors and latency over time
  *
- * Aggregates this workspace's tool calls into a series of buckets and a top list. The window is at most 90 days; a wider or reversed one is refused with 422.
+ * Aggregates this workspace's tool calls into a series of buckets and a top list. The window is at most 90 days; a wider or reversed one is refused with 422. by=server also needs servers:read. A workspace may have two of these queries running per replica; a third is refused with 429. Answers are reused for 60 seconds.
  */
 export const analyticsUsage = <ThrowOnError extends boolean = false>(options?: Options<AnalyticsUsageData, ThrowOnError>) => (options?.client ?? client).get<AnalyticsUsageResponses, AnalyticsUsageErrors, ThrowOnError>({
     security: [{

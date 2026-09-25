@@ -44,7 +44,7 @@ export const analyticsUsageQueryKey = (options?: Options<AnalyticsUsageData>) =>
 /**
  * Tool call volume, errors and latency over time
  *
- * Aggregates this workspace's tool calls into a series of buckets and a top list. The window is at most 90 days; a wider or reversed one is refused with 422.
+ * Aggregates this workspace's tool calls into a series of buckets and a top list. The window is at most 90 days; a wider or reversed one is refused with 422. by=server also needs servers:read. A workspace may have two of these queries running per replica; a third is refused with 429. Answers are reused for 60 seconds.
  */
 export const analyticsUsageOptions = (options?: Options<AnalyticsUsageData>) => queryOptions<AnalyticsUsageResponse, AnalyticsUsageError, AnalyticsUsageResponse, ReturnType<typeof analyticsUsageQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {

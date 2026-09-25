@@ -68,8 +68,11 @@ type Deps struct {
 	// refusals bounds how many refused token requests one client can
 	// put on the audit trail a minute. New fills it in.
 	refusals *refusalBudget
-	Budgets  hardening.Budgets
-	Metrics  *telemetry.Metrics
+	// analytics caps and caches the usage analytics per replica. New
+	// fills it in.
+	analytics *analyticsGuard
+	Budgets   hardening.Budgets
+	Metrics   *telemetry.Metrics
 	// Executor renders a tool call for the dry-run preview. The MCP
 	// endpoint holds the same one for making calls.
 	Executor *invoke.Executor
@@ -91,6 +94,9 @@ type Deps struct {
 func New(d Deps) (http.Handler, huma.API) {
 	if d.refusals == nil {
 		d.refusals = newRefusalBudget(nil)
+	}
+	if d.analytics == nil {
+		d.analytics = newAnalyticsGuard(nil)
 	}
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
