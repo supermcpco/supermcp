@@ -209,6 +209,22 @@ read, so they show a name too for as long as that person is still a
 member; a former member's rows show none. Nothing to do. Erasure already
 covers the column, as it did while it was empty.
 
+### API keys can be rotated
+
+`POST /api/v1/api-keys/{id}/rotate` and a Rotate button on the API keys
+screen issue a replacement with the same name, scopes and server, show
+its secret once, and keep the old key working for a grace period you
+choose (none to 7 days; 24 hours if the API caller does not say). The
+event is `apikey.rotate`. A revoked, expired or already rotated key is
+refused with 409.
+
+Rotation used to shorten the old key and create the new one in two
+transactions, so a failed create left the old key cut short with no
+replacement. Both now happen in one, and two rotations of the same key at
+once can no longer both succeed. Nothing to do.
+
+**Generated API clients need regenerating** for the new route.
+
 ## 1.2.0
 
 No migration. Two things were removed; neither is something a running

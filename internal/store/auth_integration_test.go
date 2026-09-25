@@ -156,14 +156,14 @@ func TestIdentityAuthzAPIKeys(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rec3, secret3, err := keys.Rotate(ctx, o.ID, rec2.ID, u.ID, time.Hour)
-	if err != nil || rec3.RotatedFrom != rec2.ID {
-		t.Fatalf("rotate: %+v %v", rec3, err)
+	rot, err := keys.Rotate(ctx, mcpauth.RotateInput{OrgID: o.ID, ID: rec2.ID, ActorID: u.ID, Self: true, Grace: time.Hour})
+	if err != nil || rot.Key.RotatedFrom != rec2.ID {
+		t.Fatalf("rotate: %+v %v", rot, err)
 	}
 	if _, err := keys.Authenticate(ctx, secret2, ""); err != nil {
 		t.Errorf("old key inside grace: %v", err)
 	}
-	if _, err := keys.Authenticate(ctx, secret3, ""); err != nil {
+	if _, err := keys.Authenticate(ctx, rot.Secret, ""); err != nil {
 		t.Errorf("new key: %v", err)
 	}
 }

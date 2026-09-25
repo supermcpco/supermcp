@@ -7,10 +7,13 @@ import {
   keysListOptions,
   keysListQueryKey,
   keysRevokeMutation,
+  keysRotateMutation,
 } from "../api/@tanstack/react-query.gen";
+import type { ApiKeyDto, RotatedKeyDto } from "../api/types.gen";
 import { useSession } from "../lib/session";
 import { Badge, Loading, SignInFirst } from "../lib/ui";
 import { message } from "../lib/errors";
+import { canRotate, defaultGraceSeconds, graceChoices, stopsWorking } from "../lib/key-rotation";
 
 export const Route = createFileRoute("/api-keys")({
   component: APIKeys,
@@ -32,12 +35,16 @@ function APIKeys() {
   const [name, setName] = useState("");
   const [purpose, setPurpose] = useState<keyof typeof purposes>("client");
   const [secret, setSecret] = useState<string | null>(null);
+  // Set when the secret on show replaced a key: which one, and when it stops.
+  const [replaced, setReplaced] = useState<{ prefix: string; expiresAt: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [rotating, setRotating] = useState<string | null>(null);
 
   const create = useMutation({
     ...keysCreateMutation(),
     onSuccess: async (res) => {
       setSecret(res.secret);
+      setReplaced(null);
       setName("");
       setError(null);
       await qc.invalidateQueries({ queryKey: keysListQueryKey() });
@@ -68,9 +75,22 @@ function APIKeys() {
           </Text>
           <Text variant="secondary">It is not stored and cannot be shown again.</Text>
           <code className="overflow-x-auto rounded-md bg-kumo-tint px-2 py-1 font-mono text-[0.9em]">{secret}</code>
+          {replaced && (
+            <Text>
+              This replaces <span className="font-mono text-[0.9em]">smk_{replaced.prefix}…</span>.{" "}
+              {stopsWorking(replaced.expiresAt)}
+            </Text>
+          )}
           <div className="flex gap-2">
             <Button onClick={() => void navigator.clipboard.writeText(secret)}>Copy</Button>
-            <Button onClick={() => setSecret(null)}>Done</Button>
+            <Button
+              onClick={() => {
+                setSecret(null);
+                setReplaced(null);
+              }}
+            >
+              Done
+            </Button>
           </div>
         </div>
       )}
@@ -124,14 +144,96 @@ function APIKeys() {
                 {k.expiresAt ? ` · expires ${new Date(k.expiresAt).toLocaleDateString()}` : ""}
               </Text>
             </div>
-            {!k.revokedAt && (
-              <Button onClick={() => revoke.mutate({ path: { id: k.id } })} disabled={revoke.isPending}>
-                Revoke
-              </Button>
+            <div className="flex gap-2">
+              {canRotate(k) && rotating !== k.id && (
+                <Button onClick={() => setRotating(k.id)}>
+                  Rotate<span className="sr-only"> {k.name}</span>
+                </Button>
+              )}
+              {!k.revokedAt && (
+                <Button onClick={() => revoke.mutate({ path: { id: k.id } })} disabled={revoke.isPending}>
+                  Revoke<span className="sr-only"> {k.name}</span>
+                </Button>
+              )}
+            </div>
+            {rotating === k.id && (
+              <ConfirmRotate
+                apiKey={k}
+                onRotated={(res) => {
+                  setSecret(res.secret);
+                  setReplaced({ prefix: k.prefix, expiresAt: res.previousExpiresAt });
+                  setRotating(null);
+                }}
+                onCancel={() => setRotating(null)}
+              />
             )}
           </li>
         ))}
       </ul>
     </div>
+  );
+}
+
+/**
+ * Asks how long the old key should keep working before it is replaced.
+ * The replacement's secret is handed back to the screen, which shows it
+ * once in the same place a new key's secret appears.
+ */
+function ConfirmRotate({
+  apiKey,
+  onRotated,
+  onCancel,
+}: {
+  apiKey: ApiKeyDto;
+  onRotated: (res: RotatedKeyDto) => void;
+  onCancel: () => void;
+}) {
+  const qc = useQueryClient();
+  const [grace, setGrace] = useState<number>(defaultGraceSeconds);
+  const [error, setError] = useState<string | null>(null);
+  const rotate = useMutation({
+    ...keysRotateMutation(),
+    onSuccess: async (res) => {
+      onRotated(res);
+      await qc.invalidateQueries({ queryKey: keysListQueryKey() });
+    },
+    onError: (e) => setError(message(e)),
+  });
+
+  return (
+    <form
+      className="grid w-full gap-3 border-t border-kumo-line pt-3"
+      aria-label={`Rotate ${apiKey.name}`}
+      onSubmit={(e) => {
+        e.preventDefault();
+        rotate.mutate({ path: { id: apiKey.id }, body: { graceSeconds: grace } });
+      }}
+    >
+      <Text>
+        A new key with the same name and access replaces this one. Clients using the old key need the new secret before
+        the old key stops working.
+      </Text>
+      <label className="grid gap-1.5">
+        <Text as="span">Old key keeps working for</Text>
+        <select className={selectClass} value={grace} onChange={(e) => setGrace(Number(e.currentTarget.value))}>
+          {graceChoices.map((c) => (
+            <option key={c.seconds} value={c.seconds}>
+              {c.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <div className="flex gap-2">
+        <Button type="submit" variant="primary" disabled={rotate.isPending}>
+          Rotate {apiKey.name}
+        </Button>
+        <Button onClick={onCancel}>Cancel</Button>
+      </div>
+      {error && (
+        <div role="alert">
+          <Text>{error}</Text>
+        </div>
+      )}
+    </form>
   );
 }
