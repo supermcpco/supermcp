@@ -46,7 +46,29 @@ in; see "Sensitive actions ask for a recent sign-in" below. Migration
 00025 replaces an index on `tool_invocations` for the new usage
 analytics; see "Usage analytics read an index of their own" below. Migration
 00026 lets disabling a service account refuse the tokens it already
-holds; see "Disabling a service account cuts it off" below.
+holds; see "Disabling a service account cuts it off" below. The chart can mount the master key as a file; see "The chart can mount the master key as a file" below.
+
+### The chart can mount the master key as a file
+
+Chart 1.3.0 adds `encryption.local.file.secretName` and
+`encryption.local.file.key`, which mount the local master key read-only
+at `/etc/supermcp/kek/<key>` and set `ENCRYPTION_KEK_FILE`, and
+`encryption.previous.secretName` and `encryption.previous.key`, which set
+`SUPERMCP_KEK_PREVIOUS` from a Secret. Without them the chart renders
+what it rendered before; an existing install needs nothing.
+
+- Use the file values only with this release's binary or later. Earlier
+  binaries refuse any key file its group can read, and Kubernetes makes a
+  Secret file group-readable whenever the pod has an `fsGroup`, which the
+  chart sets.
+- Do not switch a running install from `encryption.local.existingSecret`
+  to the file values with the same key and nothing else. The key is
+  recorded under the form it came in, so the pods would start and then
+  fail to open every stored credential. Changing form is a rotation:
+  follow "Rotating the master key", "On the Helm chart", in
+  `docs/operations.md`.
+- Outside Kubernetes, a key file with mode 0440 or 0640 is now accepted.
+  A file others can read, or a group can write, is still refused.
 
 ### Connector secrets read `***`
 

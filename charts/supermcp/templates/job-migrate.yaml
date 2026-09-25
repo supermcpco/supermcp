@@ -43,4 +43,12 @@ spec:
           resources:
             requests: { cpu: 100m, memory: 128Mi }
             limits: { memory: 256Mi }
+          {{- with (include "supermcp.kekVolumeMount" . | trim) }}
+          volumeMounts:
+            {{- . | nindent 12 }}
+          {{- end }}
+      {{- with (include "supermcp.kekVolume" . | trim) }}
+      volumes:
+        {{- . | nindent 8 }}
+      {{- end }}
 {{- end }}

@@ -86,6 +86,9 @@ spec:
             - name: audit-spool
               mountPath: {{ .Values.audit.spool.path }}
             {{- end }}
+            {{- with (include "supermcp.kekVolumeMount" . | trim) }}
+            {{- . | nindent 12 }}
+            {{- end }}
       volumes:
         - name: tmp
           emptyDir: {}
@@ -93,6 +96,9 @@ spec:
         - name: audit-spool
           persistentVolumeClaim:
             claimName: {{ .Values.audit.spool.existingClaim | default (printf "%s-audit-spool" (include "supermcp.fullname" .)) }}
+        {{- end }}
+        {{- with (include "supermcp.kekVolume" . | trim) }}
+        {{- . | nindent 8 }}
         {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:

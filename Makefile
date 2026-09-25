@@ -1,7 +1,7 @@
 BIN := bin/supermcp
 GO  ?= go
 
-.PHONY: build test lint check-migrations adapters web web-client airgap clean
+.PHONY: build test lint check-migrations chart-test adapters web web-client airgap clean
 
 build:
 	$(GO) build -trimpath -o $(BIN) ./cmd/supermcp
@@ -18,6 +18,12 @@ lint:
 check-migrations:
 	./scripts/check-migrations_test.sh
 	./scripts/check-migrations.sh
+
+# The chart renders the master key the way docs/install.md says: a key
+# file mounted and named in ENCRYPTION_KEK_FILE only when asked for.
+chart-test:
+	helm lint charts/supermcp
+	./scripts/chart_test.sh
 
 # Regenerate the adapter catalog from the vendored v1 corpus and rebuild the index.
 # The catalog is generated; adapters/embed.go and the recorded cassettes
