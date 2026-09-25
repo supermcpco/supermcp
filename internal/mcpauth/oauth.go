@@ -90,7 +90,9 @@ type OAuth struct {
 // session that merely expired is not ended; the refresh tokens it
 // consented to outlive it, which is what offline access is for.
 type Sessions interface {
-	SessionRevoked(ctx context.Context, id string) (bool, error)
+	// SessionEnded takes the session's public id, the sid claim, and
+	// reports true for a session that is not on record.
+	SessionEnded(ctx context.Context, publicID string) (bool, error)
 }
 
 // ServiceAccounts verifies client credentials that belong to a service
@@ -578,16 +580,19 @@ func (o *OAuth) exchangeCode(ctx context.Context, client *Client, form url.Value
 		return nil, oauthErr("invalid_request", "code and code_verifier are required", 400)
 	}
 	var userID, orgID, redirect, challenge, scope, codeClient string
-	var serverID, sessionID *string
+	var serverID, sessionID, publicSID *string
 	var amr []string
 	var consumed *time.Time
 	var expires time.Time
 	// Read under a row lock, then consume in the same transaction: two
 	// concurrent redemptions cannot both succeed.
 	err := o.DB.Bypass(ctx, "oauth-code", func(tx pgx.Tx) error {
-		if err := tx.QueryRow(ctx, `SELECT client_id, user_id, organization_id, server_id, redirect_uri, code_challenge, scope, expires_at, consumed_at, session_id, amr
-			FROM oauth_codes WHERE code = $1 FOR UPDATE`, code).
-			Scan(&codeClient, &userID, &orgID, &serverID, &redirect, &challenge, &scope, &expires, &consumed, &sessionID, &amr); err != nil {
+		if err := tx.QueryRow(ctx, `SELECT c.client_id, c.user_id, c.organization_id, c.server_id, c.redirect_uri, c.code_challenge,
+				c.scope, c.expires_at, c.consumed_at, c.session_id, c.amr, s.public_id
+			FROM oauth_codes c LEFT JOIN sessions s ON s.id = c.session_id
+			WHERE c.code = $1 FOR UPDATE OF c`, code).
+			Scan(&codeClient, &userID, &orgID, &serverID, &redirect, &challenge, &scope, &expires, &consumed,
+				&sessionID, &amr, &publicSID); err != nil {
 			return err
 		}
 		if consumed != nil || expires.Before(o.now()) {
@@ -620,13 +625,8 @@ func (o *OAuth) exchangeCode(ctx context.Context, client *Client, form url.Value
 		// presented it is not the client that started the flow.
 		return nil, oauthErr("invalid_grant", "PKCE verification failed", 400)
 	}
-	g := grant{subject: "user_" + userID, clientID: client.ClientID, userID: userID, orgID: orgID,
-		serverID: deref(serverID), scope: scope, sessionID: deref(sessionID), amr: amr}
-	// The session that consented may have ended in the minutes since.
-	if err := o.sessionLive(ctx, g.sessionID); err != nil {
-		return nil, err
-	}
-	return o.issueToken(ctx, g)
+	return o.issueToken(ctx, grant{subject: "user_" + userID, clientID: client.ClientID, userID: userID, orgID: orgID,
+		serverID: deref(serverID), scope: scope, sessionID: deref(sessionID), publicSID: deref(publicSID), amr: amr})
 }
 
 func (o *OAuth) refresh(ctx context.Context, client *Client, form url.Values) (*TokenResponse, error) {
@@ -634,16 +634,32 @@ func (o *OAuth) refresh(ctx context.Context, client *Client, form url.Values) (*
 	if presented == "" {
 		return nil, oauthErr("invalid_request", "refresh_token is required", 400)
 	}
+	// A rotation that lost a race (the token was consumed, revoked or
+	// moved to a replacing session meanwhile) is read again once: the
+	// second read sees what happened and answers for it.
+	out, err := o.refreshOnce(ctx, client, presented)
+	if errors.Is(err, errRotationRaced) {
+		out, err = o.refreshOnce(ctx, client, presented)
+	}
+	if errors.Is(err, errRotationRaced) {
+		return nil, oauthErr("invalid_grant", "the refresh token is expired or revoked", 400)
+	}
+	return out, err
+}
+
+func (o *OAuth) refreshOnce(ctx context.Context, client *Client, presented string) (*TokenResponse, error) {
 	hash := sha256.Sum256([]byte(presented))
 	var id, familyID, userID, orgID, scope string
-	var serverID, sessionID *string
+	var serverID, sessionID, publicSID *string
 	var amr []string
 	var consumed, revoked *time.Time
 	var expires time.Time
 	err := o.DB.Bypass(ctx, "oauth-refresh", func(tx pgx.Tx) error {
-		return tx.QueryRow(ctx, `SELECT id, family_id, user_id, organization_id, server_id, scope, expires_at, consumed_at, revoked_at, session_id, amr
-			FROM oauth_refresh_tokens WHERE token_hash = $1 AND client_id = $2`, hash[:], client.ClientID).
-			Scan(&id, &familyID, &userID, &orgID, &serverID, &scope, &expires, &consumed, &revoked, &sessionID, &amr)
+		return tx.QueryRow(ctx, `SELECT t.id, t.family_id, t.user_id, t.organization_id, t.server_id, t.scope, t.expires_at,
+				t.consumed_at, t.revoked_at, t.session_id, t.amr, s.public_id
+			FROM oauth_refresh_tokens t LEFT JOIN sessions s ON s.id = t.session_id
+			WHERE t.token_hash = $1 AND t.client_id = $2`, hash[:], client.ClientID).
+			Scan(&id, &familyID, &userID, &orgID, &serverID, &scope, &expires, &consumed, &revoked, &sessionID, &amr, &publicSID)
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, oauthErr("invalid_grant", "unknown refresh token", 400)
@@ -653,10 +669,7 @@ func (o *OAuth) refresh(ctx context.Context, client *Client, form url.Values) (*
 	}
 	if consumed != nil {
 		// A rotated token presented twice means it leaked: burn the family.
-		_ = o.DB.Bypass(ctx, "oauth-refresh-reuse", func(tx pgx.Tx) error {
-			_, err := tx.Exec(ctx, `UPDATE oauth_refresh_tokens SET revoked_at = now() WHERE family_id = $1 AND revoked_at IS NULL`, familyID)
-			return err
-		})
+		o.revokeFamily(ctx, familyID)
 		e := oauthErr("invalid_grant", "this refresh token was already used; all tokens in the family were revoked", 400)
 		e.Reuse = &Reuse{OrgID: orgID, UserID: userID, ClientID: client.ClientID, FamilyID: familyID}
 		return nil, e
@@ -664,22 +677,18 @@ func (o *OAuth) refresh(ctx context.Context, client *Client, form url.Values) (*
 	if revoked != nil || expires.Before(o.now()) {
 		return nil, oauthErr("invalid_grant", "the refresh token is expired or revoked", 400)
 	}
-	g := grant{subject: "user_" + userID, clientID: client.ClientID, userID: userID, orgID: orgID,
-		serverID: deref(serverID), scope: scope, familyID: familyID, sessionID: deref(sessionID), amr: amr}
-	// Ending a session revokes its refresh tokens, but one rotated while
-	// the session was being ended can slip past that update. Asking the
-	// session closes the gap.
-	if err := o.sessionLive(ctx, g.sessionID); err != nil {
-		return nil, err
-	}
-	err = o.DB.Bypass(ctx, "oauth-refresh-consume", func(tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, `UPDATE oauth_refresh_tokens SET consumed_at = now() WHERE id = $1`, id)
+	return o.issueToken(ctx, grant{subject: "user_" + userID, clientID: client.ClientID, userID: userID, orgID: orgID,
+		serverID: deref(serverID), scope: scope, familyID: familyID, consumeID: id,
+		sessionID: deref(sessionID), publicSID: deref(publicSID), amr: amr})
+}
+
+// revokeFamily ends every token in a refresh token family. It is best
+// effort: the caller is refusing the request either way.
+func (o *OAuth) revokeFamily(ctx context.Context, familyID string) {
+	_ = o.DB.Bypass(ctx, "oauth-refresh-family", func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `UPDATE oauth_refresh_tokens SET revoked_at = now() WHERE family_id = $1 AND revoked_at IS NULL`, familyID)
 		return err
 	})
-	if err != nil {
-		return nil, err
-	}
-	return o.issueToken(ctx, g)
 }
 
 // grant is what a token is minted for.
@@ -692,34 +701,35 @@ type grant struct {
 	scope    string
 	// familyID continues a refresh token family; "" starts one.
 	familyID string
-	// sessionID and amr describe the browser session that consented;
-	// both are empty for client credentials.
+	// consumeID is the refresh token this rotation spends; "" for a code.
+	consumeID string
+	// sessionID is the browser session that consented, and publicSID its
+	// public id, the sid claim. amr is how it signed in. All three are
+	// empty for client credentials.
 	sessionID string
+	publicSID string
 	amr       []string
 	extra     map[string]any
 }
 
-// sessionLive refuses a grant whose browser session has ended. A grant
-// that names no session passes.
-func (o *OAuth) sessionLive(ctx context.Context, sessionID string) error {
-	if sessionID == "" {
-		return nil
-	}
-	if o.Sessions == nil {
-		return oauthErr("invalid_grant", "the session that granted this access has ended", 400)
-	}
-	ended, err := o.Sessions.SessionRevoked(ctx, sessionID)
-	if err != nil {
-		return fmt.Errorf("read the consenting session: %w", err)
-	}
-	if ended {
-		return oauthErr("invalid_grant", "the session that granted this access has ended", 400)
-	}
-	return nil
-}
+var (
+	// errSessionEnded is a grant whose consenting session has ended or
+	// is no longer on record.
+	errSessionEnded = errors.New("the session that granted this access has ended")
+	// errRotationRaced is a refresh token that was consumed, revoked or
+	// moved to another session between reading it and spending it.
+	errRotationRaced = errors.New("the refresh token changed while it was being rotated")
+)
 
 // issueToken mints an access token and, for a person who was granted
 // offline access, a rotated refresh token.
+//
+// Checking the consenting session, spending the old refresh token and
+// inserting the new one happen in one transaction that holds a share lock
+// on the session row. Ending a session updates that row first, so it
+// either waits for the rotation and then revokes the child along with the
+// family, or finishes first and the rotation sees it ended. A child can
+// never be born after the revocation that should have caught it.
 func (o *OAuth) issueToken(ctx context.Context, g grant) (*TokenResponse, error) {
 	now := o.now()
 	aud := o.Issuer + "/mcp"
@@ -735,8 +745,8 @@ func (o *OAuth) issueToken(ctx context.Context, g grant) (*TokenResponse, error)
 	if g.serverID != "" {
 		claims["mcp_server"] = g.serverID
 	}
-	if g.sessionID != "" {
-		claims[claimSID] = g.sessionID
+	if g.publicSID != "" {
+		claims[claimSID] = g.publicSID
 	}
 	if len(g.amr) > 0 {
 		claims[claimAMR] = g.amr
@@ -744,33 +754,71 @@ func (o *OAuth) issueToken(ctx context.Context, g grant) (*TokenResponse, error)
 	for k, v := range g.extra {
 		claims[k] = v
 	}
+	// Signed before the transaction, so no lock is held across the
+	// keyring; a token signed for a grant the transaction refuses is
+	// dropped unseen.
 	access, err := o.Keys.Sign(ctx, claims)
 	if err != nil {
 		return nil, err
 	}
 	out := &TokenResponse{AccessToken: access, TokenType: "Bearer", ExpiresIn: int(AccessTokenTTL.Seconds()), Scope: strings.Join(scopes, " "),
 		Issued: Issued{OrgID: g.orgID, UserID: g.userID, Subject: g.subject, ClientID: g.clientID, ServerID: g.serverID}}
-	if g.userID == "" || !containsString(scopes, ScopeOfflineAccess) {
+	withRefresh := g.userID != "" && containsString(scopes, ScopeOfflineAccess)
+	if g.sessionID == "" && g.consumeID == "" && !withRefresh {
 		return out, nil
 	}
-	refresh := randomString(40)
-	hash := sha256.Sum256([]byte(refresh))
-	id := o.NewID()
-	familyID := g.familyID
-	if familyID == "" {
-		familyID = id
+	var refresh string
+	var hash [32]byte
+	if withRefresh {
+		refresh = randomString(40)
+		hash = sha256.Sum256([]byte(refresh))
 	}
-	amr := g.amr
-	if amr == nil {
-		amr = []string{}
-	}
-	err = o.DB.Bypass(ctx, "oauth-issue-refresh", func(tx pgx.Tx) error {
+	err = o.DB.Bypass(ctx, "oauth-issue", func(tx pgx.Tx) error {
+		if g.sessionID != "" {
+			var revoked *time.Time
+			err := tx.QueryRow(ctx, `SELECT revoked_at FROM sessions WHERE id = $1 FOR SHARE`, g.sessionID).Scan(&revoked)
+			if errors.Is(err, pgx.ErrNoRows) || (err == nil && revoked != nil) {
+				return errSessionEnded
+			}
+			if err != nil {
+				return err
+			}
+		}
+		if g.consumeID != "" {
+			tag, err := tx.Exec(ctx, `UPDATE oauth_refresh_tokens SET consumed_at = now()
+				WHERE id = $1 AND consumed_at IS NULL AND revoked_at IS NULL AND session_id IS NOT DISTINCT FROM NULLIF($2,'')`,
+				g.consumeID, g.sessionID)
+			if err != nil {
+				return err
+			}
+			if tag.RowsAffected() != 1 {
+				return errRotationRaced
+			}
+		}
+		if !withRefresh {
+			return nil
+		}
+		id := o.NewID()
+		familyID := g.familyID
+		if familyID == "" {
+			familyID = id
+		}
+		amr := g.amr
+		if amr == nil {
+			amr = []string{}
+		}
 		_, err := tx.Exec(ctx, `INSERT INTO oauth_refresh_tokens (id, token_hash, family_id, client_id, user_id, organization_id, server_id, scope, expires_at, session_id, amr)
 			VALUES ($1,$2,$3,$4,$5,$6,NULLIF($7,''),$8,$9,NULLIF($10,''),$11)`,
 			id, hash[:], familyID, g.clientID, g.userID, g.orgID, g.serverID, strings.Join(scopes, " "), now.Add(RefreshTokenTTL),
 			g.sessionID, amr)
 		return err
 	})
+	if errors.Is(err, errSessionEnded) {
+		if g.familyID != "" {
+			o.revokeFamily(ctx, g.familyID)
+		}
+		return nil, oauthErr("invalid_grant", errSessionEnded.Error(), 400)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -823,6 +871,9 @@ type Introspection struct {
 	// grant: the browser session that consented and how it signed in.
 	Sid string   `json:"sid,omitempty"`
 	AMR []string `json:"amr,omitempty"`
+	// Server is the MCP server the token is bound to, for the caller to
+	// check the introspecting credential against; it is already in aud.
+	Server string `json:"-"`
 }
 
 // Introspect reports whether an access token is currently valid.
@@ -844,7 +895,7 @@ func (o *OAuth) Introspect(ctx context.Context, token string) *Introspection {
 	str := func(k string) string { v, _ := claims[k].(string); return v }
 	return &Introspection{Active: true, Scope: str("scope"), ClientID: str("client_id"), Sub: str("sub"),
 		Aud: str("aud"), Org: str("org"), Exp: int64(exp), TokenTyp: "Bearer",
-		Sid: str(claimSID), AMR: stringList(claims[claimAMR])}
+		Sid: str(claimSID), AMR: stringList(claims[claimAMR]), Server: str("mcp_server")}
 }
 
 // PrincipalFromToken validates an access token for the MCP endpoint.
@@ -918,7 +969,7 @@ func (o *OAuth) checkSession(ctx context.Context, claims map[string]any) error {
 	if o.Sessions == nil {
 		return ErrInvalidKey
 	}
-	ended, err := o.Sessions.SessionRevoked(ctx, sid)
+	ended, err := o.Sessions.SessionEnded(ctx, sid)
 	if err != nil || ended {
 		return ErrInvalidKey
 	}

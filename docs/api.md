@@ -264,18 +264,29 @@ token is bound to one. Access tokens live one hour. Refresh tokens live
 A token from the authorization code grant also says which sign-in it
 came from:
 
-- `sid`: the id of the browser session that consented. Tokens from a
-  refresh keep it. It is the id the sessions list
-  (`GET /api/v1/auth/sessions`) shows.
+- `sid`: the public id of the browser session that consented, the id
+  the sessions list (`GET /api/v1/auth/sessions`) shows. It is random,
+  not the server's own key for the session, so it grants nothing.
+  Tokens from a refresh keep it; after a re-authentication (below) they
+  name the new session.
 - `amr`: how that session signed in, as RFC 8176 values. `pwd` for a
   password sign-in; `mfa` when the session has a verified second
   factor on record, which is a SAML sign-in whose assertion names one.
   An OpenID Connect sign-in records no more than that the provider
   signed the person in, so it claims neither and `amr` is left out.
-  The value is fixed at consent and kept through refreshes.
+  The value is fixed at consent and kept through refreshes and
+  re-authentications, so it describes the sign-in the person consented
+  from. If that sign-in had a second factor and a later
+  re-authentication did not, the token still says `mfa`.
 
 A `client_credentials` token has no session and carries neither.
-`/oauth/introspect` returns `sid` and `amr` when the token has them.
+
+`/oauth/introspect` takes an API key (`X-API-Key` or `Authorization:
+Bearer smk_...`) and returns `sid` and `amr` when the token has them. The
+key must belong to the token's workspace and hold `tools:read` on the
+server the token is for. A key scoped to MCP use passes with
+`mcp:tools:read` or `mcp:tools:invoke`. For any other key, the answer is
+`{"active": false}`, the same as for a token that is invalid.
 
 Ending the session that consented ends what it granted. Signing out,
 ending the session from the sessions list, a password change ending
@@ -286,9 +297,11 @@ introspection, not when they expire. A re-authentication through a
 single sign-on provider replaces the session: the refresh tokens move to
 the new one, the old session's access tokens are refused, and a refresh
 yields tokens naming the new session. A session that expires ends
-nothing, since a refresh token is meant to outlive it. Tokens issued
-before this release name no session and end only with the client or
-the member.
+nothing, since a refresh token is meant to outlive it; it stays on record
+while a live refresh token names it, and a token whose session is not on
+record is refused. A refresh that races the end of its session never
+yields a usable token. Tokens issued before this release name no session
+and end only with the client or the member.
 
 Presenting a rotated refresh token a second time revokes every token in
 its family. That is the only reliable signal that a token was stolen,

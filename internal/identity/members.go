@@ -157,7 +157,9 @@ func (s *Service) ListMembers(ctx context.Context, orgID string) ([]Member, erro
 // transaction, so there is no moment where the membership is off and a
 // credential still works, nor one where the credentials are gone and the
 // change was rolled back.
-func (s *Service) SetMemberStatus(ctx context.Context, orgID, actorID, userID string, active bool) (before, after Member, err error) {
+//
+// revoked is how many live refresh tokens a deactivation revoked.
+func (s *Service) SetMemberStatus(ctx context.Context, orgID, actorID, userID string, active bool) (before, after Member, revoked int, err error) {
 	err = s.DB.Tx(tenant.WithOrg(ctx, orgID), func(tx pgx.Tx) error {
 		var err error
 		if before, err = lockMember(ctx, tx, orgID, userID); err != nil {
@@ -186,7 +188,7 @@ func (s *Service) SetMemberStatus(ctx context.Context, orgID, actorID, userID st
 			}); err != nil {
 				return err
 			}
-			if err := revokeEverything(ctx, tx, orgID, userID, reasonDeactivated); err != nil {
+			if revoked, err = revokeEverything(ctx, tx, orgID, userID, reasonDeactivated); err != nil {
 				return err
 			}
 		}
@@ -194,9 +196,9 @@ func (s *Service) SetMemberStatus(ctx context.Context, orgID, actorID, userID st
 		return err
 	})
 	if err != nil {
-		return Member{}, Member{}, fmt.Errorf("set member status: %w", err)
+		return Member{}, Member{}, 0, fmt.Errorf("set member status: %w", err)
 	}
-	return before, after, nil
+	return before, after, revoked, nil
 }
 
 // SetMemberRole replaces the organisation-wide roles an administrator gave
@@ -277,7 +279,8 @@ func (s *Service) RemoveMember(ctx context.Context, orgID, actorID, userID strin
 		}); err != nil {
 			return err
 		}
-		return revokeEverything(ctx, tx, orgID, userID, reasonRemoved)
+		_, err = revokeEverything(ctx, tx, orgID, userID, reasonRemoved)
+		return err
 	})
 	if err != nil {
 		return Member{}, fmt.Errorf("remove member: %w", err)
@@ -412,9 +415,13 @@ func grantedSource(source string) bool {
 
 // revokeEverything is RevokeEverything inside the caller's transaction, so
 // the credentials end together with the change that ended the membership.
-// auth_revoke_principal is SECURITY DEFINER and ends the user's sessions in
-// every organisation, as SCIM deprovisioning does.
-func revokeEverything(ctx context.Context, tx pgx.Tx, orgID, userID, reason string) error {
-	_, err := tx.Exec(ctx, `SELECT auth_revoke_principal($1,$2,$3)`, orgID, userID, reason)
-	return err
+// auth_principal_end is SECURITY DEFINER and ends the user's sessions in
+// every organisation, with the refresh tokens they granted, as SCIM
+// deprovisioning does. It returns how many live refresh tokens it revoked.
+func revokeEverything(ctx context.Context, tx pgx.Tx, orgID, userID, reason string) (int, error) {
+	var n int
+	if err := tx.QueryRow(ctx, `SELECT auth_principal_end($1,$2,$3)`, orgID, userID, reason).Scan(&n); err != nil {
+		return 0, fmt.Errorf("revoke credentials: %w", err)
+	}
+	return n, nil
 }

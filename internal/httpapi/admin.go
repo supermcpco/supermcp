@@ -143,8 +143,16 @@ func (d Deps) registerRoutes(api huma.API) {
 		Summary: "End the current session", Tags: []string{"auth"}},
 		func(ctx context.Context, _ *struct{}) (*sessionOutput, error) {
 			if p, ok := authz.From(ctx); ok && p.SessionID != "" {
-				_ = d.Identity.RevokeSession(ctx, p.SessionID, "logout")
-				d.emit(ctx, audit.Event{Category: audit.CategoryAuth, Action: "session.end", Outcome: audit.Success})
+				// The cookie is cleared only once the session is over: a
+				// sign-out that did not happen must not look as if it had.
+				revoked, err := d.Identity.RevokeSession(ctx, p.SessionID, "logout")
+				if err != nil {
+					d.emit(ctx, audit.Event{Category: audit.CategoryAuth, Action: "session.end", Outcome: audit.Failure,
+						Meta: map[string]any{"error": err.Error()}})
+					return nil, huma.Error500InternalServerError("could not end the session; try again")
+				}
+				d.emit(ctx, audit.Event{Category: audit.CategoryAuth, Action: "session.end", Outcome: audit.Success,
+					Meta: map[string]any{"revokedTokens": revoked}})
 			}
 			out := &sessionOutput{Body: sessionBody{Anonymous: true}}
 			out.SetCookie = d.clearCookie()

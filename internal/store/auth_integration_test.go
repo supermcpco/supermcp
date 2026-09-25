@@ -92,7 +92,7 @@ func TestIdentityAuthzAPIKeys(t *testing.T) {
 	if _, err := ids.LoadSession(ctx, "nope"); !errors.Is(err, identity.ErrSessionInvalid) {
 		t.Fatalf("bogus session: %v", err)
 	}
-	if err := ids.RevokeSession(ctx, sess.ID, "test"); err != nil {
+	if _, err := ids.RevokeSession(ctx, sess.ID, "test"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := ids.LoadSession(ctx, sess.ID); !errors.Is(err, identity.ErrSessionInvalid) {

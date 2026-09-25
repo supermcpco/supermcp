@@ -52,8 +52,14 @@ func (d Deps) securityRoutes(api huma.API) {
 			}
 			d.emit(ctx, audit.Event{Category: audit.CategoryAuth, Action: "password.change", Outcome: audit.Success})
 			// Every other session belonged to the old password.
-			if err := d.Identity.RevokeOtherSessions(ctx, p.ID, p.SessionID, "password changed"); err != nil {
+			revoked, err := d.Identity.RevokeOtherSessions(ctx, p.ID, p.SessionID, "password changed")
+			if err != nil {
 				d.Log.Warn("could not end the other sessions after a password change", "user", p.ID, "err", err)
+				d.emit(ctx, audit.Event{Category: audit.CategoryAuth, Action: "session.revoke", Outcome: audit.Failure,
+					TargetKind: "user", TargetID: p.ID, Meta: map[string]any{"reason": "password changed", "error": err.Error()}})
+			} else {
+				d.emit(ctx, audit.Event{Category: audit.CategoryAuth, Action: "session.revoke", Outcome: audit.Success,
+					TargetKind: "user", TargetID: p.ID, Meta: map[string]any{"reason": "password changed", "revokedTokens": revoked}})
 			}
 			out := &struct {
 				Body struct {
@@ -120,7 +126,12 @@ func (d Deps) securityRoutes(api huma.API) {
 					Current  string                 `json:"current"`
 				}
 			}{}
-			out.Body.Sessions, out.Body.Current = list, p.SessionID
+			out.Body.Sessions = list
+			for _, s := range list {
+				if s.Key == p.SessionID {
+					out.Body.Current = s.ID
+				}
+			}
 			return out, nil
 		})
 
@@ -142,11 +153,14 @@ func (d Deps) securityRoutes(api huma.API) {
 			}
 			for _, s := range list {
 				if s.ID == in.ID {
-					if err := d.Identity.RevokeSession(ctx, in.ID, "ended by its owner"); err != nil {
+					revoked, err := d.Identity.RevokeSession(ctx, s.Key, "ended by its owner")
+					if err != nil {
+						d.emit(ctx, audit.Event{Category: audit.CategoryAuth, Action: "session.revoke",
+							Outcome: audit.Failure, TargetKind: "session", TargetID: in.ID, Meta: map[string]any{"error": err.Error()}})
 						return nil, err
 					}
 					d.emit(ctx, audit.Event{Category: audit.CategoryAuth, Action: "session.revoke",
-						Outcome: audit.Success, TargetKind: "session", TargetID: in.ID})
+						Outcome: audit.Success, TargetKind: "session", TargetID: in.ID, Meta: map[string]any{"revokedTokens": revoked}})
 					return nil, nil //nolint:nilnil // huma's no-content shape
 				}
 			}

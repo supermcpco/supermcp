@@ -5,10 +5,12 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/url"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -143,14 +145,21 @@ func claimAMR(claims map[string]any) []string {
 	return out
 }
 
-// sessionOf is the stored id of the session the harness's cookie carries.
-func sessionOf(t *testing.T, h *harness) string {
+// sessionOf returns the stored id of the session the harness's cookie
+// carries, and its public id, which a token's sid claim shows.
+func sessionOf(t *testing.T, h *harness) (key, public string) {
 	t.Helper()
 	_, secret, ok := strings.Cut(h.cookie, "=")
 	if !ok || secret == "" {
 		t.Fatalf("the harness holds no session cookie: %q", h.cookie)
 	}
-	return identity.SessionKey(secret)
+	var list struct {
+		Current string `json:"current"`
+	}
+	if code := h.do(t, http.MethodGet, "/api/v1/auth/sessions", nil, &list); code != http.StatusOK || list.Current == "" {
+		t.Fatalf("sessions: %d %+v", code, list)
+	}
+	return identity.SessionKey(secret), list.Current
 }
 
 // introspector returns a function that introspects a token with an API
@@ -192,7 +201,7 @@ func TestOAuthTokenNamesItsSession(t *testing.T) {
 	h := start(t)
 	ctx := context.Background()
 	admin := h.register(t, "E2E OAuth session claims")
-	sid := sessionOf(t, h)
+	key, sid := sessionOf(t, h)
 	c := newOAuthClient(t, h, admin.Org.ID, admin.User.ID)
 	introspect := introspector(t, h, admin.Org.ID, admin.User.ID)
 
@@ -200,7 +209,10 @@ func TestOAuthTokenNamesItsSession(t *testing.T) {
 	access, refresh := c.grant(t)
 	claims := jwtClaims(t, access)
 	if claims["sid"] != sid {
-		t.Errorf("sid = %v, want the consenting session %s", claims["sid"], sid)
+		t.Errorf("sid = %v, want the consenting session's public id %s", claims["sid"], sid)
+	}
+	if claims["sid"] == key {
+		t.Error("the sid claim is the session's stored id, which must not leave the server")
 	}
 	if got := claimAMR(claims); !slices.Equal(got, []string{"pwd"}) {
 		t.Errorf("amr = %v, want [pwd]", got)
@@ -221,7 +233,7 @@ func TestOAuthTokenNamesItsSession(t *testing.T) {
 	}
 
 	// The same session once a second factor is on record.
-	if err := h.deps.Identity.MarkVerified(ctx, sid); err != nil {
+	if err := h.deps.Identity.MarkVerified(ctx, key); err != nil {
 		t.Fatal(err)
 	}
 	mfaAccess, _ := c.grant(t)
@@ -280,7 +292,7 @@ func TestEndingSessionEndsItsTokens(t *testing.T) {
 	h := start(t)
 	ctx := context.Background()
 	admin := h.register(t, "E2E OAuth session end")
-	sid := sessionOf(t, h)
+	_, sid := sessionOf(t, h)
 	c := newOAuthClient(t, h, admin.Org.ID, admin.User.ID)
 	introspect := introspector(t, h, admin.Org.ID, admin.User.ID)
 
@@ -306,13 +318,33 @@ func TestEndingSessionEndsItsTokens(t *testing.T) {
 	}
 }
 
-func liveRefreshTokens(t *testing.T, h *harness, sessionID string) int {
+// liveRefreshTokens counts the usable refresh tokens of the session with
+// this public id.
+func liveRefreshTokens(t *testing.T, h *harness, publicID string) int {
 	t.Helper()
 	ctx := context.Background()
 	var n int
 	if err := h.db.Bypass(ctx, "e2e session tokens", func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx, `SELECT count(*) FROM oauth_refresh_tokens
-			WHERE session_id = $1 AND revoked_at IS NULL AND consumed_at IS NULL`, sessionID).Scan(&n)
+			WHERE session_id = (SELECT id FROM sessions WHERE public_id = $1)
+			  AND revoked_at IS NULL AND consumed_at IS NULL`, publicID).Scan(&n)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+// liveInFamily counts the usable refresh tokens of the family the given
+// refresh token belongs to.
+func liveInFamily(t *testing.T, h *harness, refresh string) int {
+	t.Helper()
+	ctx := context.Background()
+	sum := sha256.Sum256([]byte(refresh))
+	var n int
+	if err := h.db.Bypass(ctx, "e2e family tokens", func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT count(*) FROM oauth_refresh_tokens
+			WHERE family_id = (SELECT family_id FROM oauth_refresh_tokens WHERE token_hash = $1)
+			  AND revoked_at IS NULL AND consumed_at IS NULL`, sum[:]).Scan(&n)
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -373,5 +405,242 @@ func TestSSOReauthKeepsOAuthTokens(t *testing.T) {
 	}
 	if n := liveRefreshTokens(t, h, newSID); n != 1 {
 		t.Errorf("the new session holds %d live refresh tokens, want 1", n)
+	}
+}
+
+// grantFor runs the code grant straight through the authorization server
+// for a session the test opened, without the browser, and returns the
+// access and refresh tokens.
+func (c *oauthClient) grantFor(t *testing.T, sess *identity.Session) (string, string) {
+	t.Helper()
+	ctx := context.Background()
+	sum := sha256.Sum256([]byte(c.verifier))
+	req, err := c.h.deps.OAuth.BeginAuthorization(ctx, url.Values{"response_type": {"code"}, "client_id": {c.clientID},
+		"redirect_uri": {"http://127.0.0.1:7777/callback"}, "code_challenge": {base64.RawURLEncoding.EncodeToString(sum[:])},
+		"code_challenge_method": {"S256"}, "scope": {"mcp:tools:read offline_access"},
+		"resource": {c.h.url + "/mcp/" + c.serverID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	loc, err := c.h.deps.OAuth.Approve(ctx, req, mcpauth.Consent{UserID: sess.UserID, OrgID: sess.OrgID,
+		ServerID: c.serverID, SessionID: sess.ID, AMR: []string{"pwd"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	u, err := url.Parse(loc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := c.h.deps.OAuth.Token(ctx, url.Values{"grant_type": {"authorization_code"}, "code": {u.Query().Get("code")},
+		"code_verifier": {c.verifier}}, c.clientID, "")
+	if err != nil || res.RefreshToken == "" {
+		t.Fatalf("code exchange: %v %+v", err, res)
+	}
+	return res.AccessToken, res.RefreshToken
+}
+
+// TestRefreshRacingSessionEnd rotates a refresh token while its session
+// is being ended, many times over. Whichever wins, nothing usable is left:
+// no live refresh token in the family, and a token the rotation did hand
+// out is refused. A lost race used to leave a live child the revocation
+// never saw.
+func TestRefreshRacingSessionEnd(t *testing.T) {
+	h := start(t)
+	ctx := context.Background()
+	admin := h.register(t, "E2E OAuth refresh race")
+	c := newOAuthClient(t, h, admin.Org.ID, admin.User.ID)
+
+	for i := range 25 {
+		sess, err := h.deps.Identity.CreateSession(ctx, admin.User.ID, admin.Org.ID, "password", "", time.Now(), "", "race")
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, refresh := c.grantFor(t, sess)
+
+		var wg sync.WaitGroup
+		begin := make(chan struct{})
+		var rotated *mcpauth.TokenResponse
+		var revokeErr error
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			<-begin
+			rotated, _ = h.deps.OAuth.Token(ctx, url.Values{"grant_type": {"refresh_token"}, "refresh_token": {refresh}}, c.clientID, "")
+		}()
+		go func() {
+			defer wg.Done()
+			<-begin
+			_, revokeErr = h.deps.Identity.RevokeSession(ctx, sess.ID, "race")
+		}()
+		close(begin)
+		wg.Wait()
+		if revokeErr != nil {
+			t.Fatal(revokeErr)
+		}
+
+		if n := liveInFamily(t, h, refresh); n != 0 {
+			t.Fatalf("round %d: %d refresh tokens of the ended session are still live", i, n)
+		}
+		if rotated == nil {
+			continue
+		}
+		if _, err := h.deps.OAuth.PrincipalFromToken(ctx, rotated.AccessToken); err == nil {
+			t.Fatalf("round %d: the access token a racing refresh returned is accepted", i)
+		}
+		if _, err := h.deps.OAuth.Token(ctx, url.Values{"grant_type": {"refresh_token"},
+			"refresh_token": {rotated.RefreshToken}}, c.clientID, ""); err == nil {
+			t.Fatalf("round %d: the refresh token a racing refresh returned still works", i)
+		}
+	}
+}
+
+// TestTokenOfMissingSessionRefused removes the session a token names, as
+// the pruner might, and checks that neither the access token nor the
+// refresh token works afterwards. It also checks the pruner keeps a
+// session, expired or not, that a live refresh token still names.
+func TestTokenOfMissingSessionRefused(t *testing.T) {
+	h := start(t)
+	ctx := context.Background()
+	admin := h.register(t, "E2E OAuth missing session")
+	c := newOAuthClient(t, h, admin.Org.ID, admin.User.ID)
+	sess, err := h.deps.Identity.CreateSession(ctx, admin.User.ID, admin.Org.ID, "password", "", time.Now(), "", "prune")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, refresh := c.grantFor(t, sess)
+
+	exec := func(q string, args ...any) {
+		t.Helper()
+		if err := h.db.Bypass(ctx, "e2e session rows", func(tx pgx.Tx) error {
+			_, err := tx.Exec(ctx, q, args...)
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Long expired: the pruner would take it, but a live refresh token
+	// names it, so it stays, and the token keeps working.
+	exec(`UPDATE sessions SET idle_expires_at = now() - interval '30 days',
+		absolute_expires_at = now() - interval '30 days' WHERE id = $1`, sess.ID)
+	if err := h.deps.Identity.PruneSessions(ctx); err != nil {
+		t.Fatal(err)
+	}
+	res, err := h.deps.OAuth.Token(ctx, url.Values{"grant_type": {"refresh_token"}, "refresh_token": {refresh}}, c.clientID, "")
+	if err != nil {
+		t.Fatalf("a refresh token of an expired session was refused: %v", err)
+	}
+	access := res.AccessToken
+	refresh = res.RefreshToken
+
+	exec(`DELETE FROM sessions WHERE id = $1`, sess.ID)
+	if _, err := h.deps.OAuth.PrincipalFromToken(ctx, access); err == nil {
+		t.Error("an access token naming a session that is not on record is accepted")
+	}
+	var oe *mcpauth.OAuthError
+	if _, err := h.deps.OAuth.Token(ctx, url.Values{"grant_type": {"refresh_token"}, "refresh_token": {refresh}},
+		c.clientID, ""); !errors.As(err, &oe) || oe.Code != "invalid_grant" {
+		t.Errorf("refresh with the session gone: %v, want invalid_grant", err)
+	}
+	if n := liveInFamily(t, h, refresh); n != 0 {
+		t.Errorf("%d refresh tokens are live after the refusal, want the family revoked", n)
+	}
+}
+
+// TestSessionEndReachesUnboundChild covers the rolling upgrade: a replica
+// of the previous release rotates a session's refresh token into a child
+// that names no session. Ending the session still revokes the child,
+// because revocation goes by family.
+func TestSessionEndReachesUnboundChild(t *testing.T) {
+	h := start(t)
+	ctx := context.Background()
+	admin := h.register(t, "E2E OAuth unbound child")
+	c := newOAuthClient(t, h, admin.Org.ID, admin.User.ID)
+	sess, err := h.deps.Identity.CreateSession(ctx, admin.User.ID, admin.Org.ID, "password", "", time.Now(), "", "roll")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, refresh := c.grantFor(t, sess)
+
+	// What the previous release's rotation writes: the parent consumed,
+	// the child without session_id or amr.
+	child := "child-" + newID() + newID()
+	parentSum, childSum := sha256.Sum256([]byte(refresh)), sha256.Sum256([]byte(child))
+	if err := h.db.Bypass(ctx, "e2e old replica rotation", func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `UPDATE oauth_refresh_tokens SET consumed_at = now() WHERE token_hash = $1`, parentSum[:]); err != nil {
+			return err
+		}
+		_, err := tx.Exec(ctx, `INSERT INTO oauth_refresh_tokens (id, token_hash, family_id, parent_id, client_id, user_id, organization_id, server_id, scope, expires_at)
+			SELECT $2, $3, family_id, id, client_id, user_id, organization_id, server_id, scope, now() + interval '30 days'
+			FROM oauth_refresh_tokens WHERE token_hash = $1`, parentSum[:], newID(), childSum[:])
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	revoked, err := h.deps.Identity.RevokeSession(ctx, sess.ID, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if revoked != 1 {
+		t.Errorf("ending the session reports %d refresh tokens revoked, want the one live child", revoked)
+	}
+	if n := liveInFamily(t, h, child); n != 0 {
+		t.Errorf("the unbound child is still live after its session ended")
+	}
+	var oe *mcpauth.OAuthError
+	if _, err := h.deps.OAuth.Token(ctx, url.Values{"grant_type": {"refresh_token"}, "refresh_token": {child}},
+		c.clientID, ""); !errors.As(err, &oe) || oe.Code != "invalid_grant" {
+		t.Errorf("refresh with the unbound child: %v, want invalid_grant", err)
+	}
+}
+
+// TestIntrospectionStaysInItsWorkspace checks who may introspect a
+// token: a key of the token's own workspace may; a key of another
+// workspace, or one bound to another server, is told the token is
+// inactive, and learns nothing about it.
+func TestIntrospectionStaysInItsWorkspace(t *testing.T) {
+	h := start(t)
+	ctx := context.Background()
+	admin := h.register(t, "E2E introspection home")
+	c := newOAuthClient(t, h, admin.Org.ID, admin.User.ID)
+	access, _ := c.grant(t)
+
+	if in := introspector(t, h, admin.Org.ID, admin.User.ID)(access); !in.Active || in.Sid == "" {
+		t.Fatalf("a key of the token's workspace: %+v, want active with a sid", in)
+	}
+
+	other := h.anonymous().register(t, "E2E introspection elsewhere")
+	if in := introspector(t, h, other.Org.ID, other.User.ID)(access); in.Active || in.Sid != "" || in.Sub != "" || in.AMR != nil {
+		t.Errorf("a key of another workspace: %+v, want only active false", in)
+	}
+
+	elsewhere, err := h.servers.Create(tenant.WithOrg(ctx, admin.Org.ID), admin.Org.ID, "Elsewhere", "", "", nil, admin.User.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, bound, err := h.deps.Keys.Create(ctx, mcpauth.CreateInput{OrgID: admin.Org.ID, PrincipalKind: "user",
+		PrincipalID: admin.User.ID, Name: "bound elsewhere", ServerID: elsewhere.ID,
+		Scopes: []string{"mcp:tools:read"}, CreatedBy: admin.User.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	form := url.Values{"token": {access}}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, h.url+"/oauth/introspect", strings.NewReader(form.Encode()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("X-API-Key", bound)
+	resp, err := h.client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var in mcpauth.Introspection
+	if err := json.NewDecoder(resp.Body).Decode(&in); err != nil {
+		t.Fatal(err)
+	}
+	if in.Active {
+		t.Errorf("a key bound to another server: %+v, want active false", in)
 	}
 }

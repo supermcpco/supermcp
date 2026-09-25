@@ -130,13 +130,19 @@ func (d Deps) setMemberStatus(ctx context.Context, p *authz.Principal, userID st
 	if active {
 		action = "member.reactivate"
 	}
-	before, after, err := d.Identity.SetMemberStatus(ctx, p.OrgID, p.ID, userID, active)
+	before, after, revoked, err := d.Identity.SetMemberStatus(ctx, p.OrgID, p.ID, userID, active)
 	if err != nil {
 		d.adminFailed(ctx, action, "user", userID, err)
 		return nil, humaErr(err)
 	}
 	dto := toMemberDTO(after, p.ID)
-	d.admin(ctx, action, "user", after.UserID, after.Email, audit.Changes(toMemberDTO(before, p.ID), dto))
+	var meta map[string]any
+	if !active {
+		meta = map[string]any{"revokedTokens": revoked}
+	}
+	d.emit(ctx, audit.Event{Category: audit.CategoryAdmin, Action: action, Outcome: audit.Success,
+		TargetKind: "user", TargetID: after.UserID, TargetDisplay: after.Email,
+		Diff: audit.Changes(toMemberDTO(before, p.ID), dto), Meta: meta})
 	d.invalidate(p.OrgID, "user", after.UserID)
 	return &memberOutput{Body: dto}, nil
 }
