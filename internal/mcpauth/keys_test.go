@@ -1,6 +1,7 @@
 // The keyring's rotation is a property of rows in signing_keys and of the
 // order they change in, so it is tested against a live Postgres. Set
-// DATABASE_URL to run it.
+// DATABASE_URL to run it; the tests use a database of their own beside the
+// one it names (see keysTestDB).
 package mcpauth_test
 
 import (
@@ -8,6 +9,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"log/slog"
+	neturl "net/url"
 	"os"
 	"strings"
 	"testing"
@@ -20,13 +22,41 @@ import (
 	"github.com/supermcpco/supermcp/internal/tenant"
 )
 
+// keysTestDB is the database these tests run in, created beside the one
+// DATABASE_URL names.
+//
+// signing_keys is instance-wide: there is no organisation to partition it
+// by, one active key serves the whole installation, and these tests empty
+// the table and mint keys sealed by a master key and an in-memory key
+// store only this process holds. `go test ./...` runs every package at
+// once against DATABASE_URL, and the end-to-end tests mint their own
+// active key there. Sharing the table, each side picked up the other's
+// active key and could not unseal it ("ciphertext references an unknown
+// data key"), or had its key deleted from under it.
+//
+// The convention, shared with supermcp_audit_tests and
+// supermcp_rotate_tests: a test that owns instance-wide state (signing
+// keys, the instance data-key scope, anything not keyed by an
+// organisation) runs in a database of its package's own. Tests that only
+// write rows under organisations they made up may share DATABASE_URL.
+const keysTestDB = "supermcp_mcpauth_keys_tests"
+
 func testKeyring(ctx context.Context, t *testing.T) (*mcpauth.Keyring, *tenant.DB) {
 	t.Helper()
-	url := os.Getenv("DATABASE_URL")
-	if url == "" {
-		t.Skip("DATABASE_URL is not set; key rotation can only be tested against a live Postgres")
-	}
+	url := ownDatabase(ctx, t)
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	// The schema is applied as the maintenance role first: it is what
+	// creates the row-level-security role the app pool connects as.
+	maint, err := store.Open(ctx, url, url, log, store.Options{})
+	if err != nil {
+		t.Fatalf("could not open %s: %v", keysTestDB, err)
+	}
+	if err := maint.Migrate(ctx, true); err != nil {
+		maint.Close()
+		t.Fatalf("could not apply the schema to %s: %v", keysTestDB, err)
+	}
+	maint.Close()
+
 	st, err := store.Open(ctx, url, url, log, store.Options{AppRole: true})
 	if err != nil {
 		t.Fatalf("could not open the pools: %v", err)
@@ -46,8 +76,9 @@ func testKeyring(ctx context.Context, t *testing.T) (*mcpauth.Keyring, *tenant.D
 	k := mcpauth.NewKeyring(db, sealer, nil)
 	k.Log = log
 
-	// Every test here owns the whole table, so it starts from a known
-	// empty one and leaves it that way.
+	// Every test here owns the whole table, which is safe only because the
+	// database is this package's own (keysTestDB), so it starts from a
+	// known empty one and leaves it that way.
 	clear := func() {
 		_ = db.Bypass(ctx, "keys test", func(tx pgx.Tx) error {
 			_, err := tx.Exec(ctx, `DELETE FROM signing_keys`)
@@ -57,6 +88,43 @@ func testKeyring(ctx context.Context, t *testing.T) (*mcpauth.Keyring, *tenant.D
 	clear()
 	t.Cleanup(clear)
 	return k, db
+}
+
+// ownDatabase creates keysTestDB if it is not there and returns its URL.
+// It is left behind between runs: creating it costs a second, and a
+// developer who wants it gone can drop it.
+func ownDatabase(ctx context.Context, t *testing.T) string {
+	t.Helper()
+	url := os.Getenv("DATABASE_URL")
+	if url == "" {
+		t.Skip("DATABASE_URL is not set; key rotation can only be tested against a live Postgres")
+	}
+	u, err := neturl.Parse(url)
+	if err != nil {
+		t.Fatalf("DATABASE_URL is not a URL: %v", err)
+	}
+	admin := *u
+	admin.Path = "/postgres"
+	conn, err := pgx.Connect(ctx, admin.String())
+	if err != nil {
+		t.Skipf("could not reach Postgres to make this package's own database: %v", err)
+	}
+	defer func() { _ = conn.Close(ctx) }()
+	var exists bool
+	if err := conn.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = $1)`, keysTestDB).Scan(&exists); err != nil {
+		t.Fatalf("could not look for %s: %v", keysTestDB, err)
+	}
+	if !exists {
+		// CREATE DATABASE cannot run in a transaction, and racing runs
+		// both try: whoever loses sees "already exists", which is fine.
+		if _, err := conn.Exec(ctx, `CREATE DATABASE `+keysTestDB); err != nil &&
+			!strings.Contains(err.Error(), "already exists") {
+			t.Fatalf("could not create %s: %v", keysTestDB, err)
+		}
+	}
+	own := *u
+	own.Path = "/" + keysTestDB
+	return own.String()
 }
 
 func statuses(ctx context.Context, t *testing.T, db *tenant.DB) map[string]int {
