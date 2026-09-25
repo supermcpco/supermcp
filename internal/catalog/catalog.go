@@ -72,6 +72,17 @@ func (c *Catalog) Get(slug string) (*adapter.Adapter, error) {
 	return a, nil
 }
 
+// Bundled returns the adapter for a slug and the content hash the index
+// records for it, which is what an install stores as the connector's
+// catalog_hash. An unknown slug is fs.ErrNotExist.
+func (c *Catalog) Bundled(slug string) (*adapter.Adapter, string, error) {
+	a, err := c.Get(slug)
+	if err != nil {
+		return nil, "", err
+	}
+	return a, c.byID[slug].ContentHash, nil
+}
+
 // Raw returns the adapter.yaml bytes.
 func (c *Catalog) Raw(slug string) ([]byte, error) {
 	e, ok := c.byID[slug]
