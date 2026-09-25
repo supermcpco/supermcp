@@ -423,15 +423,18 @@ func renderText(v any) string {
 }
 
 func userFacing(err error) string {
+	// The caller may use the connector, not read its configuration, so a
+	// credential an error quotes is redacted here too.
+	msg := connector.RedactText(err.Error())
 	switch {
 	case errors.Is(err, engine.ErrUnsupported):
-		return "This tool's transport or auth type is not supported yet: " + err.Error()
+		return "This tool's transport or auth type is not supported yet: " + msg
 	case errors.Is(err, tmpl.ErrUnset):
-		return "A required value is missing: " + err.Error()
+		return "A required value is missing: " + msg
 	case errors.Is(err, dlp.ErrRefused):
-		return "This workspace's data-loss policy refused the call: " + err.Error()
+		return "This workspace's data-loss policy refused the call: " + msg
 	}
-	return "Tool call failed: " + truncate(err.Error(), 2000)
+	return "Tool call failed: " + truncate(msg, 2000)
 }
 
 func truncate(s string, n int) string {
@@ -439,6 +442,20 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return s[:n] + "…"
+}
+
+// errorText is what is kept of a failed call's error, on the invocation
+// row and in the audit event's meta. Both outlive the call and are
+// searchable, and neither is governed by the payload policy, so the text
+// goes through two redactions first. The connector's: an error can quote
+// a URL or DSN built from its configuration, with a password or a key in
+// it (the engines already reduce a transport error's URL to scheme, host
+// and path). And the payload policy's masked floor, whatever the policy:
+// an error can quote what the caller sent, and "none" or "metadata" would
+// otherwise be kept in full here. What neither recognises, a plain word
+// the caller passed, can still appear.
+func errorText(err error) string {
+	return truncate(audit.MaskText(connector.RedactText(err.Error())), 4000)
 }
 
 // record writes the invocation row and the audit event. The row is what
@@ -449,7 +466,7 @@ func (e *Executor) record(ctx context.Context, c Call, id string, res *Result, c
 	var errText *string
 	if callErr != nil {
 		status = "error"
-		s := truncate(callErr.Error(), 4000)
+		s := errorText(callErr)
 		errText = &s
 		if errors.Is(callErr, context.DeadlineExceeded) {
 			status = "timeout"

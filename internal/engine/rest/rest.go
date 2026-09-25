@@ -103,7 +103,7 @@ func (Engine) send(ctx context.Context, req *engine.Request, b *built) (*http.Re
 	var meta engine.Meta
 	hreq, err := http.NewRequestWithContext(ctx, b.method, b.url, nil)
 	if err != nil {
-		return nil, meta, err
+		return nil, meta, engine.ScrubURLError(err)
 	}
 	if len(b.body) > 0 {
 		hreq.Body = io.NopCloser(bytes.NewReader(b.body))
@@ -129,7 +129,7 @@ func (Engine) send(ctx context.Context, req *engine.Request, b *built) (*http.Re
 	resp, err := req.HTTP.Do(hreq)
 	meta.UpstreamDurationMS = time.Since(start).Milliseconds()
 	if err != nil {
-		return nil, meta, err
+		return nil, meta, engine.ScrubURLError(err)
 	}
 	return resp, meta, nil
 }

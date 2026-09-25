@@ -204,6 +204,13 @@ func mask(v any) any {
 	return v
 }
 
+// MaskText redacts what the "masked" payload policy redacts in a string
+// (card numbers, email addresses, IBANs, US social security numbers and
+// API-key shaped tokens), whatever the organisation's policy is. It is for
+// text that is kept regardless of the policy, such as a tool call's error,
+// which can quote what the call was given.
+func MaskText(s string) string { return maskString(s) }
+
 func maskString(s string) string {
 	for _, re := range maskPatterns {
 		s = re.ReplaceAllString(s, "<redacted>")
