@@ -15,6 +15,7 @@ import (
 
 	"github.com/supermcpco/supermcp/internal/authz"
 	"github.com/supermcpco/supermcp/internal/dlp"
+	"github.com/supermcpco/supermcp/internal/identity"
 	"github.com/supermcpco/supermcp/internal/invalidation"
 	"github.com/supermcpco/supermcp/internal/store"
 	"github.com/supermcpco/supermcp/internal/tenant"
@@ -162,6 +163,49 @@ func TestRevokedBindingReachesOtherReplicas(t *testing.T) {
 		t.Errorf("writer after the revocation: %+v, %v", d, err)
 	}
 	d, err = deaf.Evaluate(ctx, p, authz.ToolsRead, authz.Resource{})
+	if err != nil || !d.Allow {
+		t.Errorf("a replica without the listener should still answer from its cache (that is the bug this fixes): %+v, %v", d, err)
+	}
+}
+
+// TestDeactivatedMemberReachesOtherReplicas deactivates a member whose
+// bindings stay in place: only the membership row changes, so only the
+// trigger on organization_members can tell the other replicas.
+func TestDeactivatedMemberReachesOtherReplicas(t *testing.T) {
+	t.Parallel()
+	f := setup(t)
+	ctx := context.Background()
+	p := &authz.Principal{Kind: authz.KindUser, ID: f.user, OrgID: f.org}
+
+	writer, listening, deaf := authz.New(f.db), authz.New(f.db), authz.New(f.db)
+	for _, e := range []*authz.Evaluator{writer, listening, deaf} {
+		e.TTL = time.Hour
+	}
+	startListener(t, f, "inv-member-"+f.org, map[invalidation.Kind]invalidation.Cache{invalidation.KindAuthz: listening})
+
+	for name, e := range map[string]*authz.Evaluator{"writer": writer, "listening": listening, "deaf": deaf} {
+		d, err := e.Evaluate(ctx, p, authz.ToolsRead, authz.Resource{})
+		if err != nil || !d.Allow {
+			t.Fatalf("%s before the deactivation: %+v, %v", name, d, err)
+		}
+	}
+
+	// The deactivation, the way the members API makes it, then a local
+	// invalidation on the writing replica.
+	members := identity.New(f.db, identity.Config{}, writer, nil)
+	if _, after, err := members.SetMemberStatus(ctx, f.org, "inv_admin", f.user, false); err != nil || after.Status != identity.MemberDeactivated {
+		t.Fatalf("deactivate: %+v, %v", after, err)
+	}
+	start := time.Now()
+	writer.Invalidate(f.org, "user", f.user)
+
+	eventually(t, propagation, "the listening replica refuses the deactivated member", func() bool {
+		d, err := listening.Evaluate(ctx, p, authz.ToolsRead, authz.Resource{})
+		return err == nil && !d.Allow
+	})
+	t.Logf("deactivation reached the other replica in %s", time.Since(start))
+
+	d, err := deaf.Evaluate(ctx, p, authz.ToolsRead, authz.Resource{})
 	if err != nil || !d.Allow {
 		t.Errorf("a replica without the listener should still answer from its cache (that is the bug this fixes): %+v, %v", d, err)
 	}
@@ -316,6 +360,20 @@ func TestTriggersNotifyEveryPath(t *testing.T) {
 			args: []any{policyID, f.org, connID, toolID}, want: []string{"dlp:" + f.org}},
 		{name: "deleting the connector cascades to the policy", sql: `DELETE FROM connectors WHERE id = $1`,
 			args: []any{connID}, want: []string{"dlp:" + f.org}},
+		{name: "deactivating a member", sql: `UPDATE organization_members SET deactivated_at = now()
+			WHERE organization_id = $1 AND user_id = $2`, args: []any{f.org, f.user}, want: []string{"authz:" + f.org}},
+		{name: "a membership update that leaves deactivated_at alone says nothing",
+			sql: `UPDATE organization_members SET deactivated_at = deactivated_at, created_at = created_at - interval '1 second'
+			WHERE organization_id = $1 AND user_id = $2`, args: []any{f.org, f.user}},
+		{name: "a column the evaluator does not read says nothing",
+			sql: `UPDATE organization_members SET created_at = created_at - interval '1 second'
+			WHERE organization_id = $1 AND user_id = $2`, args: []any{f.org, f.user}},
+		{name: "reactivating a member", sql: `UPDATE organization_members SET deactivated_at = NULL
+			WHERE organization_id = $1 AND user_id = $2`, args: []any{f.org, f.user}, want: []string{"authz:" + f.org}},
+		{name: "removing a member", sql: `DELETE FROM organization_members WHERE organization_id = $1 AND user_id = $2`,
+			args: []any{f.org, f.user}, want: []string{"authz:" + f.org}},
+		{name: "adding a member", sql: `INSERT INTO organization_members (user_id, organization_id) VALUES ($1, $2)`,
+			args: []any{f.user, f.org}, want: []string{"authz:" + f.org}},
 	}
 	// Run in order: each step builds on the last.
 	for _, tc := range tests {

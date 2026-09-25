@@ -6,9 +6,9 @@
 // own copy until the entry aged out. For a revoked role that is revoked
 // access still working, so the database tells every replica instead.
 //
-// Triggers on the tables those caches read (migration 00020) call
-// pg_notify on Channel with a payload of "<kind>:<organization id>", or
-// "<kind>:*" for a row that belongs to no organisation. A notification
+// Triggers on the tables those caches read (migrations 00020 and 00023)
+// call pg_notify on Channel with a payload of "<kind>:<organization id>",
+// or "<kind>:*" for a row that belongs to no organisation. A notification
 // sent inside a transaction is delivered only if it commits, and only
 // once per distinct payload however many rows the transaction touched.
 // Each replica holds one Listener, which drops the named organisation's
