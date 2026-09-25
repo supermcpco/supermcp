@@ -3,8 +3,10 @@
   A spool is only worth having if it outlives the pod, so the chart asks
   for a volume rather than quietly writing to the ephemeral layer. One
   claim is shared by the replica set, which needs a storage class that
-  allows ReadWriteMany; with ReadWriteOnce, set audit.spool.existingClaim
-  per replica or run the spool on a single-replica deployment.
+  allows ReadWriteMany. Each replica writes under a directory named after
+  its pod, and one whose pod is gone is taken over by a live replica once
+  its heartbeat is older than audit.spool.orphanAge, so a file is replayed
+  by exactly one replica and none is left behind by a scale-down.
 */ -}}
 apiVersion: v1
 kind: PersistentVolumeClaim

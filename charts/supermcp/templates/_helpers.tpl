@@ -71,13 +71,24 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 - name: SUPERMCP_TRACE_SAMPLE
   value: {{ $.Values.tracing.sample | quote }}
 {{- end }}
+{{- /*
+  The pod name names this replica: its audit spool directory on the shared
+  volume, and the gap markers it writes. It is unique among live pods,
+  which is what keeps two replicas from writing or replaying one file.
+*/}}
+- name: SUPERMCP_INSTANCE_ID
+  valueFrom:
+    fieldRef:
+      fieldPath: metadata.name
 - name: SUPERMCP_AUDIT_ON_UNAVAILABLE
   value: {{ .Values.audit.onUnavailable | quote }}
 {{- if .Values.audit.spool.enabled }}
 - name: SUPERMCP_AUDIT_SPOOL_DIR
   value: {{ .Values.audit.spool.path | quote }}
 - name: SUPERMCP_AUDIT_SPOOL_MAX_BYTES
-  value: {{ .Values.audit.spool.maxBytes | quote }}
+  value: {{ .Values.audit.spool.maxBytes | int64 | quote }}
+- name: SUPERMCP_AUDIT_SPOOL_ORPHAN_AGE
+  value: {{ .Values.audit.spool.orphanAge | quote }}
 {{- end }}
 - name: SUPERMCP_KEK_PROVIDER
   value: {{ .Values.encryption.provider | quote }}

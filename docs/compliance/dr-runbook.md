@@ -194,28 +194,44 @@ spool file, and do it again:
 ## The audit spool
 
 With `audit.onUnavailable: spool`, a replica that cannot write an event puts it in
-`SUPERMCP_AUDIT_SPOOL_DIR` as an NDJSON segment. Each line holds `at` and `event`.
-When the database takes events again, the replica replays the segments in order
-before anything newer. A replica that starts and finds segments logs `the audit
-spool holds events from an earlier run` and replays them.
-`supermcp_audit_spool_depth` falls to zero when it is done.
+`SUPERMCP_AUDIT_SPOOL_DIR/<instance>/` as an NDJSON segment, where `<instance>` is
+`SUPERMCP_INSTANCE_ID` (the pod name under the chart). Each line holds `at` and
+`event`. When the database takes events again, the replica replays its segments in
+order before anything newer. It only ever reads its own directory.
+
+The pods that wrote the segments are usually gone by the time you restore, and the
+new pods have new names. A replica takes over the directory of one whose
+`.heartbeat` file is older than `SUPERMCP_AUDIT_SPOOL_ORPHAN_AGE` (ten minutes by
+default): it renames it into its own directory as `adopted-<name>-<time>/`, logs
+`took over audit events spooled by a replica that is gone`, and replays it. Only
+one replica's rename can succeed, so each file is replayed by one replica. Segments
+at the top of the directory, from a release before per-replica directories, are
+taken over the same way. `supermcp_audit_spool_depth` falls to zero on each
+replica when it is done.
 
 - **The database came back by itself.** Do nothing, and keep the claim until the
-  depth is zero.
+  depth is zero on every replica and no directory under the spool path is older
+  than the orphan age.
 - **The database was restored.** Copy the segments off the volume before any
   replica starts (step 2). The image has no shell, so mount the claim in a
-  throwaway pod that has one and copy the `*.ndjson` files out. Then decide:
+  throwaway pod that has one and copy the `*.ndjson` files out of every directory
+  under it. Then decide:
   - **Replay them into the restored trail.** This is the usual choice. It is the
-    only record of the outage window. Start the replicas and they replay the files.
+    only record of the outage window. Start the replicas. Their own directories
+    are new; they take over the old ones once those are as old as the orphan age,
+    and replay them. To have it happen sooner, start them with
+    `SUPERMCP_AUDIT_SPOOL_ORPHAN_AGE=30s`, the shortest it can be, and set it
+    back afterwards.
     A replayed event is stamped when it reaches the chain, and carries
     `meta.spooled: true` and `meta.occurredAt` with the real time.
   - **Keep them out.** Do this when you restored to a point before something you
     do not trust. Move the files off the volume before starting replicas. Keep the
     copies with the incident record, because they are then the only copy.
-- The chart's claim is `ReadWriteMany` and shared by every replica, so two replicas
-  can adopt the same segment. An event that appears twice with identical content
-  was replayed twice. A replay interrupted between the write and the file's removal
-  duplicates the same way. The chain is still intact.
+- The chart's claim is `ReadWriteMany` and shared by every replica, but each
+  replica writes and replays only its own directory, and takes over another's by
+  renaming it, which only one can do. A replay interrupted between the write and
+  the file's removal still repeats that segment: an event that appears twice with
+  identical content was replayed twice. The chain is still intact.
 
 ## The audit trail after a restore
 

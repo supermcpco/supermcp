@@ -20,8 +20,10 @@ reach for when something is wrong.
 | `SUPERMCP_OTLP_ENDPOINT` | empty | An OTLP/HTTP collector for traces. Empty is off; `OTEL_EXPORTER_OTLP_ENDPOINT` is read too. A collector that cannot be reached is a log line, never a failed boot. |
 | `SUPERMCP_TRACE_SAMPLE` | 0.01 | The fraction of traces kept. |
 | `SUPERMCP_AUDIT_ON_UNAVAILABLE` | `degrade` | What happens when the database will not take an event. See "When the database refuses audit events" below. |
-| `SUPERMCP_AUDIT_SPOOL_DIR` | `/var/lib/supermcp/audit-spool` | Where `spool` writes. It must be a persistent volume: a spool in a pod's ephemeral layer buys nothing over `degrade`. |
-| `SUPERMCP_AUDIT_SPOOL_MAX_BYTES` | 256 MiB | Past this, events are dropped and counted as they are without a spool. |
+| `SUPERMCP_AUDIT_SPOOL_DIR` | `/var/lib/supermcp/audit-spool` | Where `spool` writes. It must be a persistent volume: a spool in a pod's ephemeral layer buys nothing over `degrade`. Replicas may share it; each keeps to a directory of its own. |
+| `SUPERMCP_AUDIT_SPOOL_MAX_BYTES` | 256 MiB | What one replica may hold on disk. Past this, events are dropped, counted and recorded as a gap. |
+| `SUPERMCP_AUDIT_SPOOL_ORPHAN_AGE` | `10m` | How long a replica's spool heartbeat may go unrefreshed before a live replica takes over its events. At least `30s`; a shorter value is raised to that. |
+| `SUPERMCP_INSTANCE_ID` | the host name | This replica's name: its spool directory, and the `meta.instance` of the gaps it records. Must be unique among running replicas. The chart sets it to the pod name. |
 | `SUPERMCP_DCR_MODE` | `approval` | Whether an MCP client can register itself: `open`, `approval` or `closed`. |
 
 Rate-limit budgets are written `count/duration`, for example `10/1m`. A
@@ -85,6 +87,35 @@ In every mode, a replica shutting down gives a refused batch one more
 attempt rather than the full back-off. What it cannot write then is
 logged (`audit events dropped`, with the count and range) and is lost
 with the process, because the record of the gap has nowhere to go.
+
+### The audit spool
+
+The spool directory may be one volume shared by every replica (the
+chart's claim is `ReadWriteMany`). Each replica writes only under
+`<SUPERMCP_AUDIT_SPOOL_DIR>/<SUPERMCP_INSTANCE_ID>/`, in files named
+`<order>-<count>-<instance>.ndjson`, and only ever replays files under
+that directory, so no two replicas write or replay the same file. It
+refreshes a `.heartbeat` file there every quarter of the orphan age, at
+most a minute apart, while it runs.
+
+A replica that is gone (scaled down, rescheduled, crashed) leaves its
+directory behind. Once that directory's heartbeat is older than
+`SUPERMCP_AUDIT_SPOOL_ORPHAN_AGE`, the first live replica to notice
+renames it into its own directory as `adopted-<name>-<time>/` and
+replays it; the rename is the claim, and only one replica's rename can
+succeed. A replica looks at start and then at every heartbeat, and logs
+`took over audit events spooled by a replica that is gone`. The adopted
+directory is removed once it is empty. So events spooled by a pod that
+is replaced reach the trail up to the orphan age plus a minute after it
+went, not at once.
+
+Segments written directly into the shared directory by an earlier
+release are taken over the same way once the file is as old as the
+orphan age.
+
+Two running replicas with the same `SUPERMCP_INSTANCE_ID` would share a
+directory and could replay a file twice. The chart sets it from the pod
+name, and a host name is unique too; set it by hand only if neither is.
 
 **What a tool call records** is the workspace's decision, on the audit
 screen: nothing, the shape of the arguments, their masked values, or

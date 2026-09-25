@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -25,6 +26,20 @@ import (
 // queue with delivery guarantees. It is a bounded buffer that survives a
 // crash and a restart, which covers the failure this is actually for — the
 // database being unreachable for a while.
+//
+// One volume may be shared by every replica, so each replica keeps to a
+// directory of its own, named by its instance identity:
+//
+//	<dir>/<instance>/.heartbeat                     touched while it lives
+//	<dir>/<instance>/<order>-<count>-<instance>.ndjson
+//	<dir>/<instance>/adopted-<other>-<nanos>/...    taken over from a dead one
+//
+// A replica only ever reads files under its own directory. That is the
+// claim: a file is replayed by the replica whose directory it is in. A
+// replica whose heartbeat is older than the orphan age is taken to be
+// gone, and the first live replica to rename its directory into its own
+// takes over its files. A rename either happens or does not, so two
+// replicas racing for the same orphan cannot both win it.
 
 // ErrSpoolFull is returned when the directory is at its bound. The caller
 // counts the loss rather than growing without limit: a spool that fills
@@ -44,6 +59,17 @@ const (
 	// spoolLineMax bounds one line on the way back in. A payload is capped
 	// at 64 KiB by the writer, and a line carries one event's worth.
 	spoolLineMax = 1 << 20
+	// spoolHeartbeat is the file whose modification time says the owner of
+	// a directory is alive.
+	spoolHeartbeat = ".heartbeat"
+	// spoolAdoptedPrefix names a directory taken over from another replica.
+	spoolAdoptedPrefix = "adopted-"
+	// DefaultSpoolOrphanAge is how long a replica's heartbeat may go
+	// unrefreshed before another replica takes over its spooled events.
+	DefaultSpoolOrphanAge = 10 * time.Minute
+	// minSpoolOrphanAge keeps the orphan age well above the heartbeat
+	// interval, so a live replica is never mistaken for a dead one.
+	minSpoolOrphanAge = 30 * time.Second
 )
 
 // spoolEntry is one event as it waits on disk, with the time it was
@@ -61,71 +87,290 @@ type segment struct {
 	Entries []spoolEntry
 }
 
+// SpoolConfig says where a spool lives and whose it is.
+type SpoolConfig struct {
+	// Dir is the directory every replica's spool sits under.
+	Dir string
+	// Instance names this replica. Its segments go in Dir/Instance and
+	// carry the name, so two replicas never write the same file.
+	Instance string
+	// MaxBytes bounds what this replica holds, adopted segments included.
+	MaxBytes int64
+	// OrphanAge is how old another replica's heartbeat must be before this
+	// one takes over its segments. DefaultSpoolOrphanAge when zero, and
+	// never less than thirty seconds.
+	OrphanAge time.Duration
+	// Now is the clock the heartbeat is judged by. time.Now when nil.
+	Now func() time.Time
+}
+
 // Spool is a bounded directory of NDJSON segments, oldest first.
 type Spool struct {
-	dir      string
-	maxBytes int64
-	log      *slog.Logger
+	root      string // the directory shared by every replica
+	dir       string // this replica's own directory under it
+	instance  string
+	maxBytes  int64
+	orphanAge time.Duration
+	now       func() time.Time
+	log       *slog.Logger
 
 	// mu guards everything below: the writer goroutine writes and replays,
 	// while the metric reads the depth from whatever goroutine scrapes it.
 	mu     sync.Mutex
-	names  []string // segment file names, oldest first
+	names  []string // segment paths relative to dir, oldest first
 	events int
 	bytes  int64
-	seq    uint64
+	order  int64
 }
 
-// OpenSpool prepares the directory and adopts whatever a previous process
-// left in it. Adopting rather than clearing is the point: the events in
-// there are the ones an outage already stopped from being recorded once.
-func OpenSpool(dir string, maxBytes int64, log *slog.Logger) (*Spool, error) {
-	if dir == "" {
+// OpenSpool prepares this replica's directory, adopts whatever a previous
+// process under the same name left in it, and takes over the directories
+// of replicas that have stopped refreshing their heartbeat. Adopting
+// rather than clearing is the point: the events in there are the ones an
+// outage already stopped from being recorded once.
+func OpenSpool(cfg SpoolConfig, log *slog.Logger) (*Spool, error) {
+	if cfg.Dir == "" {
 		return nil, errors.New("the audit spool needs a directory")
 	}
-	if maxBytes <= 0 {
-		maxBytes = defaultSpoolMaxBytes
+	instance := SanitizeInstance(cfg.Instance)
+	if instance == "" {
+		return nil, errors.New("the audit spool needs an instance name")
 	}
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	if cfg.MaxBytes <= 0 {
+		cfg.MaxBytes = defaultSpoolMaxBytes
+	}
+	if cfg.OrphanAge <= 0 {
+		cfg.OrphanAge = DefaultSpoolOrphanAge
+	}
+	cfg.OrphanAge = max(cfg.OrphanAge, minSpoolOrphanAge)
+	if cfg.Now == nil {
+		cfg.Now = time.Now
+	}
+	s := &Spool{root: cfg.Dir, dir: filepath.Join(cfg.Dir, instance), instance: instance,
+		maxBytes: cfg.MaxBytes, orphanAge: cfg.OrphanAge, now: cfg.Now, log: log}
+	if err := os.MkdirAll(s.dir, 0o700); err != nil {
 		return nil, fmt.Errorf("create the audit spool directory: %w", err)
 	}
-	s := &Spool{dir: dir, maxBytes: maxBytes, log: log}
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil, fmt.Errorf("read the audit spool directory: %w", err)
+	s.Beat()
+	if err := s.scan(); err != nil {
+		return nil, err
 	}
-	for _, e := range entries {
-		name := e.Name()
-		if e.IsDir() {
-			continue
+	if len(s.names) > 0 && log != nil {
+		log.Warn("the audit spool holds events from an earlier run; they will be replayed into the chain",
+			"dir", s.dir, "segments", len(s.names), "events", s.events)
+	}
+	s.AdoptOrphans()
+	return s, nil
+}
+
+// scan reads this replica's directory, adopted directories included, into
+// the in-memory index.
+func (s *Spool) scan() error {
+	var names []string
+	var events int
+	var bytes, next int64
+	err := filepath.WalkDir(s.dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
 		}
+		if d.IsDir() {
+			return nil
+		}
+		name := d.Name()
 		if strings.HasSuffix(name, spoolTempSuffix) {
 			// A segment that never finished being written: it was never
 			// counted as spooled, so removing it loses nothing.
-			_ = os.Remove(filepath.Join(dir, name))
-			continue
+			_ = os.Remove(path)
+			return nil
 		}
 		if !strings.HasSuffix(name, spoolSuffix) {
-			continue
+			return nil
 		}
-		info, err := e.Info()
+		info, err := d.Info()
 		if err != nil {
+			return nil //nolint:nilerr // a file that vanished mid-walk is simply not there
+		}
+		rel, err := filepath.Rel(s.dir, path)
+		if err != nil {
+			return err
+		}
+		names = append(names, rel)
+		bytes += info.Size()
+		order, count := parseSegmentName(name)
+		events += count
+		next = max(next, order+1)
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("read the audit spool directory: %w", err)
+	}
+	sortSegments(names)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.names, s.events, s.bytes = names, events, bytes
+	s.order = max(s.order, next)
+	return nil
+}
+
+// sortSegments puts this replica's own segments first, in order, then
+// each adopted directory's, each in its own order. Order matters within a
+// replica's stream, which is the only order a spool ever had.
+func sortSegments(names []string) {
+	sort.Slice(names, func(i, j int) bool {
+		di, dj := filepath.Dir(names[i]), filepath.Dir(names[j])
+		if di != dj {
+			if di == "." || dj == "." {
+				return di == "."
+			}
+			return di < dj
+		}
+		return filepath.Base(names[i]) < filepath.Base(names[j])
+	})
+}
+
+// Beat refreshes this replica's heartbeat, which is what stops another
+// replica taking its segments over. The writer calls it well inside the
+// orphan age.
+func (s *Spool) Beat() {
+	if s == nil {
+		return
+	}
+	path := filepath.Join(s.dir, spoolHeartbeat)
+	now := s.now()
+	if err := os.Chtimes(path, now, now); err == nil {
+		return
+	}
+	// The directory may have been taken over while this replica was
+	// stalled for longer than the orphan age; start a fresh one.
+	if err := os.MkdirAll(s.dir, 0o700); err != nil {
+		s.warn("the audit spool directory could not be recreated", err)
+		return
+	}
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE, 0o600)
+	if err != nil {
+		s.warn("the audit spool heartbeat could not be written", err)
+		return
+	}
+	_ = f.Close()
+	_ = os.Chtimes(path, now, now)
+}
+
+// BeatEvery is how often Beat has to run for this spool's heartbeat never
+// to look stale.
+func (s *Spool) BeatEvery() time.Duration {
+	if s == nil {
+		return 0
+	}
+	return min(s.orphanAge/4, time.Minute)
+}
+
+// AdoptOrphans takes over the directories of replicas whose heartbeat is
+// older than the orphan age, and segments left at the top level by a
+// release that did not keep per-replica directories. Each is renamed into
+// this replica's directory first, and only then read: whoever's rename
+// succeeds replays it, and nobody else ever sees it again.
+func (s *Spool) AdoptOrphans() {
+	if s == nil {
+		return
+	}
+	entries, err := os.ReadDir(s.root)
+	if err != nil {
+		s.warn("the shared audit spool directory could not be read", err)
+		return
+	}
+	cutoff := s.now().Add(-s.orphanAge)
+	adopted := 0
+	for _, e := range entries {
+		name := e.Name()
+		if name == s.instance || strings.HasPrefix(name, ".") {
 			continue
 		}
-		s.names = append(s.names, name)
-		s.bytes += info.Size()
-		order, count := parseSegmentName(name)
-		s.events += count
-		if order >= s.seq {
-			s.seq = order + 1
+		src := filepath.Join(s.root, name)
+		var dst string
+		switch {
+		case e.IsDir():
+			if !s.stale(src, filepath.Join(src, spoolHeartbeat), cutoff) {
+				continue
+			}
+			dst = filepath.Join(s.dir, fmt.Sprintf("%s%s-%d", spoolAdoptedPrefix, name, s.now().UnixNano()))
+		case strings.HasSuffix(name, spoolSuffix):
+			// A segment from before per-replica directories. A replica of
+			// that release may still be running and about to replay it, so
+			// it is left alone until it is as old as an orphan.
+			if !s.stale(src, src, cutoff) {
+				continue
+			}
+			dir := filepath.Join(s.dir, spoolAdoptedPrefix+"legacy")
+			if err := os.MkdirAll(dir, 0o700); err != nil {
+				s.warn("the audit spool could not make room for a legacy segment", err)
+				continue
+			}
+			dst = filepath.Join(dir, name)
+		default:
+			continue
+		}
+		if err := os.Rename(src, dst); err != nil {
+			// Another replica got there first, or it is not ours to take.
+			if !errors.Is(err, os.ErrNotExist) {
+				s.warn("an orphaned audit spool could not be taken over", err)
+			}
+			continue
+		}
+		adopted++
+		if s.log != nil {
+			s.log.Warn("took over audit events spooled by a replica that is gone; they will be replayed into the chain",
+				"from", name, "into", dst)
 		}
 	}
-	sort.Strings(s.names)
-	if len(s.names) > 0 && log != nil {
-		log.Warn("the audit spool holds events from an earlier run; they will be replayed into the chain",
-			"dir", dir, "segments", len(s.names), "events", s.events)
+	if adopted == 0 {
+		return
 	}
-	return s, nil
+	s.syncDir(s.root)
+	before := s.Depth()
+	if err := s.scan(); err != nil {
+		s.warn("the audit spool could not be re-read after taking over an orphan", err)
+		return
+	}
+	if s.log != nil {
+		s.log.Warn("the audit spool now holds adopted events", "events", s.Depth()-before, "depth", s.Depth())
+	}
+}
+
+// stale reports whether a replica's directory, judged by its heartbeat
+// (or, without one, by the directory itself), has not been touched since
+// cutoff.
+func (s *Spool) stale(dir, heartbeat string, cutoff time.Time) bool {
+	info, err := os.Stat(heartbeat)
+	if err != nil {
+		if info, err = os.Stat(dir); err != nil {
+			return false
+		}
+	}
+	return info.ModTime().Before(cutoff)
+}
+
+func (s *Spool) warn(msg string, err error) {
+	if s.log != nil {
+		s.log.Warn(msg, "dir", s.dir, "err", err)
+	}
+}
+
+// SanitizeInstance makes an instance name safe to use as a directory and
+// file name: letters, digits, dot, dash and underscore survive, anything
+// else becomes an underscore. The names that would mean something else in
+// the spool's layout come back empty.
+func SanitizeInstance(id string) string {
+	id = strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '.', r == '-', r == '_':
+			return r
+		}
+		return '_'
+	}, id)
+	if id == "." || id == ".." || strings.HasPrefix(id, ".") || strings.HasPrefix(id, spoolAdoptedPrefix) {
+		return ""
+	}
+	return id
 }
 
 // Write puts a batch on disk and returns only once it is durable. The
@@ -157,15 +402,25 @@ func (s *Spool) writeSegment(entries []spoolEntry) error {
 		s.mu.Unlock()
 		return fmt.Errorf("%w: %d bytes held, %d allowed", ErrSpoolFull, s.bytes, s.maxBytes)
 	}
-	// The name orders the segment and records how many events are in it,
-	// so a restart can report the depth without reading every file.
-	order := s.seq
-	s.seq++
+	// The name orders the segment, records how many events are in it, so
+	// a restart can report the depth without reading every file, and says
+	// whose it is. The order is the clock where the clock is ahead, so a
+	// restart that found the directory empty still names its segments
+	// after the ones an earlier run may have left elsewhere.
+	order := max(s.order, s.now().UnixNano())
+	s.order = order + 1
 	s.mu.Unlock()
 
-	name := fmt.Sprintf("%020d-%06d%s", order, len(entries), spoolSuffix)
+	name := fmt.Sprintf("%020d-%06d-%s%s", order, len(entries), s.instance, spoolSuffix)
 	tmp := filepath.Join(s.dir, name+spoolTempSuffix)
 	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if errors.Is(err, os.ErrNotExist) {
+		// The directory was taken over while this replica was stalled;
+		// start a fresh one and carry on.
+		if err = os.MkdirAll(s.dir, 0o700); err == nil {
+			f, err = os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		}
+	}
 	if err != nil {
 		return err
 	}
@@ -191,7 +446,7 @@ func (s *Spool) writeSegment(entries []spoolEntry) error {
 	}
 	// The rename itself has to reach the disk, or the segment is durable
 	// under a name nothing will look for.
-	s.syncDir()
+	s.syncDir(s.dir)
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -264,6 +519,16 @@ func (s *Spool) Remove(name string) error {
 		return err
 	}
 	s.forget(name, size)
+	// An adopted directory goes once its last segment has: everything in
+	// it has been replayed. Removing a directory that still holds anything
+	// fails, which is the check.
+	for dir := filepath.Dir(name); dir != "." && dir != string(filepath.Separator); dir = filepath.Dir(dir) {
+		abs := filepath.Join(s.dir, dir)
+		_ = os.Remove(filepath.Join(abs, spoolHeartbeat))
+		if os.Remove(abs) != nil {
+			break
+		}
+	}
 	return nil
 }
 
@@ -324,27 +589,31 @@ func (s *Spool) Empty() bool {
 // syncDir makes the directory's own record of its entries durable. A
 // failure is logged and not returned: the segment is already on the disk,
 // and refusing the write at this point would spool it twice.
-func (s *Spool) syncDir() {
-	d, err := os.Open(s.dir)
+func (s *Spool) syncDir(dir string) {
+	d, err := os.Open(dir)
 	if err != nil {
 		return
 	}
 	defer func() { _ = d.Close() }()
 	if err := d.Sync(); err != nil && s.log != nil {
-		s.log.Warn("the audit spool directory could not be synced", "dir", s.dir, "err", err)
+		s.log.Warn("the audit spool directory could not be synced", "dir", dir, "err", err)
 	}
 }
 
 // parseSegmentName reads the order and the event count back out of a
 // segment's name, which is where they are kept so that a restart does not
 // have to read every file to know how deep the spool is.
-func parseSegmentName(name string) (order uint64, count int) {
-	base := strings.TrimSuffix(name, spoolSuffix)
+//
+// A segment is <order>-<count>-<instance>.ndjson; one written before
+// per-replica directories is <order>-<count>.ndjson.
+func parseSegmentName(name string) (order int64, count int) {
+	base := strings.TrimSuffix(filepath.Base(name), spoolSuffix)
 	left, right, ok := strings.Cut(base, "-")
 	if !ok {
 		return 0, 0
 	}
-	order, _ = strconv.ParseUint(left, 10, 64)
+	order, _ = strconv.ParseInt(left, 10, 64)
+	right, _, _ = strings.Cut(right, "-")
 	n, _ := strconv.Atoi(right)
 	return order, n
 }
