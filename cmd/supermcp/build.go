@@ -140,6 +140,9 @@ func build(ctx context.Context, cfg *config.Config, log *slog.Logger, st *store.
 	// Service accounts use the client credentials grant, so the
 	// authorization server has to be able to authenticate them.
 	oauth.Accounts = ids
+	// A token from a browser consent names its session, and ending the
+	// session refuses the token.
+	oauth.Sessions = ids
 	// Provider calls go through the SSRF-guarded client: an issuer URL is
 	// administrator-supplied, and must not be able to reach inside.
 	idpClient := httpclient.New(dialer, "identity-providers", httpclient.DefaultPolicy())

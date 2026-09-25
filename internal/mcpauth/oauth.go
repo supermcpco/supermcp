@@ -80,6 +80,17 @@ type OAuth struct {
 	// Accounts authenticates the non-human principals that use the client
 	// credentials grant. Nil leaves that grant unsupported.
 	Accounts ServiceAccounts
+	// Sessions reports whether the browser session a token was issued
+	// through has ended. Nil refuses every token that names a session.
+	Sessions Sessions
+}
+
+// Sessions tells whether a browser session was ended: signed out, ended by
+// its owner or an administrator, replaced, or its person deactivated. A
+// session that merely expired is not ended; the refresh tokens it
+// consented to outlive it, which is what offline access is for.
+type Sessions interface {
+	SessionRevoked(ctx context.Context, id string) (bool, error)
 }
 
 // ServiceAccounts verifies client credentials that belong to a service
@@ -95,6 +106,30 @@ type ServiceAccounts interface {
 
 // claimEpoch carries a service account's token epoch in its access token.
 const claimEpoch = "sa_epoch"
+
+// Claims naming the browser session behind a token and how it signed in.
+const (
+	claimSID = "sid"
+	claimAMR = "amr"
+)
+
+// AMR returns the RFC 8176 authentication method references for a browser
+// session: "pwd" for a password sign-in, and "mfa" when the session has a
+// verified second factor on record. The session keeps nothing more of
+// what a provider reported, so a single sign-on session gets "mfa" or
+// nothing. An OpenID Connect session is recorded as verified whatever the
+// provider did, so for it the record says nothing about a second factor
+// and no "mfa" is claimed. The result is nil when nothing is known.
+func AMR(signIn authz.SignIn, mfa bool) []string {
+	var out []string
+	if signIn.Method == "password" {
+		out = append(out, "pwd")
+	}
+	if mfa && signIn.Method != "sso" {
+		out = append(out, "mfa")
+	}
+	return out
+}
 
 // ClientLimiter rate limits dynamic registration.
 type ClientLimiter interface {
@@ -333,13 +368,31 @@ func (o *OAuth) LoadAuthRequest(ctx context.Context, id string) (*AuthRequest, e
 	return &req, nil
 }
 
+// Consent is who granted an authorization request, from which browser
+// session, and for which server.
+type Consent struct {
+	UserID   string
+	OrgID    string
+	ServerID string
+	// SessionID is the browser session that consented. It becomes the
+	// sid claim, and ending the session ends the tokens.
+	SessionID string
+	// AMR is how that session authenticated (see AMR).
+	AMR []string
+}
+
 // Approve turns a consented request into a redirect carrying the code.
-func (o *OAuth) Approve(ctx context.Context, req *AuthRequest, userID, orgID, serverID string) (string, error) {
+func (o *OAuth) Approve(ctx context.Context, req *AuthRequest, c Consent) (string, error) {
 	code := randomString(32)
+	amr := c.AMR
+	if amr == nil {
+		amr = []string{}
+	}
 	err := o.DB.Bypass(ctx, "oauth-approve", func(tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, `INSERT INTO oauth_codes (code, client_id, user_id, organization_id, server_id, redirect_uri, code_challenge, code_challenge_method, scope, resource, expires_at)
-			VALUES ($1,$2,$3,$4,NULLIF($5,''),$6,$7,$8,$9,NULLIF($10,''),$11)`,
-			code, req.Client.ClientID, userID, orgID, serverID, req.RedirectURI, req.CodeChallenge, req.CodeChallengeMethod, req.Scope, req.Resource, o.now().Add(CodeTTL)); err != nil {
+		if _, err := tx.Exec(ctx, `INSERT INTO oauth_codes (code, client_id, user_id, organization_id, server_id, redirect_uri, code_challenge, code_challenge_method, scope, resource, expires_at, session_id, amr)
+			VALUES ($1,$2,$3,$4,NULLIF($5,''),$6,$7,$8,$9,NULLIF($10,''),$11,NULLIF($12,''),$13)`,
+			code, req.Client.ClientID, c.UserID, c.OrgID, c.ServerID, req.RedirectURI, req.CodeChallenge, req.CodeChallengeMethod, req.Scope, req.Resource, o.now().Add(CodeTTL),
+			c.SessionID, amr); err != nil {
 			return err
 		}
 		_, err := tx.Exec(ctx, `DELETE FROM oauth_sessions WHERE id = $1`, req.ID)
@@ -514,7 +567,8 @@ func (o *OAuth) clientCredentials(ctx context.Context, form url.Values, clientID
 		// Disabled between the secret check and here.
 		return nil, oauthErr("invalid_client", "client authentication failed", 401)
 	}
-	return o.issueFor(ctx, "svc_"+p.ID, clientID, p.OrgID, serverID, strings.Join(granted, " "), epoch)
+	return o.issueToken(ctx, grant{subject: "svc_" + p.ID, clientID: clientID, orgID: p.OrgID, serverID: serverID,
+		scope: strings.Join(granted, " "), extra: map[string]any{claimEpoch: epoch}})
 }
 
 func (o *OAuth) exchangeCode(ctx context.Context, client *Client, form url.Values) (*TokenResponse, error) {
@@ -524,15 +578,16 @@ func (o *OAuth) exchangeCode(ctx context.Context, client *Client, form url.Value
 		return nil, oauthErr("invalid_request", "code and code_verifier are required", 400)
 	}
 	var userID, orgID, redirect, challenge, scope, codeClient string
-	var serverID *string
+	var serverID, sessionID *string
+	var amr []string
 	var consumed *time.Time
 	var expires time.Time
 	// Read under a row lock, then consume in the same transaction: two
 	// concurrent redemptions cannot both succeed.
 	err := o.DB.Bypass(ctx, "oauth-code", func(tx pgx.Tx) error {
-		if err := tx.QueryRow(ctx, `SELECT client_id, user_id, organization_id, server_id, redirect_uri, code_challenge, scope, expires_at, consumed_at
+		if err := tx.QueryRow(ctx, `SELECT client_id, user_id, organization_id, server_id, redirect_uri, code_challenge, scope, expires_at, consumed_at, session_id, amr
 			FROM oauth_codes WHERE code = $1 FOR UPDATE`, code).
-			Scan(&codeClient, &userID, &orgID, &serverID, &redirect, &challenge, &scope, &expires, &consumed); err != nil {
+			Scan(&codeClient, &userID, &orgID, &serverID, &redirect, &challenge, &scope, &expires, &consumed, &sessionID, &amr); err != nil {
 			return err
 		}
 		if consumed != nil || expires.Before(o.now()) {
@@ -565,11 +620,13 @@ func (o *OAuth) exchangeCode(ctx context.Context, client *Client, form url.Value
 		// presented it is not the client that started the flow.
 		return nil, oauthErr("invalid_grant", "PKCE verification failed", 400)
 	}
-	srv := ""
-	if serverID != nil {
-		srv = *serverID
+	g := grant{subject: "user_" + userID, clientID: client.ClientID, userID: userID, orgID: orgID,
+		serverID: deref(serverID), scope: scope, sessionID: deref(sessionID), amr: amr}
+	// The session that consented may have ended in the minutes since.
+	if err := o.sessionLive(ctx, g.sessionID); err != nil {
+		return nil, err
 	}
-	return o.issue(ctx, client.ClientID, userID, orgID, srv, scope, "")
+	return o.issueToken(ctx, g)
 }
 
 func (o *OAuth) refresh(ctx context.Context, client *Client, form url.Values) (*TokenResponse, error) {
@@ -579,13 +636,14 @@ func (o *OAuth) refresh(ctx context.Context, client *Client, form url.Values) (*
 	}
 	hash := sha256.Sum256([]byte(presented))
 	var id, familyID, userID, orgID, scope string
-	var serverID *string
+	var serverID, sessionID *string
+	var amr []string
 	var consumed, revoked *time.Time
 	var expires time.Time
 	err := o.DB.Bypass(ctx, "oauth-refresh", func(tx pgx.Tx) error {
-		return tx.QueryRow(ctx, `SELECT id, family_id, user_id, organization_id, server_id, scope, expires_at, consumed_at, revoked_at
+		return tx.QueryRow(ctx, `SELECT id, family_id, user_id, organization_id, server_id, scope, expires_at, consumed_at, revoked_at, session_id, amr
 			FROM oauth_refresh_tokens WHERE token_hash = $1 AND client_id = $2`, hash[:], client.ClientID).
-			Scan(&id, &familyID, &userID, &orgID, &serverID, &scope, &expires, &consumed, &revoked)
+			Scan(&id, &familyID, &userID, &orgID, &serverID, &scope, &expires, &consumed, &revoked, &sessionID, &amr)
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, oauthErr("invalid_grant", "unknown refresh token", 400)
@@ -606,6 +664,14 @@ func (o *OAuth) refresh(ctx context.Context, client *Client, form url.Values) (*
 	if revoked != nil || expires.Before(o.now()) {
 		return nil, oauthErr("invalid_grant", "the refresh token is expired or revoked", 400)
 	}
+	g := grant{subject: "user_" + userID, clientID: client.ClientID, userID: userID, orgID: orgID,
+		serverID: deref(serverID), scope: scope, familyID: familyID, sessionID: deref(sessionID), amr: amr}
+	// Ending a session revokes its refresh tokens, but one rotated while
+	// the session was being ended can slip past that update. Asking the
+	// session closes the gap.
+	if err := o.sessionLive(ctx, g.sessionID); err != nil {
+		return nil, err
+	}
 	err = o.DB.Bypass(ctx, "oauth-refresh-consume", func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `UPDATE oauth_refresh_tokens SET consumed_at = now() WHERE id = $1`, id)
 		return err
@@ -613,41 +679,69 @@ func (o *OAuth) refresh(ctx context.Context, client *Client, form url.Values) (*
 	if err != nil {
 		return nil, err
 	}
-	srv := ""
-	if serverID != nil {
-		srv = *serverID
+	return o.issueToken(ctx, g)
+}
+
+// grant is what a token is minted for.
+type grant struct {
+	subject  string // user_<id> or svc_<id>
+	clientID string
+	userID   string // "" for a service account, which gets no refresh token
+	orgID    string
+	serverID string
+	scope    string
+	// familyID continues a refresh token family; "" starts one.
+	familyID string
+	// sessionID and amr describe the browser session that consented;
+	// both are empty for client credentials.
+	sessionID string
+	amr       []string
+	extra     map[string]any
+}
+
+// sessionLive refuses a grant whose browser session has ended. A grant
+// that names no session passes.
+func (o *OAuth) sessionLive(ctx context.Context, sessionID string) error {
+	if sessionID == "" {
+		return nil
 	}
-	return o.issue(ctx, client.ClientID, userID, orgID, srv, scope, familyID)
+	if o.Sessions == nil {
+		return oauthErr("invalid_grant", "the session that granted this access has ended", 400)
+	}
+	ended, err := o.Sessions.SessionRevoked(ctx, sessionID)
+	if err != nil {
+		return fmt.Errorf("read the consenting session: %w", err)
+	}
+	if ended {
+		return oauthErr("invalid_grant", "the session that granted this access has ended", 400)
+	}
+	return nil
 }
 
-// issue mints an access token and, when offline access was granted, a
-// rotated refresh token.
-func (o *OAuth) issue(ctx context.Context, clientID, userID, orgID, serverID, scope, familyID string) (*TokenResponse, error) {
-	return o.issueToken(ctx, "user_"+userID, clientID, userID, orgID, serverID, scope, familyID, nil)
-}
-
-// issueFor mints a token for a service account, stamped with the epoch it
-// was issued under; there is no refresh token to rotate.
-func (o *OAuth) issueFor(ctx context.Context, subject, clientID, orgID, serverID, scope string, epoch int) (*TokenResponse, error) {
-	return o.issueToken(ctx, subject, clientID, "", orgID, serverID, scope, "", map[string]any{claimEpoch: epoch})
-}
-
-func (o *OAuth) issueToken(ctx context.Context, subject, clientID, userID, orgID, serverID, scope, familyID string, extra map[string]any) (*TokenResponse, error) {
+// issueToken mints an access token and, for a person who was granted
+// offline access, a rotated refresh token.
+func (o *OAuth) issueToken(ctx context.Context, g grant) (*TokenResponse, error) {
 	now := o.now()
 	aud := o.Issuer + "/mcp"
-	if serverID != "" {
-		aud += "/" + serverID
+	if g.serverID != "" {
+		aud += "/" + g.serverID
 	}
-	scopes := scopeList(scope)
+	scopes := scopeList(g.scope)
 	claims := map[string]any{
-		"iss": o.Issuer, "sub": subject, "aud": aud, "org": orgID, "client_id": clientID,
+		"iss": o.Issuer, "sub": g.subject, "aud": aud, "org": g.orgID, "client_id": g.clientID,
 		"scope": strings.Join(scopes, " "), "jti": o.NewID(),
 		"iat": now.Unix(), "exp": now.Add(AccessTokenTTL).Unix(),
 	}
-	if serverID != "" {
-		claims["mcp_server"] = serverID
+	if g.serverID != "" {
+		claims["mcp_server"] = g.serverID
 	}
-	for k, v := range extra {
+	if g.sessionID != "" {
+		claims[claimSID] = g.sessionID
+	}
+	if len(g.amr) > 0 {
+		claims[claimAMR] = g.amr
+	}
+	for k, v := range g.extra {
 		claims[k] = v
 	}
 	access, err := o.Keys.Sign(ctx, claims)
@@ -655,20 +749,26 @@ func (o *OAuth) issueToken(ctx context.Context, subject, clientID, userID, orgID
 		return nil, err
 	}
 	out := &TokenResponse{AccessToken: access, TokenType: "Bearer", ExpiresIn: int(AccessTokenTTL.Seconds()), Scope: strings.Join(scopes, " "),
-		Issued: Issued{OrgID: orgID, UserID: userID, Subject: subject, ClientID: clientID, ServerID: serverID}}
-	if userID == "" || !containsString(scopes, ScopeOfflineAccess) {
+		Issued: Issued{OrgID: g.orgID, UserID: g.userID, Subject: g.subject, ClientID: g.clientID, ServerID: g.serverID}}
+	if g.userID == "" || !containsString(scopes, ScopeOfflineAccess) {
 		return out, nil
 	}
 	refresh := randomString(40)
 	hash := sha256.Sum256([]byte(refresh))
 	id := o.NewID()
+	familyID := g.familyID
 	if familyID == "" {
 		familyID = id
 	}
+	amr := g.amr
+	if amr == nil {
+		amr = []string{}
+	}
 	err = o.DB.Bypass(ctx, "oauth-issue-refresh", func(tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, `INSERT INTO oauth_refresh_tokens (id, token_hash, family_id, client_id, user_id, organization_id, server_id, scope, expires_at)
-			VALUES ($1,$2,$3,$4,$5,$6,NULLIF($7,''),$8,$9)`,
-			id, hash[:], familyID, clientID, userID, orgID, serverID, strings.Join(scopes, " "), now.Add(RefreshTokenTTL))
+		_, err := tx.Exec(ctx, `INSERT INTO oauth_refresh_tokens (id, token_hash, family_id, client_id, user_id, organization_id, server_id, scope, expires_at, session_id, amr)
+			VALUES ($1,$2,$3,$4,$5,$6,NULLIF($7,''),$8,$9,NULLIF($10,''),$11)`,
+			id, hash[:], familyID, g.clientID, g.userID, g.orgID, g.serverID, strings.Join(scopes, " "), now.Add(RefreshTokenTTL),
+			g.sessionID, amr)
 		return err
 	})
 	if err != nil {
@@ -719,6 +819,10 @@ type Introspection struct {
 	Org      string `json:"org,omitempty"`
 	Exp      int64  `json:"exp,omitempty"`
 	TokenTyp string `json:"token_type,omitempty"`
+	// Sid and AMR are present for a token from the authorization code
+	// grant: the browser session that consented and how it signed in.
+	Sid string   `json:"sid,omitempty"`
+	AMR []string `json:"amr,omitempty"`
 }
 
 // Introspect reports whether an access token is currently valid.
@@ -734,9 +838,13 @@ func (o *OAuth) Introspect(ctx context.Context, token string) *Introspection {
 	if err := o.checkServiceAccount(ctx, claims); err != nil {
 		return &Introspection{Active: false}
 	}
+	if err := o.checkSession(ctx, claims); err != nil {
+		return &Introspection{Active: false}
+	}
 	str := func(k string) string { v, _ := claims[k].(string); return v }
 	return &Introspection{Active: true, Scope: str("scope"), ClientID: str("client_id"), Sub: str("sub"),
-		Aud: str("aud"), Org: str("org"), Exp: int64(exp), TokenTyp: "Bearer"}
+		Aud: str("aud"), Org: str("org"), Exp: int64(exp), TokenTyp: "Bearer",
+		Sid: str(claimSID), AMR: stringList(claims[claimAMR])}
 }
 
 // PrincipalFromToken validates an access token for the MCP endpoint.
@@ -760,6 +868,9 @@ func (o *OAuth) PrincipalFromToken(ctx context.Context, token string) (*authz.Pr
 		return nil, ErrInvalidKey
 	}
 	if err := o.checkServiceAccount(ctx, claims); err != nil {
+		return nil, err
+	}
+	if err := o.checkSession(ctx, claims); err != nil {
 		return nil, err
 	}
 	return &authz.Principal{
@@ -792,6 +903,45 @@ func (o *OAuth) checkServiceAccount(ctx context.Context, claims map[string]any) 
 		return ErrInvalidKey
 	}
 	return nil
+}
+
+// checkSession refuses a token whose browser session has ended, so that
+// signing out, ending a session or deactivating its person cuts off the
+// access tokens it led to at once rather than when they expire. A token
+// without a sid passes: it came from client credentials, or was issued
+// before tokens named their session.
+func (o *OAuth) checkSession(ctx context.Context, claims map[string]any) error {
+	sid, _ := claims[claimSID].(string)
+	if sid == "" {
+		return nil
+	}
+	if o.Sessions == nil {
+		return ErrInvalidKey
+	}
+	ended, err := o.Sessions.SessionRevoked(ctx, sid)
+	if err != nil || ended {
+		return ErrInvalidKey
+	}
+	return nil
+}
+
+// stringList reads a JSON array of strings out of a decoded claim.
+func stringList(v any) []string {
+	list, _ := v.([]any)
+	var out []string
+	for _, x := range list {
+		if s, ok := x.(string); ok {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+func deref(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }
 
 // Metadata is the RFC 8414 authorization server document.

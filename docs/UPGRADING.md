@@ -174,6 +174,10 @@ What changes for callers of the API:
   predates the upgrade has its state recorded as revision 1, by nobody,
   when it is first changed or deleted, so that state can be restored.
 
+Migration 00029 ties OAuth tokens to the browser session that consented,
+so ending the session ends them; see "Ending a session ends the OAuth
+tokens it granted" below.
+
 ### The chart can mount the master key as a file
 
 Chart 1.3.0 adds `encryption.local.file.secretName` and
@@ -283,6 +287,56 @@ What it needs from you:
 The audit event `service_account.update` for a disable carries
 `meta.revokedKeys`: how many API keys it revoked. Revoked keys carry the
 reason `service account disabled`.
+
+### Ending a session ends the OAuth tokens it granted
+
+An MCP client connected through the consent page used to keep its
+tokens after the person who consented signed out: the refresh token
+lived its 30 days unless the client was revoked or the person was
+deactivated. Now the authorization code and every refresh token
+descended from it remember the browser session that consented, and:
+
+- Signing out, ending a session from the sessions list, a password
+  change ending the other sessions, and deactivating a member (from the
+  API or SCIM `active=false`) revoke the refresh tokens those sessions
+  granted.
+- Access tokens carry the session as `sid`, and the MCP endpoint and
+  introspection refuse one whose session was ended, before it expires.
+- A re-authentication through a single sign-on provider replaces the
+  session; the refresh tokens move to the new session rather than end.
+  An access token naming the old session is refused, and the client
+  refreshes into one naming the new session.
+- A session that merely expires ends nothing: its tokens live on, which
+  is what `offline_access` is for.
+
+Access tokens also carry `amr`; see the OAuth section of `docs/api.md`.
+
+What it needs from you:
+
+- **Nothing for migration 00029.** It adds `session_id` (text, null)
+  and `amr` (text[], not null, default `{}`) to `oauth_codes` and
+  `oauth_refresh_tokens`. Neither rewrites a row; each table is locked
+  only for the catalogue change. It builds `oauth_refresh_session_idx`
+  with `CREATE INDEX CONCURRENTLY`, which does not block token
+  issuance; the migration runs outside a transaction for that. It
+  replaces `auth_session_revoke`, `auth_session_revoke_others` and
+  `auth_revoke_principal` with versions that also revoke the session's
+  refresh tokens, keeping their signatures, and adds
+  `auth_session_replace`. If it is interrupted, run it again.
+- **Rollout order does not matter**, with these gaps until the roll
+  finishes. A replica of the previous release issues codes and refresh
+  tokens without a session, and those are tied to no session, as every
+  token issued before the upgrade is: they end when the client or the
+  member is revoked, or expire. It does not check `sid`, so an ended
+  session's access token still passes there. And a single sign-on
+  re-authentication handled there ends the replaced session's refresh
+  tokens instead of moving them, so that client has to connect again.
+- **People who sign out** of the web interface now disconnect the MCP
+  clients they connected from that session. They connect again from the
+  client.
+
+Migrating down restores the three functions as they were and drops the
+new columns, the index and `auth_session_replace`.
 
 ### A refused audit batch is retried, and a loss is always recorded
 

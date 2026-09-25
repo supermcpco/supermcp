@@ -462,6 +462,33 @@ func (s *Service) RevokeSession(ctx context.Context, id, reason string) error {
 	})
 }
 
+// ReplaceSession ends a session that a re-authentication replaced with
+// another for the same person. The refresh tokens the old session
+// consented to move to the new one instead of ending with it.
+func (s *Service) ReplaceSession(ctx context.Context, oldID, newID, reason string) error {
+	return s.DB.Pre(ctx, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, "SELECT auth_session_replace($1,$2,$3)", oldID, newID, reason)
+		return err
+	})
+}
+
+// SessionRevoked reports whether a session was ended. An expired session
+// was not, and neither was one no longer on record: ended sessions are
+// kept for a week, far longer than an access token lives.
+func (s *Service) SessionRevoked(ctx context.Context, id string) (bool, error) {
+	var revoked *time.Time
+	err := s.DB.Pre(ctx, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, "SELECT revoked_at FROM auth_session_load($1)", id).Scan(&revoked)
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("read session: %w", err)
+	}
+	return revoked != nil, nil
+}
+
 // Principal builds the request principal from a session.
 func (s *Service) Principal(sess *Session, email string) *authz.Principal {
 	return &authz.Principal{Kind: authz.KindUser, ID: sess.UserID, OrgID: sess.OrgID, SessionID: sess.ID, AuthMethod: "session",
