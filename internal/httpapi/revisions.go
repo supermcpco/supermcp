@@ -484,7 +484,7 @@ func (d Deps) restored(ctx context.Context, k revisionKind, in *revisionGetInput
 func (d Deps) restoreFailed(ctx context.Context, k revisionKind, in *revisionGetInput, err error) {
 	d.emit(ctx, audit.Event{Category: audit.CategoryGovernan, Action: string(k.kind) + ".revision.restore",
 		Outcome: audit.Failure, TargetKind: string(k.kind), TargetID: in.ID,
-		Meta: map[string]any{"revision": in.Revision, "error": err.Error()}})
+		Meta: errorMeta(ctx, map[string]any{"revision": in.Revision}, "error", err)})
 }
 
 func revisionErr(err error) error {

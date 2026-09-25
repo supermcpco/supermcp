@@ -399,6 +399,9 @@ func (d Deps) approvalFor(ctx context.Context, id string, perm authz.Permission)
 	}
 	res := authz.Resource{OrgID: p.OrgID, ServerID: r.ServerID, ConnectorID: r.ConnectorID, ToolID: r.ToolID}
 	if err := d.Authz.Require(ctx, perm, res); err != nil {
+		if !errors.Is(err, authz.ErrDenied) {
+			return nil, nil, nil, err // not a refusal: see require
+		}
 		d.denied(ctx, perm, res, err.Error())
 		return nil, nil, nil, huma.Error403Forbidden(err.Error())
 	}

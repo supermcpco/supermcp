@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/danielgtaylor/huma/v2"
+	"github.com/go-chi/chi/v5/middleware"
 
 	"github.com/supermcpco/supermcp/internal/audit"
 	"github.com/supermcpco/supermcp/internal/authz"
@@ -47,16 +48,17 @@ func (d Deps) securityRoutes(api huma.API) {
 			ip, _ := ctx.Value(ipKey).(string)
 			if err := d.Identity.ChangePassword(ctx, p.ID, p.OrgID, in.Body.CurrentPassword, in.Body.NewPassword, ip); err != nil {
 				d.emit(ctx, audit.Event{Category: audit.CategoryAuth, Action: "password.change",
-					Outcome: audit.Failure, Meta: map[string]any{"reason": err.Error()}})
+					Outcome: audit.Failure, Meta: errorMeta(ctx, nil, "reason", err)})
 				return nil, humaErr(err)
 			}
 			d.emit(ctx, audit.Event{Category: audit.CategoryAuth, Action: "password.change", Outcome: audit.Success})
 			// Every other session belonged to the old password.
 			revoked, err := d.Identity.RevokeOtherSessions(ctx, p.ID, p.SessionID, "password changed")
 			if err != nil {
-				d.Log.Warn("could not end the other sessions after a password change", "user", p.ID, "err", err)
+				d.Log.Warn("could not end the other sessions after a password change", "user", p.ID, "err", err,
+					"req_id", middleware.GetReqID(ctx))
 				d.emit(ctx, audit.Event{Category: audit.CategoryAuth, Action: "session.revoke", Outcome: audit.Failure,
-					TargetKind: "user", TargetID: p.ID, Meta: map[string]any{"reason": "password changed", "error": err.Error()}})
+					TargetKind: "user", TargetID: p.ID, Meta: errorMeta(ctx, map[string]any{"reason": "password changed"}, "error", err)})
 			} else {
 				d.emit(ctx, audit.Event{Category: audit.CategoryAuth, Action: "session.revoke", Outcome: audit.Success,
 					TargetKind: "user", TargetID: p.ID, Meta: map[string]any{"reason": "password changed", "revokedTokens": revoked}})
@@ -156,7 +158,7 @@ func (d Deps) securityRoutes(api huma.API) {
 					revoked, err := d.Identity.RevokeSession(ctx, s.Key, "ended by its owner")
 					if err != nil {
 						d.emit(ctx, audit.Event{Category: audit.CategoryAuth, Action: "session.revoke",
-							Outcome: audit.Failure, TargetKind: "session", TargetID: in.ID, Meta: map[string]any{"error": err.Error()}})
+							Outcome: audit.Failure, TargetKind: "session", TargetID: in.ID, Meta: errorMeta(ctx, nil, "error", err)})
 						return nil, err
 					}
 					d.emit(ctx, audit.Event{Category: audit.CategoryAuth, Action: "session.revoke",

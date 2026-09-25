@@ -7,6 +7,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 
 	"github.com/supermcpco/supermcp/internal/audit"
 	"github.com/supermcpco/supermcp/internal/authz"
@@ -121,17 +122,27 @@ func (s samlAPI) acs(w http.ResponseWriter, r *http.Request) {
 
 // failed sends the person back to the sign-in page with something they
 // can act on, and logs the detail. A provider's message may name an
-// internal address, so it does not go in the URL.
+// internal address, so it goes neither in the URL nor in the audit
+// record, which gets the reason and the request id.
 func (s samlAPI) failed(w http.ResponseWriter, r *http.Request, err error) {
-	s.Log.Warn("saml sign-in failed", "err", err, "path", r.URL.Path)
+	id := middleware.GetReqID(r.Context())
+	s.Log.Warn("saml sign-in failed", "err", err, "path", r.URL.Path, "req_id", id)
+	reason := samlReason(err)
+	recorded := reason
+	if reason == samlFailed {
+		recorded = internalMessage(id)
+	}
 	ip, _ := r.Context().Value(ipKey).(string)
 	s.emit(r.Context(), audit.Event{Category: audit.CategoryAuth, Action: "session.create", Outcome: audit.Failure,
-		IP: ip, UserAgent: r.UserAgent(), Meta: map[string]any{"method": "saml", "reason": err.Error()}})
-	http.Redirect(w, r, "/login?saml_error="+samlReason(err), http.StatusFound)
+		IP: ip, UserAgent: r.UserAgent(), Meta: map[string]any{"method": "saml", "reason": recorded, "requestId": id}})
+	http.Redirect(w, r, "/login?saml_error="+reason, http.StatusFound)
 }
 
+// samlFailed is samlReason for an error it does not recognise.
+const samlFailed = "saml_failed"
+
 // samlReason is the one word the sign-in page turns into a sentence. The
-// detail stays in the log and the audit record.
+// detail stays in the log.
 func samlReason(err error) string {
 	switch {
 	case errors.Is(err, saml.ErrDomainRefused):
@@ -149,7 +160,7 @@ func samlReason(err error) string {
 	case errors.Is(err, saml.ErrDisabled), errors.Is(err, saml.ErrNotFound), errors.Is(err, saml.ErrNotConfigured):
 		return "unavailable"
 	}
-	return "saml_failed"
+	return samlFailed
 }
 
 // --- administration --------------------------------------------------------

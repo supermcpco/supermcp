@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -20,6 +21,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/supermcpco/supermcp/internal/audit"
@@ -52,7 +54,10 @@ type Service struct {
 	// Audit records provisioning decisions. Who was deprovisioned, and
 	// when, is the question asked after someone leaves.
 	Audit audit.Sink
-	now   func() time.Time
+	// Log receives the errors a provider is not told about. Nil logs to
+	// slog.Default.
+	Log *slog.Logger
+	now func() time.Time
 }
 
 // New builds the service.
@@ -69,6 +74,7 @@ func (s *Service) emit(ctx context.Context, action, outcome, targetKind, targetI
 	s.Audit.Emit(ctx, audit.FromPrincipal(audit.Event{
 		Category: audit.CategoryAdmin, Action: action, Outcome: outcome,
 		TargetKind: targetKind, TargetID: targetID, TargetDisplay: display, Meta: meta,
+		RequestID: middleware.GetReqID(ctx),
 	}, p))
 }
 
@@ -196,7 +202,7 @@ func (s *Service) listUsers(w http.ResponseWriter, r *http.Request) {
 		return rows.Err()
 	})
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.fail(w, r, err)
 		return
 	}
 	resources := make([]any, 0, len(out))
@@ -212,7 +218,7 @@ func (s *Service) listUsers(w http.ResponseWriter, r *http.Request) {
 func (s *Service) getUser(w http.ResponseWriter, r *http.Request) {
 	rec, err := s.loadUser(r.Context(), orgOf(r), chi.URLParam(r, "id"))
 	if err != nil {
-		writeLookupErr(w, err)
+		s.lookupErr(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, s.userFrom(*rec))
@@ -244,12 +250,12 @@ func (s *Service) createUser(w http.ResponseWriter, r *http.Request) {
 			orgID, userID, email, name, firstNonEmpty(in.UserName, email), in.ExternalID, activeOrDefault(in)).Scan(&created)
 	})
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.fail(w, r, err)
 		return
 	}
 	rec, err := s.loadUser(r.Context(), orgID, created)
 	if err != nil {
-		writeLookupErr(w, err)
+		s.lookupErr(w, r, err)
 		return
 	}
 	s.emit(r.Context(), "scim.user.create", audit.Success, "user", created, email,
@@ -266,11 +272,11 @@ func (s *Service) replaceUser(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	orgID := orgOf(r)
 	if _, err := s.loadUser(r.Context(), orgID, id); err != nil {
-		writeLookupErr(w, err)
+		s.lookupErr(w, r, err)
 		return
 	}
 	if err := s.setActive(r.Context(), orgID, id, activeOrDefault(in)); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.fail(w, r, err)
 		return
 	}
 	ctx := tenant.WithOrg(r.Context(), orgID)
@@ -290,12 +296,12 @@ func (s *Service) replaceUser(w http.ResponseWriter, r *http.Request) {
 		return nil
 	})
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.fail(w, r, err)
 		return
 	}
 	rec, err := s.loadUser(r.Context(), orgID, id)
 	if err != nil {
-		writeLookupErr(w, err)
+		s.lookupErr(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, s.userFrom(*rec))
@@ -321,7 +327,7 @@ func (s *Service) patchUser(w http.ResponseWriter, r *http.Request) {
 	}
 	id, orgID := chi.URLParam(r, "id"), orgOf(r)
 	if _, err := s.loadUser(r.Context(), orgID, id); err != nil {
-		writeLookupErr(w, err)
+		s.lookupErr(w, r, err)
 		return
 	}
 	for _, op := range in.Operations {
@@ -334,7 +340,7 @@ func (s *Service) patchUser(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			if err := s.setActive(r.Context(), orgID, id, truthy(active)); err != nil {
-				writeErr(w, http.StatusInternalServerError, err.Error())
+				s.fail(w, r, err)
 				return
 			}
 		case path == "" && len(op.Value) > 0:
@@ -342,7 +348,7 @@ func (s *Service) patchUser(w http.ResponseWriter, r *http.Request) {
 			var body User
 			if err := json.Unmarshal(op.Value, &body); err == nil && body.Active != nil {
 				if err := s.setActive(r.Context(), orgID, id, *body.Active); err != nil {
-					writeErr(w, http.StatusInternalServerError, err.Error())
+					s.fail(w, r, err)
 					return
 				}
 			}
@@ -352,7 +358,7 @@ func (s *Service) patchUser(w http.ResponseWriter, r *http.Request) {
 	}
 	rec, err := s.loadUser(r.Context(), orgID, id)
 	if err != nil {
-		writeLookupErr(w, err)
+		s.lookupErr(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, s.userFrom(*rec))
@@ -363,11 +369,11 @@ func (s *Service) patchUser(w http.ResponseWriter, r *http.Request) {
 func (s *Service) deleteUser(w http.ResponseWriter, r *http.Request) {
 	id, orgID := chi.URLParam(r, "id"), orgOf(r)
 	if _, err := s.loadUser(r.Context(), orgID, id); err != nil {
-		writeLookupErr(w, err)
+		s.lookupErr(w, r, err)
 		return
 	}
 	if err := s.setActive(r.Context(), orgID, id, false); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.fail(w, r, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -401,8 +407,11 @@ func (s *Service) setActive(ctx context.Context, orgID, userID string, active bo
 	// the moment a person stops being able to reach anything.
 	revoked, err := s.Identity.RevokeEverything(ctx, orgID, userID, "deprovisioned")
 	if err != nil {
+		// The handler answers with fail, which logs err under the same
+		// request id.
+		id := middleware.GetReqID(ctx)
 		s.emit(ctx, "scim.user.deactivate", audit.Failure, "user", userID, "",
-			map[string]any{"error": err.Error()})
+			map[string]any{"error": internalMessage(id), "requestId": id})
 		return err
 	}
 	s.emit(ctx, "scim.user.deactivate", audit.Success, "user", userID, "",
@@ -484,7 +493,7 @@ func (s *Service) listGroups(w http.ResponseWriter, r *http.Request) {
 		return rows.Err()
 	})
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.fail(w, r, err)
 		return
 	}
 	resources := make([]any, 0, len(ids))
@@ -504,7 +513,7 @@ func (s *Service) listGroups(w http.ResponseWriter, r *http.Request) {
 func (s *Service) getGroup(w http.ResponseWriter, r *http.Request) {
 	g, err := s.loadGroup(r.Context(), orgOf(r), chi.URLParam(r, "id"))
 	if err != nil {
-		writeLookupErr(w, err)
+		s.lookupErr(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, g)
@@ -533,12 +542,12 @@ func (s *Service) createGroup(w http.ResponseWriter, r *http.Request) {
 		return s.setMembers(ctx, tx, orgID, id, in.Members)
 	})
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.fail(w, r, err)
 		return
 	}
 	g, err := s.loadGroup(r.Context(), orgID, id)
 	if err != nil {
-		writeLookupErr(w, err)
+		s.lookupErr(w, r, err)
 		return
 	}
 	s.emit(r.Context(), "scim.group.create", audit.Success, "group", id, g.DisplayName,
@@ -570,12 +579,12 @@ func (s *Service) replaceGroup(w http.ResponseWriter, r *http.Request) {
 		return s.setMembers(ctx, tx, orgID, id, in.Members)
 	})
 	if err != nil {
-		writeLookupErr(w, err)
+		s.lookupErr(w, r, err)
 		return
 	}
 	g, err := s.loadGroup(r.Context(), orgID, id)
 	if err != nil {
-		writeLookupErr(w, err)
+		s.lookupErr(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, g)
@@ -653,12 +662,12 @@ func (s *Service) patchGroup(w http.ResponseWriter, r *http.Request) {
 		return nil
 	})
 	if err != nil {
-		writeLookupErr(w, err)
+		s.lookupErr(w, r, err)
 		return
 	}
 	g, err := s.loadGroup(r.Context(), orgID, id)
 	if err != nil {
-		writeLookupErr(w, err)
+		s.lookupErr(w, r, err)
 		return
 	}
 	// Group membership decides role bindings, so a change here is a change
@@ -682,7 +691,7 @@ func (s *Service) deleteGroup(w http.ResponseWriter, r *http.Request) {
 		return nil
 	})
 	if err != nil {
-		writeLookupErr(w, err)
+		s.lookupErr(w, r, err)
 		return
 	}
 	s.emit(r.Context(), "scim.group.delete", audit.Success, "group", id, "", nil)
@@ -877,8 +886,31 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
+// writeErr answers with a SCIM error. detail reaches the provider, so it
+// is for errors this package words itself; anything else goes to fail.
 func writeErr(w http.ResponseWriter, status int, detail string) {
 	writeScimErr(w, status, "", detail)
+}
+
+// internalMessage is all a provider learns about an error this package
+// has no answer for. Driver errors name hosts, DSN fragments and SQL; the
+// request id is how an operator finds them in the log. The admin API
+// words its 500s the same way.
+func internalMessage(reqID string) string {
+	return "something went wrong; the request id is " + reqID
+}
+
+// fail answers a 500 with internalMessage and logs err, once, with the
+// request id.
+func (s *Service) fail(w http.ResponseWriter, r *http.Request, err error) {
+	log := s.Log
+	if log == nil {
+		log = slog.Default()
+	}
+	id := middleware.GetReqID(r.Context())
+	log.ErrorContext(r.Context(), "scim request failed",
+		"req_id", id, "method", r.Method, "path", r.URL.Path, "err", err)
+	writeErr(w, http.StatusInternalServerError, internalMessage(id))
 }
 
 func writeScimErr(w http.ResponseWriter, status int, typ, detail string) {
@@ -889,10 +921,12 @@ func writeScimErr(w http.ResponseWriter, status int, typ, detail string) {
 	writeJSON(w, status, body)
 }
 
-func writeLookupErr(w http.ResponseWriter, err error) {
+// lookupErr answers a failed read of one resource: 404 when there is no
+// such resource, else fail.
+func (s *Service) lookupErr(w http.ResponseWriter, r *http.Request, err error) {
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeScimErr(w, http.StatusNotFound, "", "no such resource")
 		return
 	}
-	writeErr(w, http.StatusInternalServerError, err.Error())
+	s.fail(w, r, err)
 }

@@ -11,6 +11,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 
 	"github.com/supermcpco/supermcp/internal/audit"
 	"github.com/supermcpco/supermcp/internal/authz"
@@ -217,14 +218,13 @@ func (d Deps) storeConnectorGrant(ctx context.Context, orgID, connectorID string
 }
 
 // connectorAuthFailed sends the administrator back to the connector with
-// something they can act on, and keeps the detail in the log and the
-// audit trail. The vendor's own message never reaches the URL: it is free
-// text from elsewhere, and it has been known to name an internal address.
+// something they can act on, and keeps the detail in the log. The
+// vendor's own message reaches neither the URL nor the audit trail, which
+// gets the reason and the request id: it is free text from elsewhere, and
+// it has been known to name an internal address.
 func (d Deps) connectorAuthFailed(ctx context.Context, w http.ResponseWriter, r *http.Request, orgID, connectorID string, err error) {
-	d.Log.Warn("connector consent failed", "err", err, "connector", connectorID, "path", r.URL.Path)
-	d.emit(ctx, audit.Event{OrgID: orgID, Category: audit.CategorySecrets, Action: "connector.oauth.connect",
-		Outcome: audit.Failure, TargetKind: "connector", TargetID: connectorID,
-		Meta: map[string]any{"reason": err.Error()}})
+	id := middleware.GetReqID(ctx)
+	d.Log.Warn("connector consent failed", "err", err, "connector", connectorID, "path", r.URL.Path, "req_id", id)
 	reason := "connect_failed"
 	switch {
 	case errors.Is(err, upstreamauth.ErrConsentInvalid):
@@ -238,6 +238,13 @@ func (d Deps) connectorAuthFailed(ctx context.Context, w http.ResponseWriter, r 
 	case errors.Is(err, connector.ErrNotFound):
 		reason = "unavailable"
 	}
+	recorded := reason
+	if reason == "connect_failed" {
+		recorded = internalMessage(id)
+	}
+	d.emit(ctx, audit.Event{OrgID: orgID, Category: audit.CategorySecrets, Action: "connector.oauth.connect",
+		Outcome: audit.Failure, TargetKind: "connector", TargetID: connectorID,
+		Meta: map[string]any{"reason": recorded, "requestId": id}})
 	//nolint:gosec // a local path with a fixed set of reasons
 	http.Redirect(w, r, connectorPage(connectorID, "connect_error", reason), http.StatusFound)
 }

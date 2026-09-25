@@ -99,7 +99,7 @@ func New(d Deps) (http.Handler, huma.API) {
 		d.analytics = newAnalyticsGuard(nil)
 	}
 	r := chi.NewRouter()
-	r.Use(middleware.RequestID)
+	r.Use(requestID)
 	r.Use(requestLogger(d.Log))
 	r.Use(middleware.Recoverer)
 	// Inside Recoverer, so a panic is counted as the 500 it becomes.
@@ -137,7 +137,7 @@ func New(d Deps) (http.Handler, huma.API) {
 		"session": {Type: "apiKey", In: "cookie", Name: SessionCookie},
 		"apiKey":  {Type: "apiKey", In: "header", Name: "X-API-Key"},
 	}
-	cfg.Transformers = append([]huma.Transformer{logKeyServiceErrors(d.Log)}, cfg.Transformers...)
+	cfg.Transformers = append([]huma.Transformer{logKeyServiceErrors(d.Log), hideInternalErrors(d.Log)}, cfg.Transformers...)
 	api := humachi.New(r, cfg)
 
 	registerCatalog(api, d.Catalog)

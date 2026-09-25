@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -454,6 +455,13 @@ func truncate(s string, n int) string {
 // an error can quote what the caller sent, and "none" or "metadata" would
 // otherwise be kept in full here. What neither recognises, a plain word
 // the caller passed, can still appear.
+//
+// Unlike the admin API's unmapped errors, which the audit trail records
+// only as a generic message and a request id, this keeps the redacted
+// text, transport errors included. It is how a workspace administrator
+// learns why a tool failed (the upstream's refusal, a timeout, a host
+// that does not resolve), and what it names is the connector's own
+// upstream, which the same administrator configured and can read.
 func errorText(err error) string {
 	return truncate(audit.MaskText(connector.RedactText(err.Error())), 4000)
 }
@@ -594,6 +602,10 @@ func (e *Executor) auditCall(ctx context.Context, c Call, status string, errText
 	if errText != nil {
 		meta["error"] = *errText
 	}
+	reqID := middleware.GetReqID(ctx)
+	if reqID != "" {
+		meta["requestId"] = reqID
+	}
 	var payload any
 	if in != nil || out != nil {
 		payload = map[string]any{"input": in, "output": out}
@@ -602,6 +614,6 @@ func (e *Executor) auditCall(ctx context.Context, c Call, status string, errText
 		OrgID: c.Connector.OrgID, Category: audit.CategoryTool, Action: "tool.invoke", Outcome: outcome,
 		ActorKind: principalKind, ActorID: principalID,
 		TargetKind: "tool", TargetID: c.Tool.ID, TargetDisplay: c.Tool.Name,
-		Payload: payload, Meta: meta,
+		Payload: payload, Meta: meta, RequestID: reqID,
 	})
 }

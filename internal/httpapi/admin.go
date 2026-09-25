@@ -88,7 +88,7 @@ func (d Deps) registerRoutes(api huma.API) {
 		func(ctx context.Context, in *registerInput) (*sessionOutput, error) {
 			u, o, err := d.Identity.Register(ctx, identity.RegisterInput{Email: in.Body.Email, Name: in.Body.Name, Password: in.Body.Password, OrgName: in.Body.OrgName})
 			if err != nil {
-				d.authEvent(ctx, "account.register", audit.Failure, in.Body.Email, map[string]any{"error": err.Error()})
+				d.authEvent(ctx, "account.register", audit.Failure, in.Body.Email, errorMeta(ctx, nil, "error", err))
 				return nil, humaErr(err)
 			}
 			out, err := d.startSession(ctx, u, o)
@@ -114,7 +114,7 @@ func (d Deps) registerRoutes(api huma.API) {
 			if err != nil {
 				// A failed sign-in names the address that was tried, not an
 				// account: there may not be one.
-				d.authEvent(ctx, "session.create", audit.Failure, in.Body.Email, map[string]any{"reason": err.Error(), "method": "password"})
+				d.authEvent(ctx, "session.create", audit.Failure, in.Body.Email, errorMeta(ctx, map[string]any{"method": "password"}, "reason", err))
 				return nil, humaErr(err)
 			}
 			orgs, err := d.Identity.Orgs(ctx, u.ID)
@@ -148,8 +148,10 @@ func (d Deps) registerRoutes(api huma.API) {
 				revoked, err := d.Identity.RevokeSession(ctx, p.SessionID, "logout")
 				if err != nil {
 					d.emit(ctx, audit.Event{Category: audit.CategoryAuth, Action: "session.end", Outcome: audit.Failure,
-						Meta: map[string]any{"error": err.Error()}})
-					return nil, huma.Error500InternalServerError("could not end the session; try again")
+						Meta: errorMeta(ctx, nil, "error", err)})
+					// A 500 the router logs with its cause; the client is
+					// told the request id.
+					return nil, err
 				}
 				d.emit(ctx, audit.Event{Category: audit.CategoryAuth, Action: "session.end", Outcome: audit.Success,
 					Meta: map[string]any{"revokedTokens": revoked}})
@@ -188,9 +190,10 @@ func (d Deps) registerRoutes(api huma.API) {
 				return nil, humaErr(err)
 			}
 			if err := d.Identity.SwitchOrg(ctx, sess, in.Body.OrganizationID); err != nil {
+				refused := huma.Error403Forbidden(err.Error())
 				d.emit(ctx, audit.Event{Category: audit.CategoryAuth, Action: "session.switch_org", Outcome: audit.Denied,
-					TargetKind: "organization", TargetID: in.Body.OrganizationID, Meta: map[string]any{"reason": err.Error()}})
-				return nil, huma.Error403Forbidden(err.Error())
+					TargetKind: "organization", TargetID: in.Body.OrganizationID, Meta: errorMeta(ctx, nil, "reason", refused)})
+				return nil, refused
 			}
 			d.emit(ctx, audit.Event{OrgID: in.Body.OrganizationID, Category: audit.CategoryAuth,
 				Action: "session.switch_org", Outcome: audit.Success,
@@ -851,14 +854,20 @@ func (d Deps) require(ctx context.Context, perm authz.Permission, r authz.Resour
 		return nil, huma.Error403Forbidden("no organisation selected")
 	}
 	if err := d.Authz.Require(ctx, perm, r); err != nil {
+		if !errors.Is(err, authz.ErrDenied) {
+			// The decision could not be made (the database, say). That is
+			// a 500 the router logs, not a refusal to record or explain.
+			return nil, err
+		}
 		d.denied(ctx, perm, r, err.Error())
 		return nil, huma.Error403Forbidden(err.Error())
 	}
 	return p, nil
 }
 
-// humaErr maps a service error to an HTTP error. Unmapped errors become
-// 500s, whose detail huma hides; the router logs them instead.
+// humaErr maps a service error to an HTTP error. An unmapped error is
+// returned as it is; huma makes it a 500, and hideInternalErrors replaces
+// the body with internalMessage and logs the error with the request id.
 func humaErr(err error) error {
 	if errors.Is(err, secrets.ErrKeyServiceUnavailable) {
 		return newKeyServiceError(err)
@@ -906,6 +915,8 @@ func humaErr(err error) error {
 		return huma.Error401Unauthorized(msg)
 	case http.StatusForbidden:
 		return huma.Error403Forbidden(msg)
+	case http.StatusNotFound:
+		return huma.Error404NotFound(msg)
 	case http.StatusTooManyRequests:
 		return huma.Error429TooManyRequests(msg)
 	case http.StatusOK:

@@ -1059,8 +1059,36 @@ RFC 7807, served as `application/problem+json`:
 
 `errors` appears on validation failures and names the location in the
 request. `detail` on a permission failure names the permission and the
-reason the evaluator gave. A `500` hides its detail from the client; the
-router logs it with the request id.
+reason the evaluator gave.
+
+Every response, on every route (the admin API, SCIM, MCP, OAuth, the
+health checks), carries an `X-Request-Id` header. The server chooses
+the id; one a client sends is not reused. A `500` says nothing about
+its cause, because the cause is often a database or upstream error that
+names a host, a connection string or a query. Its body is always this
+shape, with no `errors`:
+
+```json
+{
+  "title": "Internal Server Error",
+  "status": 500,
+  "detail": "something went wrong; the request id is 5PZ4Q2B7YHMMJ3XKSV6CT3NE4Q"
+}
+```
+
+The id in `detail` is the one in `X-Request-Id`. Quote it when reporting
+the failure: the server logs the cause once, as `request failed`, with
+the same id in `req_id`. The audit trail records such a failure the
+same way: `meta.error` (or `meta.reason`, for sign-in events) is the
+generic message and `meta.requestId` the id. A failure the API answers
+itself (any `4xx`, or a `503`) keeps its message in the response, and
+the audit event records a stable code in `meta.error` (the code in
+`errors[].value` where the response has one, such as `last_owner`,
+otherwise the status in words, such as `not_found`), with the message in
+`meta.message`. Failed tool calls are the exception: their audit event
+keeps the upstream's error text, after credentials and anything the
+payload policy masks are removed from it, because that is how an
+administrator learns why their connector failed.
 
 | Status | Means |
 |---|---|
@@ -1184,6 +1212,10 @@ Authentication is an ordinary credential — in practice an API key held
 by the identity provider — and every route requires the `scim:manage`
 permission. As noted above, the key must also carry the `mcp:org` scope,
 or the scope ceiling refuses it.
+
+Errors use the SCIM error schema (`urn:ietf:params:scim:api:messages:2.0:Error`).
+A `500`'s `detail` is the same generic message with the request id as
+the admin API's, and the cause is in the log as `scim request failed`.
 
 Setting a user `active: false`, through `PUT` or through a `PATCH` on
 the `active` attribute, and a `DELETE` of the user, mark the membership

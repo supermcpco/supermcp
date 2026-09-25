@@ -115,8 +115,9 @@ func (d Deps) importRoutes(api huma.API) {
 			a, findings, err := convertImport(doc, format, in)
 			parser.SortFindings(findings)
 			if err != nil {
-				d.adminFailed(ctx, "connector.import", "connector", source, err)
-				return nil, huma.Error400BadRequest("the document cannot be imported: "+err.Error(), findingErrors(findings)...)
+				refused := huma.Error400BadRequest("the document cannot be imported: "+err.Error(), findingErrors(findings)...)
+				d.adminFailed(ctx, "connector.import", "connector", source, refused)
+				return nil, refused
 			}
 
 			out := &importOutput{}

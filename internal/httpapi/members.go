@@ -153,8 +153,9 @@ func (d Deps) setMemberStatus(ctx context.Context, p *authz.Principal, userID st
 func (d Deps) setMemberRole(ctx context.Context, p *authz.Principal, userID, roleID string) (*memberOutput, error) {
 	if roleID == ownerRoleID {
 		if _, err := d.require(ctx, authz.Wildcard, authz.Resource{}); err != nil {
-			d.adminFailed(ctx, "member.role.set", "user", userID, errOwnerGrant)
-			return nil, huma.Error403Forbidden(errOwnerGrant.Error())
+			refused := huma.Error403Forbidden(errOwnerGrant.Error())
+			d.adminFailed(ctx, "member.role.set", "user", userID, refused)
+			return nil, refused
 		}
 	}
 	before, after, err := d.Identity.SetMemberRole(ctx, p.OrgID, p.ID, userID, roleID)

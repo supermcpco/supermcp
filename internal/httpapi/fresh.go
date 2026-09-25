@@ -154,7 +154,7 @@ func (d Deps) reauthRoutes(api huma.API) {
 			at, err := d.Identity.Reauthenticate(ctx, sess, in.Body.Password, ip)
 			if err != nil {
 				d.emit(ctx, audit.Event{Category: audit.CategoryAuth, Action: "session.reauth", Outcome: audit.Failure,
-					TargetKind: "session", TargetID: sess.ID, Meta: map[string]any{"method": "password", "reason": err.Error()}})
+					TargetKind: "session", TargetID: sess.ID, Meta: errorMeta(ctx, map[string]any{"method": "password"}, "reason", err)})
 				return nil, reauthErr(err)
 			}
 			d.emit(ctx, audit.Event{Category: audit.CategoryAuth, Action: "session.reauth", Outcome: audit.Success,
