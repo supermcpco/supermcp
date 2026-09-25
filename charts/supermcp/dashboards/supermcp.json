@@ -421,6 +421,37 @@
         },
         "overrides": []
       }
+    },
+    {
+      "id": 14,
+      "title": "Audit partitions ahead",
+      "type": "timeseries",
+      "description": "Whole months after the current one that audit_events is partitioned for. The maintenance job keeps it at three; below one, next month's events will land in the default partition and retention cannot drop that month whole.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 48
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "expr": "max(supermcp_audit_partition_months_ahead)",
+          "legendFormat": "months",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "min": 0,
+          "decimals": 0
+        },
+        "overrides": []
+      }
     }
   ]
 }

@@ -193,6 +193,11 @@ type VerifyResult struct {
 	// Unsigned counts checkpoints written without a signing key. Their
 	// hash still has to match; who wrote them cannot be proved.
 	Unsigned int64 `json:"unsigned,omitempty"`
+	// RetentionCut is the last sequence a retention cut removed, when the
+	// walk starts right after it; zero when it starts at the beginning of
+	// the stream or part-way along. Rows the cut deleted one by one and
+	// rows it dropped with their monthly partition are the same cut.
+	RetentionCut int64 `json:"retentionCut,omitempty"`
 }
 
 type checkpoint struct {
@@ -211,7 +216,10 @@ type checkpoint struct {
 // digest and its place in the chain, and is counted rather than failed.
 //
 // Rows removed by retention are expected, and are bridged by a
-// retention_cut anchor recording what the last removed row hashed to.
+// retention_cut anchor recording what the last removed row hashed to. A
+// month retention dropped as a partition is part of the same cut and is
+// bridged by the same anchor; a partition dropped any other way is a gap
+// like any other deletion.
 //
 // The links alone cannot catch someone with write access who rewrites the
 // chain from some row onward and recomputes every hash after it, nor one
@@ -292,7 +300,8 @@ func (r *Reader) Verify(ctx context.Context, fromSeq, toSeq int64) (*VerifyResul
 				// becomes the first simply claims a predecessor nobody can
 				// check. Either it is the genesis row, or a retention cut
 				// anchor records what the removed predecessor hashed to.
-				switch h, ok := cuts[seq-1]; {
+				h, ok := cuts[seq-1]
+				switch {
 				case ok && !bytes.Equal(h, prevHash):
 					res.Valid, res.BrokenAt = false, seq
 					res.Explained = fmt.Sprintf("row %d does not follow the retention cut recorded before it", seq)
@@ -303,13 +312,23 @@ func (r *Reader) Verify(ctx context.Context, fromSeq, toSeq int64) (*VerifyResul
 						"the stream starts at row %d, which follows a row that is not there and no retention cut explains", seq)
 					return nil
 				}
+				if ok {
+					res.RetentionCut = seq - 1
+				}
 				prev = prevHash
 				res.FirstSeq = seq
 				first = false
 			}
 			if !bytes.Equal(prevHash, prev) {
 				res.Valid, res.BrokenAt = false, seq
-				res.Explained = fmt.Sprintf("row %d records a different predecessor than row %d", seq, seq-1)
+				res.Explained = fmt.Sprintf("row %d records a different predecessor than row %d", seq, res.LastSeq)
+				if res.LastSeq < seq-1 {
+					// Sequence numbers can skip (a refused append uses some
+					// up), but the link cannot: whatever row this one
+					// followed is gone, one by one or with its partition.
+					res.Explained = fmt.Sprintf("row %d does not follow row %d, the one before it in the stream; "+
+						"what came between was removed (deleted, or dropped with its partition) without a retention cut", seq, res.LastSeq)
+				}
 				return nil
 			}
 			want := chainHash(prevHash, &rec)
@@ -398,9 +417,21 @@ func (r *Reader) Anchor(ctx context.Context, sign func([]byte) (string, error)) 
 	})
 }
 
-// Prune deletes events older than the retention window for an org and
-// records a cut anchor so the chain stays verifiable from that point.
-// Rows under legal hold are kept.
+// cutLockTimeout bounds how long a cut that has whole partitions to drop
+// waits for audit_events, and so how long appends wait behind it.
+const cutLockTimeout = "3s"
+
+// CutResult says what a retention cut removed.
+type CutResult struct {
+	// Seq is the newest event removed, where the retention_cut anchor
+	// sits; zero when nothing was.
+	Seq int64
+	// Deleted counts the events removed, one by one or with their
+	// partition.
+	Deleted int64
+	// Partitions names the monthly partitions dropped whole.
+	Partitions []string
+}
 
 // Cut removes everything at or below a sequence number, whatever tenant
 // wrote it, and records the anchor that lets Verify bridge the gap.
@@ -414,8 +445,14 @@ func (r *Reader) Anchor(ctx context.Context, sign func([]byte) (string, error)) 
 //
 // Rows under legal hold are never removed, and a hold below the cut stops
 // the cut there rather than skipping the row and tearing the chain.
-func (r *Reader) Cut(ctx context.Context, before time.Time) (int64, error) {
-	var deleted int64
+//
+// A month that ended before the cutoff and holds nothing above the cut is
+// dropped as a partition rather than deleted row by row
+// (audit_events_cut, migration 00033). That needs audit_events to itself
+// for a moment; if a reader holds it past cutLockTimeout, the whole cut is
+// rolled back and the next sweep tries again.
+func (r *Reader) Cut(ctx context.Context, before time.Time) (CutResult, error) {
+	var res CutResult
 	err := r.DB.Bypass(ctx, "audit-cut", func(tx pgx.Tx) error {
 		var cutSeq int64
 		var cutHash []byte
@@ -434,14 +471,24 @@ func (r *Reader) Cut(ctx context.Context, before time.Time) (int64, error) {
 			ON CONFLICT (seq) DO UPDATE SET hash = EXCLUDED.hash`, cutSeq, cutHash); err != nil {
 			return err
 		}
-		tag, err := tx.Exec(ctx, `DELETE FROM audit_events WHERE seq <= $1`, cutSeq)
+		err = tx.QueryRow(ctx, `SELECT deleted, dropped FROM audit_events_cut($1, $2, $3, $4)`,
+			cutSeq, before, chainLockID, cutLockTimeout).Scan(&res.Deleted, &res.Partitions)
+		// 55P03 is lock_not_available, which lock_timeout raises.
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "55P03" {
+			return fmt.Errorf("audit_events was busy for %s, so the months past retention could not be dropped; "+
+				"nothing was cut and the next sweep tries again: %w", cutLockTimeout, err)
+		}
 		if err != nil {
 			return err
 		}
-		deleted = tag.RowsAffected()
+		res.Seq = cutSeq
 		return nil
 	})
-	return deleted, err
+	if err != nil {
+		return CutResult{}, err
+	}
+	return res, nil
 }
 
 // Scrub removes the content of one organisation's older events while

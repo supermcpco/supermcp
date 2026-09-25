@@ -10,7 +10,7 @@ Read `data-flow.md` first for what each store holds.
 | Store | Default lifetime | What removes it |
 |---|---|---|
 | `audit_events` content | 365 days per workspace | The hourly retention sweep, which removes the content and leaves the row in the chain |
-| `audit_events` rows | The longest window any workspace on the instance still asks for | The same sweep, as one contiguous cut across the whole stream |
+| `audit_events` rows | The longest window any workspace on the instance still asks for | The same sweep, as one contiguous cut across the whole stream; whole months past it are dropped as partitions |
 | `tool_invocations`; what it keeps of a call is what the audit payload policy allows, which by default is the shape of the arguments and none of their values | **Indefinite** | Nothing. There is no sweep for this table. |
 | `revisions` | Indefinite, deliberately | Deleting the workspace |
 | `sessions` | Unusable after 12 hours idle or 30 days absolute | Deleted hourly, seven days after they became unusable |
@@ -58,11 +58,25 @@ stream, at the longest window any workspace still asks for. The sweep
 finds the newest row older than that window, records a `retention_cut`
 anchor holding that row's hash, and deletes everything at or below it.
 
+`audit_events` is partitioned by calendar month (UTC), so the cut does
+not have to delete a whole month row by row. A month that ended before
+the window and holds nothing above the cut is dropped as a partition; the
+month the cut runs into loses its rows at or below the cut one by one.
+Both happen in the same transaction as the anchor, so what goes is still
+exactly the prefix at or below it, and a month holding a row under legal
+hold is never dropped (the hold stops the cut below it). If the table
+cannot be had for a moment to drop a month, nothing is cut that hour and
+the next sweep tries again. Months are created three ahead by an hourly
+job; an event for a month that has no partition is kept in a default
+partition and cut row by row.
+
 Verification bridges the gap with that anchor: the first surviving row
 records a predecessor that is no longer there, and the anchor says what
 that predecessor hashed to. Without it, deleting the oldest rows would
 be undetectable — the row that became the first would claim a
-predecessor nobody could check.
+predecessor nobody could check. `supermcp audit verify` reports the cut
+it started after (`retentionCut` in its JSON). A month dropped any other
+way than by the sweep has no anchor and is reported as removed rows.
 
 Deleting one workspace's rows out of the middle of the sequence is
 therefore **not offered**. It would leave a hole no anchor can bridge.

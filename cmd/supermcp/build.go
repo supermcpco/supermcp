@@ -245,7 +245,9 @@ func build(ctx context.Context, cfg *config.Config, log *slog.Logger, st *store.
 	jobs := sweeps{db: db, log: log, invalidation: listener,
 		identity: ids, oauth: oauth, keys: keyring, saml: samlSvc, reader: &audit.Reader{DB: db},
 		approvals: approvals, blobs: pgBlobs,
-		retention: retention,
+		retention:       retention,
+		partitions:      audit.NewPartitions(db),
+		partitionsAhead: metrics.SetAuditPartitionMonthsAhead,
 		// Syslog destinations open a socket of their own, so they dial
 		// through the guard the HTTP destinations already go through.
 		exporters: audit.NewExporters(db, sealer, exportClient, log).WithDial(dialer.DialContext),

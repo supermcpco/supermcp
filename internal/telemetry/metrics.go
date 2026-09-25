@@ -131,6 +131,7 @@ type Metrics struct {
 	rateLimitDegrade prometheus.Gauge
 	kekOperations    *prometheus.CounterVec
 	auditExportLag   *prometheus.GaugeVec
+	auditPartitions  prometheus.Gauge
 	dbPools          *dbPoolCollector
 	cacheInvalidate  *prometheus.CounterVec
 	cacheListener    prometheus.Gauge
@@ -252,6 +253,12 @@ func NewMetrics(opts MetricsOptions) *Metrics {
 			Help:      "Age of the oldest audit event an enabled destination has not yet accepted, the worst across destinations of each kind. 0 when all are caught up.",
 		}, []string{"kind"}),
 
+		auditPartitions: prometheus.NewGauge(prometheus.GaugeOpts{
+			Namespace: Namespace,
+			Name:      "audit_partition_months_ahead",
+			Help:      "Whole months after the current one that audit_events has a partition for, contiguously. The maintenance job keeps it at 3; 0 means next month's events will land in the default partition.",
+		}),
+
 		dbPools: newDBPoolCollector(),
 
 		cacheInvalidate: prometheus.NewCounterVec(prometheus.CounterOpts{
@@ -294,6 +301,7 @@ func NewMetrics(opts MetricsOptions) *Metrics {
 		m.rateLimitDegrade,
 		m.kekOperations,
 		m.auditExportLag,
+		m.auditPartitions,
 		m.dbPools,
 		m.cacheInvalidate,
 		m.cacheListener,
@@ -471,6 +479,16 @@ func (m *Metrics) SetAuditExportLag(lag map[string]time.Duration) {
 	for _, kind := range append(kinds[:], OtherLabel) {
 		m.auditExportLag.WithLabelValues(kind).Set(worst[kind].Seconds())
 	}
+}
+
+// SetAuditPartitionMonthsAhead records how many whole months past the
+// current one audit_events is partitioned for. It reads shared state, so
+// every replica reports the same number.
+func (m *Metrics) SetAuditPartitionMonthsAhead(months int) {
+	if m == nil {
+		return
+	}
+	m.auditPartitions.Set(float64(months))
 }
 
 // Caches and invalidation sources, closed sets like the others: anything

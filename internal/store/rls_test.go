@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"slices"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -130,14 +131,16 @@ INSERT INTO org_invites (id, organization_id, email, role_id, token_hash, expire
 		})
 	})
 
-	// Every table with organization_id must have RLS forced.
+	// Every table with organization_id must have RLS forced. A partitioned
+	// table (audit_events, migration 00033) counts as the table; its
+	// partitions are reached only through it and are checked below.
 	var tables []string
 	if err := db.Bypass(ctx, "test discover", func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `
 SELECT c.table_name, t.relrowsecurity AND t.relforcerowsecurity
 FROM information_schema.columns c
 JOIN pg_class t ON t.relname = c.table_name AND t.relnamespace = 'public'::regnamespace
-WHERE c.table_schema = 'public' AND c.column_name = 'organization_id' AND t.relkind = 'r'
+WHERE c.table_schema = 'public' AND c.column_name = 'organization_id' AND t.relkind IN ('r', 'p') AND NOT t.relispartition
 ORDER BY 1`)
 		if err != nil {
 			return err
@@ -154,9 +157,42 @@ ORDER BY 1`)
 			}
 			tables = append(tables, name)
 		}
-		return rows.Err()
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		// A partition's own row-level security is not its parent's, and
+		// the default privileges would give the application role every
+		// new table: a partition it could read or write would be a door
+		// around the parent's policy.
+		prows, err := tx.Query(ctx, `
+SELECT c.relname, has_table_privilege('supermcp_app', c.oid, 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE'), c.relrowsecurity
+FROM pg_class c
+WHERE c.relnamespace = 'public'::regnamespace AND c.relispartition AND c.relkind IN ('r', 'p')
+  AND EXISTS (SELECT 1 FROM pg_attribute a WHERE a.attrelid = c.oid AND a.attname = 'organization_id' AND NOT a.attisdropped)
+ORDER BY 1`)
+		if err != nil {
+			return err
+		}
+		defer prows.Close()
+		for prows.Next() {
+			var name string
+			var granted, rls bool
+			if err := prows.Scan(&name, &granted, &rls); err != nil {
+				return err
+			}
+			if granted {
+				t.Errorf("partition %s is open to supermcp_app; it must be reached through its parent only", name)
+			}
+			if !rls {
+				t.Errorf("partition %s has organization_id but row-level security is not enabled", name)
+			}
+		}
+		return prows.Err()
 	}); err != nil {
 		t.Fatal(err)
+	}
+	if !slices.Contains(tables, "audit_events") {
+		t.Errorf("audit_events is not in the matrix; found %v", tables)
 	}
 	count := func(orgID, table, where string) int {
 		var n int

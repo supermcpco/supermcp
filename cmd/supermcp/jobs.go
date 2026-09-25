@@ -18,8 +18,8 @@ import (
 )
 
 // Background work that keeps the audit stream healthy: shipping events to
-// whatever the organisation has pointed at us, and dropping what is past
-// its retention window.
+// whatever the organisation has pointed at us, dropping what is past its
+// retention window, and partitioning the months to come.
 //
 // There is no job framework yet. What there is instead is a Postgres
 // advisory lock, so that when several replicas run the same sweep only one
@@ -36,6 +36,11 @@ type sweeps struct {
 	log       *slog.Logger
 	retention *audit.Retention
 	exporters *audit.Exporters
+	// partitions creates audit_events' monthly partitions ahead of the
+	// clock, and partitionsAhead receives how far ahead they reach. Like
+	// the export lag, every replica measures it from shared state.
+	partitions      *audit.Partitions
+	partitionsAhead func(int)
 	// identity, oauth and keys are the maintenance nobody asks for: spent
 	// codes and dead sessions accumulate for ever without it, and a
 	// signing key that is never rotated is one that lives as long as the
@@ -89,6 +94,18 @@ func (s sweeps) start(ctx context.Context) {
 	go s.every(ctx, time.Hour, "audit-retention", func(c context.Context) error {
 		return s.retention.Run(c)
 	})
+	if s.partitions != nil {
+		go s.every(ctx, time.Hour, "audit-partition-maint", func(c context.Context) error {
+			created, err := s.partitions.Maintain(c)
+			if created > 0 {
+				s.log.Info("audit partitions created", "partitions", created)
+			}
+			return err
+		})
+		if s.partitionsAhead != nil {
+			go s.measurePartitions(ctx, 5*time.Minute)
+		}
+	}
 	if s.reader != nil && s.keys != nil {
 		go s.every(ctx, 10*time.Minute, "audit-anchor", func(c context.Context) error {
 			return s.reader.Anchor(c, func(b []byte) (string, error) { return s.keys.SignDigest(c, b) })
@@ -162,6 +179,34 @@ func (s sweeps) measureExportLag(ctx context.Context, period time.Duration) {
 				continue
 			}
 			s.exportLag(lag)
+		}
+	}
+}
+
+// measurePartitions publishes how many months ahead audit_events is
+// partitioned, once at start and then every period until ctx is
+// cancelled. A failed measurement leaves the last one standing and is
+// logged; the next tick tries again.
+func (s sweeps) measurePartitions(ctx context.Context, period time.Duration) {
+	measure := func() {
+		c, cancel := context.WithTimeout(ctx, period/2)
+		defer cancel()
+		months, err := s.partitions.MonthsAhead(c)
+		if err != nil {
+			s.log.Warn("could not measure how far ahead audit_events is partitioned", "err", err)
+			return
+		}
+		s.partitionsAhead(months)
+	}
+	measure()
+	t := time.NewTicker(period)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			measure()
 		}
 	}
 }
