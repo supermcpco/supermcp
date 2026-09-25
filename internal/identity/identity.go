@@ -104,8 +104,15 @@ type Session struct {
 	IdleExpiresAt     time.Time
 	AbsoluteExpiresAt time.Time
 	MFAVerifiedAt     *time.Time
-	AuthMethod        string
-	LastSeenAt        time.Time
+	// AuthMethod is how the session was signed in: password, sso or saml.
+	AuthMethod string
+	// AuthProviderID is the single sign-on provider the session came
+	// from, and empty for a password sign-in.
+	AuthProviderID string
+	// AuthenticatedAt is when the holder last proved who they are: at
+	// sign-in, and again at each re-authentication.
+	AuthenticatedAt time.Time
+	LastSeenAt      time.Time
 }
 
 var reEmail = regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`)
@@ -320,8 +327,10 @@ func (s *Service) clear(ctx context.Context, keys ...string) {
 
 // --- sessions -------------------------------------------------------------
 
-// CreateSession opens a session for a user in an organisation.
-func (s *Service) CreateSession(ctx context.Context, userID, orgID, method, ip, ua string) (*Session, error) {
+// CreateSession opens a session for a user in an organisation. provider
+// names the single sign-on provider for an sso or saml sign-in and is
+// empty for a password one.
+func (s *Service) CreateSession(ctx context.Context, userID, orgID, method, provider, ip, ua string) (*Session, error) {
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
 		return nil, err
@@ -329,13 +338,15 @@ func (s *Service) CreateSession(ctx context.Context, userID, orgID, method, ip, 
 	now := s.now()
 	secret := base64.RawURLEncoding.EncodeToString(raw)
 	sess := &Session{ID: SessionKey(secret), Secret: secret, UserID: userID, OrgID: orgID,
-		IdleExpiresAt: now.Add(s.Cfg.SessionIdle), AbsoluteExpiresAt: now.Add(s.Cfg.SessionAbsolute), AuthMethod: method, LastSeenAt: now}
+		IdleExpiresAt: now.Add(s.Cfg.SessionIdle), AbsoluteExpiresAt: now.Add(s.Cfg.SessionAbsolute), AuthMethod: method,
+		AuthProviderID: provider, AuthenticatedAt: now, LastSeenAt: now}
 	var addr *netip.Addr
 	if a, err := netip.ParseAddr(ip); err == nil {
 		addr = &a
 	}
 	err := s.DB.Pre(ctx, func(tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, "SELECT auth_session_create($1,$2,NULLIF($3,''),$4,$5,$6,$7,$8)", sess.ID, userID, orgID, sess.IdleExpiresAt, sess.AbsoluteExpiresAt, method, addr, ua)
+		_, err := tx.Exec(ctx, "SELECT auth_session_open($1,$2,NULLIF($3,''),$4,$5,$6,NULLIF($7,''),$8,$9)",
+			sess.ID, userID, orgID, sess.IdleExpiresAt, sess.AbsoluteExpiresAt, method, provider, addr, ua)
 		return err
 	})
 	if err != nil {
@@ -377,9 +388,12 @@ func (s *Service) LoadSession(ctx context.Context, id string) (*Session, error) 
 	var sess Session
 	var org *string
 	var revoked *time.Time
+	var provider *string
 	err := s.DB.Pre(ctx, func(tx pgx.Tx) error {
-		return tx.QueryRow(ctx, "SELECT id, user_id, organization_id, idle_expires_at, absolute_expires_at, mfa_verified_at, auth_method, revoked_at, last_seen_at FROM auth_session($1)", id).
-			Scan(&sess.ID, &sess.UserID, &org, &sess.IdleExpiresAt, &sess.AbsoluteExpiresAt, &sess.MFAVerifiedAt, &sess.AuthMethod, &revoked, &sess.LastSeenAt)
+		return tx.QueryRow(ctx, `SELECT id, user_id, organization_id, idle_expires_at, absolute_expires_at, mfa_verified_at,
+				auth_method, revoked_at, last_seen_at, authenticated_at, auth_provider_id FROM auth_session_load($1)`, id).
+			Scan(&sess.ID, &sess.UserID, &org, &sess.IdleExpiresAt, &sess.AbsoluteExpiresAt, &sess.MFAVerifiedAt,
+				&sess.AuthMethod, &revoked, &sess.LastSeenAt, &sess.AuthenticatedAt, &provider)
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrSessionInvalid
@@ -389,6 +403,9 @@ func (s *Service) LoadSession(ctx context.Context, id string) (*Session, error) 
 	}
 	if org != nil {
 		sess.OrgID = *org
+	}
+	if provider != nil {
+		sess.AuthProviderID = *provider
 	}
 	now := s.now()
 	if revoked != nil || now.After(sess.IdleExpiresAt) || now.After(sess.AbsoluteExpiresAt) {
@@ -435,7 +452,9 @@ func (s *Service) RevokeSession(ctx context.Context, id, reason string) error {
 
 // Principal builds the request principal from a session.
 func (s *Service) Principal(sess *Session, email string) *authz.Principal {
-	return &authz.Principal{Kind: authz.KindUser, ID: sess.UserID, OrgID: sess.OrgID, SessionID: sess.ID, AuthMethod: "session", MFA: sess.MFAVerifiedAt != nil, Email: email}
+	return &authz.Principal{Kind: authz.KindUser, ID: sess.UserID, OrgID: sess.OrgID, SessionID: sess.ID, AuthMethod: "session",
+		MFA: sess.MFAVerifiedAt != nil, Email: email,
+		SignIn: authz.SignIn{At: sess.AuthenticatedAt, Method: sess.AuthMethod, ProviderID: sess.AuthProviderID}}
 }
 
 // UserByID loads a user visible in the current tenant.

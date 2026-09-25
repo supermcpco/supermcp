@@ -117,6 +117,22 @@ type Principal struct {
 	// workspace's maximum age. It may change the password, read the
 	// session and sign out; everything else is refused until it does.
 	PasswordExpired bool
+	// SignIn says how and when a browser session last proved who is
+	// using it. It is zero for API keys, OAuth access tokens and service
+	// accounts, which are not signed in by a person and cannot be asked
+	// to sign in again.
+	SignIn SignIn
+}
+
+// SignIn is the sign-in behind a browser session.
+type SignIn struct {
+	// At is the last time the holder authenticated: the sign-in, or the
+	// latest re-authentication since.
+	At time.Time
+	// Method is password, sso or saml.
+	Method string
+	// ProviderID is the single sign-on provider for sso and saml.
+	ProviderID string
 }
 
 // BindingPrincipal is the (kind, id) a binding refers to. API keys act as

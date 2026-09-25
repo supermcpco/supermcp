@@ -108,7 +108,7 @@ func (s samlAPI) acs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ip, _ := r.Context().Value(ipKey).(string)
-	sess, err := s.Identity.CreateSession(r.Context(), res.UserID, res.OrgID, "saml", ip, r.UserAgent())
+	sess, err := s.Identity.CreateSession(r.Context(), res.UserID, res.OrgID, "saml", res.ProviderID, ip, r.UserAgent())
 	if err != nil {
 		s.failed(w, r, err)
 		return

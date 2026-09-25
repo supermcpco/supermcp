@@ -58,7 +58,7 @@ func (d Deps) ssoCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ip, _ := r.Context().Value(ipKey).(string)
-	sess, err := d.Identity.CreateSession(r.Context(), res.UserID, res.OrgID, "sso", ip, r.UserAgent())
+	sess, err := d.Identity.CreateSession(r.Context(), res.UserID, res.OrgID, "sso", res.ProviderID, ip, r.UserAgent())
 	if err != nil {
 		d.ssoFailed(w, r, err)
 		return
