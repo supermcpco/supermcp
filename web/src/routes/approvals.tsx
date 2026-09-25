@@ -7,6 +7,9 @@ import {
   approvalPoliciesDeleteMutation,
   approvalPoliciesListOptions,
   approvalPoliciesListQueryKey,
+  approvalPoliciesRevisionsListOptions,
+  approvalPoliciesRevisionsListQueryKey,
+  approvalPoliciesRevisionsRestoreMutation,
   approvalsApproveMutation,
   approvalsGetOptions,
   approvalsListOptions,
@@ -14,10 +17,11 @@ import {
   approvalsRejectMutation,
   connectorsListOptions,
 } from "../api/@tanstack/react-query.gen";
-import type { ApprovalRequest } from "../api";
+import type { ApprovalPolicy, ApprovalRequest } from "../api";
 import { useSession } from "../lib/session";
 import { Badge, Loading, SignInFirst } from "../lib/ui";
 import { message } from "../lib/errors";
+import { HistoryPanel } from "../components/revisions";
 
 export const Route = createFileRoute("/approvals")({
   component: Approvals,
@@ -149,8 +153,10 @@ const selectClass = "rounded-md border border-kumo-line bg-kumo-base px-3 py-2";
 function Rules() {
   const { can } = useSession();
   const canManage = can("org:settings:manage");
+  const canRestore = canManage && can("revisions:rollback");
   const qc = useQueryClient();
   const rules = useQuery({ ...approvalPoliciesListOptions(), retry: false });
+  const [history, setHistory] = useState<string | null>(null);
   const connectors = useQuery({ ...connectorsListOptions(), retry: false });
 
   const [name, setName] = useState("");
@@ -195,27 +201,45 @@ function Rules() {
       )}
       <ul className="grid gap-2">
         {list.map((r) => (
-          <li key={r.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg px-5 py-4 ring ring-kumo-line">
-            <div className="grid gap-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <Text as="span" bold>
-                  {r.name}
+          <li key={r.id} className="grid gap-4 rounded-lg px-5 py-4 ring ring-kumo-line">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="grid gap-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Text as="span" bold>
+                    {r.name}
+                  </Text>
+                  <Badge>{r.trigger === "tool" ? r.toolName : r.trigger}</Badge>
+                  {!r.enabled && <Badge>off</Badge>}
+                </div>
+                <Text as="span" variant="secondary">
+                  {r.scope === "organization"
+                    ? "every connector"
+                    : `${r.scope}: ${names.get(r.scopeId ?? "") ?? r.scopeId}`}{" "}
+                  · an answer lapses after {Math.round(r.ttlSeconds / 60)} minutes
                 </Text>
-                <Badge>{r.trigger === "tool" ? r.toolName : r.trigger}</Badge>
-                {!r.enabled && <Badge>off</Badge>}
               </div>
-              <Text as="span" variant="secondary">
-                {r.scope === "organization"
-                  ? "every connector"
-                  : `${r.scope}: ${names.get(r.scopeId ?? "") ?? r.scopeId}`}{" "}
-                · an answer lapses after {Math.round(r.ttlSeconds / 60)} minutes
-              </Text>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="secondary"
+                  onClick={() => setHistory((current) => (current === r.id ? null : r.id))}
+                  aria-expanded={history === r.id}
+                  aria-label={`${history === r.id ? "Hide the history of" : "History of"} ${r.name}`}
+                >
+                  {history === r.id ? "Hide history" : "History"}
+                </Button>
+                {canManage && (
+                  <Button
+                    variant="secondary"
+                    onClick={() => remove.mutate({ path: { id: r.id } })}
+                    disabled={remove.isPending}
+                    aria-label={`Delete ${r.name}`}
+                  >
+                    Delete
+                  </Button>
+                )}
+              </div>
             </div>
-            {canManage && (
-              <Button variant="secondary" onClick={() => remove.mutate({ path: { id: r.id } })} disabled={remove.isPending}>
-                Delete
-              </Button>
-            )}
+            {history === r.id && <RuleHistory rule={r} canRestore={canRestore} onRestored={refresh} />}
           </li>
         ))}
       </ul>
@@ -339,5 +363,43 @@ function Args({ args }: { args?: Record<string, unknown> }) {
         </div>
       ))}
     </dl>
+  );
+}
+
+/**
+ * Every change to one rule, and the version it can be put back to. Rules
+ * are read on every call, so a restore governs the next one.
+ */
+function RuleHistory({
+  rule,
+  canRestore,
+  onRestored,
+}: {
+  rule: ApprovalPolicy;
+  canRestore: boolean;
+  onRestored: () => Promise<void>;
+}) {
+  const qc = useQueryClient();
+  const key = { path: { id: rule.id } };
+  const revisions = useQuery({ ...approvalPoliciesRevisionsListOptions(key), retry: false });
+  const restore = useMutation({
+    ...approvalPoliciesRevisionsRestoreMutation(),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: approvalPoliciesRevisionsListQueryKey(key) });
+      await onRestored();
+    },
+  });
+  return (
+    <HistoryPanel
+      label={`History of ${rule.name}`}
+      intro="Every change to this rule, newest first. Restoring an earlier version is recorded as a further change, and the next call is held, or not, by the restored rule."
+      loading={revisions.isPending}
+      revisions={revisions.data?.revisions ?? []}
+      error={restore.error ? message(restore.error) : revisions.error ? message(revisions.error) : null}
+      canRestore={canRestore}
+      restoring={restore.isPending}
+      onRestore={(revision) => restore.mutate({ path: { id: rule.id, revision } })}
+      empty="Nothing has changed about this rule since the history began."
+    />
   );
 }

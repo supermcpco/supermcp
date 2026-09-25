@@ -5,14 +5,21 @@ import { Button, Input, Text } from "@cloudflare/kumo";
 import {
   createIdpMutation,
   deleteIdpMutation,
+  idpsRevisionsListOptions,
+  idpsRevisionsListQueryKey,
+  idpsRevisionsRestoreMutation,
   listIdpsOptions,
   listIdpsQueryKey,
   probeIdpMutation,
+  samlProvidersRevisionsListOptions,
+  samlProvidersRevisionsListQueryKey,
+  samlProvidersRevisionsRestoreMutation,
 } from "../api/@tanstack/react-query.gen";
 import { client } from "../api/client.gen";
 import { useSession } from "../lib/session";
 import { Badge, Loading, SignInFirst } from "../lib/ui";
 import { message } from "../lib/errors";
+import { HistoryPanel } from "../components/revisions";
 
 export const Route = createFileRoute("/settings/sso")({
   component: SingleSignOn,
@@ -101,6 +108,8 @@ function SingleSignOn() {
   const [form, setForm] = useState(blank);
   const [error, setError] = useState<string | null>(null);
   const [probe, setProbe] = useState<string | null>(null);
+  const [history, setHistory] = useState<string | null>(null);
+  const canRestore = can("revisions:rollback");
 
   const create = useMutation({
     ...createIdpMutation(),
@@ -169,27 +178,36 @@ function SingleSignOn() {
         </Text>
         <ul className="grid gap-2">
           {idps.data?.providers?.map((p) => (
-            <li
-              key={p.id}
-              className="flex flex-wrap items-center justify-between gap-3 rounded-lg px-5 py-4 ring ring-kumo-line"
-            >
-              <div className="grid gap-1">
-                <div className="flex items-center gap-2">
-                  <Text as="span" bold>
-                    {p.name}
+            <li key={p.id} className="grid gap-4 rounded-lg px-5 py-4 ring ring-kumo-line">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="grid gap-1">
+                  <div className="flex items-center gap-2">
+                    <Text as="span" bold>
+                      {p.name}
+                    </Text>
+                    <Badge>{p.preset}</Badge>
+                    {!p.enabled && <Badge>off</Badge>}
+                    {p.jitProvisioning && <Badge>creates accounts</Badge>}
+                  </div>
+                  <Text as="span" variant="secondary">
+                    {p.issuer || "no issuer"}
+                    {p.allowedDomains?.length ? ` · ${p.allowedDomains.join(", ")} only` : " · any email domain"}
                   </Text>
-                  <Badge>{p.preset}</Badge>
-                  {!p.enabled && <Badge>off</Badge>}
-                  {p.jitProvisioning && <Badge>creates accounts</Badge>}
                 </div>
-                <Text as="span" variant="secondary">
-                  {p.issuer || "no issuer"}
-                  {p.allowedDomains?.length ? ` · ${p.allowedDomains.join(", ")} only` : " · any email domain"}
-                </Text>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    onClick={() => setHistory((current) => (current === p.id ? null : p.id))}
+                    aria-expanded={history === p.id}
+                    aria-label={`${history === p.id ? "Hide the history of" : "History of"} ${p.name}`}
+                  >
+                    {history === p.id ? "Hide history" : "History"}
+                  </Button>
+                  <Button onClick={() => remove.mutate({ path: { id: p.id } })} disabled={remove.isPending}>
+                    Remove
+                  </Button>
+                </div>
               </div>
-              <Button onClick={() => remove.mutate({ path: { id: p.id } })} disabled={remove.isPending}>
-                Remove
-              </Button>
+              {history === p.id && <ProviderHistory id={p.id} name={p.name} canRestore={canRestore} />}
             </li>
           ))}
           {idps.data?.providers?.length === 0 && (
@@ -367,6 +385,9 @@ function SingleSignOn() {
  */
 function SamlSection() {
   const qc = useQueryClient();
+  const { can } = useSession();
+  const canRestore = can("revisions:rollback");
+  const [history, setHistory] = useState<string | null>(null);
   const providers = useQuery({ queryKey: samlQueryKey, queryFn: listSaml, retry: false });
   const [form, setForm] = useState(blankSaml);
   const [error, setError] = useState<string | null>(null);
@@ -430,10 +451,20 @@ function SamlSection() {
                   {p.allowedDomains?.length ? ` · ${p.allowedDomains.join(", ")} only` : " · any email domain"}
                 </Text>
               </div>
-              <Button onClick={() => remove.mutate(p.id)} disabled={remove.isPending}>
-                Remove
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  onClick={() => setHistory((current) => (current === p.id ? null : p.id))}
+                  aria-expanded={history === p.id}
+                  aria-label={`${history === p.id ? "Hide the history of" : "History of"} ${p.name}`}
+                >
+                  {history === p.id ? "Hide history" : "History"}
+                </Button>
+                <Button onClick={() => remove.mutate(p.id)} disabled={remove.isPending}>
+                  Remove
+                </Button>
+              </div>
             </div>
+            {history === p.id && <SamlHistory id={p.id} name={p.name} canRestore={canRestore} />}
             <dl className="grid gap-1.5 text-[0.9em]">
               {[
                 ["Entity ID (audience)", p.entityId],
@@ -591,5 +622,66 @@ function SamlSection() {
         </div>
       )}
     </section>
+  );
+}
+
+/**
+ * Every change to one OpenID Connect or OAuth 2.0 provider. The history
+ * never holds the client secret, so a restore keeps the one stored now.
+ */
+function ProviderHistory({ id, name, canRestore }: { id: string; name: string; canRestore: boolean }) {
+  const qc = useQueryClient();
+  const key = { path: { id } };
+  const revisions = useQuery({ ...idpsRevisionsListOptions(key), retry: false });
+  const restore = useMutation({
+    ...idpsRevisionsRestoreMutation(),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: idpsRevisionsListQueryKey(key) });
+      await qc.invalidateQueries({ queryKey: listIdpsQueryKey() });
+    },
+  });
+  return (
+    <HistoryPanel
+      label={`History of ${name}`}
+      intro="Every change to this provider, newest first. Restoring an earlier version is recorded as a further change. It never puts back a client secret: the one stored now is kept."
+      loading={revisions.isPending}
+      revisions={revisions.data?.revisions ?? []}
+      error={restore.error ? message(restore.error) : revisions.error ? message(revisions.error) : null}
+      canRestore={canRestore}
+      restoring={restore.isPending}
+      onRestore={(revision) => restore.mutate({ path: { id, revision } })}
+      empty="Nothing has changed about this provider since the history began."
+    />
+  );
+}
+
+/**
+ * Every change to one SAML provider. A restore puts back the identity
+ * provider it trusted, from the history rather than by fetching the
+ * metadata again, and keeps our signing key as it is.
+ */
+function SamlHistory({ id, name, canRestore }: { id: string; name: string; canRestore: boolean }) {
+  const qc = useQueryClient();
+  const key = { path: { id } };
+  const revisions = useQuery({ ...samlProvidersRevisionsListOptions(key), retry: false });
+  const restore = useMutation({
+    ...samlProvidersRevisionsRestoreMutation(),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: samlProvidersRevisionsListQueryKey(key) });
+      await qc.invalidateQueries({ queryKey: samlQueryKey });
+    },
+  });
+  return (
+    <HistoryPanel
+      label={`History of ${name}`}
+      intro="Every change to this provider, newest first. Restoring an earlier version is recorded as a further change. It keeps the signing key in use now, so your identity provider does not need the certificate again."
+      loading={revisions.isPending}
+      revisions={revisions.data?.revisions ?? []}
+      error={restore.error ? message(restore.error) : revisions.error ? message(revisions.error) : null}
+      canRestore={canRestore}
+      restoring={restore.isPending}
+      onRestore={(revision) => restore.mutate({ path: { id, revision } })}
+      empty="Nothing has changed about this provider since the history began."
+    />
   );
 }
