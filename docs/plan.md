@@ -37,7 +37,7 @@ Read these while porting; they are the executable spec:
 
 | Area | File(s) under `packages/backend/src` |
 |---|---|
-| MCP endpoint, visibility, demo | `mcp-server/mcp-endpoint.controller.ts`, `mcp-server/tool-annotations.ts`, `mcp-server/error-hints.ts`, `mcp-server/well-known-oauth.controller.ts`, `mcp-server/dynamic-mcp-tools.ts` (executor pipeline) |
+| MCP endpoint, visibility | `mcp-server/mcp-endpoint.controller.ts`, `mcp-server/tool-annotations.ts`, `mcp-server/error-hints.ts`, `mcp-server/well-known-oauth.controller.ts`, `mcp-server/dynamic-mcp-tools.ts` (executor pipeline) |
 | MCP auth + OAuth middleware | `auth/mcp-combined-auth.guard.ts`, `auth/*.middleware.ts`, `auth/login.controller.ts` (consent + server picker) |
 | Engines | `connectors/engines/{rest,graphql,soap,database,mcp-client}.engine.ts`, `oauth2-token.service.ts`, `login-token.service.ts`, `oauth1-signer.ts` |
 | Parsers | `connectors/parsers/{openapi,openapi-3.1-normalizer,postman,curl,graphql,wsdl}.parser.ts` |
@@ -62,7 +62,7 @@ Read these while porting; they are the executable spec:
 - DB read-only default: strip literals/comments, must start SELECT/WITH, single statement, no data-modifying CTE, MAX_ROWS 1000, per-dialect binding (`$n`, `?`, `@pN`, `:bN`).
 - OAuth2 rotated refresh token persisted back before use (DATEV pattern); serialize refresh across replicas with `SELECT … FOR UPDATE`.
 - Query encoder leaves `: $ ,` unescaped, `+` for space, repeated keys `k=a&k=b`; `__raw`, `__rawquery`, `__spread` escape hatches. Byte-for-byte tests.
-- Demo `/mcp/demo`: anonymous, static info tools + read-only tools of `MCP_DEMO_SERVER_ID`, footer appended.
+- No anonymous demo endpoint. The old product's `/mcp/demo` served a public try-it surface for a hosted service; a self-hosted gateway has no use for one, and it would be the only route that calls tools with no identity. Cut 2026-09-25.
 
 ## Architecture
 
@@ -86,7 +86,7 @@ internal/hardening/      csp nonces, csrf, headers, ratelimit (redis + memory fa
 internal/connector/      CRUD, env vars, auth cache, test, import-spec, discover-tools, reconcile/resync, upstream OAuth callback
 internal/tool/           McpTool CRUD, annotations derivation, catalog cache (NOTIFY-invalidated)
 internal/mcpserver/      McpServerConfig, composed instructions
-internal/mcp/            Streamable HTTP endpoint, surface builder, session ownership store, demo, error hints
+internal/mcp/            Streamable HTTP endpoint, surface builder, session ownership store, error hints
 internal/invoke/         executor: resolve → tmpl → auth → engine → transform → dlp → content → audit
 internal/engine/         Engine iface + rest/ graphql/ database/ (soap/ and mcpbridge/ are v1.1)
 internal/upstreamauth/   none apikey query bearer basic oauth2 hmac login database (oauth1, wssecurity, mtls are v1.1)
@@ -161,7 +161,7 @@ type Job interface{ Name() string; Every() time.Duration; Run(ctx context.Contex
 
 ### MCP transport (`internal/mcp`)
 
-- Routes `POST|GET|DELETE /mcp/{serverId}`, `/mcp/demo`. Auth middleware sets `Principal`; 401 carries `WWW-Authenticate: Bearer resource_metadata="…/.well-known/oauth-protected-resource/mcp/{serverId}"`. GET without session in stateless mode → 405 before auth (Copilot probe).
+- Routes `POST|GET|DELETE /mcp/{serverId}`. Auth middleware sets `Principal`; 401 carries `WWW-Authenticate: Bearer resource_metadata="…/.well-known/oauth-protected-resource/mcp/{serverId}"`. GET without session in stateless mode → 405 before auth (Copilot probe).
 - One `*mcp.StreamableHTTPHandler` per process with `Stateless: true`; `getServer(req)` calls `SurfaceBuilder.Build(principal, serverID)`: server config (cached 30s) → inactive 403 → membership (instance principals exempt) → grant reach → `authz.Evaluate(tools:invoke)` per tool → dedupe by name → `server.AddTool` with stored `parameters` (credential-named params stripped), derived annotations → `AddReceivingMiddleware` refusing hidden `tools/call` with `-32600`. Precomputed `*mcp.Tool` values shared read-only per connector version. Benchmark gate < 5 ms at 500 tools.
 - Stateful mode (`MCP_STATEFUL_SESSIONS=true`, opt-in): `Stateless: false`, `SessionTimeout: 30m`. go-sdk sessions are in-process, so document sticky routing; `session.Store` (memory + Redis) records `sid → {ServerID, PrincipalKey, OrgID}` so a foreign replica 404s fast and the client re-initializes. Catalog NOTIFY → diff surface → `AddTool`/`RemoveTools` → `tools/list_changed`.
 - Framing `MCP_RESPONSE_MODE=sse|json` → `JSONResponse`. Default sse.
@@ -288,7 +288,7 @@ Screens: auth pages, `/connectors` (list, detail, import YAML/OpenAPI/Postman/cU
 | M | Goal | Scope | Exit criteria | ew / weeks |
 |---|---|---|---|---|
 | **M0** Skeleton | Repo, contract, tooling | Layout, config, slog, `serve` + healthz; goose + advisory-lock migrate; huma OpenAPI emission; `pkg/adapter` v2 schema/types/validator/converter/index; all 257 converted, report reviewed; CI jobs; goreleaser + distroless; Helm v0; compose; Vite skeleton with generated client, shadcn, lingui, axe | `helm install` on kind; `docker compose up` serves shell; `adapter validate --strict` 257/257, 0 blockers; release dry-run produces signed image + SBOM | 12 / 4 |
-| **M1** Core | Usable single-org product | Engines http/graphql/database; `pkg/tmpl`; upstream auth all except oauth2 auth-code, oauth1, login-bcrypt; MCP endpoint (stateless, annotations, demo); connectors/servers/tools CRUD; catalog install + resync; **envelope encryption local KEK**; **RLS enforced with two pools + CI matrix**; sessions + argon2id + lockout; authz model with built-in roles; api keys hashed with scopes; tool-call log (basic audit table); parity test on ~60 adapters; UI: auth, connectors, store, servers, api-keys, tool-calls, users/orgs | Install kaufland/postgres from catalog, call tools from Claude Desktop via API key; parity green on subset; RLS matrix green; e2e green | 18 / 6 |
+| **M1** Core | Usable single-org product | Engines http/graphql/database; `pkg/tmpl`; upstream auth all except oauth2 auth-code, oauth1, login-bcrypt; MCP endpoint (stateless, annotations); connectors/servers/tools CRUD; catalog install + resync; **envelope encryption local KEK**; **RLS enforced with two pools + CI matrix**; sessions + argon2id + lockout; authz model with built-in roles; api keys hashed with scopes; tool-call log (basic audit table); parity test on ~60 adapters; UI: auth, connectors, store, servers, api-keys, tool-calls, users/orgs | Install kaufland/postgres from catalog, call tools from Claude Desktop via API key; parity green on subset; RLS matrix green; e2e green | 18 / 6 |
 | **M2** Identity | Enterprise login | OAuth 2.1 AS (ES256/JWKS, per-server aud, scopes, PKCE, DCR modes, revoke, introspect, consent templates, resource indicators); OIDC RP parity; SCIM parity; service accounts; password policy; UI: security settings, sessions, service accounts, SSO/SCIM | Claude/Cursor connect via OAuth, no API key; Okta/Entra OIDC + SCIM fixtures pass; token for `/mcp/a` rejected at `/mcp/b` | 15 / 5 |
 | **M3** Governance | Auditable changes | Hash-chained `audit_events` + spool + anchors + read API + webhook exporter + payload policy + retention; admin mutation diffs; revisions + rollback for connectors/tools/servers; roles API + read-only roles screen; AWS KMS + KEK rotation; UI: audit explorer/export, revisions | `audit verify` passes after 100k events with retention cut; rollback round-trip in e2e; KEK rotate on kind with localstack | 14 / 5 |
 | **M4** Catalog parity | All 257 run | oauth2 auth-code (M2 callback); parsers openapi 3.0/3.1; transform + cache; binary/streaming content; cassettes for the keyless adapters; parity across 2385 tools; nightly live keyless probe | parity green across 2385 tools; nightly probe green; re-sync UI on fingerprint change | 9 / 3 |
@@ -304,7 +304,7 @@ Screens: auth pages, `/connectors` (list, detail, import YAML/OpenAPI/Postman/cU
 - **Unit**: `pkg/tmpl` tables ported 1:1 from `rest.engine.spec.ts`, `env-interpolation.spec.ts`, `caller-context.spec.ts`; SSRF classifier; SQL validator + binders; annotations; error hints; transform; authz evaluator matrix; secrets seal/open + AAD mismatch; audit hash chain.
 - **Engine conformance**: `TestParityWithLegacyEngine` replays 1741 recorded requests from the TS engine and diffs method, URL, query, headers and body; go-vcr cassettes for the keyless adapters replayed in CI.
 - **Integration** (testcontainers): migrations up/down; RLS matrix generated from `information_schema`; rbac/grant matrices; reconcile by operationId; dbpool eviction; two-scheduler leader election; audit writer under concurrent replicas; retention cut + verify.
-- **MCP conformance**: httptest + go-sdk client, both framings, both protocol revisions: list filtering, hidden call `-32600`, membership 403, demo read-only, stateful ownership rejection, image/blob content, cancellation aborts upstream.
+- **MCP conformance**: httptest + go-sdk client, both framings, both protocol revisions: list filtering, hidden call `-32600`, membership 403, stateful ownership rejection, image/blob content, cancellation aborts upstream.
 - **OAuth contract**: PKCE required S256, aud from resource, refresh rotation + family revoke, client_credentials, DCR modes, revoke, introspect, JWKS rotation, well-known shapes per RFC 8414/9728.
 - **E2E** (Playwright + axe against real binary): login, install adapter → create server → call tool via MCP client, OAuth connect from a client, rollback round-trip, audit export, air-gap install on disconnected kind.
 - **Load**: k6 in `hack/` at 500 rps, `go test -bench` on `SurfaceBuilder.Build` at 500 tools.
