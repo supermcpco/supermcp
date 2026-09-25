@@ -172,6 +172,7 @@ function changedFields(diff: { before?: Record<string, unknown>; after?: Record<
 /** The product's own word for a field, rather than the column's. */
 function fieldLabel(field: string): string {
   const named: Record<string, string> = {
+    action: "What it does",
     auth: "How it signs in",
     catalogHash: "Catalogue version",
     catalogSlug: "Catalogue entry",
@@ -183,6 +184,7 @@ function fieldLabel(field: string): string {
     name: "Name",
     permissions: "What it allows",
     readOnly: "Locked to the catalogue",
+    scan: "What it reads",
     source: "Where it came from",
     transport: "How it is reached",
   };

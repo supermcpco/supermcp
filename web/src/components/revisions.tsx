@@ -1,5 +1,5 @@
 import { Button, Text } from "@cloudflare/kumo";
-import { Badge } from "../lib/ui";
+import { Badge, Loading } from "../lib/ui";
 import { FieldChanges } from "./diff";
 
 /** One recorded change, as every history screen receives it. */
@@ -68,5 +68,61 @@ export function RevisionList({
         </li>
       ))}
     </ul>
+  );
+}
+
+/**
+ * The history of one thing, drawn beside it: a sentence about what the
+ * history is, the refusal if a restore was refused, and the versions.
+ *
+ * The screen that shows it owns the query and the restore, because each
+ * kind has its own generated hooks; this is only what they have in common.
+ */
+export function HistoryPanel({
+  label,
+  intro,
+  loading,
+  revisions,
+  error,
+  canRestore,
+  restoring,
+  onRestore,
+  empty,
+}: {
+  label: string;
+  intro: string;
+  loading: boolean;
+  revisions: Revision[];
+  error: string | null;
+  canRestore: boolean;
+  restoring: boolean;
+  onRestore: (revision: number) => void;
+  empty: string;
+}) {
+  return (
+    <section aria-label={label} className="grid gap-3 border-t border-kumo-line pt-4">
+      <Text as="span" variant="secondary">
+        {intro}
+      </Text>
+      {error && (
+        <div role="alert">
+          <Text>{error}</Text>
+        </div>
+      )}
+      {/* "Nothing has changed yet" is a claim, and a panel that makes it
+          before the answer has arrived is saying something it does not
+          know. */}
+      {loading ? (
+        <Loading />
+      ) : (
+        <RevisionList
+          revisions={revisions}
+          canRestore={canRestore}
+          restoring={restoring}
+          onRestore={onRestore}
+          empty={empty}
+        />
+      )}
+    </section>
   );
 }
