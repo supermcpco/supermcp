@@ -281,6 +281,36 @@ func (d Deps) ssoRoutes(api huma.API) {
 			return &struct{ Body idpDTO }{Body: idpDTO{Provider: *prov, SecretSet: true}}, nil
 		})
 
+	// The rule on its own, so the screen that edits it does not send back
+	// a copy of the whole provider that may be out of date: a PUT built
+	// from a list read a minute ago would undo whatever changed since.
+	huma.Register(api, huma.Operation{OperationID: "update-idp-mfa", Method: http.MethodPatch,
+		Path: "/api/v1/idps/{id}/mfa", Summary: "Change which answers from an identity provider count as a second factor",
+		Description: "Replaces the provider's second-factor rule and nothing else of its configuration. Both lists " +
+			"empty is no rule. Needs idp:manage and, from a browser session, a recent sign-in. Refused with 400 " +
+			"for a provider without ID tokens (GitHub) and for an amr list containing pwd.",
+		Tags: []string{"identity"}},
+		func(ctx context.Context, in *struct {
+			ID   string `path:"id"`
+			Body sso.MFARule
+		}) (*struct{ Body idpDTO }, error) {
+			if err := d.ssoUnavailable(); err != nil {
+				return nil, err
+			}
+			p, err := d.requireFresh(ctx, authz.IdpManage, authz.Resource{})
+			if err != nil {
+				return nil, err
+			}
+			prov, before, err := d.SSO.SetMFARule(ctx, p.OrgID, in.ID, p.ID, in.Body)
+			if err != nil {
+				d.adminFailed(ctx, "idp.update", "identity_provider", in.ID, err)
+				return nil, ssoErr(err)
+			}
+			d.admin(ctx, "idp.update", "identity_provider", prov.ID, prov.Name,
+				audit.Changes(sso.SnapshotOf(before), sso.SnapshotOf(prov)))
+			return &struct{ Body idpDTO }{Body: idpDTO{Provider: *prov, SecretSet: true}}, nil
+		})
+
 	huma.Register(api, huma.Operation{OperationID: "delete-idp", Method: http.MethodDelete, Path: "/api/v1/idps/{id}",
 		Summary: "Remove an identity provider", Tags: []string{"identity"}, DefaultStatus: http.StatusNoContent},
 		func(ctx context.Context, in *struct {
@@ -374,13 +404,17 @@ func (d Deps) ssoRoutes(api huma.API) {
 
 // ssoErr maps the service's errors onto statuses; a change that would
 // send the stored secret somewhere new is one the caller can fix by
-// supplying a secret, and so is a configuration that is not valid.
+// supplying a secret, and so is a configuration that is not valid. A
+// provider that is not there is 404, which humaErr would answer with 500.
 func ssoErr(err error) error {
 	if errors.Is(err, sso.ErrSecretRequired) {
 		return huma.Error422UnprocessableEntity(err.Error())
 	}
 	if errors.Is(err, sso.ErrInvalid) {
 		return huma.Error400BadRequest(err.Error())
+	}
+	if errors.Is(err, sso.ErrNotFound) {
+		return huma.Error404NotFound(err.Error())
 	}
 	return humaErr(err)
 }

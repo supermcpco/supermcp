@@ -1079,6 +1079,10 @@ export type LoginRequest = {
 
 export type MfaRule = {
     /**
+     * A URL to the JSON Schema for this object.
+     */
+    readonly $schema?: string;
+    /**
      * Authentication context class references any of which, as the ID token's acr claim, counts as a second factor.
      */
     acr?: Array<string> | null;
@@ -2623,7 +2627,7 @@ export type IdpDtoWritable = {
     issuer: string;
     jitProvisioning: boolean;
     jwksUri?: string;
-    mfa: MfaRule;
+    mfa: MfaRuleWritable;
     name: string;
     organizationId: string;
     preset: string;
@@ -2647,7 +2651,7 @@ export type IdpInputWritable = {
     /**
      * Which answers from the provider count as a second factor. Left out, a new OpenID Connect provider gets amr [mfa, otp, hwk, sc] and an existing one keeps its rule; both lists empty counts nothing. Refused for GitHub, which issues no ID token.
      */
-    mfa?: MfaRule;
+    mfa?: MfaRuleWritable;
     name?: string;
     preset: 'entra' | 'google' | 'okta' | 'auth0' | 'github' | 'generic';
     scopes?: Array<string> | null;
@@ -2672,7 +2676,7 @@ export type IdpRestoreDtoWritable = {
     issuer: string;
     jitProvisioning: boolean;
     jwksUri?: string;
-    mfa: MfaRule;
+    mfa: MfaRuleWritable;
     name: string;
     organizationId: string;
     preset: string;
@@ -2829,6 +2833,17 @@ export type ListSsoProvidersResponseWritable = {
 export type LoginRequestWritable = {
     email: string;
     password: string;
+};
+
+export type MfaRuleWritable = {
+    /**
+     * Authentication context class references any of which, as the ID token's acr claim, counts as a second factor.
+     */
+    acr?: Array<string> | null;
+    /**
+     * Authentication method references (RFC 8176) any of which, in the ID token's amr claim, counts as a second factor. pwd is refused.
+     */
+    amr?: Array<string> | null;
 };
 
 export type MemberDtoWritable = {
@@ -5587,6 +5602,33 @@ export type UpdateIdpResponses = {
 };
 
 export type UpdateIdpResponse = UpdateIdpResponses[keyof UpdateIdpResponses];
+
+export type UpdateIdpMfaData = {
+    body: MfaRuleWritable;
+    path: {
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/idps/{id}/mfa';
+};
+
+export type UpdateIdpMfaErrors = {
+    /**
+     * Error
+     */
+    default: ErrorModel;
+};
+
+export type UpdateIdpMfaError = UpdateIdpMfaErrors[keyof UpdateIdpMfaErrors];
+
+export type UpdateIdpMfaResponses = {
+    /**
+     * OK
+     */
+    200: IdpDto;
+};
+
+export type UpdateIdpMfaResponse = UpdateIdpMfaResponses[keyof UpdateIdpMfaResponses];
 
 export type IdpsRevisionsListData = {
     body?: never;

@@ -3,6 +3,7 @@ package e2e
 import (
 	"context"
 	"net/http"
+	"net/url"
 	"slices"
 	"testing"
 	"time"
@@ -227,5 +228,121 @@ func TestIDPSecondFactorRule(t *testing.T) {
 	}
 	if !slices.Equal(restored.MFA.AMR, []string{"mfa", "hwk"}) || !slices.Equal(restored.MFA.ACR, []string{"phr"}) {
 		t.Fatalf("restoring revision 2 put back the rule %+v", restored.MFA)
+	}
+}
+
+// TestOIDCReauthDowngradeMovesTokenAMR consents from a session that had a
+// second factor, then re-authenticates without one. The client's refresh
+// tokens move to the new session and take its amr, so the next refresh
+// yields an access token, and an introspection answer, that no longer
+// claim "mfa".
+func TestOIDCReauthDowngradeMovesTokenAMR(t *testing.T) {
+	h := start(t)
+	b, admin := newSSOBrowser(t, h, "E2E OIDC MFA token downgrade")
+	b.idp.authTime = func() int64 { return time.Now().Unix() }
+	b.idp.amr = []string{"pwd", "mfa"}
+	if end := b.follow(t, "/auth/sso/"+b.prov.ID+"/start?next=/connectors"); end.Path != "/connectors" {
+		t.Fatalf("the sign-in ended at %s", end)
+	}
+	first := b.session()
+	var sess ssoSignInView
+	if code := first.do(t, http.MethodGet, "/api/v1/auth/session", nil, &sess); code != http.StatusOK {
+		t.Fatalf("session: %d", code)
+	}
+	c := newOAuthClient(t, h, admin.Org.ID, admin.User.ID)
+	c.h = first
+	access, refresh := c.grant(t)
+	introspect := introspector(t, h, admin.Org.ID, admin.User.ID)
+	if got := claimAMR(jwtClaims(t, access)); !slices.Equal(got, []string{"pwd", "mfa"}) {
+		t.Fatalf("amr at consent = %v, want [pwd mfa]", got)
+	}
+
+	h.ageSessions(t, sess.User.ID)
+	b.idp.amr = []string{"pwd"}
+	if end := b.follow(t, sess.SignIn.ReauthURL+"&next=/connectors"); end.Path != "/connectors" {
+		t.Fatalf("the re-authentication ended at %s", end)
+	}
+	status, body := c.token(t, url.Values{"grant_type": {"refresh_token"}, "refresh_token": {refresh}})
+	if status != http.StatusOK {
+		t.Fatalf("refresh after the re-authentication: %d %v", status, body)
+	}
+	renewed, _ := body["access_token"].(string)
+	if got := claimAMR(jwtClaims(t, renewed)); !slices.Equal(got, []string{"pwd"}) {
+		t.Errorf("amr after a re-authentication without a second factor = %v, want [pwd]", got)
+	}
+	if in := introspect(renewed); !in.Active || !slices.Equal(in.AMR, []string{"pwd"}) {
+		t.Errorf("introspection after the re-authentication = %+v, want active with amr [pwd]", in)
+	}
+}
+
+// TestIDPUpdateMFARule changes only the second-factor rule through its
+// own route. A change made to the provider in between, which a PUT built
+// from an earlier read would undo, stays; the change is revisioned; and
+// the route asks what an update asks.
+func TestIDPUpdateMFARule(t *testing.T) {
+	h := start(t)
+	idp := newFakeIdP(t)
+	admin := h.register(t, "E2E IdP rule patch")
+	type provider struct {
+		ID             string      `json:"id"`
+		Enabled        bool        `json:"enabled"`
+		AllowedDomains []string    `json:"allowedDomains"`
+		MFA            sso.MFARule `json:"mfa"`
+	}
+	var created provider
+	if code := h.do(t, http.MethodPost, "/api/v1/idps", map[string]any{"name": "Patch IdP", "preset": "generic",
+		"issuer": idp.URL, "clientId": idp.clientID, "clientSecret": "test-secret", "enabled": true}, // gitleaks:allow
+		&created); code != http.StatusCreated {
+		t.Fatalf("create: %d", code)
+	}
+	path := "/api/v1/idps/" + created.ID
+	// Someone turns the provider off and narrows its domains after the
+	// editor read it.
+	if code := h.do(t, http.MethodPut, path, map[string]any{"name": "Patch IdP", "preset": "generic",
+		"issuer": idp.URL, "clientId": idp.clientID, "enabled": false, "allowedDomains": []string{"example.test"}},
+		nil); code != http.StatusOK {
+		t.Fatalf("update: %d", code)
+	}
+
+	var patched provider
+	if code := h.do(t, http.MethodPatch, path+"/mfa", map[string]any{"amr": []string{"mfa"}, "acr": []string{"phr"}},
+		&patched); code != http.StatusOK {
+		t.Fatalf("patch the rule: %d", code)
+	}
+	if patched.Enabled || !slices.Equal(patched.AllowedDomains, []string{"example.test"}) {
+		t.Errorf("changing the rule changed the rest: enabled %v, domains %v", patched.Enabled, patched.AllowedDomains)
+	}
+	if !slices.Equal(patched.MFA.AMR, []string{"mfa"}) || !slices.Equal(patched.MFA.ACR, []string{"phr"}) {
+		t.Errorf("the rule was stored as %+v", patched.MFA)
+	}
+	list, err := h.deps.SSO.List(tenant.WithOrg(context.Background(), admin.Org.ID), admin.Org.ID)
+	if err != nil || len(list) != 1 || list[0].Enabled || !slices.Equal(list[0].MFA.ACR, []string{"phr"}) {
+		t.Fatalf("stored provider: %v %+v", err, list)
+	}
+	revs := h.history(t, path)
+	if len(revs) != 3 || revs[0].Revision != 3 || revs[0].Action != "update" || revs[0].Diff == nil {
+		t.Fatalf("history after the rule change: %+v", revs)
+	}
+
+	if code := h.do(t, http.MethodPatch, path+"/mfa", map[string]any{"amr": []string{"pwd"}}, nil); code != http.StatusBadRequest {
+		t.Errorf("a rule counting a password: %d, want 400", code)
+	}
+	var gh provider
+	if code := h.do(t, http.MethodPost, "/api/v1/idps", map[string]any{"preset": "github", "clientId": "gh-client",
+		"clientSecret": "gh-secret"}, &gh); code != http.StatusCreated { // gitleaks:allow
+		t.Fatalf("create GitHub provider: %d", code)
+	}
+	if code := h.do(t, http.MethodPatch, "/api/v1/idps/"+gh.ID+"/mfa", map[string]any{"amr": []string{"mfa"}}, nil); code != http.StatusBadRequest {
+		t.Errorf("a rule on a GitHub provider: %d, want 400", code)
+	}
+	if code := h.do(t, http.MethodPatch, "/api/v1/idps/no-such-provider/mfa", map[string]any{"amr": []string{"mfa"}}, nil); code != http.StatusNotFound {
+		t.Errorf("a rule on a provider that does not exist: %d, want 404", code)
+	}
+
+	// Like any change to who may sign in, it needs a recent sign-in.
+	h.ageSessions(t, admin.User.ID)
+	var ref refusal
+	if code := h.do(t, http.MethodPatch, path+"/mfa", map[string]any{"amr": []string{}}, &ref); code != http.StatusForbidden || ref.code() != "reauth_required" {
+		t.Errorf("a stale session changing the rule: %d %+v, want 403 reauth_required", code, ref)
 	}
 }

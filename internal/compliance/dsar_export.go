@@ -85,8 +85,9 @@ FROM scim_users WHERE user_id = $1 ORDER BY organization_id`},
 
 		{"sessions.json", "every sign-in session, live and ended", `
 SELECT json_build_object('organizationId', organization_id, 'createdAt', created_at, 'lastSeenAt', last_seen_at,
-    'idleExpiresAt', idle_expires_at, 'absoluteExpiresAt', absolute_expires_at, 'mfaVerifiedAt', mfa_verified_at,
-    'authMethod', auth_method, 'ip', host(ip), 'userAgent', user_agent,
+    'idleExpiresAt', idle_expires_at, 'absoluteExpiresAt', absolute_expires_at,
+    'mfaVerifiedAt', CASE WHEN auth_method = 'sso' AND auth_methods IS NULL THEN NULL ELSE mfa_verified_at END,
+    'authMethod', auth_method, 'authMethods', auth_methods, 'ip', host(ip), 'userAgent', user_agent,
     'revokedAt', revoked_at, 'revokedReason', revoked_reason)
 FROM sessions WHERE user_id = $1 ORDER BY created_at`},
 

@@ -84,15 +84,50 @@ LANGUAGE sql SECURITY DEFINER STABLE SET search_path = public AS $f$
 $f$;
 -- +goose StatementEnd
 
+-- +goose StatementBegin
+-- auth_session_replace of 00029, which also gives the refresh tokens it
+-- moves the new session's amr. A re-authentication decides the session's
+-- second factor afresh, so a token family that moves to the new session
+-- says how that session signed in, not how the one it replaced did: one
+-- whose re-authentication had no second factor stops claiming "mfa" at
+-- the next refresh. The three-argument version stays for a replica of
+-- the previous release, which moves tokens with their amr unchanged.
+-- Locking is as in 00029: the lock on the old session waits for a
+-- rotation in flight, and the UPDATE after it sees the child it inserted.
+CREATE OR REPLACE FUNCTION auth_session_replace(p_old text, p_new text, p_reason text, p_amr text[])
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $f$
+DECLARE
+    ok boolean;
+BEGIN
+    PERFORM 1 FROM sessions WHERE id = p_old FOR UPDATE;
+    SELECT EXISTS (
+        SELECT 1 FROM sessions o JOIN sessions n
+          ON n.user_id = o.user_id AND n.organization_id = o.organization_id
+        WHERE o.id = p_old AND o.revoked_at IS NULL
+          AND n.id = p_new AND n.revoked_at IS NULL
+          AND n.absolute_expires_at > now() AND n.idle_expires_at > now()) INTO ok;
+    IF NOT ok THEN
+        PERFORM auth_session_end(p_old, p_reason);
+        RETURN;
+    END IF;
+    UPDATE oauth_refresh_tokens SET session_id = p_new, amr = COALESCE(p_amr, '{}')
+    WHERE revoked_at IS NULL
+      AND family_id IN (SELECT family_id FROM oauth_refresh_tokens WHERE session_id = p_old);
+    UPDATE sessions SET revoked_at = now(), revoked_reason = p_reason WHERE id = p_old AND revoked_at IS NULL;
+END
+$f$;
+-- +goose StatementEnd
+
 REVOKE ALL ON FUNCTION auth_idp_load(text),
     auth_session_open(text, text, text, timestamptz, timestamptz, text, text, timestamptz, inet, text, text[]),
-    auth_session_get(text) FROM PUBLIC;
+    auth_session_get(text), auth_session_replace(text, text, text, text[]) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION auth_idp_load(text),
     auth_session_open(text, text, text, timestamptz, timestamptz, text, text, timestamptz, inet, text, text[]),
-    auth_session_get(text) TO supermcp_app;
+    auth_session_get(text), auth_session_replace(text, text, text, text[]) TO supermcp_app;
 
 -- +goose Down
-DROP FUNCTION IF EXISTS auth_session_get(text),
+DROP FUNCTION IF EXISTS auth_session_replace(text, text, text, text[]),
+    auth_session_get(text),
     auth_session_open(text, text, text, timestamptz, timestamptz, text, text, timestamptz, inet, text, text[]),
     auth_idp_load(text);
 ALTER TABLE sessions DROP COLUMN IF EXISTS auth_methods;

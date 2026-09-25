@@ -282,10 +282,15 @@ came from:
   So `["pwd", "mfa"]` from an OpenID Connect provider with the default
   rule gives `["pwd", "mfa"]`, and `["pwd"]` gives `["pwd"]`. When
   nothing is known, `amr` is left out.
-  The value is fixed at consent and kept through refreshes and
-  re-authentications, so it describes the sign-in the person consented
-  from. If that sign-in had a second factor and a later
-  re-authentication did not, the token still says `mfa`.
+  Only `mfa` is our judgement. Every other value repeats what the
+  provider said, as it said it; we check none of them.
+  The value is fixed at consent and kept through refreshes. A
+  re-authentication through a provider moves the client's refresh
+  tokens to the new session and gives them that session's `amr`, so the
+  next refresh describes the latest sign-in: if it had no second factor,
+  tokens from then on do not say `mfa`, even though the consent came
+  from a sign-in that had one. Access tokens issued before it name the
+  replaced session and are refused.
 
 A `client_credentials` token has no session and carries neither.
 
@@ -1261,6 +1266,13 @@ of its answers count:
   256 characters.
 - Both lists empty is no rule, and then no sign-in through the provider
   counts as having a second factor.
+- `PATCH /api/v1/idps/{id}/mfa` with the rule as its body
+  (`{"amr": [...], "acr": [...]}`) changes the rule and nothing else,
+  so it cannot undo a change to the rest of the provider made since you
+  read it. It needs what a `PUT` needs (`idp:manage` and a recent
+  sign-in), is recorded in the provider's history and on the audit
+  trail as `idp.update`, and answers `404` for a provider that is not
+  there.
 - Left out of a `POST`, an OpenID Connect provider gets the default,
   `amr` `["mfa", "otp", "hwk", "sc"]`. `swk` is not in it: a key held in
   software and used alone is one factor. Left out of a `PUT`, the stored
