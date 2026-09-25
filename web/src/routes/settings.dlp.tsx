@@ -14,7 +14,7 @@ import {
   dlpPolicyDeleteMutation,
   dlpPolicyUpdateMutation,
 } from "../api/@tanstack/react-query.gen";
-import type { CustomDetector, DetectorInfo, ScanPolicy } from "../api";
+import type { CustomDetectorDto, DetectorInfo, ScanPolicy } from "../api";
 import { useSession } from "../lib/session";
 import { Badge, Loading, SignInFirst } from "../lib/ui";
 import { message } from "../lib/errors";
@@ -295,7 +295,7 @@ function DetectorChoices({
   onChange,
 }: {
   builtins: DetectorInfo[];
-  custom: CustomDetector[];
+  custom: CustomDetectorDto[];
   chosen: string[];
   onChange: (next: string[]) => void;
 }) {
@@ -354,7 +354,7 @@ function RuleEditor({
 }: {
   policy: ScanPolicy;
   builtins: DetectorInfo[];
-  custom: CustomDetector[];
+  custom: CustomDetectorDto[];
   onDone: () => Promise<void>;
   onCancel: () => void;
 }) {

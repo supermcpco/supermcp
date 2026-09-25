@@ -4,6 +4,8 @@ import { Button, Input, Text, Textarea } from "@cloudflare/kumo";
 import {
   dlpDetectorCreateMutation,
   dlpDetectorDeleteMutation,
+  dlpDetectorGetOptions,
+  dlpDetectorGetQueryKey,
   dlpDetectorsOptions,
   dlpDetectorsQueryKey,
   dlpDetectorsRevisionsListOptions,
@@ -13,7 +15,7 @@ import {
   dlpPoliciesListQueryKey,
 } from "../api/@tanstack/react-query.gen";
 import { dlpDetectorTest } from "../api";
-import type { CustomDetector } from "../api";
+import type { CustomDetectorDto } from "../api";
 import { useDebounced } from "../lib/debounce";
 import { message } from "../lib/errors";
 import { formatSamples, isStale, parseSamples, referencingPolicies, verdicts } from "../lib/dlp-detectors";
@@ -83,7 +85,13 @@ export function DetectorsPanel({ canManage, canRestore }: { canManage: boolean; 
                       {d.description}
                     </Text>
                   )}
-                  <code className={codeClass}>{d.pattern}</code>
+                  {/* The server sends the pattern only to those who may
+                      change it, and the samples to nobody in a list. */}
+                  {d.pattern && <code className={codeClass}>{d.pattern}</code>}
+                  <Text as="span" variant="secondary">
+                    {d.mustMatchCount} {d.mustMatchCount === 1 ? "sample" : "samples"} it must match,{" "}
+                    {d.mustNotMatchCount} it must not
+                  </Text>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {canManage && editing !== d.id && (
@@ -103,11 +111,12 @@ export function DetectorsPanel({ canManage, canRestore }: { canManage: boolean; 
               </div>
               {canManage && <DeleteDetector detector={d} onDeleted={refresh} />}
               {canManage && editing === d.id && (
-                <DetectorForm
-                  detector={d}
+                <EditDetector
+                  id={d.id}
                   onDone={async () => {
                     setEditing(null);
                     await refresh();
+                    await qc.invalidateQueries({ queryKey: dlpDetectorGetQueryKey({ path: { id: d.id } }) });
                     await qc.invalidateQueries({ queryKey: dlpDetectorsRevisionsListQueryKey({ path: { id: d.id } }) });
                   }}
                   onCancel={() => setEditing(null)}
@@ -132,12 +141,29 @@ export function DetectorsPanel({ canManage, canRestore }: { canManage: boolean; 
 }
 
 /**
+ * The editor for one stored detector. The list carries no samples, so the
+ * detector is read on its own first; the form opens on what came back.
+ */
+function EditDetector({ id, onDone, onCancel }: { id: string; onDone: () => Promise<void>; onCancel: () => void }) {
+  const one = useQuery({ ...dlpDetectorGetOptions({ path: { id } }), retry: false });
+  if (one.error) {
+    return (
+      <div role="alert">
+        <Text>{message(one.error)}</Text>
+      </div>
+    );
+  }
+  if (!one.data) return <Loading />;
+  return <DetectorForm key={one.data.version} detector={one.data} onDone={onDone} onCancel={onCancel} />;
+}
+
+/**
  * Deleting a detector a rule uses is refused, and the refusal names the
  * rules. Confirming deletes it anyway and takes it out of them; a rule
  * left with no detector is switched off rather than falling back to every
  * built-in.
  */
-function DeleteDetector({ detector, onDeleted }: { detector: CustomDetector; onDeleted: () => Promise<void> }) {
+function DeleteDetector({ detector, onDeleted }: { detector: CustomDetectorDto; onDeleted: () => Promise<void> }) {
   const remove = useMutation({ ...dlpDetectorDeleteMutation(), onSuccess: onDeleted });
   const users = remove.error ? referencingPolicies(remove.error) : [];
   return (
@@ -188,7 +214,7 @@ function DetectorForm({
   onDone,
   onCancel,
 }: {
-  detector?: CustomDetector;
+  detector?: CustomDetectorDto;
   onDone: () => Promise<void>;
   onCancel?: () => void;
 }) {
@@ -294,7 +320,8 @@ function DetectorForm({
         </label>
         <Text as="span" variant="secondary" id={helpId}>
           An RE2 regular expression of 3 to 512 bytes that cannot match an empty string, such as {"\\bCN-\\d{6}\\b"}.
-          Lookarounds and backreferences are not available.
+          Lookarounds and backreferences are not available, and very large repetition counts are refused because the
+          pattern runs on every tool call.
         </Text>
       </div>
       <label className="flex items-center gap-2">
@@ -401,7 +428,7 @@ function DetectorHistory({
   canRestore,
   onRestored,
 }: {
-  detector: CustomDetector;
+  detector: CustomDetectorDto;
   canRestore: boolean;
   onRestored: () => Promise<void>;
 }) {
@@ -418,7 +445,7 @@ function DetectorHistory({
   return (
     <HistoryPanel
       label={`History of ${detector.name}`}
-      intro="Every change to this detector, newest first. Restoring an earlier version is recorded as a further change, and its samples are checked again."
+      intro="Every change to this detector, newest first. The history keeps how many samples there were, not the samples themselves, so a restore keeps the samples the detector has now and checks the restored pattern against them. It is recorded as a further change."
       loading={revisions.isPending}
       revisions={revisions.data?.revisions ?? []}
       error={restore.error ? message(restore.error) : revisions.error ? message(revisions.error) : null}

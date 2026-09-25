@@ -14,7 +14,7 @@ export function parseSamples(text: string): string[] {
 }
 
 /** The inverse of parseSamples, for an editor opened on a stored detector. */
-export function formatSamples(samples: readonly string[] | undefined): string {
+export function formatSamples(samples: readonly string[] | null | undefined): string {
   return (samples ?? []).join("\n");
 }
 
