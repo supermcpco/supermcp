@@ -503,7 +503,9 @@ derived from the transport and from whether the connector is read-only.
 The name is re-checked against the surface before anything else. A name
 outside it is refused with JSON-RPC code `-32600` and the message "tool
 not available" — deliberately ambiguous, because a client must not
-learn whether a tool exists in a workspace it cannot see.
+learn whether a tool exists in a workspace it cannot see. The two
+tools for following up a held call are the exception, callable on every
+server whether it lists them or not (see "Following up a held call").
 
 `tools:invoke` is then evaluated again for this principal on this tool,
 with the destructive flag from the tool's annotations. A refusal is
@@ -587,6 +589,36 @@ capability, or when the endpoint answers with `application/json`
 (`SUPERMCP_MCP_RESPONSE_MODE=json`, where the transport has no stream to
 carry the question on), nothing is asked and a held call behaves as
 described at the top of this section.
+
+### Following up a held call
+
+Every server has two tools of the instance's own, on both session modes:
+
+| Tool | Input | What it does |
+|---|---|---|
+| `supermcp_approval_status` | `requestId` | Reads the request: `state`, `tool`, `decidedBy` and `decidedAt` once someone has answered, `reason`, `expiresAt`, and `acknowledgedAt` if the caller confirmed it from their client. Changes nothing. |
+| `supermcp_approval_cancel` | `requestId`, optional `reason` (up to 2000 characters) | Withdraws the request if it is still pending, as `POST /api/v1/approvals/{id}/cancel` does, and answers with the same fields. A request already answered, lapsed or withdrawn is an error result that says what became of it. |
+
+Both act only on requests the caller raised, and only while the caller
+may still invoke the tool the request is for (`tools:invoke` on that
+tool, which is what raising it needed; unlike the API routes they do not
+need `approvals:request`, so an OAuth client holding only
+`mcp:tools:invoke` can use them). Any other request id, whether it
+exists or not, is an error result saying there is no such request among
+the caller's calls. A withdrawal is on the audit trail as the API's is,
+`approval.cancel` with the change and `meta.via` `mcp`, and a refused one
+as a failure; reading the status is not recorded, as reading your own
+requests over the API is not.
+
+A server lists the two in `tools/list` only when an enabled rule that
+asks for a person could reach it (one for the whole organisation, the
+server, or one of its connectors or tools), so that a server where no
+call is ever held does not show the model two tools it has no use for.
+The listing follows a change of rules within 30 seconds, as the rest of
+the tool list does. Listed or not, they can always be called: the
+hidden-tool check lets them through. On a server that lists them, a
+held call's result ends with a sentence naming them. An adapter tool
+with either name is shadowed by them.
 
 ## Managing tools
 

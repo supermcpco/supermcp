@@ -661,3 +661,34 @@ func TestAcknowledgementIsARecordNotADecision(t *testing.T) {
 		t.Errorf("confirming a decided request: %v", err)
 	}
 }
+
+// Whether a server has anything to follow up depends on the rules that
+// ask for a person and could reach it, and on no others.
+func TestPolicyReachesTheServersItCouldHold(t *testing.T) {
+	t.Parallel()
+	f := newApprovalFixture(t)
+	ctx := t.Context()
+	reaches := func() bool {
+		t.Helper()
+		ok, err := f.svc.Reaches(ctx, f.orgID, "srv1", []string{"con1"}, []string{"tool1", "tool2"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return ok
+	}
+	if reaches() {
+		t.Fatal("a server is reached with no rules at all")
+	}
+	f.policy(ctx, t, governance.ApprovalPolicy{Name: "another server", Scope: governance.ScopeServer, ScopeID: "srv2",
+		Trigger: governance.TriggerDestructive})
+	f.policy(ctx, t, governance.ApprovalPolicy{Name: "exempt", Scope: governance.ScopeConnector, ScopeID: "con1",
+		Trigger: governance.TriggerDestructive, Effect: governance.EffectAllow})
+	if reaches() {
+		t.Error("a rule for another server, or one that only exempts, reaches this one")
+	}
+	f.policy(ctx, t, governance.ApprovalPolicy{Name: "one tool", Scope: governance.ScopeTool, ScopeID: "tool2",
+		Trigger: governance.TriggerDestructive})
+	if !reaches() {
+		t.Error("a rule on one of the server's tools does not reach it")
+	}
+}
