@@ -184,6 +184,35 @@ export type AuditPolicyOutputBody = {
     mode: 'none' | 'metadata' | 'masked' | 'full';
 };
 
+export type AuditRetentionInputBody = {
+    /**
+     * A URL to the JSON Schema for this object.
+     */
+    readonly $schema?: string;
+    /**
+     * How many days events keep their content; between minDays and maxDays
+     */
+    days: number;
+};
+
+export type AuditRetentionOutputBody = {
+    /**
+     * A URL to the JSON Schema for this object.
+     */
+    readonly $schema?: string;
+    /**
+     * False while the workspace is on the default
+     */
+    configured: boolean;
+    /**
+     * Events older than this lose their content; the fact that they happened stays in the chain
+     */
+    days: number;
+    defaultDays: number;
+    maxDays: number;
+    minDays: number;
+};
+
 export type BindingDto = {
     /**
      * A URL to the JSON Schema for this object.
@@ -1672,6 +1701,27 @@ export type AuditPolicyInputBodyWritable = {
 
 export type AuditPolicyOutputBodyWritable = {
     mode: 'none' | 'metadata' | 'masked' | 'full';
+};
+
+export type AuditRetentionInputBodyWritable = {
+    /**
+     * How many days events keep their content; between minDays and maxDays
+     */
+    days: number;
+};
+
+export type AuditRetentionOutputBodyWritable = {
+    /**
+     * False while the workspace is on the default
+     */
+    configured: boolean;
+    /**
+     * Events older than this lose their content; the fact that they happened stays in the chain
+     */
+    days: number;
+    defaultDays: number;
+    maxDays: number;
+    minDays: number;
 };
 
 export type BindingDtoWritable = {
@@ -3177,6 +3227,56 @@ export type AuditSetPolicyResponses = {
 };
 
 export type AuditSetPolicyResponse = AuditSetPolicyResponses[keyof AuditSetPolicyResponses];
+
+export type AuditGetRetentionData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/audit/retention';
+};
+
+export type AuditGetRetentionErrors = {
+    /**
+     * Error
+     */
+    default: ErrorModel;
+};
+
+export type AuditGetRetentionError = AuditGetRetentionErrors[keyof AuditGetRetentionErrors];
+
+export type AuditGetRetentionResponses = {
+    /**
+     * OK
+     */
+    200: AuditRetentionOutputBody;
+};
+
+export type AuditGetRetentionResponse = AuditGetRetentionResponses[keyof AuditGetRetentionResponses];
+
+export type AuditSetRetentionData = {
+    body: AuditRetentionInputBodyWritable;
+    path?: never;
+    query?: never;
+    url: '/api/v1/audit/retention';
+};
+
+export type AuditSetRetentionErrors = {
+    /**
+     * Error
+     */
+    default: ErrorModel;
+};
+
+export type AuditSetRetentionError = AuditSetRetentionErrors[keyof AuditSetRetentionErrors];
+
+export type AuditSetRetentionResponses = {
+    /**
+     * OK
+     */
+    200: AuditRetentionOutputBody;
+};
+
+export type AuditSetRetentionResponse = AuditSetRetentionResponses[keyof AuditSetRetentionResponses];
 
 export type AuditVerifyData = {
     body?: never;

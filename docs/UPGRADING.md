@@ -67,6 +67,15 @@ operations guide says what to do about each. They read new series:
 `SupermcpMigrationJobFailed` reads `kube_job_failed` from
 kube-state-metrics. Without kube-state-metrics it never fires.
 
+### Audit retention can be set from the API and the audit screen
+
+`GET` and `PUT /api/v1/audit/retention`, and a control on the audit
+screen, read and set a workspace's `audit.retention_days`. Setting it
+needs `audit:policy:manage`, whose description now says so. A value
+below 90 or above 36 500 days is refused rather than clamped. A value
+already stored out of range is still clamped by the sweep and reads back
+clamped. No migration.
+
 ### A password maximum age now applies
 
 A workspace could set one and nothing enforced it. It is enforced now,

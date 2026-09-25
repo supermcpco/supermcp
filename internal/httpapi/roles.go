@@ -1217,7 +1217,7 @@ func permissionCatalogue() []permissionGroupDTO {
 		{Resource: "audit", Title: "Audit trail", Permissions: []permissionDTO{
 			{string(authz.AuditRead), "Read the record of what everyone has done"},
 			{string(authz.AuditExport), "Download a copy of that record"},
-			{string(authz.AuditPolicy), "Decide how much of a tool call's input and output the record keeps"},
+			{string(authz.AuditPolicy), "Decide how much of a tool call's input and output the record keeps, and for how long"},
 		}},
 		{Resource: "governance", Title: "Approvals and data protection", Permissions: []permissionDTO{
 			{string(authz.ApprovalsRequest), "Ask for approval to run something that needs it"},

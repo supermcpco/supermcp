@@ -37,6 +37,29 @@ type Retention struct {
 	Log *slog.Logger
 }
 
+// RetentionSetting is one organisation's window: the number of days the
+// sweep applies, and whether the organisation chose it or is on the
+// default.
+type RetentionSetting struct {
+	Days       int
+	Configured bool
+}
+
+// RetentionRangeError refuses a window outside the bounds. The sweep would
+// clamp such a value anyway; refusing it at the door means what is stored
+// is what is applied, and the person setting it is told why.
+type RetentionRangeError struct {
+	Days int
+}
+
+func (e *RetentionRangeError) Error() string {
+	if e.Days < MinRetentionDays {
+		return fmt.Sprintf("the audit trail must be kept for at least %d days, not %d: a shorter window "+
+			"cannot answer who had access last quarter", MinRetentionDays, e.Days)
+	}
+	return fmt.Sprintf("the audit trail can be kept for at most %d days, not %d", MaxRetentionDays, e.Days)
+}
+
 // NewRetention builds the sweep.
 func NewRetention(db *tenant.DB, log *slog.Logger) *Retention {
 	return &Retention{DB: db, Log: log}
@@ -96,6 +119,60 @@ func (r *Retention) Run(ctx context.Context) error {
 	return errors.Join(errs...)
 }
 
+// Setting reads one organisation's window as the sweep would apply it.
+func (r *Retention) Setting(ctx context.Context, orgID string) (RetentionSetting, error) {
+	var raw []byte
+	err := r.DB.Tx(tenant.WithOrg(ctx, orgID), func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT value FROM org_settings WHERE organization_id = $1 AND key = $2`,
+			orgID, retentionSetting).Scan(&raw)
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return RetentionSetting{Days: DefaultRetentionDays}, nil
+	}
+	if err != nil {
+		return RetentionSetting{}, fmt.Errorf("read retention for %s: %w", orgID, err)
+	}
+	return RetentionSetting{Days: windowDays(retentionWindow(raw)), Configured: true}, nil
+}
+
+// SetDays stores an organisation's window. A value outside the bounds is
+// refused with a *RetentionRangeError rather than clamped.
+func (r *Retention) SetDays(ctx context.Context, orgID string, days int) error {
+	if days < MinRetentionDays || days > MaxRetentionDays {
+		return &RetentionRangeError{Days: days}
+	}
+	value, err := json.Marshal(days)
+	if err != nil {
+		return fmt.Errorf("encode retention: %w", err)
+	}
+	err = r.DB.Tx(tenant.WithOrg(ctx, orgID), func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `INSERT INTO org_settings (organization_id, key, value) VALUES ($1,$2,$3)
+			ON CONFLICT (organization_id, key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
+			orgID, retentionSetting, value)
+		return err
+	})
+	if err != nil {
+		return fmt.Errorf("store retention for %s: %w", orgID, err)
+	}
+	return nil
+}
+
+// InstanceCutDays is the age, in days, past which the sweep deletes rows:
+// the longest window any organisation asks for. Events younger than that
+// but outside an organisation's own window are scrubbed, not deleted. A
+// legal hold keeps rows past it; this does not account for holds.
+func (r *Retention) InstanceCutDays(ctx context.Context) (int, error) {
+	windows, err := r.windows(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("read retention windows: %w", err)
+	}
+	longest := time.Duration(0)
+	for _, w := range windows {
+		longest = max(longest, w.window)
+	}
+	return windowDays(longest), nil
+}
+
 type orgWindow struct {
 	orgID  string
 	window time.Duration
@@ -146,6 +223,10 @@ func retentionWindow(raw []byte) time.Duration {
 		days = MaxRetentionDays
 	}
 	return time.Duration(days) * 24 * time.Hour
+}
+
+func windowDays(d time.Duration) int {
+	return int(d / (24 * time.Hour))
 }
 
 func (r *Retention) logger() *slog.Logger {

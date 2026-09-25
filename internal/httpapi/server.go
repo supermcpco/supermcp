@@ -77,10 +77,13 @@ type Deps struct {
 	Blobs invoke.BlobStore
 	// ImportFetch retrieves an OpenAPI document by URL. It is the guarded
 	// client, because the URL comes from whoever is importing.
-	ImportFetch      *httpclient.Client
-	Audit            *audit.Writer
-	AuditReader      *audit.Reader
-	AuditPolicies    *audit.Policies
+	ImportFetch   *httpclient.Client
+	Audit         *audit.Writer
+	AuditReader   *audit.Reader
+	AuditPolicies *audit.Policies
+	// AuditRetention is the same sweep the hourly job runs, so the window
+	// the API reports is the one the job applies.
+	AuditRetention   *audit.Retention
 	OpenRegistration bool
 }
 

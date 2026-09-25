@@ -217,6 +217,7 @@ func build(ctx context.Context, cfg *config.Config, log *slog.Logger, st *store.
 	// provider's metadata URL comes from whoever configured it.
 	samlSvc := saml.New(db, sealer, importClient, newID, cfg.PublicURL)
 
+	retention := audit.NewRetention(db, log)
 	deps := httpapi.Deps{
 		Config: cfg, Log: log, Store: st, Catalog: cat, DB: db,
 		Identity: ids, Authz: az, Keys: keys, Connectors: conns, Servers: servers, MCP: endpoint, OAuth: oauth,
@@ -224,13 +225,14 @@ func build(ctx context.Context, cfg *config.Config, log *slog.Logger, st *store.
 		SSO:      sso, SCIM: provisioning, SAML: samlSvc,
 		Revisions: revisions, DLP: dlpPolicies,
 		Audit: auditor, AuditReader: &audit.Reader{DB: db, VerifyAnchor: keyring.VerifyDigest}, AuditPolicies: policies,
-		Limiter: limiter, Budgets: cfg.RateLimit.Budgets, Metrics: metrics, Blobs: blobs, ImportFetch: importClient,
+		AuditRetention: retention,
+		Limiter:        limiter, Budgets: cfg.RateLimit.Budgets, Metrics: metrics, Blobs: blobs, ImportFetch: importClient,
 		OpenRegistration: cfg.OpenRegistration,
 	}
 	jobs := sweeps{db: db, log: log, invalidation: listener,
 		identity: ids, oauth: oauth, keys: keyring, saml: samlSvc, reader: &audit.Reader{DB: db},
 		approvals: approvals, blobs: pgBlobs,
-		retention: audit.NewRetention(db, log),
+		retention: retention,
 		// Syslog destinations open a socket of their own, so they dial
 		// through the guard the HTTP destinations already go through.
 		exporters: audit.NewExporters(db, sealer, exportClient, log).WithDial(dialer.DialContext),

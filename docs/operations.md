@@ -66,6 +66,14 @@ cut where it sits. Deleting one tenant's rows out of the middle of a
 shared sequence would leave a gap no anchor can bridge, which is why it is
 not offered.
 
+A workspace sets its window, 90 to 36 500 days and 365 by default, under
+**Settings → Audit trail → How long it is kept**, or with
+`PUT /api/v1/audit/retention`. Either needs `audit:policy:manage`. The
+screen and `GET /api/v1/audit/retention` also show the instance-wide
+cut, which is the longest window any workspace keeps; one workspace
+choosing ten years therefore keeps every workspace's scrubbed rows for
+ten years.
+
 ## Rotating the master key
 
 The data keys are what the master key protects, so a rotation re-wraps

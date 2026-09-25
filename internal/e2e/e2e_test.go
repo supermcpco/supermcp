@@ -151,7 +151,8 @@ func start(t *testing.T) *harness {
 		Executor: exec, Revisions: revisions,
 		SSO:   sso.New(db, sealer, idpClient, newID, cfg.PublicURL),
 		SCIM:  provisioning,
-		Audit: auditor, AuditReader: &audit.Reader{DB: db}, AuditPolicies: policies}
+		Audit: auditor, AuditReader: &audit.Reader{DB: db}, AuditPolicies: policies,
+		AuditRetention: audit.NewRetention(db, log)}
 	handler, _ := httpapi.New(deps)
 	srv.Config.Handler = handler
 	srv.Start()

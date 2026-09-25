@@ -5,8 +5,11 @@ import { Button, Input, Text } from "@cloudflare/kumo";
 import {
   auditGetPolicyOptions,
   auditGetPolicyQueryKey,
+  auditGetRetentionOptions,
+  auditGetRetentionQueryKey,
   auditListOptions,
   auditSetPolicyMutation,
+  auditSetRetentionMutation,
   auditVerifyOptions,
   auditExportersCreateMutation,
   auditExportersDeleteMutation,
@@ -149,6 +152,7 @@ function AuditTrail() {
       {events.data?.events?.length === 0 && <Text variant="secondary">Nothing recorded yet.</Text>}
 
       <PayloadPolicy />
+      <Retention />
       <Destinations />
       <LegalHold />
     </div>
@@ -234,6 +238,97 @@ function PayloadPolicy() {
       {error && (
         <div role="alert">
           <Text>{error}</Text>
+        </div>
+      )}
+    </section>
+  );
+}
+
+/** How long the workspace's events keep their content. */
+function Retention() {
+  const { can } = useSession();
+  const qc = useQueryClient();
+  const retention = useQuery({ ...auditGetRetentionOptions(), retry: false });
+  // null while the field shows the stored value; a string once edited.
+  const [draft, setDraft] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+  const save = useMutation({
+    ...auditSetRetentionMutation(),
+    onSuccess: async (r) => {
+      setDraft(null);
+      setError(null);
+      setNote(`Events now keep their content for ${r.days} days.`);
+      await qc.invalidateQueries({ queryKey: auditGetRetentionQueryKey() });
+    },
+    onError: (e) => {
+      setNote(null);
+      setError(message(e));
+    },
+  });
+  const editable = can("audit:policy:manage");
+
+  const r = retention.data;
+  if (!r) return null;
+  const value = draft ?? String(r.days);
+  const days = Number(value);
+  const valid = Number.isInteger(days) && days >= r.minDays && days <= r.maxDays;
+
+  return (
+    <section className="grid gap-3">
+      <div className="grid gap-1.5">
+        <Text as="h2" variant="heading3">
+          How long it is kept
+        </Text>
+        <Text>
+          Past this many days an event loses its content, but stays in the chain so it can still be verified. The
+          event itself is deleted later, once no workspace on this instance keeps it any longer, and never while it
+          is under a hold.
+        </Text>
+      </div>
+      <form
+        className="flex flex-wrap items-end gap-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (valid) save.mutate({ body: { days } });
+        }}
+      >
+        <label className="grid gap-1">
+          <Text as="span">Days</Text>
+          <Input
+            type="number"
+            inputMode="numeric"
+            min={r.minDays}
+            max={r.maxDays}
+            step={1}
+            value={value}
+            onChange={(e) => setDraft(e.currentTarget.value)}
+            disabled={!editable || save.isPending}
+            aria-describedby="retention-range"
+            aria-invalid={!valid}
+            required
+          />
+        </label>
+        {editable && (
+          <Button type="submit" disabled={!valid || draft === null || save.isPending}>
+            Save
+          </Button>
+        )}
+      </form>
+      <div id="retention-range">
+        <Text variant="secondary">
+          {`Between ${r.minDays} and ${r.maxDays} days. `}
+          {r.configured ? "" : `This workspace is on the default of ${r.defaultDays} days.`}
+        </Text>
+      </div>
+      {error && (
+        <div role="alert">
+          <Text>{error}</Text>
+        </div>
+      )}
+      {note && (
+        <div role="status">
+          <Text variant="secondary">{note}</Text>
         </div>
       )}
     </section>

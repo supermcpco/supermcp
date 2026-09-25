@@ -83,7 +83,7 @@ and the sweep honours it; putting a hold in place today means an
 
 | Setting | Where | Range |
 |---|---|---|
-| How long the audit trail is kept | `audit.retention_days` in the workspace's settings | Default 365 days. Anything below 90 is raised to 90. Anything above 36 500 is clamped. A missing or malformed value is read as the default, because too much history costs storage and too little costs an investigation that can no longer be run. |
+| How long the audit trail is kept | `audit.retention_days` in the workspace's settings | Set with `PUT /api/v1/audit/retention` or on the audit screen (needs `audit:policy:manage`). Default 365 days; the API refuses anything outside 90 to 36 500. A value stored before the API existed is still raised to 90 or clamped to 36 500 when read. A missing or malformed value is read as the default, because too much history costs storage and too little costs an investigation that can no longer be run. |
 | How much of a tool call the audit trail keeps | `PUT /api/v1/audit/policy`, or the audit screen | `none`, `metadata` (default), `masked`, `full`. Needs `audit:policy:manage`. The change is itself recorded, with the old and new values. |
 
 Both are per workspace. A change to the payload policy takes effect
