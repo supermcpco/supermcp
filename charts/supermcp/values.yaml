@@ -80,8 +80,9 @@ encryption:
   # SUPERMCP_KEK_PREVIOUS, read from an existing Secret. The value is a
   # comma-separated list of the old key's base64, or
   # <reference>|<base64> for a key that was loaded from a file, e.g.
-  # file:/etc/supermcp/kek/ENCRYPTION_KEK|<base64>. Applies to either
-  # provider. Empty renders nothing.
+  # file:/etc/supermcp/kek/ENCRYPTION_KEK|<base64>, or awskms:<key> for
+  # a KMS key being moved away from, e.g. awskms:alias/supermcp. Applies
+  # to either provider. Empty renders nothing.
   previous:
     secretName: ""
     key: SUPERMCP_KEK_PREVIOUS

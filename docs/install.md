@@ -220,12 +220,55 @@ An alias does not let you swap the key behind it. KMS resolves the alias
 to a key when it wraps a data key, and the wrapped data key opens only
 under that key. Point the alias at another key and every data key
 wrapped so far stops opening, even though the alias name has not
-changed. Replacing the key is a master key rotation (`keys rotate-kek`
-with the old key named in `SUPERMCP_KEK_PREVIOUS`), and
-`SUPERMCP_KEK_PREVIOUS` accepts only local keys today, so moving from
-one KMS key to another, or from KMS back to a local key, is not
-possible yet. Leave the alias where it is. AWS automatic key rotation is fine: it changes the material behind
-one key id, keeps the old material, and needs nothing from supermcp.
+changed. Leave the alias where it is. AWS automatic key rotation is
+fine: it changes the material behind one key id, keeps the old material,
+and needs nothing from supermcp.
+
+#### Moving to another KMS key
+
+To move to a new key (a new CMK, a key in another account, or a
+single-Region key in another region), make the new key active and name
+the old one in `SUPERMCP_KEK_PREVIOUS`, then run `keys rotate-kek`. A
+KMS entry there is:
+
+```
+awskms:<key id, alias or ARN>[@<region>][#<deployment>]
+```
+
+- The key is spelled the way `SUPERMCP_KMS_KEY_ID` was: `alias/supermcp`,
+  a key id, or an ARN. You can also paste the reference from
+  `SELECT DISTINCT kek_ref FROM data_keys`, for example
+  `awskms:eu-central-1/alias/supermcp`.
+- Without `@<region>` the entry uses the active key's region
+  (`SUPERMCP_KMS_REGION`, then `AWS_REGION`). An ARN carries its own
+  region, so `@` beside an ARN is refused.
+- Without `#<deployment>` the entry uses `SUPERMCP_KMS_DEPLOYMENT`. A
+  deployment is part of what every data key was wrapped with, and it
+  names the installation rather than the key, so it normally stays the
+  same through a move. If the move also renames it, write the old name
+  after `#`. If it was never set before and is set now, write `#` with
+  nothing after it.
+- Entries are comma-separated and may mix KMS and local keys. They are
+  tried in order, and only the entry whose reference a data key records
+  is asked to open it.
+
+The pods need `kms:Decrypt` on the old key until the move is finished,
+and `kms:Encrypt` and `kms:Decrypt` on the new one. The steps are in
+"Rotating the master key" in `docs/operations.md`.
+
+The process refuses to start if an entry names the active key, whether
+in the same spelling, as its ARN, or as a multi-Region replica of it (a
+replica already opens what the active key wrapped, so it needs no
+entry). It cannot tell that an alias and a key id name the same key
+without calling `kms:DescribeKey`, so that case is not refused. It does
+no harm: `rotate-kek` moves the data keys from one spelling to the other.
+
+A single-Region key cannot be used outside its region. To move an
+installation to another region without a multi-Region key, create the new
+key there and name the old one with its region, for example
+`awskms:alias/supermcp@eu-central-1`. The pods then call KMS in the old
+region until `rotate-kek` has finished, so that region has to be
+reachable during the move.
 
 To be able to restore into another region, use a multi-Region key
 (`mrk-…`) and give each region a replica. See "The master key a restore
@@ -357,7 +400,7 @@ probes are never counted or limited.
 |---|---|---|
 | `SUPERMCP_KEK_PROVIDER` | `local` | `local` or `awskms`. Any other value fails the boot. A provider that cannot be built is an error, never a silent downgrade to a weaker one. |
 | `ENCRYPTION_KEK_FILE` | empty | Reads the local key from a file instead of the environment. Takes precedence over `ENCRYPTION_KEK`. The key is recorded as `file:<path>`, so the path must not change except in a rotation. The chart sets it from `encryption.local.file`. |
-| `SUPERMCP_KEK_PREVIOUS` | empty | Comma-separated master keys that may decrypt and never seal, for a rolling key rotation. An entry is either the base64 material or `<reference>|<base64>`. The chart reads it from `encryption.previous`. |
+| `SUPERMCP_KEK_PREVIOUS` | empty | Comma-separated master keys that may decrypt and never seal, for a rolling key rotation. An entry is the base64 material, `<reference>|<base64>`, or `awskms:<key>[@<region>][#<deployment>]` for a KMS key (see "Moving to another KMS key"). The chart reads it from `encryption.previous`. |
 | `SUPERMCP_KMS_KEY_ID` | none, for `awskms` | A key id, key ARN, alias name (`alias/supermcp`) or alias ARN. An alias is resolved when a data key is wrapped; re-pointing it strands the data keys already wrapped. |
 | `SUPERMCP_KMS_REGION` | `AWS_REGION`, then `AWS_DEFAULT_REGION` | The region holding the key. Required even when the key is an ARN. |
 | `SUPERMCP_KMS_DEPLOYMENT` | the key reference | Names this installation in the KMS encryption context. |
@@ -403,6 +446,8 @@ entry in the allowed-hosts list.
 | The key file is world-readable or group-writable | Boot fails, naming the file and its mode. Group read is allowed, because a Kubernetes Secret mounted under an `fsGroup` always has it. |
 | `SUPERMCP_KEK_PROVIDER` is `gcpkms`, `azurekv` or `vault` | Boot fails: only `local` and `awskms` exist. The chart refuses these at render time. |
 | `SUPERMCP_KEK_PREVIOUS` names the same reference as the active key | Boot fails. Two keys under one reference cannot be told apart by anything reading `data_keys.kek_ref`, so a rotation between them would skip every row as already done. Load the new key from `ENCRYPTION_KEK_FILE` to give it a distinct reference. |
+| A KMS entry in `SUPERMCP_KEK_PREVIOUS` names the active key, its ARN, or a multi-Region replica of it | Boot fails, naming the entry. A move needs a different key, and a replica needs no entry. |
+| A KMS entry in `SUPERMCP_KEK_PREVIOUS` has no region to use | Boot fails. Add `@<region>` to the entry or set `SUPERMCP_KMS_REGION`. |
 | A rate-limit budget is malformed | Boot fails. A limit nobody notices is off is worse than no limit: the dashboard says the route is protected and it is not. |
 | `SUPERMCP_LOG_FORMAT` is neither `json` nor `text` | Boot fails. |
 | The schema is older than the binary | `/readyz` returns 503 saying "schema behind: have N, want M", so a rolling upgrade never serves traffic from a pod whose migration hook has not finished. |
