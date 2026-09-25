@@ -126,7 +126,7 @@ func New(d Deps) (http.Handler, huma.API) {
 	})
 
 	cfg := huma.DefaultConfig("supermcp", d.Config.Version)
-	cfg.Info.Description = "supermcp admin API. Turns REST, GraphQL, SQL, SOAP and MCP systems into MCP tools."
+	cfg.Info.Description = "supermcp admin API. Turns REST, GraphQL and SQL systems into MCP tools."
 	cfg.OpenAPIPath = "/api/openapi"
 	cfg.DocsPath = ""
 	if d.Config.Dev {
