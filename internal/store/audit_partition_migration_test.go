@@ -146,7 +146,7 @@ func TestAuditPartitionMigrationCopiesResumesAndSwaps(t *testing.T) {
 	verifyChain(ctx, t, target, len(before)+4)
 
 	// 5. A rerun after the swap changes nothing.
-	execSQL(ctx, t, target, `DELETE FROM goose_db_version WHERE version_id = 33`)
+	execSQL(ctx, t, target, `DELETE FROM goose_db_version WHERE version_id >= 33`)
 	if err := migrateAlone(ctx, t, target); err != nil {
 		t.Fatalf("rerunning 33 after the swap failed: %v", err)
 	}
