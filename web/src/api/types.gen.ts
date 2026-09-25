@@ -303,6 +303,10 @@ export type ConnectorDto = {
         [key: string]: unknown;
     };
     catalogHash?: string;
+    /**
+     * The adapter this server carries differs from the one the connector was installed or last re-synced from
+     */
+    catalogOutdated: boolean;
     catalogSlug?: string;
     createdAt: string;
     credentials: Array<CredentialInfo> | null;
@@ -1196,6 +1200,111 @@ export type RestrictionDto = {
     toolName: string;
 };
 
+export type ResyncApplyInputBody = {
+    /**
+     * A URL to the JSON Schema for this object.
+     */
+    readonly $schema?: string;
+    /**
+     * The bundledHash of the plan that was reviewed
+     */
+    catalogHash: string;
+    /**
+     * The version of the plan that was reviewed
+     */
+    expectedVersion: number;
+};
+
+export type ResyncApplyOutputBody = {
+    /**
+     * A URL to the JSON Schema for this object.
+     */
+    readonly $schema?: string;
+    /**
+     * What the re-sync changed
+     */
+    applied: ResyncDto;
+    connector: ConnectorDto;
+};
+
+export type ResyncDto = {
+    /**
+     * A URL to the JSON Schema for this object.
+     */
+    readonly $schema?: string;
+    add: Array<ResyncToolDto>;
+    /**
+     * The content hash of the adapter this server carries; send it back as catalogHash to apply
+     */
+    bundledHash: string;
+    catalogSlug: string;
+    connectorId: string;
+    /**
+     * Connector settings the re-sync replaces
+     */
+    fields: Array<ResyncFieldDto>;
+    /**
+     * The catalog hash the connector was installed or last re-synced from
+     */
+    installedHash: string;
+    /**
+     * Credentials the bundled adapter requires that the connector does not have; set them separately
+     */
+    missingCredentials: Array<string>;
+    /**
+     * The bundled adapter differs from the one the connector came from
+     */
+    outdated: boolean;
+    remove: Array<ResyncToolDto>;
+    /**
+     * Tools the catalog would change but a person owns; they are left alone
+     */
+    skipped: Array<ResyncSkipDto>;
+    update: Array<ResyncToolDto>;
+    /**
+     * The connector version the plan was made against; send it back as expectedVersion to apply
+     */
+    version: number;
+};
+
+export type ResyncFieldDto = {
+    /**
+     * The bundled value, in the same form
+     */
+    after: string;
+    /**
+     * The current value: text for instructions, JSON for transport and auth
+     */
+    before: string;
+    field: 'instructions' | 'transport' | 'auth';
+};
+
+export type ResyncSkipDto = {
+    /**
+     * What the re-sync would otherwise have done
+     */
+    change: 'add' | 'update' | 'remove';
+    name: string;
+    /**
+     * edited: someone changed the tool by hand; custom: a tool made in the editor has this name
+     */
+    reason: 'edited' | 'custom';
+    toolId: string;
+};
+
+export type ResyncToolDto = {
+    /**
+     * For an update: the top-level definition fields that change
+     */
+    changed?: Array<string> | null;
+    description?: string;
+    name: string;
+    /**
+     * Empty for a tool not yet added
+     */
+    toolId?: string;
+};
+
 export type RevisionDto = {
     /**
      * A URL to the JSON Schema for this object.
@@ -1932,6 +2041,10 @@ export type ConnectorDtoWritable = {
         [key: string]: unknown;
     };
     catalogHash?: string;
+    /**
+     * The adapter this server carries differs from the one the connector was installed or last re-synced from
+     */
+    catalogOutdated: boolean;
     catalogSlug?: string;
     createdAt: string;
     credentials: Array<CredentialInfo> | null;
@@ -2463,6 +2576,61 @@ export type RegisterInputBodyWritable = {
     name?: string;
     orgName?: string;
     password: string;
+};
+
+export type ResyncApplyInputBodyWritable = {
+    /**
+     * The bundledHash of the plan that was reviewed
+     */
+    catalogHash: string;
+    /**
+     * The version of the plan that was reviewed
+     */
+    expectedVersion: number;
+};
+
+export type ResyncApplyOutputBodyWritable = {
+    /**
+     * What the re-sync changed
+     */
+    applied: ResyncDtoWritable;
+    connector: ConnectorDtoWritable;
+};
+
+export type ResyncDtoWritable = {
+    add: Array<ResyncToolDto>;
+    /**
+     * The content hash of the adapter this server carries; send it back as catalogHash to apply
+     */
+    bundledHash: string;
+    catalogSlug: string;
+    connectorId: string;
+    /**
+     * Connector settings the re-sync replaces
+     */
+    fields: Array<ResyncFieldDto>;
+    /**
+     * The catalog hash the connector was installed or last re-synced from
+     */
+    installedHash: string;
+    /**
+     * Credentials the bundled adapter requires that the connector does not have; set them separately
+     */
+    missingCredentials: Array<string>;
+    /**
+     * The bundled adapter differs from the one the connector came from
+     */
+    outdated: boolean;
+    remove: Array<ResyncToolDto>;
+    /**
+     * Tools the catalog would change but a person owns; they are left alone
+     */
+    skipped: Array<ResyncSkipDto>;
+    update: Array<ResyncToolDto>;
+    /**
+     * The connector version the plan was made against; send it back as expectedVersion to apply
+     */
+    version: number;
 };
 
 export type RevisionDtoWritable = {
@@ -4154,6 +4322,66 @@ export type ConnectorsOauthAuthorizeResponses = {
 };
 
 export type ConnectorsOauthAuthorizeResponse = ConnectorsOauthAuthorizeResponses[keyof ConnectorsOauthAuthorizeResponses];
+
+export type ConnectorsResyncPreviewData = {
+    body?: never;
+    path: {
+        /**
+         * The connector
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/connectors/{id}/resync';
+};
+
+export type ConnectorsResyncPreviewErrors = {
+    /**
+     * Error
+     */
+    default: ErrorModel;
+};
+
+export type ConnectorsResyncPreviewError = ConnectorsResyncPreviewErrors[keyof ConnectorsResyncPreviewErrors];
+
+export type ConnectorsResyncPreviewResponses = {
+    /**
+     * OK
+     */
+    200: ResyncDto;
+};
+
+export type ConnectorsResyncPreviewResponse = ConnectorsResyncPreviewResponses[keyof ConnectorsResyncPreviewResponses];
+
+export type ConnectorsResyncData = {
+    body: ResyncApplyInputBodyWritable;
+    path: {
+        /**
+         * The connector
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/connectors/{id}/resync';
+};
+
+export type ConnectorsResyncErrors = {
+    /**
+     * Error
+     */
+    default: ErrorModel;
+};
+
+export type ConnectorsResyncError = ConnectorsResyncErrors[keyof ConnectorsResyncErrors];
+
+export type ConnectorsResyncResponses = {
+    /**
+     * OK
+     */
+    200: ResyncApplyOutputBody;
+};
+
+export type ConnectorsResyncResponse = ConnectorsResyncResponses[keyof ConnectorsResyncResponses];
 
 export type ConnectorsRevisionsListData = {
     body?: never;

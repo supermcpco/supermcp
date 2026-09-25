@@ -199,7 +199,7 @@ func (d Deps) connectorRestoreRoute(api huma.API) {
 				return nil, humaErr(err)
 			}
 			d.restored(ctx, connectorRevisions, in, c.Name)
-			return &struct{ Body connectorDTO }{Body: connectorToDTO(c)}, nil
+			return &struct{ Body connectorDTO }{Body: d.connectorDTO(c)}, nil
 		})
 }
 

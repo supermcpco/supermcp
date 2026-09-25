@@ -256,7 +256,7 @@ func (d Deps) connectorRoutes(api huma.API) {
 			}
 			return &struct {
 				Body []connectorDTO `json:"body"`
-			}{Body: connectorsToDTO(list)}, nil
+			}{Body: d.connectorsDTO(list)}, nil
 		})
 
 	huma.Register(api, huma.Operation{OperationID: "connectors-get", Method: http.MethodGet, Path: "/api/v1/connectors/{id}",
@@ -272,7 +272,7 @@ func (d Deps) connectorRoutes(api huma.API) {
 			if err != nil {
 				return nil, humaErr(err)
 			}
-			return &struct{ Body connectorDTO }{Body: connectorToDTO(c)}, nil
+			return &struct{ Body connectorDTO }{Body: d.connectorDTO(c)}, nil
 		})
 
 	huma.Register(api, huma.Operation{OperationID: "connectors-install", Method: http.MethodPost, Path: "/api/v1/connectors/install",
@@ -297,7 +297,7 @@ func (d Deps) connectorRoutes(api huma.API) {
 				d.adminFailed(ctx, "connector.install", "connector", in.Body.Slug, err)
 				return nil, humaErr(err)
 			}
-			dto := connectorToDTO(c)
+			dto := d.connectorDTO(c)
 			d.admin(ctx, "connector.install", "connector", c.ID, c.Name, audit.Created(dto))
 			return &struct{ Body connectorDTO }{Body: dto}, nil
 		})
@@ -332,7 +332,7 @@ func (d Deps) connectorRoutes(api huma.API) {
 			d.emit(ctx, audit.Event{Category: audit.CategorySecrets, Action: "connector.credentials.update",
 				Outcome: audit.Success, TargetKind: "connector", TargetID: c.ID, TargetDisplay: c.Name,
 				Meta: map[string]any{"credentials": names}})
-			return &struct{ Body connectorDTO }{Body: connectorToDTO(c)}, nil
+			return &struct{ Body connectorDTO }{Body: d.connectorDTO(c)}, nil
 		})
 
 	huma.Register(api, huma.Operation{OperationID: "connectors-update", Method: http.MethodPatch, Path: "/api/v1/connectors/{id}",
@@ -358,9 +358,9 @@ func (d Deps) connectorRoutes(api huma.API) {
 			}
 			var was any
 			if before != nil {
-				was = connectorToDTO(before)
+				was = d.connectorDTO(before)
 			}
-			dto := connectorToDTO(c)
+			dto := d.connectorDTO(c)
 			d.admin(ctx, "connector.update", "connector", c.ID, c.Name, audit.Changes(was, dto))
 			return &struct{ Body connectorDTO }{Body: dto}, nil
 		})
@@ -382,7 +382,7 @@ func (d Deps) connectorRoutes(api huma.API) {
 			name := ""
 			var was any
 			if before != nil {
-				name, was = before.Name, connectorToDTO(before)
+				name, was = before.Name, d.connectorDTO(before)
 			}
 			d.admin(ctx, "connector.delete", "connector", in.ID, name, audit.Deleted(was))
 			return &struct{}{}, nil
@@ -448,20 +448,23 @@ func (d Deps) connectorRoutes(api huma.API) {
 // the domain types wrap YAML nodes, which no JSON Schema generator can
 // describe, and the UI only ever reads them.
 type connectorDTO struct {
-	ID           string                     `json:"id"`
-	Name         string                     `json:"name"`
-	Transport    map[string]any             `json:"transport"`
-	Auth         map[string]any             `json:"auth"`
-	Instructions string                     `json:"instructions,omitempty"`
-	CatalogSlug  string                     `json:"catalogSlug,omitempty"`
-	CatalogHash  string                     `json:"catalogHash,omitempty"`
-	ReadOnly     bool                       `json:"readOnly"`
-	Enabled      bool                       `json:"enabled"`
-	Version      int64                      `json:"version"`
-	ToolCount    int                        `json:"toolCount"`
-	Credentials  []connector.CredentialInfo `json:"credentials"`
-	CreatedAt    time.Time                  `json:"createdAt"`
-	UpdatedAt    time.Time                  `json:"updatedAt"`
+	ID           string         `json:"id"`
+	Name         string         `json:"name"`
+	Transport    map[string]any `json:"transport"`
+	Auth         map[string]any `json:"auth"`
+	Instructions string         `json:"instructions,omitempty"`
+	CatalogSlug  string         `json:"catalogSlug,omitempty"`
+	CatalogHash  string         `json:"catalogHash,omitempty"`
+	// CatalogOutdated is set when the adapter this server carries differs
+	// from the one the connector came from; see the resync routes.
+	CatalogOutdated bool                       `json:"catalogOutdated" doc:"The adapter this server carries differs from the one the connector was installed or last re-synced from"`
+	ReadOnly        bool                       `json:"readOnly"`
+	Enabled         bool                       `json:"enabled"`
+	Version         int64                      `json:"version"`
+	ToolCount       int                        `json:"toolCount"`
+	Credentials     []connector.CredentialInfo `json:"credentials"`
+	CreatedAt       time.Time                  `json:"createdAt"`
+	UpdatedAt       time.Time                  `json:"updatedAt"`
 }
 
 func connectorToDTO(c *connector.Connector) connectorDTO {
@@ -484,14 +487,6 @@ func toMap(v any) map[string]any {
 	m := map[string]any{}
 	_ = json.Unmarshal(b, &m)
 	return m
-}
-
-func connectorsToDTO(list []*connector.Connector) []connectorDTO {
-	out := make([]connectorDTO, 0, len(list))
-	for _, c := range list {
-		out = append(out, connectorToDTO(c))
-	}
-	return out
 }
 
 // --- MCP servers -----------------------------------------------------------
@@ -834,6 +829,12 @@ func humaErr(err error) error {
 		// The constraint and the colliding value stay out of the reply;
 		// they name tables and can echo another tenant-visible record.
 		return huma.Error409Conflict("this conflicts with a record that already exists")
+	}
+	if errors.Is(err, connector.ErrNotFromCatalog) || errors.Is(err, connector.ErrNotInCatalog) {
+		return huma.Error409Conflict(err.Error())
+	}
+	if errors.Is(err, connector.ErrResyncStale) {
+		return huma.Error409Conflict(err.Error(), &huma.ErrorDetail{Location: "body", Message: err.Error(), Value: conflictResyncStale})
 	}
 	if errors.Is(err, connector.ErrMissingCredential) {
 		return huma.Error400BadRequest(err.Error())
