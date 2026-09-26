@@ -11,6 +11,7 @@ import {
 import { useSession } from "../lib/session";
 import { message, status } from "../lib/errors";
 import { Loading, NotFound } from "../lib/ui";
+import { toast } from "../components/shell/toast";
 
 export const Route = createFileRoute("/_app/catalog/$slug")({
   component: AdapterPage,
@@ -46,6 +47,7 @@ function AdapterPage() {
     ...connectorsInstallMutation(),
     onSuccess: async (connector) => {
       await qc.invalidateQueries({ queryKey: connectorsListQueryKey() });
+      toast(`${a?.metadata.name ?? connector.name} installed`);
       await navigate({ to: "/connectors", hash: connector.id });
     },
     onError: (e) => setError(message(e)),

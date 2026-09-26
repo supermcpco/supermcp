@@ -13,6 +13,7 @@ import type { ApiKeyDto, RotatedKeyDto } from "../api/types.gen";
 import { useSession } from "../lib/session";
 import { Badge } from "../lib/ui";
 import { message } from "../lib/errors";
+import { toast } from "../components/shell/toast";
 import { canRotate, defaultGraceSeconds, graceChoices, stopsWorking } from "../lib/key-rotation";
 
 export const Route = createFileRoute("/_app/api-keys")({
@@ -42,7 +43,9 @@ function APIKeys() {
 
   const create = useMutation({
     ...keysCreateMutation(),
-    onSuccess: async (res) => {
+    onSuccess: async (res, vars) => {
+      // The name only: the secret is shown once, below, and nowhere else.
+      toast(`API key ${vars.body.name} created`);
       setSecret(res.secret);
       setReplaced(null);
       setName("");
