@@ -1,44 +1,74 @@
-import { Text } from "@cloudflare/kumo";
-import { Drawer } from "./drawer";
+import { Sidebar, Text, useSidebar } from "@cloudflare/kumo";
+import { Hexagon, List } from "@phosphor-icons/react";
+import { useSession } from "../../lib/session";
 import { NavGroups } from "./nav-groups";
 import { UserMenu } from "./user-menu";
 
+/** The width below which the sidebar is a sheet (Tailwind's lg). */
+export const sidebarBreakpoint = 1024;
+
 /**
- * The column itself: navigation that scrolls when the window is short,
- * and the person's own block pinned underneath it so signing out never
- * scrolls away.
+ * The application's sidebar, for use inside `Sidebar.Provider`. From
+ * 1024px up it sits beside the content and collapses to a rail of icons;
+ * below that Kumo renders it as a sheet that the top bar's Menu button
+ * opens. The navigation scrolls on a short window while the person's own
+ * block stays pinned underneath it, so signing out never scrolls away.
  */
-function Column({ onNavigate }: { onNavigate?: () => void }) {
+export function AppSidebar() {
+  const { session } = useSession();
+  const { isMobile } = useSidebar();
+  const workspace = session?.organization?.name ?? "No workspace";
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-4">
-        <NavGroups onNavigate={onNavigate} />
+    // On a narrow screen the sheet is the menu the top bar's button opens,
+    // so it carries that button's name.
+    <Sidebar aria-label={isMobile ? "Menu" : "Sidebar"}>
+      <Sidebar.Header className="gap-2">
+        <span className="grid size-8 shrink-0 place-items-center">
+          <Hexagon size={20} weight="duotone" aria-hidden />
+        </span>
+        <span className="grid min-w-0 flex-1 transition-opacity group-data-[state=collapsed]/sidebar:opacity-0">
+          <Text as="span" bold>
+            supermcp
+          </Text>
+          <span className="truncate" title={workspace}>
+            <Text as="span" variant="secondary">
+              {workspace}
+            </Text>
+          </span>
+        </span>
+        {isMobile && <Sidebar.Close />}
+      </Sidebar.Header>
+      {/* Not Sidebar.Content: that is Base UI's ScrollArea, which injects a
+          <style> element the content security policy (style-src 'self')
+          refuses. A plain scrolling column with Kumo's own spacing does
+          the same job without widening the policy. */}
+      <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-[11px] py-3 transition-[padding] duration-(--sidebar-animation-duration) group-not-data-[state=collapsed]/sidebar:px-3.5">
+        <NavGroups />
       </div>
-      <div className="shrink-0 border-t border-kumo-line px-3 py-3">
+      <Sidebar.Footer className="h-auto flex-col items-stretch gap-1 py-2">
         <UserMenu />
-      </div>
-    </div>
+        {!isMobile && <Sidebar.Trigger />}
+      </Sidebar.Footer>
+    </Sidebar>
   );
 }
 
 /**
- * The application's sidebar. From 1024px up it sits beside the content;
- * below that it becomes a top bar whose Menu button opens it as a drawer.
- * The parent lays the two out as a column on narrow screens and a row on
- * wide ones.
+ * What stands in for the sidebar below 1024px: the product's name and the
+ * button that opens the navigation as a sheet. Kumo hands focus back to
+ * the button when the sheet is put away with Escape.
  */
-export function Sidebar() {
+export function TopBar() {
+  const { isMobile, openMobile } = useSidebar();
+  if (!isMobile) return null;
   return (
-    <>
-      <aside className="hidden h-full w-56 shrink-0 flex-col border-r border-kumo-line lg:flex">
-        <div className="shrink-0 px-5 pt-4">
-          <Text as="span" variant="heading3">
-            supermcp
-          </Text>
-        </div>
-        <Column />
-      </aside>
-      <Drawer>{(close) => <Column onNavigate={close} />}</Drawer>
-    </>
+    <header className="flex shrink-0 items-center gap-2 border-b border-kumo-line px-3 py-2">
+      <Sidebar.Trigger aria-label="Menu" aria-expanded={openMobile}>
+        <List size={20} aria-hidden />
+      </Sidebar.Trigger>
+      <Text as="span" variant="heading3">
+        supermcp
+      </Text>
+    </header>
   );
 }
