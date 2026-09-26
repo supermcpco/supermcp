@@ -19,16 +19,29 @@ describe("visibleGroups", () => {
     expect(seen).toEqual(navGroups);
   });
 
-  it("shows a viewer no Settings group", () => {
+  it("a viewer sees Members and Roles under Settings and nothing that needs a write permission", () => {
     const seen = labels(viewer);
-    expect(Object.keys(seen)).toEqual(["Build", "Operate"]);
     expect(seen.Build).toEqual(["Overview", "Catalog", "Connectors", "MCP servers"]);
     // A viewer may neither ask for approval nor decide one.
     expect(seen.Operate).toEqual(["API keys", "Tool calls", "Analytics", "Status"]);
+    expect(seen.Settings).toEqual(["Members", "Security", "Data-loss rules", "Roles"]);
   });
 
-  it("shows an auditor the audit trail and nothing else under Settings", () => {
-    expect(labels(auditor).Settings).toEqual(["Audit trail"]);
+  it("an auditor sees the audit trail", () => {
+    expect(labels(auditor).Settings).toEqual(["Members", "Security", "Audit trail", "Data-loss rules", "Roles"]);
+  });
+
+  it("single sign-on and service accounts need the permission to manage them", () => {
+    const admin = [...viewer, "idp:manage", "serviceaccounts:manage"];
+    expect(labels(viewer).Settings).not.toContain("Single sign-on");
+    expect(labels(admin).Settings).toEqual([
+      "Members",
+      "Security",
+      "Data-loss rules",
+      "Roles",
+      "Single sign-on",
+      "Service accounts",
+    ]);
   });
 
   it("shows approvals to somebody who may only ask for them", () => {
@@ -36,7 +49,7 @@ describe("visibleGroups", () => {
   });
 
   it("keeps the screens that need nothing for somebody who holds almost nothing", () => {
-    expect(labels(consumer)).toEqual({ Build: ["Overview", "Catalog"], Operate: ["Status"] });
+    expect(labels(consumer)).toEqual({ Build: ["Overview", "Catalog"], Operate: ["Status"], Settings: ["Security"] });
   });
 
   it("drops a group that is left with no items", () => {

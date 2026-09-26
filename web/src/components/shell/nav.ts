@@ -24,9 +24,8 @@ export interface NavItem {
   label: string;
   icon: Icon;
   /**
-   * What the person needs for the item to be worth showing: the
-   * permission the screen's first read asks the server for. A list means
-   * any one of them will do. No permission means everyone signed in.
+   * The permission the screen's first read asks the server for. A list
+   * means any one of them will do; none means everyone signed in.
    */
   needs?: string | readonly string[];
 }
@@ -39,11 +38,11 @@ export interface NavGroup {
 /**
  * Every screen the sidebar leads to, in the order it shows them.
  *
- * The permissions mirror what the server checks, so an item that is
- * pruned is one whose screen would only have shown a refusal. The
- * settings screens ask for the permission to change them, not to read
- * them: a viewer may read the member list, but a column of settings they
- * cannot touch is noise in a sidebar they use every day.
+ * An item is listed exactly when the person can open its screen without
+ * being refused: `needs` is what the screen's first read asks the server
+ * for. Write controls are the screens' own business, and each hides them
+ * from somebody who may only read. Single sign-on and service accounts
+ * have no read-only view, so they need the permission to manage them.
  */
 export const navGroups: readonly NavGroup[] = [
   {
@@ -70,11 +69,12 @@ export const navGroups: readonly NavGroup[] = [
   {
     label: "Settings",
     items: [
-      { to: "/settings/members", label: "Members", icon: Users, needs: "org:members:manage" },
-      { to: "/settings/security", label: "Security", icon: ShieldCheck, needs: "org:settings:manage" },
+      { to: "/settings/members", label: "Members", icon: Users, needs: "org:read" },
+      // Your own password and sessions: anyone signed in.
+      { to: "/settings/security", label: "Security", icon: ShieldCheck },
       { to: "/settings/audit", label: "Audit trail", icon: ClipboardText, needs: "audit:read" },
-      { to: "/settings/dlp", label: "Data-loss rules", icon: ShieldWarning, needs: "dlp:manage" },
-      { to: "/settings/roles", label: "Roles", icon: UsersThree, needs: "roles:manage" },
+      { to: "/settings/dlp", label: "Data-loss rules", icon: ShieldWarning, needs: "connectors:read" },
+      { to: "/settings/roles", label: "Roles", icon: UsersThree, needs: "roles:read" },
       { to: "/settings/sso", label: "Single sign-on", icon: SignIn, needs: "idp:manage" },
       { to: "/settings/service-accounts", label: "Service accounts", icon: Robot, needs: "serviceaccounts:manage" },
     ],
