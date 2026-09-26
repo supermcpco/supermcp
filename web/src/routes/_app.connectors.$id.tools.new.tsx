@@ -4,8 +4,8 @@ import { Text } from "@cloudflare/kumo";
 import { ArrowLeft } from "@phosphor-icons/react";
 import { connectorsGetOptions } from "../api/@tanstack/react-query.gen";
 import { useSession } from "../lib/session";
-import { Loading } from "../lib/ui";
-import { message } from "../lib/errors";
+import { Loading, NotFound } from "../lib/ui";
+import { message, status } from "../lib/errors";
 import { ToolEditor } from "../components/tool-editor";
 import { transportOf } from "../lib/tool-api";
 
@@ -18,6 +18,14 @@ function NewTool() {
   const { signedIn, can } = useSession();
   const navigate = useNavigate();
   const connector = useQuery({ ...connectorsGetOptions({ path: { id } }), enabled: signedIn, retry: false });
+
+  if (status(connector.error) === 404) {
+    return (
+      <NotFound heading="Connector not found" back={{ to: "/connectors" }} backLabel="Back to connectors">
+        This workspace has no connector at this address; it may have been deleted.
+      </NotFound>
+    );
+  }
 
   return (
     <div className="grid gap-6">

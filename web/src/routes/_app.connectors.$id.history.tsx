@@ -9,8 +9,8 @@ import {
   connectorsRevisionsRestoreMutation,
 } from "../api/@tanstack/react-query.gen";
 import { useSession } from "../lib/session";
-import { Loading } from "../lib/ui";
-import { message } from "../lib/errors";
+import { Loading, NotFound } from "../lib/ui";
+import { message, status } from "../lib/errors";
 import { isVersionConflict } from "../lib/tool-api";
 import { RevisionList } from "../components/revisions";
 
@@ -49,6 +49,14 @@ function History() {
     await history.refetch();
     restore.reset();
   };
+
+  if (status(history.error) === 404) {
+    return (
+      <NotFound heading="Connector not found" back={{ to: "/connectors" }} backLabel="Back to connectors">
+        This workspace has no connector at this address; it may have been deleted.
+      </NotFound>
+    );
+  }
 
   return (
     <div className="grid gap-6">

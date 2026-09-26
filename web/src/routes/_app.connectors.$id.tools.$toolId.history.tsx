@@ -9,8 +9,8 @@ import {
   toolsRevisionsRestoreMutation,
 } from "../api/@tanstack/react-query.gen";
 import { useSession } from "../lib/session";
-import { Loading } from "../lib/ui";
-import { message } from "../lib/errors";
+import { Loading, NotFound } from "../lib/ui";
+import { message, status } from "../lib/errors";
 import { RevisionList } from "../components/revisions";
 import { blockingPolicies, invalidateTool, isReferencesConflict, type BlockingPolicy } from "../lib/tool-api";
 
@@ -42,6 +42,18 @@ function ToolHistory() {
       if (isReferencesConflict(e)) setAck({ revision: vars.path.revision, policies: blockingPolicies(e) });
     },
   });
+
+  if (status(tool.error) === 404 || status(revisions.error) === 404) {
+    return (
+      <NotFound
+        heading="Tool not found"
+        back={{ to: "/connectors/$id/tools", params: { id } }}
+        backLabel="Back to the connector's tools"
+      >
+        This connector has no tool at this address; it may have been deleted.
+      </NotFound>
+    );
+  }
 
   return (
     <div className="grid gap-6">

@@ -9,7 +9,8 @@ import {
   connectorsListQueryKey,
 } from "../api/@tanstack/react-query.gen";
 import { useSession } from "../lib/session";
-import { message } from "../lib/errors";
+import { message, status } from "../lib/errors";
+import { Loading, NotFound } from "../lib/ui";
 
 export const Route = createFileRoute("/_app/catalog/$slug")({
   component: AdapterPage,
@@ -31,7 +32,9 @@ function AdapterPage() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const { can, loading } = useSession();
-  const q = useQuery(catalogGetOptions({ path: { slug } }));
+  // An unknown slug is an answer, not a hiccup: asking again would only
+  // keep the page saying "Loading" while the same 404 comes back.
+  const q = useQuery({ ...catalogGetOptions({ path: { slug } }), retry: (n, e) => n < 1 && status(e) !== 404 });
   const a = q.data as unknown as AdapterDoc | undefined;
   // One value per declared credential, filled in before the adapter is
   // installed. They are sealed on the way into the database and never come
@@ -48,8 +51,21 @@ function AdapterPage() {
     onError: (e) => setError(message(e)),
   });
 
-  if (q.isPending) return <Text>Loading…</Text>;
-  if (!a) return <Text>Adapter not found.</Text>;
+  if (q.isPending) return <Loading />;
+  if (status(q.error) === 404) {
+    return (
+      <NotFound heading="Adapter not found" back={{ to: "/catalog" }} backLabel="Back to the catalog">
+        This server's catalog has no adapter called {slug}.
+      </NotFound>
+    );
+  }
+  if (!a) {
+    return (
+      <div role="alert" className="rounded-md bg-kumo-tint px-4 py-3 ring ring-kumo-line">
+        <Text>{message(q.error)}</Text>
+      </div>
+    );
+  }
 
   const creds = Object.entries(a.credentials ?? {});
   const missing = creds.filter(([name, c]) => c.required && !values[name]?.trim()).map(([name]) => name);

@@ -6,8 +6,8 @@ import { ArrowLeft } from "@phosphor-icons/react";
 import type { ToolIssueDto } from "../api";
 import { toolsGetOptions } from "../api/@tanstack/react-query.gen";
 import { useSession } from "../lib/session";
-import { Badge, Loading } from "../lib/ui";
-import { message } from "../lib/errors";
+import { Badge, Loading, NotFound } from "../lib/ui";
+import { message, status } from "../lib/errors";
 import { ToolEditor } from "../components/tool-editor";
 
 export const Route = createFileRoute("/_app/connectors/$id/tools/$toolId/")({
@@ -25,6 +25,18 @@ function EditTool() {
   const [savedAt, setSavedAt] = useState<number | null>(null);
   // Bumped to throw the draft away and start again from what is stored.
   const [generation, setGeneration] = useState(0);
+
+  if (status(tool.error) === 404) {
+    return (
+      <NotFound
+        heading="Tool not found"
+        back={{ to: "/connectors/$id/tools", params: { id } }}
+        backLabel="Back to the connector's tools"
+      >
+        This connector has no tool at this address; it may have been deleted.
+      </NotFound>
+    );
+  }
 
   const t = tool.data;
   const canEdit = can("tools:update");
