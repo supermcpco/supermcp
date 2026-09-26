@@ -1,8 +1,8 @@
 import { useNavigate } from "@tanstack/react-router";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { hashKey, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Text } from "@cloudflare/kumo";
-import { logoutMutation } from "../../api/@tanstack/react-query.gen";
-import { useSession } from "../../lib/session";
+import { logoutMutation, sessionQueryKey } from "../../api/@tanstack/react-query.gen";
+import { useRefreshSession, useSession } from "../../lib/session";
 import { message } from "../../lib/errors";
 import { toast } from "./toast";
 
@@ -10,22 +10,30 @@ import { toast } from "./toast";
  * Who is signed in, to which workspace, and the way out. Somebody sharing
  * a machine needs that last part, and a product that can only be left by
  * clearing cookies is a product that keeps sessions it should not.
+ *
+ * It only renders inside the signed-in layout, whose guard has already
+ * made sure there is a session.
  */
 export function UserMenu() {
-  const { session, signedIn } = useSession();
+  const { session } = useSession();
   const navigate = useNavigate();
   const qc = useQueryClient();
+  const refresh = useRefreshSession();
   const signOut = useMutation({
     ...logoutMutation(),
     onSuccess: async () => {
-      qc.clear();
-      toast("You have signed out.");
+      // Off the console first, so nothing under it renders against a
+      // session that has ended; then drop everything the last person could
+      // see, and ask again who (nobody) is here.
       await navigate({ to: "/login", search: {} });
+      const current = hashKey(sessionQueryKey());
+      qc.removeQueries({ predicate: (q) => q.queryHash !== current });
+      await refresh();
+      toast("You have signed out.");
     },
     onError: (e) => toast(message(e), { kind: "error" }),
   });
 
-  if (!signedIn) return null;
   return (
     <div className="grid gap-0.5 px-2">
       <span className="truncate" title={session?.organization?.name}>

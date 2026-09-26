@@ -1,30 +1,11 @@
 import { useEffect } from "react";
-import { createFileRoute, Link, Outlet, useNavigate, useRouter } from "@tanstack/react-router";
-import { hashKey, useMutation, useQueryClient } from "@tanstack/react-query";
-import { logoutMutation, sessionQueryKey } from "../api/@tanstack/react-query.gen";
+import { createFileRoute, Outlet, useRouter } from "@tanstack/react-router";
+import { useQueryClient } from "@tanstack/react-query";
 import { Text } from "@cloudflare/kumo";
-import {
-  ChartLine,
-  ClipboardText,
-  FileArrowUp,
-  Key,
-  ListChecks,
-  Plugs,
-  Pulse,
-  Robot,
-  ShieldCheck,
-  ShieldWarning,
-  SignIn,
-  SealCheck,
-  SquaresFour,
-  Stack,
-  Users,
-  UsersThree,
-  Storefront,
-} from "@phosphor-icons/react";
-import { requireSession, useRefreshSession, useSession } from "../lib/session";
+import { requireSession, useSession } from "../lib/session";
 import { Loading } from "../lib/ui";
 import { ChangePassword } from "../components/change-password";
+import { Sidebar } from "../components/shell/sidebar";
 
 /**
  * Everything that needs a session. The guard runs before any screen under
@@ -36,82 +17,18 @@ export const Route = createFileRoute("/_app")({
   component: Shell,
 });
 
-const nav = [
-  { to: "/", label: "Overview", icon: SquaresFour },
-  { to: "/catalog", label: "Catalog", icon: Storefront },
-  { to: "/connectors", label: "Connectors", icon: Plugs },
-  { to: "/connectors/import", label: "Import an API", icon: FileArrowUp },
-  { to: "/servers", label: "MCP servers", icon: Stack },
-  { to: "/api-keys", label: "API keys", icon: Key },
-  { to: "/tool-calls", label: "Tool calls", icon: ListChecks },
-  { to: "/analytics", label: "Analytics", icon: ChartLine },
-  { to: "/approvals", label: "Approvals", icon: SealCheck },
-  { to: "/status", label: "Status", icon: Pulse },
-] as const;
-
-const settingsNav = [
-  { to: "/settings/members", label: "Members", icon: Users },
-  { to: "/settings/security", label: "Security", icon: ShieldCheck },
-  { to: "/settings/audit", label: "Audit trail", icon: ClipboardText },
-  { to: "/settings/dlp", label: "Data-loss rules", icon: ShieldWarning },
-  { to: "/settings/roles", label: "Roles", icon: UsersThree },
-  { to: "/settings/sso", label: "Single sign-on", icon: SignIn },
-  { to: "/settings/service-accounts", label: "Service accounts", icon: Robot },
-] as const;
-
 function Shell() {
   return (
-    <div className="flex h-full bg-kumo-base text-kumo-default">
-      <aside className="flex w-56 shrink-0 flex-col border-r border-kumo-line px-3 py-4">
-        <div className="px-2 pb-4">
-          <Text as="span" variant="heading3">
-            supermcp
-          </Text>
+    <div className="flex h-full flex-col bg-kumo-base text-kumo-default lg:flex-row">
+      <Sidebar />
+      <main className="min-h-0 min-w-0 flex-1 overflow-y-auto px-6 py-5">
+        <div className="max-w-6xl">
+          <SessionGate>
+            <PasswordAgeGate>
+              <Outlet />
+            </PasswordAgeGate>
+          </SessionGate>
         </div>
-        <WorkspaceBadge />
-        <nav aria-label="Primary" className="grid gap-0.5">
-          {nav.map(({ to, label, icon: Icon }) => (
-            <Link
-              key={to}
-              to={to}
-              className="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-kumo-tint"
-              activeProps={{ className: "bg-kumo-tint font-medium", "aria-current": "page" }}
-              activeOptions={{ exact: to === "/" }}
-            >
-              <span className="h-lh flex items-center">
-                <Icon size={16} aria-hidden />
-              </span>
-              <Text as="span">{label}</Text>
-            </Link>
-          ))}
-        </nav>
-        <div className="px-2 pt-5 pb-1">
-          <Text as="span" variant="secondary">
-            Settings
-          </Text>
-        </div>
-        <nav aria-label="Settings" className="grid gap-0.5">
-          {settingsNav.map(({ to, label, icon: Icon }) => (
-            <Link
-              key={to}
-              to={to}
-              className="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-kumo-tint"
-              activeProps={{ className: "bg-kumo-tint font-medium", "aria-current": "page" }}
-            >
-              <span className="h-lh flex items-center">
-                <Icon size={16} aria-hidden />
-              </span>
-              <Text as="span">{label}</Text>
-            </Link>
-          ))}
-        </nav>
-      </aside>
-      <main className="min-w-0 flex-1 overflow-y-auto px-6 py-5">
-        <SessionGate>
-          <PasswordAgeGate>
-            <Outlet />
-          </PasswordAgeGate>
-        </SessionGate>
       </main>
     </div>
   );
@@ -155,53 +72,6 @@ function PasswordAgeGate({ children }: { children: React.ReactNode }) {
       <ChangePassword
         onChanged={() => qc.invalidateQueries()}
       />
-    </div>
-  );
-}
-
-/**
- * Who is signed in, to which workspace, and the way out. Somebody sharing
- * a machine needs that last part, and a product that can only be left by
- * clearing cookies is a product that keeps sessions it should not.
- */
-function WorkspaceBadge() {
-  const { session } = useSession();
-  const navigate = useNavigate();
-  const qc = useQueryClient();
-  const refresh = useRefreshSession();
-  const signOut = useMutation({
-    ...logoutMutation(),
-    onSuccess: async () => {
-      // Off the console first, so nothing under it renders against a
-      // session that has ended; then drop everything the last person could
-      // see, and ask again who (nobody) is here.
-      await navigate({ to: "/login", search: {} });
-      const session = hashKey(sessionQueryKey());
-      qc.removeQueries({ predicate: (q) => q.queryHash !== session });
-      await refresh();
-    },
-  });
-
-  return (
-    <div className="grid gap-0.5 px-2 pb-3">
-      <Text as="span" variant="secondary">
-        {session?.organization?.name ?? "No workspace"}
-      </Text>
-      <span className="truncate">
-        <Text as="span" variant="secondary">
-          {session?.user?.email}
-        </Text>
-      </span>
-      <button
-        type="button"
-        className="justify-self-start underline"
-        onClick={() => signOut.mutate({})}
-        disabled={signOut.isPending}
-      >
-        <Text as="span" variant="secondary">
-          Sign out
-        </Text>
-      </button>
     </div>
   );
 }
