@@ -16,3 +16,15 @@ export function status(e: unknown): number | undefined {
 export function details(e: unknown): { location?: string; message?: string; value?: unknown }[] {
   return (e as { errors?: { location?: string; message?: string; value?: unknown }[] | null } | undefined)?.errors ?? [];
 }
+
+/**
+ * A message as a sentence: capitalised and closed with a full stop, so a
+ * terse server detail ("invalid credentials") reads as something said to a
+ * person. The words are the server's; only the edges change.
+ */
+export function asSentence(text: string): string {
+  const t = text.trim();
+  if (!t) return t;
+  const capital = t[0].toUpperCase() + t.slice(1);
+  return /[.!?…]$/.test(capital) ? capital : `${capital}.`;
+}

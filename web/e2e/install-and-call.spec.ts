@@ -1,4 +1,4 @@
-import { test, expect, expectAccessible } from "./fixtures";
+import { test, expect, expectAccessible, signUp } from "./fixtures";
 
 // The path a new workspace actually takes: find an adapter, install it,
 // expose it on an MCP server, mint a key, and call a tool with that key.
@@ -73,13 +73,11 @@ test("an API key from one workspace cannot reach another workspace's server", as
   const context = await browser.newContext();
   const intruderPage = await context.newPage();
   const stamp = Date.now();
-  await intruderPage.goto("/login");
-  await intruderPage.getByRole("button", { name: /create a new workspace/i }).click();
-  await intruderPage.getByLabel("Email").fill(`intruder-${stamp}@example.test`);
-  await intruderPage.getByLabel("Password").fill("Correct Horse Battery 9");
-  await intruderPage.getByLabel("Workspace name").fill(`Intruder ${stamp}`);
-  await intruderPage.getByRole("button", { name: /create workspace/i }).click();
-  await expect(intruderPage.getByText(`Intruder ${stamp}`)).toBeVisible();
+  await signUp(intruderPage, {
+    email: `intruder-${stamp}@example.test`,
+    password: "Correct Horse Battery 9", // gitleaks:allow
+    org: `Intruder ${stamp}`,
+  });
 
   await intruderPage.goto("/api-keys");
   await intruderPage.getByLabel("Name").fill("Intruder key");
