@@ -88,6 +88,12 @@ type harnessOptions struct {
 	// elicitTimeout bounds how long a held call waits for a client's
 	// answer; zero is the endpoint's default.
 	elicitTimeout time.Duration
+	// dsn replaces DATABASE_URL, for a test that needs a database of its
+	// own, such as one that counts users.
+	dsn string
+	// closedRegistration turns open registration off, so only the first
+	// account may register.
+	closedRegistration bool
 }
 
 func start(t *testing.T) *harness {
@@ -100,6 +106,9 @@ func startWith(t *testing.T, opts harnessOptions) *harness {
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
 		t.Skip("DATABASE_URL not set")
+	}
+	if opts.dsn != "" {
+		dsn = opts.dsn
 	}
 	ctx := context.Background()
 	log := opts.log
@@ -142,7 +151,7 @@ func startWith(t *testing.T, opts harnessOptions) *harness {
 	policies := audit.NewPolicies(db)
 
 	az := authz.New(db)
-	ids := identity.New(db, identity.Config{OpenRegistration: true}, az, newID)
+	ids := identity.New(db, identity.Config{OpenRegistration: !opts.closedRegistration}, az, newID)
 	keys := mcpauth.New(db, newID)
 	// Wired as in cmd/supermcp/build.go: the revision history on the
 	// services that write it, and governance between the authorisation
@@ -191,7 +200,7 @@ func startWith(t *testing.T, opts harnessOptions) *harness {
 	samlSvc := saml.New(db, sealer, idpClient, newID, cfg.PublicURL)
 	samlSvc.Revisions = revisions
 	deps := httpapi.Deps{Config: cfg, Log: log, Store: st, Catalog: cat, DB: db, Identity: ids,
-		Authz: az, Keys: keys, Connectors: conns, Servers: servers, MCP: endpoint, OAuth: oauth, OpenRegistration: true,
+		Authz: az, Keys: keys, Connectors: conns, Servers: servers, MCP: endpoint, OAuth: oauth,
 		Executor: exec, Revisions: revisions,
 		SSO:   ssoSvc,
 		SAML:  samlSvc,

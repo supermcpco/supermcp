@@ -387,7 +387,7 @@ which are also accepted under the prefix.
 | `SUPERMCP_LOG_LEVEL` | `info` | Log verbosity. |
 | `SUPERMCP_LOG_FORMAT` | `json` | `json` or `text`. Anything else fails the boot. |
 | `SUPERMCP_SHUTDOWN_TIMEOUT` | `20s` | How long a graceful shutdown waits for in-flight requests. |
-| `SUPERMCP_DEV` | off | Relaxes the public-URL check, serves the API documentation page at `/api/docs`, and allows the SSRF guard to reach loopback. Never in production. |
+| `SUPERMCP_DEV` | off | Relaxes the public-URL check, serves the API documentation page at `/api/docs`, and allows the SSRF guard to reach loopback. It does not open registration. Never in production. |
 | `SUPERMCP_MIGRATE_ON_START` | off | Runs migrations from `serve`. Single-replica deployments only; the binary logs a warning when it is set. A replica that finds another process migrating waits for it and does not migrate after it: if migrations are still pending when the other finishes, the replica exits with an error and the next start, or `supermcp migrate`, applies them. |
 
 ### Access
@@ -525,8 +525,10 @@ registration when no user exists yet, whatever
 `SUPERMCP_OPEN_REGISTRATION` says.
 
 The sign-in page offers the sign-up form while the instance has no
-users, so the first administrator creates the workspace in the browser
-and nothing has to be turned on for it.
+users, or while `SUPERMCP_OPEN_REGISTRATION` is on, which are exactly
+the cases in which the server accepts it. The first administrator
+creates the workspace in the browser and nothing has to be turned on
+for it.
 
 The same thing can be done from the command line:
 

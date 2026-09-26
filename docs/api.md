@@ -81,7 +81,10 @@ address that does not exist takes the same time as one that does.
 `GET /api/v1/auth/session` describes the current session: the user, the
 active workspace, every workspace they belong to, and the permissions
 they hold in the active one. A signed-out caller gets
-`{"anonymous": true}`. `POST /api/v1/auth/switch-org` changes the
+`{"anonymous": true}`, with `"registrationOpen": true` when
+`POST /api/v1/auth/register` would accept a new account: while the
+instance has no users, or while `SUPERMCP_OPEN_REGISTRATION` is on.
+Otherwise register answers 403 and the sign-up is by invitation. `POST /api/v1/auth/switch-org` changes the
 active workspace after re-checking membership.
 
 Cookie-authenticated mutations are checked against `Sec-Fetch-Site` and

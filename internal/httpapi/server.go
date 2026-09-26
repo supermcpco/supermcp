@@ -86,8 +86,7 @@ type Deps struct {
 	AuditPolicies *audit.Policies
 	// AuditRetention is the same sweep the hourly job runs, so the window
 	// the API reports is the one the job applies.
-	AuditRetention   *audit.Retention
-	OpenRegistration bool
+	AuditRetention *audit.Retention
 }
 
 // New builds the router and returns the huma API for OpenAPI export.

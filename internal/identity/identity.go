@@ -132,17 +132,29 @@ type RegisterInput struct {
 	Email, Name, Password, OrgName string
 }
 
-// Unclaimed reports whether this instance has no users yet. The first
-// registration is always allowed, whatever the setting says, so the sign-in
-// screen has to be able to ask.
-func (s *Service) Unclaimed(ctx context.Context) bool {
+// RegistrationOpen reports whether Register would accept a new account
+// now: on an instance nobody has claimed yet, or when open registration is
+// configured. The sign-in screen asks it before offering the sign-up form,
+// so it must stay the rule Register enforces and nothing more. A failure to
+// look answers false; a failure is not an invitation.
+func (s *Service) RegistrationOpen(ctx context.Context) bool {
+	open, err := s.registrationOpen(ctx)
+	return err == nil && open
+}
+
+// registrationOpen is the rule behind RegistrationOpen and Register. The
+// first registration is always allowed, whatever the setting says.
+func (s *Service) registrationOpen(ctx context.Context) (bool, error) {
+	if s.Cfg.OpenRegistration {
+		return true, nil
+	}
 	var count int64
 	if err := s.DB.Pre(ctx, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx, "SELECT auth_user_count()").Scan(&count)
 	}); err != nil {
-		return false // a failure to look is not an invitation
+		return false, fmt.Errorf("count users: %w", err)
 	}
-	return count == 0
+	return count == 0, nil
 }
 
 // Register creates a user and an organisation they own.
@@ -154,11 +166,11 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (*User, *Org, 
 	if err := CheckPolicy(in.Password, DefaultPolicy); err != nil {
 		return nil, nil, err
 	}
-	var count int64
-	if err := s.DB.Pre(ctx, func(tx pgx.Tx) error { return tx.QueryRow(ctx, "SELECT auth_user_count()").Scan(&count) }); err != nil {
+	open, err := s.registrationOpen(ctx)
+	if err != nil {
 		return nil, nil, err
 	}
-	if count > 0 && !s.Cfg.OpenRegistration {
+	if !open {
 		return nil, nil, ErrRegistrationClosed
 	}
 	hash, err := HashPassword(in.Password)
