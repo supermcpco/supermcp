@@ -1,11 +1,12 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { createFileRoute, Outlet, useRouter } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import { Text } from "@cloudflare/kumo";
+import { Sidebar, Text } from "@cloudflare/kumo";
 import { requireSession, useSession } from "../lib/session";
 import { Loading } from "../lib/ui";
 import { ChangePassword } from "../components/change-password";
-import { Sidebar } from "../components/shell/sidebar";
+import { AppSidebar, sidebarBreakpoint, TopBar } from "../components/shell/sidebar";
+import { readSidebarOpen, storeSidebarOpen } from "../components/shell/sidebar-state";
 
 /**
  * Everything that needs a session. The guard runs before any screen under
@@ -18,17 +19,32 @@ export const Route = createFileRoute("/_app")({
 });
 
 function Shell() {
+  // Read once: Kumo takes it as the starting state and reports each change,
+  // which is stored so a reload keeps the sidebar as it was left. The open
+  // state is not controlled from here because in Kumo a controlled `open`
+  // also drives the narrow-screen sheet, which would then open by itself on
+  // every load and overwrite the wide-screen choice.
+  const [startOpen] = useState(readSidebarOpen);
   return (
-    <div className="flex h-full flex-col bg-kumo-base text-kumo-default lg:flex-row">
-      <Sidebar />
-      <main className="min-h-0 min-w-0 flex-1 overflow-y-auto px-6 py-5">
-        <SessionGate>
-          <PasswordAgeGate>
-            <Outlet />
-          </PasswordAgeGate>
-        </SessionGate>
-      </main>
-    </div>
+    <Sidebar.Provider
+      collapsible="icon"
+      mobileBreakpoint={sidebarBreakpoint}
+      defaultOpen={startOpen}
+      onOpenChange={storeSidebarOpen}
+      className="h-full bg-kumo-base text-kumo-default"
+    >
+      <AppSidebar />
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <TopBar />
+        <main className="min-h-0 min-w-0 flex-1 overflow-y-auto px-6 py-5">
+          <SessionGate>
+            <PasswordAgeGate>
+              <Outlet />
+            </PasswordAgeGate>
+          </SessionGate>
+        </main>
+      </div>
+    </Sidebar.Provider>
   );
 }
 
