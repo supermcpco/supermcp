@@ -18,12 +18,12 @@ import {
 } from "../api/@tanstack/react-query.gen";
 import type { BindingDto, RoleDto } from "../api";
 import { useSession } from "../lib/session";
-import { Badge, Loading, SignInFirst } from "../lib/ui";
+import { Badge, Loading } from "../lib/ui";
 import { message } from "../lib/errors";
 import { RoleEditor, type Holder } from "../components/role-editor";
 import { RevisionList } from "../components/revisions";
 
-export const Route = createFileRoute("/settings/roles")({
+export const Route = createFileRoute("/_app/settings/roles")({
   component: Roles,
 });
 
@@ -33,7 +33,7 @@ const summaryLength = 4;
 const selectClass = "rounded-md border border-kumo-line bg-kumo-base px-3 py-2";
 
 function Roles() {
-  const { signedIn, can, loading } = useSession();
+  const { signedIn, can } = useSession();
   const canRead = can("roles:read");
   const canManage = can("roles:manage");
   const canRestore = can("revisions:rollback");
@@ -131,8 +131,6 @@ function Roles() {
     onError: (e) => setError(message(e)),
   });
 
-  if (loading) return <Loading />;
-  if (!signedIn) return <SignInFirst />;
   if (!canRead) return <Text>You do not have permission to see the roles in this workspace.</Text>;
 
   const toggle = (id: string) => {

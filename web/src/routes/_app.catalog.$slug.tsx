@@ -11,7 +11,7 @@ import {
 import { useSession } from "../lib/session";
 import { message } from "../lib/errors";
 
-export const Route = createFileRoute("/catalog/$slug")({
+export const Route = createFileRoute("/_app/catalog/$slug")({
   component: AdapterPage,
 });
 

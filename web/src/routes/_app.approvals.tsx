@@ -19,16 +19,16 @@ import {
 } from "../api/@tanstack/react-query.gen";
 import type { ApprovalPolicy, ApprovalRequest } from "../api";
 import { useSession } from "../lib/session";
-import { Badge, Loading, SignInFirst } from "../lib/ui";
+import { Badge, Loading } from "../lib/ui";
 import { message } from "../lib/errors";
 import { HistoryPanel } from "../components/revisions";
 
-export const Route = createFileRoute("/approvals")({
+export const Route = createFileRoute("/_app/approvals")({
   component: Approvals,
 });
 
 function Approvals() {
-  const { signedIn, can, loading } = useSession();
+  const { signedIn, can } = useSession();
   const canDecide = can("approvals:decide");
   const qc = useQueryClient();
 
@@ -58,9 +58,6 @@ function Approvals() {
 
   const approve = useMutation({ ...approvalsApproveMutation(), onSuccess: refresh, onError });
   const reject = useMutation({ ...approvalsRejectMutation(), onSuccess: refresh, onError });
-
-  if (loading) return <Loading />;
-  if (!signedIn) return <SignInFirst />;
 
   const pending = waiting.data?.approvals ?? [];
   const history = (recent.data?.approvals ?? []).filter((r) => r.state !== "pending");

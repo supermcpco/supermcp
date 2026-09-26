@@ -19,11 +19,11 @@ import {
 import { client } from "../api/client.gen";
 import type { IdpDto, IdpInput } from "../api/types.gen";
 import { useSession } from "../lib/session";
-import { Badge, Loading, SignInFirst } from "../lib/ui";
+import { Badge } from "../lib/ui";
 import { message } from "../lib/errors";
 import { HistoryPanel } from "../components/revisions";
 
-export const Route = createFileRoute("/settings/sso")({
+export const Route = createFileRoute("/_app/settings/sso")({
   component: SingleSignOn,
 });
 
@@ -121,7 +121,7 @@ function list(value: string): string[] {
 type Preset = IdpInput["preset"];
 
 function SingleSignOn() {
-  const { signedIn, can, loading } = useSession();
+  const { signedIn, can } = useSession();
   const qc = useQueryClient();
   const idps = useQuery({ ...listIdpsOptions(), enabled: signedIn && can("idp:manage"), retry: false });
   const [form, setForm] = useState(blank);
@@ -156,8 +156,6 @@ function SingleSignOn() {
     },
   });
 
-  if (loading) return <Loading />;
-  if (!signedIn) return <SignInFirst />;
   if (!can("idp:manage")) {
     return (
       <Text>You do not have permission to manage how people sign in. Ask an administrator of this workspace.</Text>

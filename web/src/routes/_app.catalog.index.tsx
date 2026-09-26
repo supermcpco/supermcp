@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Input, Text } from "@cloudflare/kumo";
 import { catalogListOptions } from "../api/@tanstack/react-query.gen";
 
-export const Route = createFileRoute("/catalog/")({
+export const Route = createFileRoute("/_app/catalog/")({
   component: Catalog,
 });
 

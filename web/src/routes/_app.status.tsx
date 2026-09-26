@@ -5,9 +5,8 @@ import { CheckCircle, Question, WarningCircle } from "@phosphor-icons/react";
 import { auditVerifyOptions, catalogListOptions } from "../api/@tanstack/react-query.gen";
 import { client } from "../api/client.gen";
 import { useSession } from "../lib/session";
-import { Loading, SignInFirst } from "../lib/ui";
 
-export const Route = createFileRoute("/status")({
+export const Route = createFileRoute("/_app/status")({
   component: Status,
 });
 
@@ -54,7 +53,7 @@ function useReadiness() {
 }
 
 function Status() {
-  const { signedIn, can, loading } = useSession();
+  const { signedIn, can } = useSession();
   const version = useVersion();
   const readiness = useReadiness();
   const mayVerify = can("audit:read");
@@ -65,9 +64,6 @@ function Status() {
     refetchInterval: every,
   });
   const catalog = useQuery({ ...catalogListOptions(), retry: false, refetchInterval: every });
-
-  if (loading) return <Loading />;
-  if (!signedIn) return <SignInFirst />;
 
   const checks: Check[] = [
     versionCheck(version.isPending, version.isSuccess, version.data),

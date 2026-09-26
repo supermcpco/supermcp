@@ -3,18 +3,15 @@ import { useQuery } from "@tanstack/react-query";
 import { Text } from "@cloudflare/kumo";
 import { invocationsListOptions } from "../api/@tanstack/react-query.gen";
 import { useSession } from "../lib/session";
-import { Badge, Loading, SignInFirst } from "../lib/ui";
+import { Badge } from "../lib/ui";
 
-export const Route = createFileRoute("/tool-calls")({
+export const Route = createFileRoute("/_app/tool-calls")({
   component: ToolCalls,
 });
 
 function ToolCalls() {
-  const { signedIn, loading } = useSession();
+  const { signedIn } = useSession();
   const q = useQuery({ ...invocationsListOptions({ query: { limit: 100 } }), enabled: signedIn, retry: false, refetchInterval: 10_000 });
-
-  if (loading) return <Loading />;
-  if (!signedIn) return <SignInFirst />;
 
   return (
     <div className="grid gap-6">

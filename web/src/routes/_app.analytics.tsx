@@ -26,15 +26,15 @@ import {
 } from "../lib/analytics";
 import { message } from "../lib/errors";
 import { useSession } from "../lib/session";
-import { Loading, SignInFirst } from "../lib/ui";
+import { Loading } from "../lib/ui";
 
-export const Route = createFileRoute("/analytics")({
+export const Route = createFileRoute("/_app/analytics")({
   component: Analytics,
   validateSearch: parseAnalyticsSearch,
 });
 
 function Analytics() {
-  const { signedIn, can, loading } = useSession();
+  const { signedIn, can } = useSession();
   const search = Route.useSearch();
   const navigate = useNavigate({ from: Route.fullPath });
   const range = search.range ?? defaultRange;
@@ -60,8 +60,6 @@ function Analytics() {
     placeholderData: keepPreviousData,
   });
 
-  if (loading) return <Loading />;
-  if (!signedIn) return <SignInFirst />;
   if (!allowed) {
     return <Text>You do not have permission to see this workspace's tool calls.</Text>;
   }

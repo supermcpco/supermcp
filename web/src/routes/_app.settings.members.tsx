@@ -15,7 +15,7 @@ import {
 } from "../api/@tanstack/react-query.gen";
 import type { InviteDto, MemberDto, RoleDto } from "../api/types.gen";
 import { useSession } from "../lib/session";
-import { Badge, Loading, SignInFirst } from "../lib/ui";
+import { Badge, Loading } from "../lib/ui";
 import { status } from "../lib/errors";
 import {
   defaultExpiryDays,
@@ -28,7 +28,7 @@ import {
   sourceLabel,
 } from "../lib/members";
 
-export const Route = createFileRoute("/settings/members")({
+export const Route = createFileRoute("/_app/settings/members")({
   component: Members,
 });
 
@@ -40,7 +40,7 @@ type Pending =
   | { userId: string; kind: "deactivate" | "reactivate" | "remove" };
 
 function Members() {
-  const { signedIn, can, loading } = useSession();
+  const { signedIn, can } = useSession();
   const canRead = can("org:read");
   const canManage = can("org:members:manage");
   const qc = useQueryClient();
@@ -70,8 +70,6 @@ function Members() {
     onError: (e, v) => setRowError({ userId: v.path.userId, text: memberError(e) }),
   });
 
-  if (loading) return <Loading />;
-  if (!signedIn) return <SignInFirst />;
   if (!canRead) return <Text>You do not have permission to see the members of this workspace.</Text>;
 
   // A role that carries everything can only be handed out by somebody who

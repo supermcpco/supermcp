@@ -6,11 +6,11 @@ import { ArrowLeft } from "@phosphor-icons/react";
 import type { ToolIssueDto } from "../api";
 import { toolsGetOptions } from "../api/@tanstack/react-query.gen";
 import { useSession } from "../lib/session";
-import { Badge, Loading, SignInFirst } from "../lib/ui";
+import { Badge, Loading } from "../lib/ui";
 import { message } from "../lib/errors";
 import { ToolEditor } from "../components/tool-editor";
 
-export const Route = createFileRoute("/connectors/$id/tools/$toolId/")({
+export const Route = createFileRoute("/_app/connectors/$id/tools/$toolId/")({
   component: EditTool,
 });
 
@@ -18,16 +18,13 @@ const sourceLabel = { catalog: "from the catalog", import: "imported", custom: "
 
 function EditTool() {
   const { id, toolId } = Route.useParams();
-  const { signedIn, can, loading } = useSession();
+  const { signedIn, can } = useSession();
   const navigate = useNavigate();
   const tool = useQuery({ ...toolsGetOptions({ path: { id: toolId } }), enabled: signedIn, retry: false });
   const [warnings, setWarnings] = useState<ToolIssueDto[]>([]);
   const [savedAt, setSavedAt] = useState<number | null>(null);
   // Bumped to throw the draft away and start again from what is stored.
   const [generation, setGeneration] = useState(0);
-
-  if (loading) return <Loading />;
-  if (!signedIn) return <SignInFirst />;
 
   const t = tool.data;
   const canEdit = can("tools:update");

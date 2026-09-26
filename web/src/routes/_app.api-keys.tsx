@@ -11,11 +11,11 @@ import {
 } from "../api/@tanstack/react-query.gen";
 import type { ApiKeyDto, RotatedKeyDto } from "../api/types.gen";
 import { useSession } from "../lib/session";
-import { Badge, Loading, SignInFirst } from "../lib/ui";
+import { Badge } from "../lib/ui";
 import { message } from "../lib/errors";
 import { canRotate, defaultGraceSeconds, graceChoices, stopsWorking } from "../lib/key-rotation";
 
-export const Route = createFileRoute("/api-keys")({
+export const Route = createFileRoute("/_app/api-keys")({
   component: APIKeys,
 });
 
@@ -29,7 +29,7 @@ const purposes = {
 } as const;
 
 function APIKeys() {
-  const { signedIn, loading } = useSession();
+  const { signedIn } = useSession();
   const qc = useQueryClient();
   const keys = useQuery({ ...keysListOptions(), enabled: signedIn, retry: false });
   const [name, setName] = useState("");
@@ -55,9 +55,6 @@ function APIKeys() {
     ...keysRevokeMutation(),
     onSuccess: () => qc.invalidateQueries({ queryKey: keysListQueryKey() }),
   });
-
-  if (loading) return <Loading />;
-  if (!signedIn) return <SignInFirst />;
 
   return (
     <div className="grid gap-6">

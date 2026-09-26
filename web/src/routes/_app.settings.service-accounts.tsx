@@ -11,15 +11,15 @@ import {
   setServiceAccountDisabledMutation,
 } from "../api/@tanstack/react-query.gen";
 import { useSession } from "../lib/session";
-import { Badge, Loading, SignInFirst } from "../lib/ui";
+import { Badge } from "../lib/ui";
 import { message } from "../lib/errors";
 
-export const Route = createFileRoute("/settings/service-accounts")({
+export const Route = createFileRoute("/_app/settings/service-accounts")({
   component: ServiceAccounts,
 });
 
 function ServiceAccounts() {
-  const { signedIn, can, loading } = useSession();
+  const { signedIn, can } = useSession();
   const qc = useQueryClient();
   const accounts = useQuery({
     ...listServiceAccountsOptions(),
@@ -52,8 +52,6 @@ function ServiceAccounts() {
   const setDisabled = useMutation({ ...setServiceAccountDisabledMutation(), onSuccess: refresh });
   const remove = useMutation({ ...deleteServiceAccountMutation(), onSuccess: refresh });
 
-  if (loading) return <Loading />;
-  if (!signedIn) return <SignInFirst />;
   if (!can("serviceaccounts:manage")) {
     return <Text>You do not have permission to manage service accounts in this workspace.</Text>;
   }

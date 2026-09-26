@@ -11,18 +11,15 @@ import {
   setPasswordPolicyMutation,
 } from "../api/@tanstack/react-query.gen";
 import { useSession } from "../lib/session";
-import { Badge, Loading, SignInFirst } from "../lib/ui";
+import { Badge } from "../lib/ui";
 import { message } from "../lib/errors";
 import { ChangePassword } from "../components/change-password";
 
-export const Route = createFileRoute("/settings/security")({
+export const Route = createFileRoute("/_app/settings/security")({
   component: Security,
 });
 
 function Security() {
-  const { signedIn, loading } = useSession();
-  if (loading) return <Loading />;
-  if (!signedIn) return <SignInFirst />;
   return (
     <div className="grid gap-8">
       <div className="grid gap-1.5">

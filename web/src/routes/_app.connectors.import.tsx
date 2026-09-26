@@ -6,15 +6,15 @@ import { ArrowLeft } from "@phosphor-icons/react";
 import { connectorsImportMutation, connectorsListQueryKey } from "../api/@tanstack/react-query.gen";
 import type { ErrorDetail, ImportFinding, ImportOutputBody } from "../api";
 import { useSession } from "../lib/session";
-import { Badge, Loading, SignInFirst } from "../lib/ui";
+import { Badge } from "../lib/ui";
 import { message } from "../lib/errors";
 
-export const Route = createFileRoute("/connectors/import")({
+export const Route = createFileRoute("/_app/connectors/import")({
   component: ImportConnector,
 });
 
 function ImportConnector() {
-  const { signedIn, can, loading } = useSession();
+  const { can } = useSession();
   const navigate = useNavigate();
   const qc = useQueryClient();
 
@@ -80,8 +80,6 @@ function ImportConnector() {
     onError: fail,
   });
 
-  if (loading) return <Loading />;
-  if (!signedIn) return <SignInFirst />;
   if (!can("connectors:create")) {
     return <Text>You do not have permission to add connectors to this workspace.</Text>;
   }

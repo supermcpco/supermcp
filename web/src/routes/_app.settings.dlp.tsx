@@ -16,14 +16,14 @@ import {
 } from "../api/@tanstack/react-query.gen";
 import type { CustomDetectorDto, DetectorInfo, ScanPolicy } from "../api";
 import { useSession } from "../lib/session";
-import { Badge, Loading, SignInFirst } from "../lib/ui";
+import { Badge, Loading } from "../lib/ui";
 import { message } from "../lib/errors";
 import { HistoryPanel } from "../components/revisions";
 import { DetectorsPanel } from "../components/dlp-detectors";
 
 type Tab = "rules" | "detectors";
 
-export const Route = createFileRoute("/settings/dlp")({
+export const Route = createFileRoute("/_app/settings/dlp")({
   // Which tab is open lives in the URL, so a link or a reload lands on it.
   validateSearch: (search: Record<string, unknown>): { tab?: Tab } =>
     search.tab === "detectors" ? { tab: "detectors" } : {},
@@ -35,13 +35,10 @@ const tabClass = "rounded-md px-3 py-1.5 aria-selected:bg-kumo-tint aria-selecte
 const selectClass = "rounded-md border border-kumo-line bg-kumo-base px-3 py-2";
 
 function Dlp() {
-  const { signedIn, can, loading } = useSession();
+  const { can } = useSession();
   const canManage = can("dlp:manage");
   const canRestore = canManage && can("revisions:rollback");
   const tab: Tab = Route.useSearch().tab ?? "rules";
-
-  if (loading) return <Loading />;
-  if (!signedIn) return <SignInFirst />;
 
   return (
     <div className="grid gap-6">
