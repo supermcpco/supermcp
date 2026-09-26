@@ -10,7 +10,7 @@ export const Route = createFileRoute("/_app/connectors/")({
 });
 
 function Connectors() {
-  const { signedIn } = useSession();
+  const { signedIn, can } = useSession();
   const q = useQuery({ ...connectorsListOptions(), enabled: signedIn, retry: false });
 
   return (
@@ -22,9 +22,16 @@ function Connectors() {
           </Text>
           <Text>The systems this workspace can reach. Install one from the catalog to get started.</Text>
         </div>
-        <Link to="/catalog">
-          <Button variant="primary">Browse catalog</Button>
-        </Link>
+        <div className="flex flex-wrap gap-2">
+          {can("connectors:create") && (
+            <Link to="/connectors/import">
+              <Button variant="primary">Import an API</Button>
+            </Link>
+          )}
+          <Link to="/catalog">
+            <Button variant="primary">Browse catalog</Button>
+          </Link>
+        </div>
       </div>
 
       {q.isPending && <Text>Loading…</Text>}
