@@ -240,7 +240,6 @@ func build(ctx context.Context, cfg *config.Config, log *slog.Logger, st *store.
 		Audit: auditor, AuditReader: &audit.Reader{DB: db, VerifyAnchor: keyring.VerifyDigest}, AuditPolicies: policies,
 		AuditRetention: retention,
 		Limiter:        limiter, Budgets: cfg.RateLimit.Budgets, Metrics: metrics, Blobs: blobs, ImportFetch: importClient,
-		OpenRegistration: cfg.OpenRegistration,
 	}
 	jobs := sweeps{db: db, log: log, invalidation: listener,
 		identity: ids, oauth: oauth, keys: keyring, saml: samlSvc, reader: &audit.Reader{DB: db},

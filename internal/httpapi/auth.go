@@ -240,8 +240,10 @@ func errStatus(err error) (int, string) {
 		return http.StatusUnauthorized, "invalid email or password"
 	case errors.Is(err, identity.ErrLocked):
 		return http.StatusTooManyRequests, err.Error()
-	case errors.Is(err, identity.ErrDisabled), errors.Is(err, identity.ErrRegistrationClosed):
+	case errors.Is(err, identity.ErrDisabled):
 		return http.StatusForbidden, err.Error()
+	case errors.Is(err, identity.ErrRegistrationClosed):
+		return http.StatusForbidden, "Registration is closed. Ask an administrator for an invitation."
 	case errors.Is(err, identity.ErrEmailTaken), errors.Is(err, identity.ErrWeakPassword),
 		errors.Is(err, identity.ErrPasswordReused):
 		return http.StatusBadRequest, err.Error()

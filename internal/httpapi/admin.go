@@ -49,7 +49,9 @@ type sessionBody struct {
 	// PasswordExpired says the password is past the workspace's maximum
 	// age and has to be changed before anything else will work.
 	PasswordExpired bool `json:"passwordExpired,omitempty"`
-	Registered      bool `json:"registrationOpen,omitempty"`
+	// RegistrationOpen says, to an anonymous caller, whether register
+	// would accept a new account now.
+	RegistrationOpen bool `json:"registrationOpen,omitempty"`
 	// SignIn says how this session signed in, and so how its holder is
 	// asked to sign in again when an operation refuses it as stale.
 	SignIn *signInDTO `json:"signIn,omitempty"`
@@ -166,10 +168,11 @@ func (d Deps) registerRoutes(api huma.API) {
 		func(ctx context.Context, _ *struct{}) (*sessionOutput, error) {
 			p, ok := authz.From(ctx)
 			if !ok || p.AuthMethod != "session" {
-				// A fresh instance allows the first registration however this is
-				// set, and the screen has no way to offer it unless it is told.
-				open := d.Config.Dev || d.OpenRegistration || d.Identity.Unclaimed(ctx)
-				return &sessionOutput{Body: sessionBody{Anonymous: true, Registered: open}}, nil
+				// The sign-in screen offers the sign-up form on this answer, so
+				// it is Register's own rule: an unclaimed instance or open
+				// registration. Dev mode is not an authorization setting.
+				open := d.Identity.RegistrationOpen(ctx)
+				return &sessionOutput{Body: sessionBody{Anonymous: true, RegistrationOpen: open}}, nil
 			}
 			return d.sessionBodyFor(ctx, p)
 		})
