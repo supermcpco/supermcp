@@ -17,7 +17,7 @@ import { Loading } from "../lib/ui";
 // Public, like /login: the person opening an invite link may have no
 // account yet. The token stays in the page URL only; the API receives it in
 // a POST body.
-export const Route = createFileRoute("/invite/$token")({
+export const Route = createFileRoute("/_public/invite/$token")({
   component: Invite,
 });
 
@@ -37,21 +37,19 @@ function Invite() {
   const { loading } = useSession();
 
   return (
-    <div className="flex min-h-full items-center justify-center px-4 py-10">
-      <div className="grid w-full max-w-sm gap-6">
-        {lookup.isError ? (
-          <Invalid text={lookupError(lookup.error)} />
-        ) : lookup.data && !loading ? (
-          <Found token={token} invite={lookup.data} />
-        ) : (
-          <>
-            <Text as="h1" variant="heading2">
-              Invitation
-            </Text>
-            <Loading />
-          </>
-        )}
-      </div>
+    <div className="grid gap-6">
+      {lookup.isError ? (
+        <Invalid text={lookupError(lookup.error)} />
+      ) : lookup.data && !loading ? (
+        <Found token={token} invite={lookup.data} />
+      ) : (
+        <>
+          <Text as="h1" variant="heading2">
+            Invitation
+          </Text>
+          <Loading />
+        </>
+      )}
     </div>
   );
 }

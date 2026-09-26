@@ -9,18 +9,18 @@ import {
   toolsRevisionsRestoreMutation,
 } from "../api/@tanstack/react-query.gen";
 import { useSession } from "../lib/session";
-import { Loading, SignInFirst } from "../lib/ui";
+import { Loading } from "../lib/ui";
 import { message } from "../lib/errors";
 import { RevisionList } from "../components/revisions";
 import { blockingPolicies, invalidateTool, isReferencesConflict, type BlockingPolicy } from "../lib/tool-api";
 
-export const Route = createFileRoute("/connectors/$id/tools/$toolId/history")({
+export const Route = createFileRoute("/_app/connectors/$id/tools/$toolId/history")({
   component: ToolHistory,
 });
 
 function ToolHistory() {
   const { id, toolId } = Route.useParams();
-  const { signedIn, can, loading } = useSession();
+  const { signedIn, can } = useSession();
   const qc = useQueryClient();
   const tool = useQuery({ ...toolsGetOptions({ path: { id: toolId } }), enabled: signedIn, retry: false });
   const revisions = useQuery({
@@ -42,9 +42,6 @@ function ToolHistory() {
       if (isReferencesConflict(e)) setAck({ revision: vars.path.revision, policies: blockingPolicies(e) });
     },
   });
-
-  if (loading) return <Loading />;
-  if (!signedIn) return <SignInFirst />;
 
   return (
     <div className="grid gap-6">

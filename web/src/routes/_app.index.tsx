@@ -6,20 +6,16 @@ import {
   connectorsListOptions,
   serversListOptions,
 } from "../api/@tanstack/react-query.gen";
-import { useSession } from "../lib/session";
 
-export const Route = createFileRoute("/")({
+export const Route = createFileRoute("/_app/")({
   component: Overview,
 });
 
 function Overview() {
-  const { signedIn } = useSession();
   const catalog = useQuery(catalogListOptions({}));
-  // The workspace's own numbers only exist for someone signed in, and
-  // asking for them while anonymous produces a refusal in the console
-  // rather than a count.
-  const connectors = useQuery({ ...connectorsListOptions(), enabled: signedIn, retry: false });
-  const servers = useQuery({ ...serversListOptions(), enabled: signedIn, retry: false });
+  const connectors = useQuery({ ...connectorsListOptions(), retry: false });
+  const servers = useQuery({ ...serversListOptions(), retry: false });
+  const hasConnectors = (connectors.data?.length ?? 0) > 0;
 
   const total = catalog.data?.count ?? 0;
   const keyless = catalog.data?.adapters.filter((a) => a.keyless).length ?? 0;
@@ -35,22 +31,18 @@ function Overview() {
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Stat label="Adapters in catalog" value={catalog.isPending ? "…" : String(total)} />
         <Stat label="Need no credentials" value={catalog.isPending ? "…" : String(keyless)} />
-        {signedIn && (
-          <>
-            <Stat
-              label="Connectors installed"
-              value={connectors.isPending ? "…" : String(connectors.data?.length ?? 0)}
-            />
-            <Stat label="MCP servers" value={servers.isPending ? "…" : String(servers.data?.length ?? 0)} />
-          </>
-        )}
+        <Stat
+          label="Connectors installed"
+          value={connectors.isPending ? "…" : String(connectors.data?.length ?? 0)}
+        />
+        <Stat label="MCP servers" value={servers.isPending ? "…" : String(servers.data?.length ?? 0)} />
       </div>
       <div className="grid gap-1.5">
         <Text as="h2" variant="heading3">
-          {signedIn && (connectors.data?.length ?? 0) > 0 ? "What to do next" : "Get started"}
+          {hasConnectors ? "What to do next" : "Get started"}
         </Text>
         <Text>
-          {signedIn && (connectors.data?.length ?? 0) > 0 ? (
+          {hasConnectors ? (
             <>
               Put your connectors on an{" "}
               <Link to="/servers" className="underline">

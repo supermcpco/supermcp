@@ -3,8 +3,6 @@ import { Text } from "@cloudflare/kumo";
 import { ReauthPrompt } from "../components/reauth-prompt";
 import { safeNext } from "../lib/members";
 import { reauthError } from "../lib/reauth-errors";
-import { useSession } from "../lib/session";
-import { Loading, SignInFirst } from "../lib/ui";
 
 /**
  * Proving it is you again, as a page. The server sends a browser here
@@ -12,8 +10,11 @@ import { Loading, SignInFirst } from "../lib/ui";
  * page, and the return from a provider that did not confirm a recent
  * sign-in. `next` is where to go once confirmed; it may be a page the
  * server renders, so leaving is a full navigation.
+ *
+ * Only somebody with a session has anything to confirm, so it sits under
+ * the signed-in layout like any other screen.
  */
-export const Route = createFileRoute("/reauth")({
+export const Route = createFileRoute("/_app/reauth")({
   component: Reauth,
   validateSearch: (search: Record<string, unknown>): { next?: string; error?: string } => ({
     ...(typeof search.next === "string" ? { next: search.next } : {}),
@@ -22,13 +23,10 @@ export const Route = createFileRoute("/reauth")({
 });
 
 function Reauth() {
-  const search = useSearch({ from: "/reauth" });
-  const { signedIn, loading } = useSession();
+  const search = useSearch({ from: "/_app/reauth" });
   const next = safeNext(search.next);
   const problem = reauthError(search.error);
 
-  if (loading) return <Loading />;
-  if (!signedIn) return <SignInFirst />;
   return (
     <div className="grid max-w-md gap-4">
       <Text as="h1" variant="heading2">

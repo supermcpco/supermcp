@@ -9,18 +9,18 @@ import {
   connectorsRevisionsRestoreMutation,
 } from "../api/@tanstack/react-query.gen";
 import { useSession } from "../lib/session";
-import { Loading, SignInFirst } from "../lib/ui";
+import { Loading } from "../lib/ui";
 import { message } from "../lib/errors";
 import { isVersionConflict } from "../lib/tool-api";
 import { RevisionList } from "../components/revisions";
 
-export const Route = createFileRoute("/connectors/$id/history")({
+export const Route = createFileRoute("/_app/connectors/$id/history")({
   component: History,
 });
 
 function History() {
   const { id } = Route.useParams();
-  const { signedIn, can, loading } = useSession();
+  const { signedIn, can } = useSession();
   const qc = useQueryClient();
   // The history and the connector's version are one read, the version
   // first: a restore says which version it was looking at, and one read
@@ -49,9 +49,6 @@ function History() {
     await history.refetch();
     restore.reset();
   };
-
-  if (loading) return <Loading />;
-  if (!signedIn) return <SignInFirst />;
 
   return (
     <div className="grid gap-6">

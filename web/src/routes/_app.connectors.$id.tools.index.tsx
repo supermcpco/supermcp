@@ -12,13 +12,13 @@ import {
   toolsReferencesOptions,
 } from "../api/@tanstack/react-query.gen";
 import { useSession } from "../lib/session";
-import { Badge, Loading, SignInFirst } from "../lib/ui";
+import { Badge, Loading } from "../lib/ui";
 import { message } from "../lib/errors";
 import { invalidateTool, isReferencesConflict } from "../lib/tool-api";
 import { resyncSummary } from "../lib/resync";
 import { ResyncReview } from "../components/resync-review";
 
-export const Route = createFileRoute("/connectors/$id/tools/")({
+export const Route = createFileRoute("/_app/connectors/$id/tools/")({
   component: Tools,
 });
 
@@ -31,7 +31,7 @@ const sourceLabel: Record<ToolDto["source"], string> = {
 
 function Tools() {
   const { id } = Route.useParams();
-  const { signedIn, can, loading } = useSession();
+  const { signedIn, can } = useSession();
   const qc = useQueryClient();
   const connector = useQuery({ ...connectorsGetOptions({ path: { id } }), enabled: signedIn, retry: false });
   const tools = useQuery({ ...connectorsToolsOptions({ path: { id } }), enabled: signedIn, retry: false });
@@ -52,9 +52,6 @@ function Tools() {
     },
     onError: (e) => setError(message(e)),
   });
-
-  if (loading) return <Loading />;
-  if (!signedIn) return <SignInFirst />;
 
   const list = tools.data ?? [];
 

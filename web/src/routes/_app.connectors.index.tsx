@@ -3,18 +3,15 @@ import { useQuery } from "@tanstack/react-query";
 import { Button, Text } from "@cloudflare/kumo";
 import { connectorsListOptions } from "../api/@tanstack/react-query.gen";
 import { useSession } from "../lib/session";
-import { Badge, Loading, SignInFirst } from "../lib/ui";
+import { Badge } from "../lib/ui";
 
-export const Route = createFileRoute("/connectors/")({
+export const Route = createFileRoute("/_app/connectors/")({
   component: Connectors,
 });
 
 function Connectors() {
-  const { signedIn, loading } = useSession();
+  const { signedIn } = useSession();
   const q = useQuery({ ...connectorsListOptions(), enabled: signedIn, retry: false });
-
-  if (loading) return <Loading />;
-  if (!signedIn) return <SignInFirst />;
 
   return (
     <div className="grid gap-6">
@@ -83,5 +80,4 @@ function Connectors() {
     </div>
   );
 }
-
 

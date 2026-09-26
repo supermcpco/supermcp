@@ -11,15 +11,15 @@ import {
 } from "../api/@tanstack/react-query.gen";
 import type { Server } from "../api/types.gen";
 import { useSession } from "../lib/session";
-import { Badge, Loading, SignInFirst } from "../lib/ui";
+import { Badge } from "../lib/ui";
 import { message } from "../lib/errors";
 
-export const Route = createFileRoute("/servers")({
+export const Route = createFileRoute("/_app/servers")({
   component: Servers,
 });
 
 function Servers() {
-  const { signedIn, loading } = useSession();
+  const { signedIn } = useSession();
   const qc = useQueryClient();
   const servers = useQuery({ ...serversListOptions(), enabled: signedIn, retry: false });
   const connectors = useQuery({ ...connectorsListOptions(), enabled: signedIn, retry: false });
@@ -37,9 +37,6 @@ function Servers() {
     },
     onError: (e) => setError(message(e)),
   });
-
-  if (loading) return <Loading />;
-  if (!signedIn) return <SignInFirst />;
 
   return (
     <div className="grid gap-6">

@@ -9,250 +9,264 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as IndexRouteImport } from './routes/index'
-import { Route as AnalyticsRouteImport } from './routes/analytics'
-import { Route as ApiKeysRouteImport } from './routes/api-keys'
-import { Route as ApprovalsRouteImport } from './routes/approvals'
-import { Route as LoginRouteImport } from './routes/login'
-import { Route as ReauthRouteImport } from './routes/reauth'
-import { Route as ServersRouteImport } from './routes/servers'
-import { Route as StatusRouteImport } from './routes/status'
-import { Route as ToolCallsRouteImport } from './routes/tool-calls'
-import { Route as CatalogIndexRouteImport } from './routes/catalog.index'
-import { Route as CatalogSlugRouteImport } from './routes/catalog.$slug'
-import { Route as ConnectorsIndexRouteImport } from './routes/connectors.index'
-import { Route as ConnectorsImportRouteImport } from './routes/connectors.import'
-import { Route as InviteTokenRouteImport } from './routes/invite.$token'
-import { Route as SettingsAuditRouteImport } from './routes/settings.audit'
-import { Route as SettingsDlpRouteImport } from './routes/settings.dlp'
-import { Route as SettingsMembersRouteImport } from './routes/settings.members'
-import { Route as SettingsRolesRouteImport } from './routes/settings.roles'
-import { Route as SettingsSecurityRouteImport } from './routes/settings.security'
-import { Route as SettingsServiceAccountsRouteImport } from './routes/settings.service-accounts'
-import { Route as SettingsSsoRouteImport } from './routes/settings.sso'
-import { Route as ConnectorsIdHistoryRouteImport } from './routes/connectors.$id.history'
-import { Route as ConnectorsIdToolsIndexRouteImport } from './routes/connectors.$id.tools.index'
-import { Route as ConnectorsIdToolsNewRouteImport } from './routes/connectors.$id.tools.new'
-import { Route as ConnectorsIdToolsToolIdIndexRouteImport } from './routes/connectors.$id.tools.$toolId.index'
-import { Route as ConnectorsIdToolsToolIdHistoryRouteImport } from './routes/connectors.$id.tools.$toolId.history'
+import { Route as AppRouteImport } from './routes/_app'
+import { Route as PublicRouteImport } from './routes/_public'
+import { Route as AppIndexRouteImport } from './routes/_app.index'
+import { Route as AppAnalyticsRouteImport } from './routes/_app.analytics'
+import { Route as AppApiKeysRouteImport } from './routes/_app.api-keys'
+import { Route as AppApprovalsRouteImport } from './routes/_app.approvals'
+import { Route as AppReauthRouteImport } from './routes/_app.reauth'
+import { Route as AppServersRouteImport } from './routes/_app.servers'
+import { Route as AppStatusRouteImport } from './routes/_app.status'
+import { Route as AppToolCallsRouteImport } from './routes/_app.tool-calls'
+import { Route as PublicLoginRouteImport } from './routes/_public.login'
+import { Route as AppCatalogIndexRouteImport } from './routes/_app.catalog.index'
+import { Route as AppCatalogSlugRouteImport } from './routes/_app.catalog.$slug'
+import { Route as AppConnectorsIndexRouteImport } from './routes/_app.connectors.index'
+import { Route as AppConnectorsImportRouteImport } from './routes/_app.connectors.import'
+import { Route as AppSettingsAuditRouteImport } from './routes/_app.settings.audit'
+import { Route as AppSettingsDlpRouteImport } from './routes/_app.settings.dlp'
+import { Route as AppSettingsMembersRouteImport } from './routes/_app.settings.members'
+import { Route as AppSettingsRolesRouteImport } from './routes/_app.settings.roles'
+import { Route as AppSettingsSecurityRouteImport } from './routes/_app.settings.security'
+import { Route as AppSettingsServiceAccountsRouteImport } from './routes/_app.settings.service-accounts'
+import { Route as AppSettingsSsoRouteImport } from './routes/_app.settings.sso'
+import { Route as PublicInviteTokenRouteImport } from './routes/_public.invite.$token'
+import { Route as AppConnectorsIdHistoryRouteImport } from './routes/_app.connectors.$id.history'
+import { Route as AppConnectorsIdToolsIndexRouteImport } from './routes/_app.connectors.$id.tools.index'
+import { Route as AppConnectorsIdToolsNewRouteImport } from './routes/_app.connectors.$id.tools.new'
+import { Route as AppConnectorsIdToolsToolIdIndexRouteImport } from './routes/_app.connectors.$id.tools.$toolId.index'
+import { Route as AppConnectorsIdToolsToolIdHistoryRouteImport } from './routes/_app.connectors.$id.tools.$toolId.history'
 
-const IndexRoute = IndexRouteImport.update({
+const AppRoute = AppRouteImport.update({
+  id: '/_app',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PublicRoute = PublicRouteImport.update({
+  id: '/_public',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AppIndexRoute = AppIndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => AppRoute,
 } as any)
-const AnalyticsRoute = AnalyticsRouteImport.update({
+const AppAnalyticsRoute = AppAnalyticsRouteImport.update({
   id: '/analytics',
   path: '/analytics',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => AppRoute,
 } as any)
-const ApiKeysRoute = ApiKeysRouteImport.update({
+const AppApiKeysRoute = AppApiKeysRouteImport.update({
   id: '/api-keys',
   path: '/api-keys',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => AppRoute,
 } as any)
-const ApprovalsRoute = ApprovalsRouteImport.update({
+const AppApprovalsRoute = AppApprovalsRouteImport.update({
   id: '/approvals',
   path: '/approvals',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => AppRoute,
 } as any)
-const LoginRoute = LoginRouteImport.update({
-  id: '/login',
-  path: '/login',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ReauthRoute = ReauthRouteImport.update({
+const AppReauthRoute = AppReauthRouteImport.update({
   id: '/reauth',
   path: '/reauth',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => AppRoute,
 } as any)
-const ServersRoute = ServersRouteImport.update({
+const AppServersRoute = AppServersRouteImport.update({
   id: '/servers',
   path: '/servers',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => AppRoute,
 } as any)
-const StatusRoute = StatusRouteImport.update({
+const AppStatusRoute = AppStatusRouteImport.update({
   id: '/status',
   path: '/status',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => AppRoute,
 } as any)
-const ToolCallsRoute = ToolCallsRouteImport.update({
+const AppToolCallsRoute = AppToolCallsRouteImport.update({
   id: '/tool-calls',
   path: '/tool-calls',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => AppRoute,
 } as any)
-const CatalogIndexRoute = CatalogIndexRouteImport.update({
+const PublicLoginRoute = PublicLoginRouteImport.update({
+  id: '/login',
+  path: '/login',
+  getParentRoute: () => PublicRoute,
+} as any)
+const AppCatalogIndexRoute = AppCatalogIndexRouteImport.update({
   id: '/catalog/',
   path: '/catalog/',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => AppRoute,
 } as any)
-const CatalogSlugRoute = CatalogSlugRouteImport.update({
+const AppCatalogSlugRoute = AppCatalogSlugRouteImport.update({
   id: '/catalog/$slug',
   path: '/catalog/$slug',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => AppRoute,
 } as any)
-const ConnectorsIndexRoute = ConnectorsIndexRouteImport.update({
+const AppConnectorsIndexRoute = AppConnectorsIndexRouteImport.update({
   id: '/connectors/',
   path: '/connectors/',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => AppRoute,
 } as any)
-const ConnectorsImportRoute = ConnectorsImportRouteImport.update({
+const AppConnectorsImportRoute = AppConnectorsImportRouteImport.update({
   id: '/connectors/import',
   path: '/connectors/import',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => AppRoute,
 } as any)
-const InviteTokenRoute = InviteTokenRouteImport.update({
-  id: '/invite/$token',
-  path: '/invite/$token',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const SettingsAuditRoute = SettingsAuditRouteImport.update({
+const AppSettingsAuditRoute = AppSettingsAuditRouteImport.update({
   id: '/settings/audit',
   path: '/settings/audit',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => AppRoute,
 } as any)
-const SettingsDlpRoute = SettingsDlpRouteImport.update({
+const AppSettingsDlpRoute = AppSettingsDlpRouteImport.update({
   id: '/settings/dlp',
   path: '/settings/dlp',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => AppRoute,
 } as any)
-const SettingsMembersRoute = SettingsMembersRouteImport.update({
+const AppSettingsMembersRoute = AppSettingsMembersRouteImport.update({
   id: '/settings/members',
   path: '/settings/members',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => AppRoute,
 } as any)
-const SettingsRolesRoute = SettingsRolesRouteImport.update({
+const AppSettingsRolesRoute = AppSettingsRolesRouteImport.update({
   id: '/settings/roles',
   path: '/settings/roles',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => AppRoute,
 } as any)
-const SettingsSecurityRoute = SettingsSecurityRouteImport.update({
+const AppSettingsSecurityRoute = AppSettingsSecurityRouteImport.update({
   id: '/settings/security',
   path: '/settings/security',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => AppRoute,
 } as any)
-const SettingsServiceAccountsRoute = SettingsServiceAccountsRouteImport.update({
-  id: '/settings/service-accounts',
-  path: '/settings/service-accounts',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const SettingsSsoRoute = SettingsSsoRouteImport.update({
+const AppSettingsServiceAccountsRoute =
+  AppSettingsServiceAccountsRouteImport.update({
+    id: '/settings/service-accounts',
+    path: '/settings/service-accounts',
+    getParentRoute: () => AppRoute,
+  } as any)
+const AppSettingsSsoRoute = AppSettingsSsoRouteImport.update({
   id: '/settings/sso',
   path: '/settings/sso',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => AppRoute,
 } as any)
-const ConnectorsIdHistoryRoute = ConnectorsIdHistoryRouteImport.update({
+const PublicInviteTokenRoute = PublicInviteTokenRouteImport.update({
+  id: '/invite/$token',
+  path: '/invite/$token',
+  getParentRoute: () => PublicRoute,
+} as any)
+const AppConnectorsIdHistoryRoute = AppConnectorsIdHistoryRouteImport.update({
   id: '/connectors/$id/history',
   path: '/connectors/$id/history',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => AppRoute,
 } as any)
-const ConnectorsIdToolsIndexRoute = ConnectorsIdToolsIndexRouteImport.update({
-  id: '/connectors/$id/tools/',
-  path: '/connectors/$id/tools/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ConnectorsIdToolsNewRoute = ConnectorsIdToolsNewRouteImport.update({
+const AppConnectorsIdToolsIndexRoute =
+  AppConnectorsIdToolsIndexRouteImport.update({
+    id: '/connectors/$id/tools/',
+    path: '/connectors/$id/tools/',
+    getParentRoute: () => AppRoute,
+  } as any)
+const AppConnectorsIdToolsNewRoute = AppConnectorsIdToolsNewRouteImport.update({
   id: '/connectors/$id/tools/new',
   path: '/connectors/$id/tools/new',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => AppRoute,
 } as any)
-const ConnectorsIdToolsToolIdIndexRoute =
-  ConnectorsIdToolsToolIdIndexRouteImport.update({
+const AppConnectorsIdToolsToolIdIndexRoute =
+  AppConnectorsIdToolsToolIdIndexRouteImport.update({
     id: '/connectors/$id/tools/$toolId/',
     path: '/connectors/$id/tools/$toolId/',
-    getParentRoute: () => rootRouteImport,
+    getParentRoute: () => AppRoute,
   } as any)
-const ConnectorsIdToolsToolIdHistoryRoute =
-  ConnectorsIdToolsToolIdHistoryRouteImport.update({
+const AppConnectorsIdToolsToolIdHistoryRoute =
+  AppConnectorsIdToolsToolIdHistoryRouteImport.update({
     id: '/connectors/$id/tools/$toolId/history',
     path: '/connectors/$id/tools/$toolId/history',
-    getParentRoute: () => rootRouteImport,
+    getParentRoute: () => AppRoute,
   } as any)
 
 export interface FileRoutesByFullPath {
-  '/': typeof IndexRoute
-  '/analytics': typeof AnalyticsRoute
-  '/api-keys': typeof ApiKeysRoute
-  '/approvals': typeof ApprovalsRoute
-  '/login': typeof LoginRoute
-  '/reauth': typeof ReauthRoute
-  '/servers': typeof ServersRoute
-  '/status': typeof StatusRoute
-  '/tool-calls': typeof ToolCallsRoute
-  '/catalog/$slug': typeof CatalogSlugRoute
-  '/connectors/import': typeof ConnectorsImportRoute
-  '/invite/$token': typeof InviteTokenRoute
-  '/settings/audit': typeof SettingsAuditRoute
-  '/settings/dlp': typeof SettingsDlpRoute
-  '/settings/members': typeof SettingsMembersRoute
-  '/settings/roles': typeof SettingsRolesRoute
-  '/settings/security': typeof SettingsSecurityRoute
-  '/settings/service-accounts': typeof SettingsServiceAccountsRoute
-  '/settings/sso': typeof SettingsSsoRoute
-  '/catalog/': typeof CatalogIndexRoute
-  '/connectors/': typeof ConnectorsIndexRoute
-  '/connectors/$id/history': typeof ConnectorsIdHistoryRoute
-  '/connectors/$id/tools/new': typeof ConnectorsIdToolsNewRoute
-  '/connectors/$id/tools/': typeof ConnectorsIdToolsIndexRoute
-  '/connectors/$id/tools/$toolId/history': typeof ConnectorsIdToolsToolIdHistoryRoute
-  '/connectors/$id/tools/$toolId/': typeof ConnectorsIdToolsToolIdIndexRoute
+  '/': typeof AppIndexRoute
+  '/analytics': typeof AppAnalyticsRoute
+  '/api-keys': typeof AppApiKeysRoute
+  '/approvals': typeof AppApprovalsRoute
+  '/reauth': typeof AppReauthRoute
+  '/servers': typeof AppServersRoute
+  '/status': typeof AppStatusRoute
+  '/tool-calls': typeof AppToolCallsRoute
+  '/login': typeof PublicLoginRoute
+  '/catalog/$slug': typeof AppCatalogSlugRoute
+  '/connectors/import': typeof AppConnectorsImportRoute
+  '/settings/audit': typeof AppSettingsAuditRoute
+  '/settings/dlp': typeof AppSettingsDlpRoute
+  '/settings/members': typeof AppSettingsMembersRoute
+  '/settings/roles': typeof AppSettingsRolesRoute
+  '/settings/security': typeof AppSettingsSecurityRoute
+  '/settings/service-accounts': typeof AppSettingsServiceAccountsRoute
+  '/settings/sso': typeof AppSettingsSsoRoute
+  '/invite/$token': typeof PublicInviteTokenRoute
+  '/catalog/': typeof AppCatalogIndexRoute
+  '/connectors/': typeof AppConnectorsIndexRoute
+  '/connectors/$id/history': typeof AppConnectorsIdHistoryRoute
+  '/connectors/$id/tools/new': typeof AppConnectorsIdToolsNewRoute
+  '/connectors/$id/tools/': typeof AppConnectorsIdToolsIndexRoute
+  '/connectors/$id/tools/$toolId/history': typeof AppConnectorsIdToolsToolIdHistoryRoute
+  '/connectors/$id/tools/$toolId/': typeof AppConnectorsIdToolsToolIdIndexRoute
 }
 export interface FileRoutesByTo {
-  '/': typeof IndexRoute
-  '/analytics': typeof AnalyticsRoute
-  '/api-keys': typeof ApiKeysRoute
-  '/approvals': typeof ApprovalsRoute
-  '/login': typeof LoginRoute
-  '/reauth': typeof ReauthRoute
-  '/servers': typeof ServersRoute
-  '/status': typeof StatusRoute
-  '/tool-calls': typeof ToolCallsRoute
-  '/catalog/$slug': typeof CatalogSlugRoute
-  '/connectors/import': typeof ConnectorsImportRoute
-  '/invite/$token': typeof InviteTokenRoute
-  '/settings/audit': typeof SettingsAuditRoute
-  '/settings/dlp': typeof SettingsDlpRoute
-  '/settings/members': typeof SettingsMembersRoute
-  '/settings/roles': typeof SettingsRolesRoute
-  '/settings/security': typeof SettingsSecurityRoute
-  '/settings/service-accounts': typeof SettingsServiceAccountsRoute
-  '/settings/sso': typeof SettingsSsoRoute
-  '/catalog': typeof CatalogIndexRoute
-  '/connectors': typeof ConnectorsIndexRoute
-  '/connectors/$id/history': typeof ConnectorsIdHistoryRoute
-  '/connectors/$id/tools/new': typeof ConnectorsIdToolsNewRoute
-  '/connectors/$id/tools': typeof ConnectorsIdToolsIndexRoute
-  '/connectors/$id/tools/$toolId/history': typeof ConnectorsIdToolsToolIdHistoryRoute
-  '/connectors/$id/tools/$toolId': typeof ConnectorsIdToolsToolIdIndexRoute
+  '/': typeof AppIndexRoute
+  '/analytics': typeof AppAnalyticsRoute
+  '/api-keys': typeof AppApiKeysRoute
+  '/approvals': typeof AppApprovalsRoute
+  '/reauth': typeof AppReauthRoute
+  '/servers': typeof AppServersRoute
+  '/status': typeof AppStatusRoute
+  '/tool-calls': typeof AppToolCallsRoute
+  '/login': typeof PublicLoginRoute
+  '/catalog/$slug': typeof AppCatalogSlugRoute
+  '/connectors/import': typeof AppConnectorsImportRoute
+  '/settings/audit': typeof AppSettingsAuditRoute
+  '/settings/dlp': typeof AppSettingsDlpRoute
+  '/settings/members': typeof AppSettingsMembersRoute
+  '/settings/roles': typeof AppSettingsRolesRoute
+  '/settings/security': typeof AppSettingsSecurityRoute
+  '/settings/service-accounts': typeof AppSettingsServiceAccountsRoute
+  '/settings/sso': typeof AppSettingsSsoRoute
+  '/invite/$token': typeof PublicInviteTokenRoute
+  '/catalog': typeof AppCatalogIndexRoute
+  '/connectors': typeof AppConnectorsIndexRoute
+  '/connectors/$id/history': typeof AppConnectorsIdHistoryRoute
+  '/connectors/$id/tools/new': typeof AppConnectorsIdToolsNewRoute
+  '/connectors/$id/tools': typeof AppConnectorsIdToolsIndexRoute
+  '/connectors/$id/tools/$toolId/history': typeof AppConnectorsIdToolsToolIdHistoryRoute
+  '/connectors/$id/tools/$toolId': typeof AppConnectorsIdToolsToolIdIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
-  '/': typeof IndexRoute
-  '/analytics': typeof AnalyticsRoute
-  '/api-keys': typeof ApiKeysRoute
-  '/approvals': typeof ApprovalsRoute
-  '/login': typeof LoginRoute
-  '/reauth': typeof ReauthRoute
-  '/servers': typeof ServersRoute
-  '/status': typeof StatusRoute
-  '/tool-calls': typeof ToolCallsRoute
-  '/catalog/$slug': typeof CatalogSlugRoute
-  '/connectors/import': typeof ConnectorsImportRoute
-  '/invite/$token': typeof InviteTokenRoute
-  '/settings/audit': typeof SettingsAuditRoute
-  '/settings/dlp': typeof SettingsDlpRoute
-  '/settings/members': typeof SettingsMembersRoute
-  '/settings/roles': typeof SettingsRolesRoute
-  '/settings/security': typeof SettingsSecurityRoute
-  '/settings/service-accounts': typeof SettingsServiceAccountsRoute
-  '/settings/sso': typeof SettingsSsoRoute
-  '/catalog/': typeof CatalogIndexRoute
-  '/connectors/': typeof ConnectorsIndexRoute
-  '/connectors/$id/history': typeof ConnectorsIdHistoryRoute
-  '/connectors/$id/tools/new': typeof ConnectorsIdToolsNewRoute
-  '/connectors/$id/tools/': typeof ConnectorsIdToolsIndexRoute
-  '/connectors/$id/tools/$toolId/history': typeof ConnectorsIdToolsToolIdHistoryRoute
-  '/connectors/$id/tools/$toolId/': typeof ConnectorsIdToolsToolIdIndexRoute
+  '/_app': typeof AppRouteWithChildren
+  '/_public': typeof PublicRouteWithChildren
+  '/_app/analytics': typeof AppAnalyticsRoute
+  '/_app/api-keys': typeof AppApiKeysRoute
+  '/_app/approvals': typeof AppApprovalsRoute
+  '/_app/reauth': typeof AppReauthRoute
+  '/_app/servers': typeof AppServersRoute
+  '/_app/status': typeof AppStatusRoute
+  '/_app/tool-calls': typeof AppToolCallsRoute
+  '/_public/login': typeof PublicLoginRoute
+  '/_app/': typeof AppIndexRoute
+  '/_app/catalog/$slug': typeof AppCatalogSlugRoute
+  '/_app/connectors/import': typeof AppConnectorsImportRoute
+  '/_app/settings/audit': typeof AppSettingsAuditRoute
+  '/_app/settings/dlp': typeof AppSettingsDlpRoute
+  '/_app/settings/members': typeof AppSettingsMembersRoute
+  '/_app/settings/roles': typeof AppSettingsRolesRoute
+  '/_app/settings/security': typeof AppSettingsSecurityRoute
+  '/_app/settings/service-accounts': typeof AppSettingsServiceAccountsRoute
+  '/_app/settings/sso': typeof AppSettingsSsoRoute
+  '/_public/invite/$token': typeof PublicInviteTokenRoute
+  '/_app/catalog/': typeof AppCatalogIndexRoute
+  '/_app/connectors/': typeof AppConnectorsIndexRoute
+  '/_app/connectors/$id/history': typeof AppConnectorsIdHistoryRoute
+  '/_app/connectors/$id/tools/new': typeof AppConnectorsIdToolsNewRoute
+  '/_app/connectors/$id/tools/': typeof AppConnectorsIdToolsIndexRoute
+  '/_app/connectors/$id/tools/$toolId/history': typeof AppConnectorsIdToolsToolIdHistoryRoute
+  '/_app/connectors/$id/tools/$toolId/': typeof AppConnectorsIdToolsToolIdIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -261,14 +275,13 @@ export interface FileRouteTypes {
     | '/analytics'
     | '/api-keys'
     | '/approvals'
-    | '/login'
     | '/reauth'
     | '/servers'
     | '/status'
     | '/tool-calls'
+    | '/login'
     | '/catalog/$slug'
     | '/connectors/import'
-    | '/invite/$token'
     | '/settings/audit'
     | '/settings/dlp'
     | '/settings/members'
@@ -276,6 +289,7 @@ export interface FileRouteTypes {
     | '/settings/security'
     | '/settings/service-accounts'
     | '/settings/sso'
+    | '/invite/$token'
     | '/catalog/'
     | '/connectors/'
     | '/connectors/$id/history'
@@ -289,14 +303,13 @@ export interface FileRouteTypes {
     | '/analytics'
     | '/api-keys'
     | '/approvals'
-    | '/login'
     | '/reauth'
     | '/servers'
     | '/status'
     | '/tool-calls'
+    | '/login'
     | '/catalog/$slug'
     | '/connectors/import'
-    | '/invite/$token'
     | '/settings/audit'
     | '/settings/dlp'
     | '/settings/members'
@@ -304,6 +317,7 @@ export interface FileRouteTypes {
     | '/settings/security'
     | '/settings/service-accounts'
     | '/settings/sso'
+    | '/invite/$token'
     | '/catalog'
     | '/connectors'
     | '/connectors/$id/history'
@@ -313,277 +327,315 @@ export interface FileRouteTypes {
     | '/connectors/$id/tools/$toolId'
   id:
     | '__root__'
-    | '/'
-    | '/analytics'
-    | '/api-keys'
-    | '/approvals'
-    | '/login'
-    | '/reauth'
-    | '/servers'
-    | '/status'
-    | '/tool-calls'
-    | '/catalog/$slug'
-    | '/connectors/import'
-    | '/invite/$token'
-    | '/settings/audit'
-    | '/settings/dlp'
-    | '/settings/members'
-    | '/settings/roles'
-    | '/settings/security'
-    | '/settings/service-accounts'
-    | '/settings/sso'
-    | '/catalog/'
-    | '/connectors/'
-    | '/connectors/$id/history'
-    | '/connectors/$id/tools/new'
-    | '/connectors/$id/tools/'
-    | '/connectors/$id/tools/$toolId/history'
-    | '/connectors/$id/tools/$toolId/'
+    | '/_app'
+    | '/_public'
+    | '/_app/analytics'
+    | '/_app/api-keys'
+    | '/_app/approvals'
+    | '/_app/reauth'
+    | '/_app/servers'
+    | '/_app/status'
+    | '/_app/tool-calls'
+    | '/_public/login'
+    | '/_app/'
+    | '/_app/catalog/$slug'
+    | '/_app/connectors/import'
+    | '/_app/settings/audit'
+    | '/_app/settings/dlp'
+    | '/_app/settings/members'
+    | '/_app/settings/roles'
+    | '/_app/settings/security'
+    | '/_app/settings/service-accounts'
+    | '/_app/settings/sso'
+    | '/_public/invite/$token'
+    | '/_app/catalog/'
+    | '/_app/connectors/'
+    | '/_app/connectors/$id/history'
+    | '/_app/connectors/$id/tools/new'
+    | '/_app/connectors/$id/tools/'
+    | '/_app/connectors/$id/tools/$toolId/history'
+    | '/_app/connectors/$id/tools/$toolId/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
-  IndexRoute: typeof IndexRoute
-  AnalyticsRoute: typeof AnalyticsRoute
-  ApiKeysRoute: typeof ApiKeysRoute
-  ApprovalsRoute: typeof ApprovalsRoute
-  LoginRoute: typeof LoginRoute
-  ReauthRoute: typeof ReauthRoute
-  ServersRoute: typeof ServersRoute
-  StatusRoute: typeof StatusRoute
-  ToolCallsRoute: typeof ToolCallsRoute
-  CatalogSlugRoute: typeof CatalogSlugRoute
-  ConnectorsImportRoute: typeof ConnectorsImportRoute
-  InviteTokenRoute: typeof InviteTokenRoute
-  SettingsAuditRoute: typeof SettingsAuditRoute
-  SettingsDlpRoute: typeof SettingsDlpRoute
-  SettingsMembersRoute: typeof SettingsMembersRoute
-  SettingsRolesRoute: typeof SettingsRolesRoute
-  SettingsSecurityRoute: typeof SettingsSecurityRoute
-  SettingsServiceAccountsRoute: typeof SettingsServiceAccountsRoute
-  SettingsSsoRoute: typeof SettingsSsoRoute
-  CatalogIndexRoute: typeof CatalogIndexRoute
-  ConnectorsIndexRoute: typeof ConnectorsIndexRoute
-  ConnectorsIdHistoryRoute: typeof ConnectorsIdHistoryRoute
-  ConnectorsIdToolsNewRoute: typeof ConnectorsIdToolsNewRoute
-  ConnectorsIdToolsIndexRoute: typeof ConnectorsIdToolsIndexRoute
-  ConnectorsIdToolsToolIdHistoryRoute: typeof ConnectorsIdToolsToolIdHistoryRoute
-  ConnectorsIdToolsToolIdIndexRoute: typeof ConnectorsIdToolsToolIdIndexRoute
+  AppRoute: typeof AppRouteWithChildren
+  PublicRoute: typeof PublicRouteWithChildren
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/': {
-      id: '/'
+    '/_app': {
+      id: '/_app'
+      path: ''
+      fullPath: '/'
+      preLoaderRoute: typeof AppRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/_public': {
+      id: '/_public'
+      path: ''
+      fullPath: '/'
+      preLoaderRoute: typeof PublicRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/_app/': {
+      id: '/_app/'
       path: '/'
       fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof AppIndexRouteImport
+      parentRoute: typeof AppRoute
     }
-    '/analytics': {
-      id: '/analytics'
+    '/_app/analytics': {
+      id: '/_app/analytics'
       path: '/analytics'
       fullPath: '/analytics'
-      preLoaderRoute: typeof AnalyticsRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof AppAnalyticsRouteImport
+      parentRoute: typeof AppRoute
     }
-    '/api-keys': {
-      id: '/api-keys'
+    '/_app/api-keys': {
+      id: '/_app/api-keys'
       path: '/api-keys'
       fullPath: '/api-keys'
-      preLoaderRoute: typeof ApiKeysRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof AppApiKeysRouteImport
+      parentRoute: typeof AppRoute
     }
-    '/approvals': {
-      id: '/approvals'
+    '/_app/approvals': {
+      id: '/_app/approvals'
       path: '/approvals'
       fullPath: '/approvals'
-      preLoaderRoute: typeof ApprovalsRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof AppApprovalsRouteImport
+      parentRoute: typeof AppRoute
     }
-    '/login': {
-      id: '/login'
-      path: '/login'
-      fullPath: '/login'
-      preLoaderRoute: typeof LoginRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/reauth': {
-      id: '/reauth'
+    '/_app/reauth': {
+      id: '/_app/reauth'
       path: '/reauth'
       fullPath: '/reauth'
-      preLoaderRoute: typeof ReauthRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof AppReauthRouteImport
+      parentRoute: typeof AppRoute
     }
-    '/servers': {
-      id: '/servers'
+    '/_app/servers': {
+      id: '/_app/servers'
       path: '/servers'
       fullPath: '/servers'
-      preLoaderRoute: typeof ServersRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof AppServersRouteImport
+      parentRoute: typeof AppRoute
     }
-    '/status': {
-      id: '/status'
+    '/_app/status': {
+      id: '/_app/status'
       path: '/status'
       fullPath: '/status'
-      preLoaderRoute: typeof StatusRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof AppStatusRouteImport
+      parentRoute: typeof AppRoute
     }
-    '/tool-calls': {
-      id: '/tool-calls'
+    '/_app/tool-calls': {
+      id: '/_app/tool-calls'
       path: '/tool-calls'
       fullPath: '/tool-calls'
-      preLoaderRoute: typeof ToolCallsRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof AppToolCallsRouteImport
+      parentRoute: typeof AppRoute
     }
-    '/catalog/': {
-      id: '/catalog/'
+    '/_public/login': {
+      id: '/_public/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof PublicLoginRouteImport
+      parentRoute: typeof PublicRoute
+    }
+    '/_app/catalog/': {
+      id: '/_app/catalog/'
       path: '/catalog'
       fullPath: '/catalog/'
-      preLoaderRoute: typeof CatalogIndexRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof AppCatalogIndexRouteImport
+      parentRoute: typeof AppRoute
     }
-    '/catalog/$slug': {
-      id: '/catalog/$slug'
+    '/_app/catalog/$slug': {
+      id: '/_app/catalog/$slug'
       path: '/catalog/$slug'
       fullPath: '/catalog/$slug'
-      preLoaderRoute: typeof CatalogSlugRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof AppCatalogSlugRouteImport
+      parentRoute: typeof AppRoute
     }
-    '/connectors/': {
-      id: '/connectors/'
+    '/_app/connectors/': {
+      id: '/_app/connectors/'
       path: '/connectors'
       fullPath: '/connectors/'
-      preLoaderRoute: typeof ConnectorsIndexRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof AppConnectorsIndexRouteImport
+      parentRoute: typeof AppRoute
     }
-    '/connectors/import': {
-      id: '/connectors/import'
+    '/_app/connectors/import': {
+      id: '/_app/connectors/import'
       path: '/connectors/import'
       fullPath: '/connectors/import'
-      preLoaderRoute: typeof ConnectorsImportRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof AppConnectorsImportRouteImport
+      parentRoute: typeof AppRoute
     }
-    '/invite/$token': {
-      id: '/invite/$token'
-      path: '/invite/$token'
-      fullPath: '/invite/$token'
-      preLoaderRoute: typeof InviteTokenRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/settings/audit': {
-      id: '/settings/audit'
+    '/_app/settings/audit': {
+      id: '/_app/settings/audit'
       path: '/settings/audit'
       fullPath: '/settings/audit'
-      preLoaderRoute: typeof SettingsAuditRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof AppSettingsAuditRouteImport
+      parentRoute: typeof AppRoute
     }
-    '/settings/dlp': {
-      id: '/settings/dlp'
+    '/_app/settings/dlp': {
+      id: '/_app/settings/dlp'
       path: '/settings/dlp'
       fullPath: '/settings/dlp'
-      preLoaderRoute: typeof SettingsDlpRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof AppSettingsDlpRouteImport
+      parentRoute: typeof AppRoute
     }
-    '/settings/members': {
-      id: '/settings/members'
+    '/_app/settings/members': {
+      id: '/_app/settings/members'
       path: '/settings/members'
       fullPath: '/settings/members'
-      preLoaderRoute: typeof SettingsMembersRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof AppSettingsMembersRouteImport
+      parentRoute: typeof AppRoute
     }
-    '/settings/roles': {
-      id: '/settings/roles'
+    '/_app/settings/roles': {
+      id: '/_app/settings/roles'
       path: '/settings/roles'
       fullPath: '/settings/roles'
-      preLoaderRoute: typeof SettingsRolesRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof AppSettingsRolesRouteImport
+      parentRoute: typeof AppRoute
     }
-    '/settings/security': {
-      id: '/settings/security'
+    '/_app/settings/security': {
+      id: '/_app/settings/security'
       path: '/settings/security'
       fullPath: '/settings/security'
-      preLoaderRoute: typeof SettingsSecurityRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof AppSettingsSecurityRouteImport
+      parentRoute: typeof AppRoute
     }
-    '/settings/service-accounts': {
-      id: '/settings/service-accounts'
+    '/_app/settings/service-accounts': {
+      id: '/_app/settings/service-accounts'
       path: '/settings/service-accounts'
       fullPath: '/settings/service-accounts'
-      preLoaderRoute: typeof SettingsServiceAccountsRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof AppSettingsServiceAccountsRouteImport
+      parentRoute: typeof AppRoute
     }
-    '/settings/sso': {
-      id: '/settings/sso'
+    '/_app/settings/sso': {
+      id: '/_app/settings/sso'
       path: '/settings/sso'
       fullPath: '/settings/sso'
-      preLoaderRoute: typeof SettingsSsoRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof AppSettingsSsoRouteImport
+      parentRoute: typeof AppRoute
     }
-    '/connectors/$id/history': {
-      id: '/connectors/$id/history'
+    '/_public/invite/$token': {
+      id: '/_public/invite/$token'
+      path: '/invite/$token'
+      fullPath: '/invite/$token'
+      preLoaderRoute: typeof PublicInviteTokenRouteImport
+      parentRoute: typeof PublicRoute
+    }
+    '/_app/connectors/$id/history': {
+      id: '/_app/connectors/$id/history'
       path: '/connectors/$id/history'
       fullPath: '/connectors/$id/history'
-      preLoaderRoute: typeof ConnectorsIdHistoryRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof AppConnectorsIdHistoryRouteImport
+      parentRoute: typeof AppRoute
     }
-    '/connectors/$id/tools/': {
-      id: '/connectors/$id/tools/'
+    '/_app/connectors/$id/tools/': {
+      id: '/_app/connectors/$id/tools/'
       path: '/connectors/$id/tools'
       fullPath: '/connectors/$id/tools/'
-      preLoaderRoute: typeof ConnectorsIdToolsIndexRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof AppConnectorsIdToolsIndexRouteImport
+      parentRoute: typeof AppRoute
     }
-    '/connectors/$id/tools/new': {
-      id: '/connectors/$id/tools/new'
+    '/_app/connectors/$id/tools/new': {
+      id: '/_app/connectors/$id/tools/new'
       path: '/connectors/$id/tools/new'
       fullPath: '/connectors/$id/tools/new'
-      preLoaderRoute: typeof ConnectorsIdToolsNewRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof AppConnectorsIdToolsNewRouteImport
+      parentRoute: typeof AppRoute
     }
-    '/connectors/$id/tools/$toolId/': {
-      id: '/connectors/$id/tools/$toolId/'
+    '/_app/connectors/$id/tools/$toolId/': {
+      id: '/_app/connectors/$id/tools/$toolId/'
       path: '/connectors/$id/tools/$toolId'
       fullPath: '/connectors/$id/tools/$toolId/'
-      preLoaderRoute: typeof ConnectorsIdToolsToolIdIndexRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof AppConnectorsIdToolsToolIdIndexRouteImport
+      parentRoute: typeof AppRoute
     }
-    '/connectors/$id/tools/$toolId/history': {
-      id: '/connectors/$id/tools/$toolId/history'
+    '/_app/connectors/$id/tools/$toolId/history': {
+      id: '/_app/connectors/$id/tools/$toolId/history'
       path: '/connectors/$id/tools/$toolId/history'
       fullPath: '/connectors/$id/tools/$toolId/history'
-      preLoaderRoute: typeof ConnectorsIdToolsToolIdHistoryRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof AppConnectorsIdToolsToolIdHistoryRouteImport
+      parentRoute: typeof AppRoute
     }
   }
 }
 
+interface AppRouteChildren {
+  AppAnalyticsRoute: typeof AppAnalyticsRoute
+  AppApiKeysRoute: typeof AppApiKeysRoute
+  AppApprovalsRoute: typeof AppApprovalsRoute
+  AppReauthRoute: typeof AppReauthRoute
+  AppServersRoute: typeof AppServersRoute
+  AppStatusRoute: typeof AppStatusRoute
+  AppToolCallsRoute: typeof AppToolCallsRoute
+  AppIndexRoute: typeof AppIndexRoute
+  AppCatalogSlugRoute: typeof AppCatalogSlugRoute
+  AppConnectorsImportRoute: typeof AppConnectorsImportRoute
+  AppSettingsAuditRoute: typeof AppSettingsAuditRoute
+  AppSettingsDlpRoute: typeof AppSettingsDlpRoute
+  AppSettingsMembersRoute: typeof AppSettingsMembersRoute
+  AppSettingsRolesRoute: typeof AppSettingsRolesRoute
+  AppSettingsSecurityRoute: typeof AppSettingsSecurityRoute
+  AppSettingsServiceAccountsRoute: typeof AppSettingsServiceAccountsRoute
+  AppSettingsSsoRoute: typeof AppSettingsSsoRoute
+  AppCatalogIndexRoute: typeof AppCatalogIndexRoute
+  AppConnectorsIndexRoute: typeof AppConnectorsIndexRoute
+  AppConnectorsIdHistoryRoute: typeof AppConnectorsIdHistoryRoute
+  AppConnectorsIdToolsNewRoute: typeof AppConnectorsIdToolsNewRoute
+  AppConnectorsIdToolsIndexRoute: typeof AppConnectorsIdToolsIndexRoute
+  AppConnectorsIdToolsToolIdHistoryRoute: typeof AppConnectorsIdToolsToolIdHistoryRoute
+  AppConnectorsIdToolsToolIdIndexRoute: typeof AppConnectorsIdToolsToolIdIndexRoute
+}
+
+const AppRouteChildren: AppRouteChildren = {
+  AppAnalyticsRoute: AppAnalyticsRoute,
+  AppApiKeysRoute: AppApiKeysRoute,
+  AppApprovalsRoute: AppApprovalsRoute,
+  AppReauthRoute: AppReauthRoute,
+  AppServersRoute: AppServersRoute,
+  AppStatusRoute: AppStatusRoute,
+  AppToolCallsRoute: AppToolCallsRoute,
+  AppIndexRoute: AppIndexRoute,
+  AppCatalogSlugRoute: AppCatalogSlugRoute,
+  AppConnectorsImportRoute: AppConnectorsImportRoute,
+  AppSettingsAuditRoute: AppSettingsAuditRoute,
+  AppSettingsDlpRoute: AppSettingsDlpRoute,
+  AppSettingsMembersRoute: AppSettingsMembersRoute,
+  AppSettingsRolesRoute: AppSettingsRolesRoute,
+  AppSettingsSecurityRoute: AppSettingsSecurityRoute,
+  AppSettingsServiceAccountsRoute: AppSettingsServiceAccountsRoute,
+  AppSettingsSsoRoute: AppSettingsSsoRoute,
+  AppCatalogIndexRoute: AppCatalogIndexRoute,
+  AppConnectorsIndexRoute: AppConnectorsIndexRoute,
+  AppConnectorsIdHistoryRoute: AppConnectorsIdHistoryRoute,
+  AppConnectorsIdToolsNewRoute: AppConnectorsIdToolsNewRoute,
+  AppConnectorsIdToolsIndexRoute: AppConnectorsIdToolsIndexRoute,
+  AppConnectorsIdToolsToolIdHistoryRoute:
+    AppConnectorsIdToolsToolIdHistoryRoute,
+  AppConnectorsIdToolsToolIdIndexRoute: AppConnectorsIdToolsToolIdIndexRoute,
+}
+
+const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
+
+interface PublicRouteChildren {
+  PublicLoginRoute: typeof PublicLoginRoute
+  PublicInviteTokenRoute: typeof PublicInviteTokenRoute
+}
+
+const PublicRouteChildren: PublicRouteChildren = {
+  PublicLoginRoute: PublicLoginRoute,
+  PublicInviteTokenRoute: PublicInviteTokenRoute,
+}
+
+const PublicRouteWithChildren =
+  PublicRoute._addFileChildren(PublicRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
-  IndexRoute: IndexRoute,
-  AnalyticsRoute: AnalyticsRoute,
-  ApiKeysRoute: ApiKeysRoute,
-  ApprovalsRoute: ApprovalsRoute,
-  LoginRoute: LoginRoute,
-  ReauthRoute: ReauthRoute,
-  ServersRoute: ServersRoute,
-  StatusRoute: StatusRoute,
-  ToolCallsRoute: ToolCallsRoute,
-  CatalogSlugRoute: CatalogSlugRoute,
-  ConnectorsImportRoute: ConnectorsImportRoute,
-  InviteTokenRoute: InviteTokenRoute,
-  SettingsAuditRoute: SettingsAuditRoute,
-  SettingsDlpRoute: SettingsDlpRoute,
-  SettingsMembersRoute: SettingsMembersRoute,
-  SettingsRolesRoute: SettingsRolesRoute,
-  SettingsSecurityRoute: SettingsSecurityRoute,
-  SettingsServiceAccountsRoute: SettingsServiceAccountsRoute,
-  SettingsSsoRoute: SettingsSsoRoute,
-  CatalogIndexRoute: CatalogIndexRoute,
-  ConnectorsIndexRoute: ConnectorsIndexRoute,
-  ConnectorsIdHistoryRoute: ConnectorsIdHistoryRoute,
-  ConnectorsIdToolsNewRoute: ConnectorsIdToolsNewRoute,
-  ConnectorsIdToolsIndexRoute: ConnectorsIdToolsIndexRoute,
-  ConnectorsIdToolsToolIdHistoryRoute: ConnectorsIdToolsToolIdHistoryRoute,
-  ConnectorsIdToolsToolIdIndexRoute: ConnectorsIdToolsToolIdIndexRoute,
+  AppRoute: AppRouteWithChildren,
+  PublicRoute: PublicRouteWithChildren,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

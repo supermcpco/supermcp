@@ -7,7 +7,7 @@ import { message } from "../lib/errors";
 import { useRefreshSession, useSession } from "../lib/session";
 import { safeNext } from "../lib/members";
 
-export const Route = createFileRoute("/login")({
+export const Route = createFileRoute("/_public/login")({
   component: Login,
   validateSearch: (search: Record<string, unknown>): { sso_error?: string; next?: string } => ({
     ...(typeof search.sso_error === "string" ? { sso_error: search.sso_error } : {}),
@@ -27,7 +27,7 @@ const ssoErrors: Record<string, string> = {
 
 function Login() {
   const router = useRouter();
-  const search = useSearch({ from: "/login" });
+  const search = useSearch({ from: "/_public/login" });
   const providers = useQuery({ ...listSsoProvidersOptions(), retry: false });
   const refresh = useRefreshSession();
   const { session } = useSession();

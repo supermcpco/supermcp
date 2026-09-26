@@ -4,23 +4,20 @@ import { Text } from "@cloudflare/kumo";
 import { ArrowLeft } from "@phosphor-icons/react";
 import { connectorsGetOptions } from "../api/@tanstack/react-query.gen";
 import { useSession } from "../lib/session";
-import { Loading, SignInFirst } from "../lib/ui";
+import { Loading } from "../lib/ui";
 import { message } from "../lib/errors";
 import { ToolEditor } from "../components/tool-editor";
 import { transportOf } from "../lib/tool-api";
 
-export const Route = createFileRoute("/connectors/$id/tools/new")({
+export const Route = createFileRoute("/_app/connectors/$id/tools/new")({
   component: NewTool,
 });
 
 function NewTool() {
   const { id } = Route.useParams();
-  const { signedIn, can, loading } = useSession();
+  const { signedIn, can } = useSession();
   const navigate = useNavigate();
   const connector = useQuery({ ...connectorsGetOptions({ path: { id } }), enabled: signedIn, retry: false });
-
-  if (loading) return <Loading />;
-  if (!signedIn) return <SignInFirst />;
 
   return (
     <div className="grid gap-6">

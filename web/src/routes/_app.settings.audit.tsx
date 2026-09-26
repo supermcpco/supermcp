@@ -28,16 +28,16 @@ import {
 } from "../lib/audit";
 import { useDebounced } from "../lib/debounce";
 import { useSession } from "../lib/session";
-import { Badge, Loading, SignInFirst } from "../lib/ui";
+import { Badge } from "../lib/ui";
 import { message } from "../lib/errors";
 
-export const Route = createFileRoute("/settings/audit")({
+export const Route = createFileRoute("/_app/settings/audit")({
   component: AuditTrail,
   validateSearch: parseAuditSearch,
 });
 
 function AuditTrail() {
-  const { signedIn, can, loading } = useSession();
+  const { signedIn, can } = useSession();
   const search = Route.useSearch();
   const navigate = useNavigate({ from: Route.fullPath });
   const allowed = can("audit:read");
@@ -82,8 +82,6 @@ function AuditTrail() {
     refetchOnWindowFocus: true,
   });
 
-  if (loading) return <Loading />;
-  if (!signedIn) return <SignInFirst />;
   if (!allowed) {
     return <Text>You do not have permission to read the audit trail for this workspace.</Text>;
   }
