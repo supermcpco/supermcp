@@ -13,6 +13,7 @@ import type { Server } from "../api/types.gen";
 import { useSession } from "../lib/session";
 import { Badge } from "../lib/ui";
 import { message } from "../lib/errors";
+import { toast } from "../components/shell/toast";
 
 export const Route = createFileRoute("/_app/servers")({
   component: Servers,
@@ -29,7 +30,8 @@ function Servers() {
 
   const create = useMutation({
     ...serversCreateMutation(),
-    onSuccess: async () => {
+    onSuccess: async (server) => {
+      toast(`MCP server ${server.name} created`);
       setName("");
       setPicked([]);
       setError(null);

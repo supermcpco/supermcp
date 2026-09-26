@@ -17,6 +17,7 @@ import type { InviteDto, MemberDto, RoleDto } from "../api/types.gen";
 import { useSession } from "../lib/session";
 import { Badge, Loading } from "../lib/ui";
 import { status } from "../lib/errors";
+import { toast } from "../components/shell/toast";
 import {
   defaultExpiryDays,
   expiryDays,
@@ -393,6 +394,7 @@ function InviteSection({ roles, rolesLoading }: { roles: RoleDto[]; rolesLoading
   const create = useMutation({
     ...invitesCreateMutation(),
     onSuccess: async (res) => {
+      toast(`Invitation for ${res.invite.email} created`);
       setLink({ url: res.url, email: res.invite.email });
       setCopied(false);
       setEmail("");

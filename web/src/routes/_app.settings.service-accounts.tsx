@@ -13,6 +13,7 @@ import {
 import { useSession } from "../lib/session";
 import { Badge } from "../lib/ui";
 import { message } from "../lib/errors";
+import { toast } from "../components/shell/toast";
 
 export const Route = createFileRoute("/_app/settings/service-accounts")({
   component: ServiceAccounts,
@@ -34,7 +35,8 @@ function ServiceAccounts() {
 
   const create = useMutation({
     ...createServiceAccountMutation(),
-    onSuccess: async (a) => {
+    onSuccess: async (a, vars) => {
+      toast(`Service account ${vars.body.name} created`);
       setIssued({ clientId: a.clientId, secret: a.secret ?? "" });
       setName("");
       setError(null);
