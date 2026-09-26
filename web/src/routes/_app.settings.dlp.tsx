@@ -217,7 +217,7 @@ function RulesTab() {
             Add a rule
           </Text>
           <form
-            className="grid gap-3"
+            className="grid max-w-3xl gap-3"
             onSubmit={(e) => {
               e.preventDefault();
               create.mutate({

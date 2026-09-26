@@ -246,7 +246,7 @@ function Rules() {
       {list.length === 0 && <Text variant="secondary">No rules, so no call is ever held.</Text>}
       {canManage && (
         <form
-          className="grid gap-3"
+          className="grid max-w-3xl gap-3"
           onSubmit={(e) => {
             e.preventDefault();
             add.mutate({

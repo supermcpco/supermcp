@@ -22,13 +22,11 @@ function Shell() {
     <div className="flex h-full flex-col bg-kumo-base text-kumo-default lg:flex-row">
       <Sidebar />
       <main className="min-h-0 min-w-0 flex-1 overflow-y-auto px-6 py-5">
-        <div className="max-w-6xl">
-          <SessionGate>
-            <PasswordAgeGate>
-              <Outlet />
-            </PasswordAgeGate>
-          </SessionGate>
-        </div>
+        <SessionGate>
+          <PasswordAgeGate>
+            <Outlet />
+          </PasswordAgeGate>
+        </SessionGate>
       </main>
     </div>
   );
