@@ -17,15 +17,16 @@ test("a workspace installs an adapter, exposes it and calls a tool", async ({ pa
   await expectAccessible(page);
 
   await page.getByRole("button", { name: "Install" }).click();
+  await expect(page.getByText("Deutsche Bundesbank Statistics installed", { exact: true })).toBeVisible();
   await expect(page).toHaveURL(/\/connectors/);
-  await expect(page.getByText("Deutsche Bundesbank Statistics")).toBeVisible();
+  await expect(page.getByText("Deutsche Bundesbank Statistics", { exact: true })).toBeVisible();
 
   // An MCP server is what an AI client is actually pointed at.
   await page.goto("/servers");
   await page.getByLabel("Name").fill("Browser server");
   await page.getByRole("checkbox", { name: /Deutsche Bundesbank Statistics/ }).check();
   await page.getByRole("button", { name: "Create server" }).click();
-  await expect(page.getByText("Browser server")).toBeVisible();
+  await expect(page.getByText("Browser server", { exact: true })).toBeVisible();
   await expect(page.getByText("1 connector", { exact: false })).toBeVisible();
 
   const endpoint = await page.locator("code", { hasText: "/mcp/" }).first().innerText();

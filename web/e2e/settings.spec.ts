@@ -92,7 +92,7 @@ test("a service account is created with a secret shown once", async ({ page, wor
   expect(shown).toContain("client_secret: ");
 
   await page.getByRole("button", { name: "Done" }).click();
-  await expect(page.getByText("Nightly export")).toBeVisible();
+  await expect(page.getByText("Nightly export", { exact: true })).toBeVisible();
 
   // Reloading must not show the secret again.
   await page.reload();
