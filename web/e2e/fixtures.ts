@@ -28,12 +28,11 @@ export { expect };
 /** Creates an account through the form a first visitor sees. */
 export async function signUp(page: Page, w: Workspace) {
   await page.goto("/login");
-  await page.getByRole("button", { name: /create a new workspace/i }).click();
+  await page.getByRole("button", { name: "Create a workspace" }).click();
   await page.getByLabel("Email").fill(w.email);
   await page.getByLabel("Password").fill(w.password);
   await page.getByLabel("Workspace name").fill(w.org);
-  await page.getByRole("button", { name: /create workspace/i }).click();
-  // The overview renders for anonymous visitors too, so it proves nothing.
+  await page.getByRole("button", { name: "Create workspace", exact: true }).click();
   // The workspace name in the sidebar only appears for a session.
   await expect(page.getByText(w.org, { exact: false })).toBeVisible();
 }

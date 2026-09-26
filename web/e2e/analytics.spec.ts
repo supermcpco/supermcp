@@ -1,4 +1,4 @@
-import { test, expect, expectAccessible } from "./fixtures";
+import { test, expect, expectAccessible, signUp } from "./fixtures";
 import type { APIRequestContext, Page } from "@playwright/test";
 
 // The analytics screen counts the calls a workspace made. The calls here
@@ -160,13 +160,11 @@ test("the analytics screen counts a workspace's calls, and another workspace see
   const context = await browser.newContext();
   const other = await context.newPage();
   const stamp = Date.now();
-  await other.goto("/login");
-  await other.getByRole("button", { name: /create a new workspace/i }).click();
-  await other.getByLabel("Email").fill(`analytics-other-${stamp}@example.test`);
-  await other.getByLabel("Password").fill("Correct Horse Battery 9");
-  await other.getByLabel("Workspace name").fill(`Analytics other ${stamp}`);
-  await other.getByRole("button", { name: /create workspace/i }).click();
-  await expect(other.getByText(`Analytics other ${stamp}`)).toBeVisible();
+  await signUp(other, {
+    email: `analytics-other-${stamp}@example.test`,
+    password: "Correct Horse Battery 9", // gitleaks:allow
+    org: `Analytics other ${stamp}`,
+  });
 
   await other.goto("/analytics?range=24h");
   await expect(other.getByText("No tool calls in this period.", { exact: false })).toBeVisible();
