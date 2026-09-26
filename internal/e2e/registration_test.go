@@ -8,17 +8,16 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"slices"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/supermcpco/supermcp/internal/audit"
 	"github.com/supermcpco/supermcp/internal/identity"
 	"github.com/supermcpco/supermcp/internal/testdb"
 )
-
-// registrationClosed is what register answers when it refuses.
-const registrationClosed = "Registration is closed. Ask an administrator for an invitation."
 
 // TestSessionRegistrationOpen checks what the anonymous session tells the
 // sign-in screen. The harness runs in dev mode throughout, and dev mode
@@ -57,7 +56,8 @@ func TestSessionRegistrationOpen(t *testing.T) {
 
 // TestRegisterAgreesWithSession registers through the API after asking the
 // session whether it may, with no users and with one, open registration
-// off and on. Whatever the session says, register does.
+// off and on. Whatever the session says, register does, and a refusal is
+// recorded as denied.
 func TestRegisterAgreesWithSession(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
@@ -76,20 +76,47 @@ func TestRegisterAgreesWithSession(t *testing.T) {
 				}
 				h.cookie = ""
 				var refusal apiError
+				email := newID() + "@e2e.test"
 				code := h.do(t, http.MethodPost, "/api/v1/auth/register", map[string]any{
-					"email": newID() + "@e2e.test", "password": "correct horse battery 9", "orgName": "Agree",
+					"email": email, "password": "correct horse battery 9", "orgName": "Agree",
 				}, &refusal)
 				switch {
 				case open && code != http.StatusOK:
 					t.Errorf("with %d users the session says open and register answers %d: %+v", users, code, refusal)
 				case !open && code != http.StatusForbidden:
 					t.Errorf("with %d users the session says closed and register answers %d", users, code)
-				case !open && refusal.Detail != registrationClosed:
-					t.Errorf("the refusal says %q, want %q", refusal.Detail, registrationClosed)
+				case !open && refusal.Detail != identity.RegistrationClosedMessage:
+					t.Errorf("the refusal says %q, want %q", refusal.Detail, identity.RegistrationClosedMessage)
+				}
+				if !open {
+					if got := registerOutcomes(t, h, email); !slices.Equal(got, []string{audit.Denied}) {
+						t.Errorf("a refused sign-up left account.register outcomes %v, want [%s]", got, audit.Denied)
+					}
 				}
 			}
 		})
 	}
+}
+
+// registerOutcomes flushes the audit writer and returns the outcomes of
+// the account.register events for email. A refused sign-up has no
+// organisation, so its event is instance-level and read directly.
+func registerOutcomes(t *testing.T, h *harness, email string) []string {
+	t.Helper()
+	ctx := context.Background()
+	if err := h.deps.Audit.Flush(ctx); err != nil {
+		t.Fatalf("waiting for the audit writer: %v", err)
+	}
+	rows, err := h.db.Maint.Query(ctx, `SELECT outcome FROM audit_events
+		WHERE action = 'account.register' AND target_display = $1 ORDER BY seq`, email)
+	if err != nil {
+		t.Fatalf("reading the audit trail: %v", err)
+	}
+	out, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		t.Fatalf("reading the audit trail: %v", err)
+	}
+	return out
 }
 
 // anonymousRegistrationOpen asks the session endpoint, without a cookie,
