@@ -20,6 +20,10 @@ import (
 	"github.com/supermcpco/supermcp/internal/tenant"
 )
 
+// RegistrationClosedMessage is what a person who tried to register is told
+// when Register refuses with ErrRegistrationClosed.
+const RegistrationClosedMessage = "Registration is closed. Ask an administrator for an invitation."
+
 // Errors.
 var (
 	ErrInvalidCredentials = errors.New("invalid email or password")

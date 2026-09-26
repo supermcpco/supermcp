@@ -90,7 +90,12 @@ func (d Deps) registerRoutes(api huma.API) {
 		func(ctx context.Context, in *registerInput) (*sessionOutput, error) {
 			u, o, err := d.Identity.Register(ctx, identity.RegisterInput{Email: in.Body.Email, Name: in.Body.Name, Password: in.Body.Password, OrgName: in.Body.OrgName})
 			if err != nil {
-				d.authEvent(ctx, "account.register", audit.Failure, in.Body.Email, errorMeta(ctx, nil, "error", err))
+				outcome := audit.Failure
+				if errors.Is(err, identity.ErrRegistrationClosed) {
+					// A refusal by policy, not something that went wrong.
+					outcome = audit.Denied
+				}
+				d.authEvent(ctx, "account.register", outcome, in.Body.Email, errorMeta(ctx, nil, "error", err))
 				return nil, humaErr(err)
 			}
 			out, err := d.startSession(ctx, u, o)

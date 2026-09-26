@@ -243,7 +243,7 @@ func errStatus(err error) (int, string) {
 	case errors.Is(err, identity.ErrDisabled):
 		return http.StatusForbidden, err.Error()
 	case errors.Is(err, identity.ErrRegistrationClosed):
-		return http.StatusForbidden, "Registration is closed. Ask an administrator for an invitation."
+		return http.StatusForbidden, identity.RegistrationClosedMessage
 	case errors.Is(err, identity.ErrEmailTaken), errors.Is(err, identity.ErrWeakPassword),
 		errors.Is(err, identity.ErrPasswordReused):
 		return http.StatusBadRequest, err.Error()
