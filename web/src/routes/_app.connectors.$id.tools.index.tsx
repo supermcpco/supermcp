@@ -12,8 +12,8 @@ import {
   toolsReferencesOptions,
 } from "../api/@tanstack/react-query.gen";
 import { useSession } from "../lib/session";
-import { Badge, Loading } from "../lib/ui";
-import { message } from "../lib/errors";
+import { Badge, Loading, NotFound } from "../lib/ui";
+import { message, status } from "../lib/errors";
 import { invalidateTool, isReferencesConflict } from "../lib/tool-api";
 import { resyncSummary } from "../lib/resync";
 import { ResyncReview } from "../components/resync-review";
@@ -52,6 +52,14 @@ function Tools() {
     },
     onError: (e) => setError(message(e)),
   });
+
+  if (status(connector.error) === 404) {
+    return (
+      <NotFound heading="Connector not found" back={{ to: "/connectors" }} backLabel="Back to connectors">
+        This workspace has no connector at this address; it may have been deleted.
+      </NotFound>
+    );
+  }
 
   const list = tools.data ?? [];
 
