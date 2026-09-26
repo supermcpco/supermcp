@@ -254,7 +254,7 @@ function SingleSignOn() {
           Add a provider
         </Text>
         <form
-          className="grid gap-3 rounded-lg px-5 py-4 ring ring-kumo-line"
+          className="grid max-w-3xl gap-3 rounded-lg px-5 py-4 ring ring-kumo-line"
           aria-label="Add a provider"
           onSubmit={(e) => {
             e.preventDefault();
@@ -632,7 +632,7 @@ function SamlSection() {
       </ul>
 
       <form
-        className="grid gap-3 rounded-lg px-5 py-4 ring ring-kumo-line"
+        className="grid max-w-3xl gap-3 rounded-lg px-5 py-4 ring ring-kumo-line"
         onSubmit={(e) => {
           e.preventDefault();
           create.mutate({

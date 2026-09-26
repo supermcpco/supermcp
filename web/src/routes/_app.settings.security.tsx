@@ -141,7 +141,7 @@ function PasswordPolicy() {
         </Text>
       </div>
       <form
-        className="grid gap-3 rounded-lg px-5 py-4 ring ring-kumo-line"
+        className="grid max-w-3xl gap-3 rounded-lg px-5 py-4 ring ring-kumo-line"
         onSubmit={(e) => {
           e.preventDefault();
           save.mutate({ body: form });

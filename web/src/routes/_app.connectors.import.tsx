@@ -113,7 +113,7 @@ function ImportConnector() {
       </div>
 
       <form
-        className="grid gap-4 rounded-lg px-5 py-4 ring ring-kumo-line"
+        className="grid max-w-4xl gap-4 rounded-lg px-5 py-4 ring ring-kumo-line"
         onSubmit={(e) => {
           e.preventDefault();
           setError(null);

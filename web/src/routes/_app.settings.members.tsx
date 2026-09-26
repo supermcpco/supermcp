@@ -462,7 +462,7 @@ function InviteSection({ roles, rolesLoading }: { roles: RoleDto[]; rolesLoading
       )}
 
       <form
-        className="flex flex-wrap items-end gap-3 rounded-lg px-5 py-4 ring ring-kumo-line"
+        className="flex max-w-3xl flex-wrap items-end gap-3 rounded-lg px-5 py-4 ring ring-kumo-line"
         aria-labelledby="invite-heading"
         onSubmit={(e) => {
           e.preventDefault();
