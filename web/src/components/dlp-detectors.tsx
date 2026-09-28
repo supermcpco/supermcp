@@ -21,6 +21,7 @@ import { message } from "../lib/errors";
 import { formatSamples, isStale, parseSamples, referencingPolicies, verdicts } from "../lib/dlp-detectors";
 import { Badge, Loading } from "../lib/ui";
 import { HistoryPanel } from "./revisions";
+import { toast } from "./shell/toast";
 
 /** How long typing must pause before the pattern is tried again. */
 const testTypingMs = 300;
@@ -164,7 +165,13 @@ function EditDetector({ id, onDone, onCancel }: { id: string; onDone: () => Prom
  * built-in.
  */
 function DeleteDetector({ detector, onDeleted }: { detector: CustomDetectorDto; onDeleted: () => Promise<void> }) {
-  const remove = useMutation({ ...dlpDetectorDeleteMutation(), onSuccess: onDeleted });
+  const remove = useMutation({
+    ...dlpDetectorDeleteMutation(),
+    onSuccess: async () => {
+      toast(`Detector ${detector.name} deleted`);
+      await onDeleted();
+    },
+  });
   const users = remove.error ? referencingPolicies(remove.error) : [];
   return (
     <div className="grid gap-2">
@@ -237,12 +244,19 @@ function DetectorForm({
   };
   const create = useMutation({
     ...dlpDetectorCreateMutation(),
-    onSuccess: async () => {
+    onSuccess: async (_, vars) => {
+      toast(`Detector ${vars.body.name} added`);
       reset();
       await onDone();
     },
   });
-  const update = useMutation({ ...dlpDetectorUpdateMutation(), onSuccess: onDone });
+  const update = useMutation({
+    ...dlpDetectorUpdateMutation(),
+    onSuccess: async (_, vars) => {
+      toast(`Detector ${vars.body.name} saved`);
+      await onDone();
+    },
+  });
   const save = detector ? update : create;
 
   const flags = anyCase ? ("i" as const) : ("" as const);
@@ -437,7 +451,8 @@ function DetectorHistory({
   const revisions = useQuery({ ...dlpDetectorsRevisionsListOptions(key), retry: false });
   const restore = useMutation({
     ...dlpDetectorsRevisionsRestoreMutation(),
-    onSuccess: async () => {
+    onSuccess: async (_, vars) => {
+      toast(`Detector ${detector.name} restored to version ${vars.path.revision}`);
       await qc.invalidateQueries({ queryKey: dlpDetectorsRevisionsListQueryKey(key) });
       await onRestored();
     },

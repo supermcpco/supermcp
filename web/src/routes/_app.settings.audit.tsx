@@ -30,6 +30,7 @@ import { useDebounced } from "../lib/debounce";
 import { useSession } from "../lib/session";
 import { Badge } from "../lib/ui";
 import { message } from "../lib/errors";
+import { toast } from "../components/shell/toast";
 
 export const Route = createFileRoute("/_app/settings/audit")({
   component: AuditTrail,
@@ -245,7 +246,11 @@ function PayloadPolicy() {
   const [error, setError] = useState<string | null>(null);
   const save = useMutation({
     ...auditSetPolicyMutation(),
-    onSuccess: () => qc.invalidateQueries({ queryKey: auditGetPolicyQueryKey() }),
+    onSuccess: async (_, vars) => {
+      setError(null);
+      toast(`Tool calls now record: ${modes.find((m) => m.id === vars.body.mode)?.label ?? vars.body.mode}`);
+      await qc.invalidateQueries({ queryKey: auditGetPolicyQueryKey() });
+    },
     onError: (e) => setError(message(e)),
   });
   const editable = can("audit:policy:manage");
@@ -314,6 +319,7 @@ function Retention() {
       setDraft(null);
       setError(null);
       setNote(`Events now keep their content for ${r.days} days.`);
+      toast(`Retention set to ${r.days} days`);
       await qc.invalidateQueries({ queryKey: auditGetRetentionQueryKey() });
     },
     onError: (e) => {
@@ -405,7 +411,8 @@ function Destinations() {
   const onError = (e: unknown) => setError(message(e));
   const add = useMutation({
     ...auditExportersCreateMutation(),
-    onSuccess: async () => {
+    onSuccess: async (_, vars) => {
+      toast(`The trail now ships to ${vars.body.url}`);
       setUrl("");
       setSecret("");
       setError(null);
@@ -413,7 +420,16 @@ function Destinations() {
     },
     onError,
   });
-  const remove = useMutation({ ...auditExportersDeleteMutation(), onSuccess: refresh, onError });
+  const remove = useMutation({
+    ...auditExportersDeleteMutation(),
+    onSuccess: async (_, vars) => {
+      const url = list.data?.exporters?.find((e) => e.id === vars.path.id)?.url;
+      toast(url ? `Stopped shipping the trail to ${url}` : "Stopped shipping the trail there");
+      setError(null);
+      await refresh();
+    },
+    onError,
+  });
 
   if (!canSee) return null;
   const rows = list.data?.exporters ?? [];
@@ -494,12 +510,18 @@ function LegalHold() {
   const onError = (e: unknown) => setNote(message(e));
   const place = useMutation({
     ...auditLegalHoldMutation(),
-    onSuccess: (r) => setNote(`${r.held} events are now held.`),
+    onSuccess: (r) => {
+      setNote(`${r.held} events are now held.`);
+      toast(`Hold placed on ${r.held} events`);
+    },
     onError,
   });
   const release = useMutation({
     ...auditLegalHoldReleaseMutation(),
-    onSuccess: (r) => setNote(`${r.held} events were released.`),
+    onSuccess: (r) => {
+      setNote(`${r.held} events were released.`);
+      toast(`Hold released on ${r.held} events`);
+    },
     onError,
   });
 

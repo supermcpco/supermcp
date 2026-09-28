@@ -22,6 +22,7 @@ import { Badge, Loading } from "../lib/ui";
 import { message } from "../lib/errors";
 import { RoleEditor, type Holder } from "../components/role-editor";
 import { RevisionList } from "../components/revisions";
+import { toast } from "../components/shell/toast";
 
 export const Route = createFileRoute("/_app/settings/roles")({
   component: Roles,
@@ -106,7 +107,9 @@ function Roles() {
 
   const grant = useMutation({
     ...createRoleBindingMutation(),
-    onSuccess: async () => {
+    onSuccess: async (b, vars) => {
+      const role = roleList.find((r) => r.id === vars.path.id)?.name ?? "the role";
+      toast(`${b.display || "The holder"} now holds ${role}`);
       setPrincipal("");
       setError(null);
       await refresh();
@@ -115,7 +118,11 @@ function Roles() {
   });
   const revoke = useMutation({
     ...deleteRoleBindingMutation(),
-    onSuccess: async () => {
+    onSuccess: async (_, vars) => {
+      const index = roleList.findIndex((r) => r.id === vars.path.id);
+      const binding = holderQueries[index]?.data?.bindings?.find((x) => x.id === vars.path.bindingId);
+      const role = roleList[index]?.name ?? "the role";
+      toast(`${binding?.display || "The holder"} no longer holds ${role}`);
       setError(null);
       await refresh();
     },
@@ -123,7 +130,9 @@ function Roles() {
   });
   const remove = useMutation({
     ...deleteRoleMutation(),
-    onSuccess: async () => {
+    onSuccess: async (_, vars) => {
+      const role = roleList.find((r) => r.id === vars.path.id)?.name;
+      toast(role ? `Role ${role} deleted` : "Role deleted");
       setConfirming(null);
       setError(null);
       await refresh();
@@ -396,7 +405,8 @@ function RoleHistory({ role, canRestore, onRestored }: { role: RoleDto; canResto
   const revisions = useQuery({ ...rolesRevisionsListOptions({ path: { id: role.id } }), retry: false });
   const restore = useMutation({
     ...rolesRevisionsRestoreMutation(),
-    onSuccess: async () => {
+    onSuccess: async (_, vars) => {
+      toast(`Role ${role.name} restored to version ${vars.path.revision}`);
       await qc.invalidateQueries({ queryKey: rolesRevisionsListQueryKey({ path: { id: role.id } }) });
       await onRestored();
     },

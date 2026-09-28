@@ -41,6 +41,7 @@ import {
   type BlockingPolicy,
 } from "../lib/tool-api";
 import { ToolPreview } from "./tool-preview";
+import { toast } from "./shell/toast";
 
 const selectClass = "rounded-md border border-kumo-line bg-kumo-base px-3 py-2";
 
@@ -130,6 +131,7 @@ export function ToolEditor({
   };
 
   const saved = async (result: ToolWriteResult) => {
+    toast(tool ? `Tool ${result.tool.name} saved` : `Tool ${result.tool.name} created`);
     setError(null);
     setServerIssues([]);
     setAck(null);

@@ -3,6 +3,7 @@ import { useMutation, useQueryClient, type QueryClient } from "@tanstack/react-q
 import { Button, Input, Text } from "@cloudflare/kumo";
 import { changePasswordMutation } from "../api/@tanstack/react-query.gen";
 import { message } from "../lib/errors";
+import { toast } from "./shell/toast";
 
 /**
  * Changing your own password. The security screen shows it, and so does
@@ -25,6 +26,7 @@ export function ChangePassword({
   const change = useMutation({
     ...changePasswordMutation(),
     onSuccess: async () => {
+      toast("Password changed");
       setCurrent("");
       setNext("");
       setDone(true);
