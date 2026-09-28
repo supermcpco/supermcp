@@ -442,3 +442,32 @@ test("removing a provider, a rule and a service account each ask first", async (
   await expect(page.getByRole("heading", { name: "Service account Doomed pipeline deleted", exact: true })).toBeVisible();
   await expect(page.getByText("No service accounts yet.")).toBeVisible();
 });
+
+test("the Account tab's forms keep to a form's width on a wide screen", async ({ page, workspace }) => {
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await page.goto("/settings/security");
+  await expect(page.getByRole("heading", { name: "Account", exact: true })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Profile" }).getByText(workspace.email)).toBeVisible();
+  await expect(page.getByRole("region", { name: "Where you are signed in" }).getByText("this device")).toBeVisible();
+
+  // A card stretched over 1,600 pixels holding two short fields is the
+  // defect this guards against: the forms are held to 768 pixels.
+  const width = async (name: string, role: "region" | "textbox" = "region") => {
+    const box = await page.getByRole(role, { name, exact: true }).boundingBox();
+    expect(box, `${name} is on the page`).not.toBeNull();
+    return box?.width ?? Infinity;
+  };
+  expect(await width("Profile")).toBeLessThanOrEqual(800);
+  expect(await width("Change your password")).toBeLessThanOrEqual(800);
+  expect(await width("Where you are signed in")).toBeLessThanOrEqual(800);
+  expect(await width("Password rules for this workspace")).toBeLessThanOrEqual(800);
+  expect(await width("Name", "textbox")).toBeLessThan(500);
+  await expectAccessible(page);
+
+  // And the same page drawn dark passes the same checks.
+  await page.emulateMedia({ colorScheme: "dark" });
+  await expect
+    .poll(() => page.evaluate(() => getComputedStyle(document.documentElement).colorScheme))
+    .toBe("dark");
+  await expectAccessible(page);
+});
