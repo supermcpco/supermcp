@@ -56,7 +56,7 @@ function History() {
       <div className="grid gap-1.5">
         <HeadingWithAbout
           heading={
-            <Text as="h2" variant="heading3">
+            <Text as="h2" variant="heading">
               History
             </Text>
           }

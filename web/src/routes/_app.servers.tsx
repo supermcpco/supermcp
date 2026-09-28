@@ -36,7 +36,7 @@ function Servers() {
   return (
     <div className="grid gap-6">
       <HeaderWithAction action={newServer}>
-        <Text as="h1" variant="heading2">
+        <Text as="h1" variant="heading" size="lg">
           MCP servers
         </Text>
         <Text>Each server is one endpoint you give an AI client, offering only the connectors you attach.</Text>

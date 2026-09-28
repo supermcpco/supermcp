@@ -72,7 +72,7 @@ function APIKeys() {
   return (
     <div className="grid gap-6">
       <HeaderWithAction action={createKey}>
-        <Text as="h1" variant="heading2">
+        <Text as="h1" variant="heading" size="lg">
           API keys
         </Text>
         <Text>A key lets an AI client reach your MCP servers; its secret is shown once, when you create it.</Text>
@@ -321,7 +321,7 @@ function SecretBody({ issued }: { issued: Issued }) {
 
       {forClients && mayListServers && (
         <div className="grid gap-3 border-t border-kumo-line pt-4">
-          <Text as="h3" variant="heading3">
+          <Text as="h3" variant="heading">
             Connect a client
           </Text>
           {servers.isPending && <Text variant="secondary">Loading…</Text>}

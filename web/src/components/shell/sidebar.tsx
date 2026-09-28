@@ -66,7 +66,7 @@ export function TopBar() {
       <Sidebar.Trigger aria-label="Menu" aria-expanded={openMobile}>
         <List size={20} aria-hidden />
       </Sidebar.Trigger>
-      <Text as="span" variant="heading3">
+      <Text as="span" variant="heading">
         supermcp
       </Text>
     </header>

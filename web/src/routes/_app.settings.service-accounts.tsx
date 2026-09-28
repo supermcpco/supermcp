@@ -98,7 +98,7 @@ function ServiceAccounts() {
   return (
     <div className="grid gap-8">
       <HeaderWithAction action={newAccount}>
-        <Text as="h2" variant="heading3">
+        <Text as="h2" variant="heading">
           Service accounts
         </Text>
         <Text>Sign-ins for pipelines and other services, holding roles the way a person does.</Text>
@@ -106,7 +106,7 @@ function ServiceAccounts() {
 
       {issued && (
         <div className="grid gap-1.5 rounded-lg px-5 py-4 ring ring-kumo-line" role="alert">
-          <Text as="h3" variant="heading3">
+          <Text as="h3" variant="heading">
             Copy this secret now
           </Text>
           <Text variant="secondary">It is not stored and cannot be shown again.</Text>

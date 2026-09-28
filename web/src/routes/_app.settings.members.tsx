@@ -115,7 +115,7 @@ function Members() {
       <HeaderWithAction action={invite}>
         <HeadingWithHelp
           heading={
-            <Text as="h2" variant="heading3">
+            <Text as="h2" variant="heading">
               Members
             </Text>
           }
@@ -135,7 +135,7 @@ function Members() {
       {link && <InviteLink link={link} onDone={() => setLink(null)} />}
 
       <section className="grid gap-3" aria-labelledby="members-heading">
-        <Text as="h3" variant="heading3" id="members-heading">
+        <Text as="h3" variant="heading" id="members-heading">
           People
         </Text>
         {members.isPending && <Loading />}
@@ -531,7 +531,7 @@ function InviteLink({ link, onDone }: { link: { url: string; email: string }; on
   const [copied, setCopied] = useState(false);
   return (
     <div className="grid gap-1.5 rounded-lg px-5 py-4 ring ring-kumo-line" role="alert">
-      <Text as="h3" variant="heading3">
+      <Text as="h3" variant="heading">
         Copy the invitation link for {link.email} now
       </Text>
       <Text variant="secondary">This link is shown once. Send it to the person yourself; no email is sent.</Text>
@@ -579,7 +579,7 @@ function Invitations() {
 
   return (
     <section className="grid gap-3" aria-labelledby="invitations-heading">
-      <Text as="h3" variant="heading3" id="invitations-heading">
+      <Text as="h3" variant="heading" id="invitations-heading">
         Invitations
       </Text>
       {error && (

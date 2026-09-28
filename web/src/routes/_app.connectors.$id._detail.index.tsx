@@ -133,7 +133,7 @@ function Status({ connector: c }: { connector: ConnectorDto }) {
 
   return (
     <section aria-labelledby="status-heading" className="grid gap-3">
-      <Text as="h2" variant="heading3" id="status-heading">
+      <Text as="h2" variant="heading" id="status-heading">
         Status
       </Text>
       <dl className="grid gap-x-6 gap-y-2 rounded-lg px-5 py-4 ring ring-kumo-line sm:grid-cols-[max-content_1fr]">
@@ -320,7 +320,7 @@ function Credentials({ connector: c }: { connector: ConnectorDto }) {
   return (
     <section aria-labelledby="credentials-heading" className="grid gap-3">
       <div className="grid gap-1">
-        <Text as="h2" variant="heading3" id="credentials-heading">
+        <Text as="h2" variant="heading" id="credentials-heading">
           Credentials
         </Text>
         <Text variant="secondary">Each value is stored encrypted and never shown again.</Text>
@@ -415,7 +415,7 @@ function DangerZone({ connector: c }: { connector: ConnectorDto }) {
   if (!can("connectors:delete")) return null;
   return (
     <section aria-labelledby="danger-heading" className="grid gap-3 rounded-lg px-5 py-4 ring ring-kumo-danger">
-      <Text as="h2" variant="heading3" id="danger-heading">
+      <Text as="h2" variant="heading" id="danger-heading">
         Danger zone
       </Text>
       <div className="flex flex-wrap items-center justify-between gap-3">

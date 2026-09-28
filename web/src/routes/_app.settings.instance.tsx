@@ -82,7 +82,7 @@ function Instance() {
   return (
     <div className="grid gap-6">
       <div className="grid gap-1.5">
-        <Text as="h2" variant="heading3">
+        <Text as="h2" variant="heading">
           Instance
         </Text>
         <Text>What this instance can do right now, checked again every few seconds.</Text>

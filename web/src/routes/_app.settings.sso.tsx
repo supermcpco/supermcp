@@ -194,7 +194,7 @@ function SingleSignOn() {
   return (
     <div className="grid gap-8">
       <div className="grid gap-1.5">
-        <Text as="h2" variant="heading3">
+        <Text as="h2" variant="heading">
           Single sign-on
         </Text>
         <Text>People sign in to this workspace with your own identity provider.</Text>
@@ -202,7 +202,7 @@ function SingleSignOn() {
 
       <section className="grid gap-3" aria-labelledby="oidc-heading">
         <HeaderWithAction action={addOidc}>
-          <Text as="h3" variant="heading3" id="oidc-heading">
+          <Text as="h3" variant="heading" id="oidc-heading">
             Providers
           </Text>
           <Text variant="secondary">OpenID Connect providers, such as Entra ID, Okta or Google.</Text>
@@ -434,7 +434,7 @@ function SingleSignOn() {
       <SamlSection />
 
       <section className="grid gap-3">
-        <Text as="h3" variant="heading3">
+        <Text as="h3" variant="heading">
           Redirect URI
         </Text>
         <Text variant="secondary">Register this with your provider as the application's redirect URI.</Text>
@@ -446,7 +446,7 @@ function SingleSignOn() {
       <section className="grid gap-3">
         <HeadingWithHelp
           heading={
-            <Text as="h3" variant="heading3">
+            <Text as="h3" variant="heading">
               Provisioning
             </Text>
           }
@@ -627,7 +627,7 @@ function SamlSection() {
       <HeaderWithAction action={addSaml}>
         <HeadingWithHelp
           heading={
-            <Text as="h3" variant="heading3" id="saml-heading">
+            <Text as="h3" variant="heading" id="saml-heading">
               SAML 2.0
             </Text>
           }

@@ -192,7 +192,7 @@ function Roles() {
       <HeaderWithAction action={build}>
         <HeadingWithHelp
           heading={
-            <Text as="h2" variant="heading3">
+            <Text as="h2" variant="heading">
               Roles
             </Text>
           }

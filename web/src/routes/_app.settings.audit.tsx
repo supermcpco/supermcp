@@ -38,7 +38,7 @@ function AuditLayout() {
       <div className="grid gap-1.5">
         <HeadingWithHelp
           heading={
-            <Text as="h2" variant="heading3">
+            <Text as="h2" variant="heading">
               Audit trail
             </Text>
           }

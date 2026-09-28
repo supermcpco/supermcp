@@ -14,7 +14,7 @@ export const Route = createFileRoute("/_public")({
 function PublicLayout() {
   return (
     <div className="flex min-h-full flex-col items-center justify-center gap-6 bg-kumo-base px-4 py-10 text-kumo-default">
-      <Text as="span" variant="heading3">
+      <Text as="span" variant="heading">
         supermcp
       </Text>
       <main className="grid w-full max-w-md rounded-lg px-6 py-8 ring ring-kumo-line">

@@ -68,7 +68,7 @@ function Connectors() {
           </div>
         }
       >
-        <Text as="h1" variant="heading2">
+        <Text as="h1" variant="heading" size="lg">
           Connectors
         </Text>
         <Text>The systems this workspace can reach.</Text>

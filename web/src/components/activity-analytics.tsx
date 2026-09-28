@@ -156,7 +156,7 @@ function Totals({ report }: { report: UsageReport }) {
           <Text as="span" variant="secondary" id={`${id}-${i}`}>
             {f.label}
           </Text>
-          <Text as="p" variant="heading3">
+          <Text as="p" variant="heading">
             {f.value}
           </Text>
         </div>
@@ -171,7 +171,7 @@ function Charts({ report }: { report: UsageReport }) {
   return (
     <div className="grid gap-6 xl:grid-cols-2">
       <section aria-labelledby="calls-over-time" className="grid gap-2">
-        <Text as="h2" variant="heading3" id="calls-over-time">
+        <Text as="h2" variant="heading" id="calls-over-time">
           Calls and errors
         </Text>
         <Chart
@@ -180,7 +180,7 @@ function Charts({ report }: { report: UsageReport }) {
         />
       </section>
       <section aria-labelledby="latency-over-time" className="grid gap-2">
-        <Text as="h2" variant="heading3" id="latency-over-time">
+        <Text as="h2" variant="heading" id="latency-over-time">
           Duration
         </Text>
         <Chart
@@ -241,7 +241,7 @@ function Top({
   return (
     <section aria-labelledby="top-heading" className="grid gap-3">
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <Text as="h2" variant="heading3" id="top-heading">
+        <Text as="h2" variant="heading" id="top-heading">
           Busiest by {noun.toLowerCase()}
         </Text>
         <div role="radiogroup" aria-label="Break down by" className="flex gap-1">

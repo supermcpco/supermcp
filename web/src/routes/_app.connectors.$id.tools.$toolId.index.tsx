@@ -53,7 +53,7 @@ function EditTool() {
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="grid gap-1.5">
           <div className="flex flex-wrap items-center gap-2">
-            <Text as="h1" variant="heading2">
+            <Text as="h1" variant="heading" size="lg">
               {t ? t.name : "Tool"}
             </Text>
             {t && <Badge>{sourceLabel[t.source]}</Badge>}

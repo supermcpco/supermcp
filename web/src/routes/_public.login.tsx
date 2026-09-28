@@ -159,7 +159,7 @@ function SignIn({
       }}
     >
       <div className="grid gap-1.5">
-        <Text as="h1" variant="heading2" id={`${errorId}-title`}>
+        <Text as="h1" variant="heading" size="lg" id={`${errorId}-title`}>
           Sign in
         </Text>
         <Text variant="secondary">Use the email and password for this instance.</Text>
@@ -246,7 +246,7 @@ function SignUp({ onDone }: { onDone: () => Promise<void> }) {
       }}
     >
       <div className="grid gap-1.5">
-        <Text as="h1" variant="heading2" id={`${errorId}-title`}>
+        <Text as="h1" variant="heading" size="lg" id={`${errorId}-title`}>
           Create your workspace
         </Text>
         <Text variant="secondary">The account you create here owns the new workspace.</Text>

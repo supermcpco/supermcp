@@ -40,7 +40,7 @@ function Activity() {
 
   return (
     <div className="grid gap-6">
-      <Text as="h1" variant="heading2">
+      <Text as="h1" variant="heading" size="lg">
         Activity
       </Text>
 
