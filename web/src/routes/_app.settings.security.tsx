@@ -24,12 +24,12 @@ function Security() {
   return (
     <div className="grid gap-8">
       <div className="grid gap-1.5">
-        <Text as="h1" variant="heading2">
+        <Text as="h2" variant="heading3">
           Security
         </Text>
         <Text>Your password, the devices you are signed in on, and the rules this workspace sets for everyone.</Text>
       </div>
-      <ChangePassword onChanged={(qc) => qc.invalidateQueries({ queryKey: listSessionsQueryKey() })} />
+      <ChangePassword level="h3" onChanged={(qc) => qc.invalidateQueries({ queryKey: listSessionsQueryKey() })} />
       <Sessions />
       <PasswordPolicy />
     </div>
@@ -52,10 +52,10 @@ function Sessions() {
   return (
     <section className="grid gap-3">
       <div className="grid gap-1">
-        <Text as="h2" variant="heading3">
+        <Text as="h3" variant="heading3">
           Where you are signed in
         </Text>
-        <Text variant="secondary">End a session you do not recognise. The device has to sign in again.</Text>
+        <Text variant="secondary">End a session you do not recognise, and that device has to sign in again.</Text>
       </div>
       <ul className="grid gap-2">
         {sessions.data?.sessions?.map((s) => {
@@ -132,11 +132,11 @@ function PasswordPolicy() {
   return (
     <section className="grid gap-3">
       <div className="grid gap-1">
-        <Text as="h2" variant="heading3">
+        <Text as="h3" variant="heading3">
           Password rules for this workspace
         </Text>
         <Text variant="secondary">
-          These apply when a password is set. People who sign in through an identity provider never set one here.
+          They apply whenever a password is set here; people who sign in through your identity provider never set one.
         </Text>
       </div>
       <form

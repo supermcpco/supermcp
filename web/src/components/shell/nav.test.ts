@@ -19,29 +19,21 @@ describe("visibleGroups", () => {
     expect(seen).toEqual(navGroups);
   });
 
-  it("a viewer sees Members and Roles under Settings and nothing that needs a write permission", () => {
+  it("a viewer sees the screens they may read and nothing that needs a write permission", () => {
     const seen = labels(viewer);
     expect(seen.Build).toEqual(["Overview", "Catalog", "Connectors", "MCP servers"]);
     // A viewer may neither ask for approval nor decide one.
-    expect(seen.Operate).toEqual(["API keys", "Activity", "Status"]);
-    expect(seen.Settings).toEqual(["Members", "Security", "Data-loss rules", "Roles"]);
+    expect(seen.Operate).toEqual(["API keys", "Activity"]);
+    expect(seen.Settings).toEqual(["Settings"]);
   });
 
-  it("an auditor sees the audit trail", () => {
-    expect(labels(auditor).Settings).toEqual(["Members", "Security", "Audit trail", "Data-loss rules", "Roles"]);
-  });
-
-  it("single sign-on and service accounts need the permission to manage them", () => {
-    const admin = [...viewer, "idp:manage", "serviceaccounts:manage"];
-    expect(labels(viewer).Settings).not.toContain("Single sign-on");
-    expect(labels(admin).Settings).toEqual([
-      "Members",
-      "Security",
-      "Data-loss rules",
-      "Roles",
-      "Single sign-on",
-      "Service accounts",
-    ]);
+  it("lists settings as one item for everyone signed in, whatever they hold", () => {
+    // Which tabs are inside is the settings screen's business; its
+    // Security tab needs nothing, so the item is never a dead end.
+    for (const perms of [owner, viewer, auditor, consumer, []]) {
+      const settings = visibleGroups(holding(perms)).find((g) => g.label === "Settings");
+      expect(settings?.items.map((i) => [i.label, i.to])).toEqual([["Settings", "/settings"]]);
+    }
   });
 
   it("shows approvals to somebody who may only ask for them", () => {
@@ -49,11 +41,17 @@ describe("visibleGroups", () => {
   });
 
   it("keeps the screens that need nothing for somebody who holds almost nothing", () => {
-    expect(labels(consumer)).toEqual({ Build: ["Overview", "Catalog"], Operate: ["Status"], Settings: ["Security"] });
+    expect(labels(consumer)).toEqual({ Build: ["Overview", "Catalog"], Settings: ["Settings"] });
+  });
+
+  it("no longer lists the instance's status on its own; it is a settings tab", () => {
+    const every = navGroups.flatMap((g) => g.items.map((i) => i.to as string));
+    expect(every).not.toContain("/status");
+    expect(every.filter((to) => to.startsWith("/settings"))).toEqual(["/settings"]);
   });
 
   it("drops a group that is left with no items", () => {
-    const groups = [{ label: "Empty", items: [{ to: "/status", label: "Status", icon: navGroups[0].items[0].icon, needs: "x:y" }] }] as const;
+    const groups = [{ label: "Empty", items: [{ to: "/settings", label: "Settings", icon: navGroups[0].items[0].icon, needs: "x:y" }] }] as const;
     expect(visibleGroups(holding(viewer), groups)).toEqual([]);
   });
 });

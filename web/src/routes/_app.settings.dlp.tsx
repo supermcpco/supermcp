@@ -22,6 +22,9 @@ import { HistoryPanel } from "../components/revisions";
 import { DetectorsPanel } from "../components/dlp-detectors";
 import { toast } from "../components/shell/toast";
 import { EmptyState, FormDialog, HeaderWithAction } from "../components/form-dialog";
+import { ConfirmDialog } from "../components/confirm-dialog";
+import { Help, HeadingWithHelp } from "../components/help";
+import { RouteTabs, TabPanel } from "../components/route-tabs";
 
 type Tab = "rules" | "detectors";
 
@@ -31,8 +34,6 @@ export const Route = createFileRoute("/_app/settings/dlp")({
     search.tab === "detectors" ? { tab: "detectors" } : {},
   component: Dlp,
 });
-
-const tabClass = "rounded-md px-3 py-1.5 aria-selected:bg-kumo-tint aria-selected:font-semibold";
 
 const selectClass = "rounded-md border border-kumo-line bg-kumo-base px-3 py-2";
 
@@ -45,48 +46,44 @@ function Dlp() {
   return (
     <div className="grid gap-6">
       <div className="grid gap-1.5">
-        <Text as="h1" variant="heading2">
-          Data-loss rules
-        </Text>
-        <Text>
-          What a tool call may carry. A rule reads the arguments on the way out, the result on the way back, or both,
-          and either records what it finds, masks it, or refuses the call. One rule applies per scope: the most specific
-          wins.
-        </Text>
+        <HeadingWithHelp
+          heading={
+            <Text as="h2" variant="heading3">
+              Data-loss rules
+            </Text>
+          }
+          help={
+            <Help about="data-loss rules">
+              <Text>
+                A rule reads what a tool call carries: the arguments on the way out, the result on the way back, or
+                both.
+              </Text>
+              <Text>
+                What it finds it either records, masks, or refuses the whole call for. One rule applies per scope, and
+                the most specific wins: a rule on one connector overrides the rule for every connector.
+              </Text>
+            </Help>
+          }
+        />
+        <Text>What a tool call may carry, checked on every call.</Text>
       </div>
 
-      <div role="tablist" aria-label="Data-loss settings" className="flex gap-2 border-b border-kumo-line pb-2">
-        <Link
-          to="/settings/dlp"
-          search={{}}
-          role="tab"
-          id="dlp-tab-rules"
-          aria-selected={tab === "rules"}
-          aria-controls="dlp-panel"
-          className={tabClass}
-        >
-          Rules
-        </Link>
-        <Link
-          to="/settings/dlp"
-          search={{ tab: "detectors" }}
-          role="tab"
-          id="dlp-tab-detectors"
-          aria-selected={tab === "detectors"}
-          aria-controls="dlp-panel"
-          className={tabClass}
-        >
-          Detectors
-        </Link>
-      </div>
+      <RouteTabs
+        size="sm"
+        value={tab}
+        tabs={[
+          { value: "rules", label: "Rules", link: <Link to="/settings/dlp" search={{}} /> },
+          { value: "detectors", label: "Detectors", link: <Link to="/settings/dlp" search={{ tab: "detectors" }} /> },
+        ]}
+      />
 
-      <div role="tabpanel" id="dlp-panel" aria-labelledby={`dlp-tab-${tab}`} className="grid gap-6">
+      <TabPanel label={tab === "detectors" ? "Detectors" : "Rules"}>
         {tab === "detectors" ? (
           <DetectorsPanel canManage={canManage} canRestore={canRestore} />
         ) : (
           <RulesTab />
         )}
-      </div>
+      </TabPanel>
     </div>
   );
 }
@@ -112,6 +109,9 @@ function RulesTab() {
   const [editing, setEditing] = useState<string | null>(null);
   const [history, setHistory] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  // The rule whose deletion is being asked about; kept while the dialog closes.
+  const [deleting, setDeleting] = useState<ScanPolicy | null>(null);
+  const [asking, setAsking] = useState(false);
 
   const refresh = () => qc.invalidateQueries({ queryKey: dlpPoliciesListQueryKey() });
   const create = useMutation({
@@ -131,9 +131,9 @@ function RulesTab() {
     onSuccess: async (_, vars) => {
       const gone = policies.data?.policies?.find((p) => p.id === vars.path.id)?.name;
       toast(gone ? `Rule ${gone} deleted` : "Rule deleted");
+      setAsking(false);
       await refresh();
     },
-    onError: (e) => toast(message(e), { kind: "error" }),
   });
 
   const list = policies.data?.policies ?? [];
@@ -153,7 +153,7 @@ function RulesTab() {
     <>
       <section className="grid gap-2" aria-labelledby="dlp-rules-heading">
         <HeaderWithAction action={addRule}>
-          <Text as="h2" variant="heading3" id="dlp-rules-heading">
+          <Text as="h3" variant="heading3" id="dlp-rules-heading">
             Rules
           </Text>
         </HeaderWithAction>
@@ -195,9 +195,12 @@ function RulesTab() {
                   </Button>
                   {canManage && (
                     <Button
-                      variant="secondary"
-                      onClick={() => remove.mutate({ path: { id: p.id } })}
-                      disabled={remove.isPending}
+                      variant="secondary-destructive"
+                      onClick={() => {
+                        remove.reset();
+                        setDeleting(p);
+                        setAsking(true);
+                      }}
                       aria-label={`Delete ${p.name}`}
                     >
                       Delete
@@ -223,6 +226,19 @@ function RulesTab() {
           ))}
         </ul>
       </section>
+
+      {canManage && (
+        <ConfirmDialog
+          open={asking}
+          onOpenChange={setAsking}
+          resourceType="Rule"
+          resourceName={deleting?.name ?? ""}
+          confirmLabel="Delete rule"
+          pending={remove.isPending}
+          error={remove.error ? message(remove.error) : null}
+          onConfirm={() => deleting && remove.mutate({ path: { id: deleting.id } })}
+        />
+      )}
 
       {canManage && (
         <FormDialog

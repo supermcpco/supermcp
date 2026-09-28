@@ -19,6 +19,7 @@ import { Badge, Loading } from "../lib/ui";
 import { status } from "../lib/errors";
 import { toast } from "../components/shell/toast";
 import { EmptyState, FormDialog, HeaderWithAction } from "../components/form-dialog";
+import { Help, HeadingWithHelp } from "../components/help";
 import {
   defaultExpiryDays,
   expiryDays,
@@ -112,13 +113,20 @@ function Members() {
   return (
     <div className="grid gap-8">
       <HeaderWithAction action={invite}>
-        <Text as="h1" variant="heading2">
-          Members
-        </Text>
-        <Text>
-          Everybody who can sign in to this workspace, what they hold and how they sign in. Deactivating someone ends
-          their sessions and API keys at once; removing them also takes away every role they hold here.
-        </Text>
+        <HeadingWithHelp
+          heading={
+            <Text as="h2" variant="heading3">
+              Members
+            </Text>
+          }
+          help={
+            <Help about="members">
+              <Text>Deactivating someone ends their sessions and API keys at once, and they cannot sign in again until reactivated.</Text>
+              <Text>Removing them also takes away every role they hold here. The audit trail keeps what they did.</Text>
+            </Help>
+          }
+        />
+        <Text>Everybody who can sign in to this workspace, and what they hold.</Text>
         {!canManage && (
           <Text variant="secondary">You can see the members; changing them needs the permission to manage members.</Text>
         )}
@@ -127,7 +135,7 @@ function Members() {
       {link && <InviteLink link={link} onDone={() => setLink(null)} />}
 
       <section className="grid gap-3" aria-labelledby="members-heading">
-        <Text as="h2" variant="heading3" id="members-heading">
+        <Text as="h3" variant="heading3" id="members-heading">
           People
         </Text>
         {members.isPending && <Loading />}
@@ -523,7 +531,7 @@ function InviteLink({ link, onDone }: { link: { url: string; email: string }; on
   const [copied, setCopied] = useState(false);
   return (
     <div className="grid gap-1.5 rounded-lg px-5 py-4 ring ring-kumo-line" role="alert">
-      <Text as="h2" variant="heading3">
+      <Text as="h3" variant="heading3">
         Copy the invitation link for {link.email} now
       </Text>
       <Text variant="secondary">This link is shown once. Send it to the person yourself; no email is sent.</Text>
@@ -571,7 +579,7 @@ function Invitations() {
 
   return (
     <section className="grid gap-3" aria-labelledby="invitations-heading">
-      <Text as="h2" variant="heading3" id="invitations-heading">
+      <Text as="h3" variant="heading3" id="invitations-heading">
         Invitations
       </Text>
       {error && (

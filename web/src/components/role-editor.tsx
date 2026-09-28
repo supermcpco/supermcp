@@ -1,10 +1,11 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Button, Input, Text } from "@cloudflare/kumo";
+import { Input, Text } from "@cloudflare/kumo";
 import { previewRole, type PermissionGroupDto, type RoleDto } from "../api";
 import { createRoleMutation, updateRoleMutation } from "../api/@tanstack/react-query.gen";
 import { message } from "../lib/errors";
 import { toast } from "./shell/toast";
+import { FormDialog } from "./form-dialog";
 
 /** Somebody the preview can be worked out for. */
 export interface Holder {
@@ -25,19 +26,27 @@ const selectClass = "rounded-md border border-kumo-line bg-kumo-base px-3 py-2";
  * a tool away again. All of that is worked out by the server, by the
  * same evaluator that decides a real request, so the screen cannot drift
  * away from what the system actually does.
+ *
+ * It is a dialog: the screen behind it is the table of roles, and the
+ * dialog closes only when the save has been answered, so a refusal is
+ * shown where the person is looking. Give it a fresh `key` each time it
+ * is opened, so it starts from the role as it is rather than from the
+ * last attempt.
  */
 export function RoleEditor({
+  open,
+  onOpenChange,
   role,
   groups,
   holders,
   onSaved,
-  onCancel,
 }: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   role?: RoleDto;
   groups: PermissionGroupDto[];
   holders: Holder[];
   onSaved: () => Promise<void> | void;
-  onCancel: () => void;
 }) {
   const [name, setName] = useState(role?.name ?? "");
   const [description, setDescription] = useState(role?.description ?? "");
@@ -62,7 +71,7 @@ export function RoleEditor({
 
   const preview = useQuery({
     queryKey: ["role-preview", [...chosen].sort(), role?.id ?? "", holder],
-    enabled: chosen.length > 0,
+    enabled: open && chosen.length > 0,
     retry: false,
     queryFn: async () => {
       const { data } = await previewRole({
@@ -81,8 +90,7 @@ export function RoleEditor({
   const toggle = (id: string) =>
     setChosen((current) => (current.includes(id) ? current.filter((p) => p !== id) : [...current, id]));
 
-  const submit = (e: React.FormEvent) => {
-    e.preventDefault();
+  const submit = () => {
     const body = { name: name.trim(), description: description.trim(), permissions: chosen };
     if (role) {
       update.mutate({ path: { id: role.id }, body });
@@ -92,17 +100,20 @@ export function RoleEditor({
   };
 
   return (
-    <form className="grid gap-5 rounded-lg bg-kumo-tint px-5 py-4 ring ring-kumo-line" onSubmit={submit}>
-      <Text as="h2" variant="heading3">
-        {role ? `Change what ${role.name} allows` : "Build a role"}
-      </Text>
-
-      {error && (
-        <div role="alert" className="rounded-md bg-kumo-base px-4 py-3 ring ring-kumo-line">
-          <Text>{error}</Text>
-        </div>
-      )}
-
+    <FormDialog
+      open={open}
+      onOpenChange={(next) => {
+        onOpenChange(next);
+        setError(null);
+      }}
+      title={role ? `Change what ${role.name} allows` : "Build a role"}
+      submitLabel={role ? "Save what it allows" : "Create this role"}
+      pending={saving}
+      canSubmit={name.trim() !== "" && chosen.length > 0}
+      error={error}
+      size="xl"
+      onSubmit={submit}
+    >
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="grid gap-1.5">
           <Text as="span">Name</Text>
@@ -154,15 +165,7 @@ export function RoleEditor({
         />
       </div>
 
-      <div className="flex flex-wrap gap-3">
-        <Button type="submit" variant="primary" disabled={saving || !name.trim() || chosen.length === 0}>
-          {role ? "Save what it allows" : "Create this role"}
-        </Button>
-        <Button type="button" onClick={onCancel}>
-          Cancel
-        </Button>
-      </div>
-    </form>
+    </FormDialog>
   );
 }
 

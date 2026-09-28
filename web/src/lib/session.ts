@@ -31,6 +31,14 @@ export function ensureSession(queryClient: QueryClient): Promise<SessionBody> {
 }
 
 /**
+ * What a session allows, as the question "may they do this?". A wildcard
+ * grant allows everything. The hook and the router's guards share it.
+ */
+export function permits(session: SessionBody | undefined): (permission: string) => boolean {
+  return (permission) => !!session?.permissions?.some((p) => p === permission || p === "*");
+}
+
+/**
  * The guard for a screen that needs somebody signed in. An anonymous
  * visitor is sent to sign in, with `href` as the place to come back to.
  */
@@ -53,8 +61,7 @@ export function useSession() {
     session: q.data,
     loading: q.isPending,
     signedIn: isSignedIn(q.data),
-    can: (permission: string) =>
-      !!q.data?.permissions?.some((p) => p === permission || p === "*"),
+    can: permits(q.data),
   };
 }
 

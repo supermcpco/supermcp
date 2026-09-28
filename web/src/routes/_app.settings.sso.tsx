@@ -24,6 +24,8 @@ import { message } from "../lib/errors";
 import { HistoryPanel } from "../components/revisions";
 import { toast } from "../components/shell/toast";
 import { EmptyState, FormDialog, HeaderWithAction } from "../components/form-dialog";
+import { ConfirmDialog } from "../components/confirm-dialog";
+import { Help, HeadingWithHelp } from "../components/help";
 
 export const Route = createFileRoute("/_app/settings/sso")({
   component: SingleSignOn,
@@ -132,6 +134,9 @@ function SingleSignOn() {
   const [history, setHistory] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  // The provider whose removal is being asked about; kept while the dialog closes.
+  const [removing, setRemoving] = useState<IdpDto | null>(null);
+  const [asking, setAsking] = useState(false);
   const canRestore = can("revisions:rollback");
 
   const create = useMutation({
@@ -151,9 +156,9 @@ function SingleSignOn() {
     onSuccess: async (_, vars) => {
       const name = idps.data?.providers?.find((p) => p.id === vars.path.id)?.name;
       toast(name ? `Provider ${name} removed` : "Provider removed");
+      setAsking(false);
       await qc.invalidateQueries({ queryKey: listIdpsQueryKey() });
     },
-    onError: (e) => toast(message(e), { kind: "error" }),
   });
   const check = useMutation({
     ...probeIdpMutation(),
@@ -189,20 +194,18 @@ function SingleSignOn() {
   return (
     <div className="grid gap-8">
       <div className="grid gap-1.5">
-        <Text as="h1" variant="heading2">
+        <Text as="h2" variant="heading3">
           Single sign-on
         </Text>
-        <Text>
-          People sign in with your identity provider, which keeps the second factor and the joiners-and-leavers process
-          where they already are.
-        </Text>
+        <Text>People sign in to this workspace with your own identity provider.</Text>
       </div>
 
       <section className="grid gap-3" aria-labelledby="oidc-heading">
         <HeaderWithAction action={addOidc}>
-          <Text as="h2" variant="heading3" id="oidc-heading">
+          <Text as="h3" variant="heading3" id="oidc-heading">
             Providers
           </Text>
+          <Text variant="secondary">OpenID Connect providers, such as Entra ID, Okta or Google.</Text>
         </HeaderWithAction>
         <ul className="grid gap-2">
           {idps.data?.providers?.map((p) => (
@@ -242,7 +245,15 @@ function SingleSignOn() {
                   >
                     {history === p.id ? "Hide history" : "History"}
                   </Button>
-                  <Button onClick={() => remove.mutate({ path: { id: p.id } })} disabled={remove.isPending}>
+                  <Button
+                    variant="secondary-destructive"
+                    onClick={() => {
+                      remove.reset();
+                      setRemoving(p);
+                      setAsking(true);
+                    }}
+                    aria-label={`Remove ${p.name}`}
+                  >
                     Remove
                   </Button>
                 </div>
@@ -254,6 +265,17 @@ function SingleSignOn() {
         </ul>
         {idps.data?.providers?.length === 0 && <EmptyState action={addOidc}>No providers yet.</EmptyState>}
       </section>
+
+      <ConfirmDialog
+        open={asking}
+        onOpenChange={setAsking}
+        resourceType="Provider"
+        resourceName={removing?.name ?? ""}
+        confirmLabel="Remove provider"
+        pending={remove.isPending}
+        error={remove.error ? message(remove.error) : null}
+        onConfirm={() => removing && remove.mutate({ path: { id: removing.id } })}
+      />
 
       <FormDialog
         open={adding}
@@ -371,10 +393,15 @@ function SingleSignOn() {
             />
           </label>
         </div>
-        <Text variant="secondary">
-          A group named in that claim grants whatever roles are bound to it here. Leave the domains empty to accept
-          anyone the provider admits.
-        </Text>
+        <div className="flex items-center gap-1">
+          <Text variant="secondary">Leave the domains empty to accept anyone the provider admits.</Text>
+          <Help about="the groups claim">
+            <Text>
+              A group named in that claim grants whatever roles are bound to it here, for as long as the provider keeps
+              naming it at sign-in.
+            </Text>
+          </Help>
+        </div>
 
         {form.preset !== "github" && (
           <SecondFactorFields
@@ -407,7 +434,7 @@ function SingleSignOn() {
       <SamlSection />
 
       <section className="grid gap-3">
-        <Text as="h2" variant="heading3">
+        <Text as="h3" variant="heading3">
           Redirect URI
         </Text>
         <Text variant="secondary">Register this with your provider as the application's redirect URI.</Text>
@@ -417,14 +444,23 @@ function SingleSignOn() {
       </section>
 
       <section className="grid gap-3">
-        <Text as="h2" variant="heading3">
-          Provisioning
-        </Text>
-        <Text variant="secondary">
-          Point your provider's SCIM 2.0 connector at the address below and authenticate it with an API key created for
-          SCIM provisioning. That key can create and deactivate people and nothing else. Deactivating a person there
-          ends their sessions and revokes their keys here.
-        </Text>
+        <HeadingWithHelp
+          heading={
+            <Text as="h3" variant="heading3">
+              Provisioning
+            </Text>
+          }
+          help={
+            <Help about="provisioning">
+              <Text>
+                Authenticate your provider&rsquo;s SCIM 2.0 connector with an API key created for SCIM provisioning.
+                That key can create and deactivate people and nothing else.
+              </Text>
+              <Text>Deactivating a person there ends their sessions and revokes their keys here.</Text>
+            </Help>
+          }
+        />
+        <Text variant="secondary">Point your provider&rsquo;s SCIM 2.0 connector at this address.</Text>
         <code className="overflow-x-auto rounded-md bg-kumo-tint px-2 py-1 font-mono text-[0.9em]">
           {new URL("/scim/v2", window.location.origin).toString()}
         </code>
@@ -541,6 +577,9 @@ function SamlSection() {
   const [error, setError] = useState<string | null>(null);
   const [found, setFound] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  // The provider whose removal is being asked about; kept while the dialog closes.
+  const [removing, setRemoving] = useState<SamlProvider | null>(null);
+  const [asking, setAsking] = useState(false);
 
   const create = useMutation({
     mutationFn: createSaml,
@@ -559,9 +598,9 @@ function SamlSection() {
     onSuccess: async (_, id) => {
       const name = providers.data?.providers?.find((p) => p.id === id)?.name;
       toast(name ? `SAML provider ${name} removed` : "SAML provider removed");
+      setAsking(false);
       await qc.invalidateQueries({ queryKey: samlQueryKey });
     },
-    onError: (e) => toast(message(e), { kind: "error" }),
   });
   const check = useMutation({
     mutationFn: probeSaml,
@@ -586,14 +625,23 @@ function SamlSection() {
   return (
     <section className="grid gap-3" aria-labelledby="saml-heading">
       <HeaderWithAction action={addSaml}>
-        <Text as="h2" variant="heading3" id="saml-heading">
-          SAML 2.0
-        </Text>
-        <Text variant="secondary">
-          For providers that speak SAML rather than OpenID Connect. Add the provider, then give your identity provider
-          the three addresses it shows you. Each provider gets its own signing key, so one workspace's federation
-          cannot be used to sign in to another.
-        </Text>
+        <HeadingWithHelp
+          heading={
+            <Text as="h3" variant="heading3" id="saml-heading">
+              SAML 2.0
+            </Text>
+          }
+          help={
+            <Help about="SAML 2.0">
+              <Text>Add the provider, then give your identity provider the addresses it shows you.</Text>
+              <Text>
+                Each provider gets its own signing key, so one workspace&rsquo;s federation cannot be used to sign in to
+                another.
+              </Text>
+            </Help>
+          }
+        />
+        <Text variant="secondary">For providers that speak SAML rather than OpenID Connect.</Text>
       </HeaderWithAction>
 
       <ul className="grid gap-2">
@@ -622,7 +670,15 @@ function SamlSection() {
                 >
                   {history === p.id ? "Hide history" : "History"}
                 </Button>
-                <Button onClick={() => remove.mutate(p.id)} disabled={remove.isPending}>
+                <Button
+                  variant="secondary-destructive"
+                  onClick={() => {
+                    remove.reset();
+                    setRemoving(p);
+                    setAsking(true);
+                  }}
+                  aria-label={`Remove ${p.name}`}
+                >
                   Remove
                 </Button>
               </div>
@@ -757,10 +813,13 @@ function SamlSection() {
             />
           </label>
         </div>
-        <Text variant="secondary">
-          A group named in that attribute grants whatever roles are bound to it here. Naming an attribute means that
-          one only: nothing else is read in its place.
-        </Text>
+        <div className="flex items-center gap-1">
+          <Text variant="secondary">Leave the attributes empty to read the usual names.</Text>
+          <Help about="the groups attribute">
+            <Text>A group named in that attribute grants whatever roles are bound to it here.</Text>
+            <Text>Naming an attribute means that one only: nothing else is read in its place.</Text>
+          </Help>
+        </div>
 
         <div className="flex flex-wrap items-center gap-4">
           <label className="flex items-center gap-2">
@@ -781,6 +840,17 @@ function SamlSection() {
           </label>
         </div>
       </FormDialog>
+
+      <ConfirmDialog
+        open={asking}
+        onOpenChange={setAsking}
+        resourceType="SAML provider"
+        resourceName={removing?.name ?? ""}
+        confirmLabel="Remove SAML provider"
+        pending={remove.isPending}
+        error={remove.error ? message(remove.error) : null}
+        onConfirm={() => removing && remove.mutate(removing.id)}
+      />
     </section>
   );
 }

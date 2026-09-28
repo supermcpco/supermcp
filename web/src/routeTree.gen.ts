@@ -18,6 +18,7 @@ import { Route as AppApiKeysRouteImport } from './routes/_app.api-keys'
 import { Route as AppApprovalsRouteImport } from './routes/_app.approvals'
 import { Route as AppReauthRouteImport } from './routes/_app.reauth'
 import { Route as AppServersRouteImport } from './routes/_app.servers'
+import { Route as AppSettingsRouteImport } from './routes/_app.settings'
 import { Route as AppStatusRouteImport } from './routes/_app.status'
 import { Route as AppToolCallsRouteImport } from './routes/_app.tool-calls'
 import { Route as PublicLoginRouteImport } from './routes/_public.login'
@@ -25,8 +26,10 @@ import { Route as AppCatalogIndexRouteImport } from './routes/_app.catalog.index
 import { Route as AppCatalogSlugRouteImport } from './routes/_app.catalog.$slug'
 import { Route as AppConnectorsIndexRouteImport } from './routes/_app.connectors.index'
 import { Route as AppConnectorsImportRouteImport } from './routes/_app.connectors.import'
+import { Route as AppSettingsIndexRouteImport } from './routes/_app.settings.index'
 import { Route as AppSettingsAuditRouteImport } from './routes/_app.settings.audit'
 import { Route as AppSettingsDlpRouteImport } from './routes/_app.settings.dlp'
+import { Route as AppSettingsInstanceRouteImport } from './routes/_app.settings.instance'
 import { Route as AppSettingsMembersRouteImport } from './routes/_app.settings.members'
 import { Route as AppSettingsRolesRouteImport } from './routes/_app.settings.roles'
 import { Route as AppSettingsSecurityRouteImport } from './routes/_app.settings.security'
@@ -34,6 +37,9 @@ import { Route as AppSettingsServiceAccountsRouteImport } from './routes/_app.se
 import { Route as AppSettingsSsoRouteImport } from './routes/_app.settings.sso'
 import { Route as PublicInviteTokenRouteImport } from './routes/_public.invite.$token'
 import { Route as AppConnectorsIdDetailRouteImport } from './routes/_app.connectors.$id._detail'
+import { Route as AppSettingsAuditIndexRouteImport } from './routes/_app.settings.audit.index'
+import { Route as AppSettingsAuditRetentionRouteImport } from './routes/_app.settings.audit.retention'
+import { Route as AppSettingsAuditShippingRouteImport } from './routes/_app.settings.audit.shipping'
 import { Route as AppConnectorsIdDetailIndexRouteImport } from './routes/_app.connectors.$id._detail.index'
 import { Route as AppConnectorsIdDetailHistoryRouteImport } from './routes/_app.connectors.$id._detail.history'
 import { Route as AppConnectorsIdToolsNewRouteImport } from './routes/_app.connectors.$id.tools.new'
@@ -84,6 +90,11 @@ const AppServersRoute = AppServersRouteImport.update({
   path: '/servers',
   getParentRoute: () => AppRoute,
 } as any)
+const AppSettingsRoute = AppSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppStatusRoute = AppStatusRouteImport.update({
   id: '/status',
   path: '/status',
@@ -119,41 +130,51 @@ const AppConnectorsImportRoute = AppConnectorsImportRouteImport.update({
   path: '/connectors/import',
   getParentRoute: () => AppRoute,
 } as any)
+const AppSettingsIndexRoute = AppSettingsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppSettingsRoute,
+} as any)
 const AppSettingsAuditRoute = AppSettingsAuditRouteImport.update({
-  id: '/settings/audit',
-  path: '/settings/audit',
-  getParentRoute: () => AppRoute,
+  id: '/audit',
+  path: '/audit',
+  getParentRoute: () => AppSettingsRoute,
 } as any)
 const AppSettingsDlpRoute = AppSettingsDlpRouteImport.update({
-  id: '/settings/dlp',
-  path: '/settings/dlp',
-  getParentRoute: () => AppRoute,
+  id: '/dlp',
+  path: '/dlp',
+  getParentRoute: () => AppSettingsRoute,
+} as any)
+const AppSettingsInstanceRoute = AppSettingsInstanceRouteImport.update({
+  id: '/instance',
+  path: '/instance',
+  getParentRoute: () => AppSettingsRoute,
 } as any)
 const AppSettingsMembersRoute = AppSettingsMembersRouteImport.update({
-  id: '/settings/members',
-  path: '/settings/members',
-  getParentRoute: () => AppRoute,
+  id: '/members',
+  path: '/members',
+  getParentRoute: () => AppSettingsRoute,
 } as any)
 const AppSettingsRolesRoute = AppSettingsRolesRouteImport.update({
-  id: '/settings/roles',
-  path: '/settings/roles',
-  getParentRoute: () => AppRoute,
+  id: '/roles',
+  path: '/roles',
+  getParentRoute: () => AppSettingsRoute,
 } as any)
 const AppSettingsSecurityRoute = AppSettingsSecurityRouteImport.update({
-  id: '/settings/security',
-  path: '/settings/security',
-  getParentRoute: () => AppRoute,
+  id: '/security',
+  path: '/security',
+  getParentRoute: () => AppSettingsRoute,
 } as any)
 const AppSettingsServiceAccountsRoute =
   AppSettingsServiceAccountsRouteImport.update({
-    id: '/settings/service-accounts',
-    path: '/settings/service-accounts',
-    getParentRoute: () => AppRoute,
+    id: '/service-accounts',
+    path: '/service-accounts',
+    getParentRoute: () => AppSettingsRoute,
   } as any)
 const AppSettingsSsoRoute = AppSettingsSsoRouteImport.update({
-  id: '/settings/sso',
-  path: '/settings/sso',
-  getParentRoute: () => AppRoute,
+  id: '/sso',
+  path: '/sso',
+  getParentRoute: () => AppSettingsRoute,
 } as any)
 const PublicInviteTokenRoute = PublicInviteTokenRouteImport.update({
   id: '/invite/$token',
@@ -165,6 +186,23 @@ const AppConnectorsIdDetailRoute = AppConnectorsIdDetailRouteImport.update({
   path: '/connectors/$id',
   getParentRoute: () => AppRoute,
 } as any)
+const AppSettingsAuditIndexRoute = AppSettingsAuditIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppSettingsAuditRoute,
+} as any)
+const AppSettingsAuditRetentionRoute =
+  AppSettingsAuditRetentionRouteImport.update({
+    id: '/retention',
+    path: '/retention',
+    getParentRoute: () => AppSettingsAuditRoute,
+  } as any)
+const AppSettingsAuditShippingRoute =
+  AppSettingsAuditShippingRouteImport.update({
+    id: '/shipping',
+    path: '/shipping',
+    getParentRoute: () => AppSettingsAuditRoute,
+  } as any)
 const AppConnectorsIdDetailIndexRoute =
   AppConnectorsIdDetailIndexRouteImport.update({
     id: '/',
@@ -209,13 +247,15 @@ export interface FileRoutesByFullPath {
   '/approvals': typeof AppApprovalsRoute
   '/reauth': typeof AppReauthRoute
   '/servers': typeof AppServersRoute
+  '/settings': typeof AppSettingsRouteWithChildren
   '/status': typeof AppStatusRoute
   '/tool-calls': typeof AppToolCallsRoute
   '/login': typeof PublicLoginRoute
   '/catalog/$slug': typeof AppCatalogSlugRoute
   '/connectors/import': typeof AppConnectorsImportRoute
-  '/settings/audit': typeof AppSettingsAuditRoute
+  '/settings/audit': typeof AppSettingsAuditRouteWithChildren
   '/settings/dlp': typeof AppSettingsDlpRoute
+  '/settings/instance': typeof AppSettingsInstanceRoute
   '/settings/members': typeof AppSettingsMembersRoute
   '/settings/roles': typeof AppSettingsRolesRoute
   '/settings/security': typeof AppSettingsSecurityRoute
@@ -224,7 +264,11 @@ export interface FileRoutesByFullPath {
   '/invite/$token': typeof PublicInviteTokenRoute
   '/catalog/': typeof AppCatalogIndexRoute
   '/connectors/': typeof AppConnectorsIndexRoute
+  '/settings/': typeof AppSettingsIndexRoute
   '/connectors/$id': typeof AppConnectorsIdDetailRouteWithChildren
+  '/settings/audit/retention': typeof AppSettingsAuditRetentionRoute
+  '/settings/audit/shipping': typeof AppSettingsAuditShippingRoute
+  '/settings/audit/': typeof AppSettingsAuditIndexRoute
   '/connectors/$id/history': typeof AppConnectorsIdDetailHistoryRoute
   '/connectors/$id/tools/new': typeof AppConnectorsIdToolsNewRoute
   '/connectors/$id/': typeof AppConnectorsIdDetailIndexRoute
@@ -245,8 +289,8 @@ export interface FileRoutesByTo {
   '/login': typeof PublicLoginRoute
   '/catalog/$slug': typeof AppCatalogSlugRoute
   '/connectors/import': typeof AppConnectorsImportRoute
-  '/settings/audit': typeof AppSettingsAuditRoute
   '/settings/dlp': typeof AppSettingsDlpRoute
+  '/settings/instance': typeof AppSettingsInstanceRoute
   '/settings/members': typeof AppSettingsMembersRoute
   '/settings/roles': typeof AppSettingsRolesRoute
   '/settings/security': typeof AppSettingsSecurityRoute
@@ -255,6 +299,10 @@ export interface FileRoutesByTo {
   '/invite/$token': typeof PublicInviteTokenRoute
   '/catalog': typeof AppCatalogIndexRoute
   '/connectors': typeof AppConnectorsIndexRoute
+  '/settings': typeof AppSettingsIndexRoute
+  '/settings/audit/retention': typeof AppSettingsAuditRetentionRoute
+  '/settings/audit/shipping': typeof AppSettingsAuditShippingRoute
+  '/settings/audit': typeof AppSettingsAuditIndexRoute
   '/connectors/$id/history': typeof AppConnectorsIdDetailHistoryRoute
   '/connectors/$id/tools/new': typeof AppConnectorsIdToolsNewRoute
   '/connectors/$id': typeof AppConnectorsIdDetailIndexRoute
@@ -272,14 +320,16 @@ export interface FileRoutesById {
   '/_app/approvals': typeof AppApprovalsRoute
   '/_app/reauth': typeof AppReauthRoute
   '/_app/servers': typeof AppServersRoute
+  '/_app/settings': typeof AppSettingsRouteWithChildren
   '/_app/status': typeof AppStatusRoute
   '/_app/tool-calls': typeof AppToolCallsRoute
   '/_public/login': typeof PublicLoginRoute
   '/_app/': typeof AppIndexRoute
   '/_app/catalog/$slug': typeof AppCatalogSlugRoute
   '/_app/connectors/import': typeof AppConnectorsImportRoute
-  '/_app/settings/audit': typeof AppSettingsAuditRoute
+  '/_app/settings/audit': typeof AppSettingsAuditRouteWithChildren
   '/_app/settings/dlp': typeof AppSettingsDlpRoute
+  '/_app/settings/instance': typeof AppSettingsInstanceRoute
   '/_app/settings/members': typeof AppSettingsMembersRoute
   '/_app/settings/roles': typeof AppSettingsRolesRoute
   '/_app/settings/security': typeof AppSettingsSecurityRoute
@@ -288,7 +338,11 @@ export interface FileRoutesById {
   '/_public/invite/$token': typeof PublicInviteTokenRoute
   '/_app/catalog/': typeof AppCatalogIndexRoute
   '/_app/connectors/': typeof AppConnectorsIndexRoute
+  '/_app/settings/': typeof AppSettingsIndexRoute
   '/_app/connectors/$id/_detail': typeof AppConnectorsIdDetailRouteWithChildren
+  '/_app/settings/audit/retention': typeof AppSettingsAuditRetentionRoute
+  '/_app/settings/audit/shipping': typeof AppSettingsAuditShippingRoute
+  '/_app/settings/audit/': typeof AppSettingsAuditIndexRoute
   '/_app/connectors/$id/_detail/history': typeof AppConnectorsIdDetailHistoryRoute
   '/_app/connectors/$id/tools/new': typeof AppConnectorsIdToolsNewRoute
   '/_app/connectors/$id/_detail/': typeof AppConnectorsIdDetailIndexRoute
@@ -306,6 +360,7 @@ export interface FileRouteTypes {
     | '/approvals'
     | '/reauth'
     | '/servers'
+    | '/settings'
     | '/status'
     | '/tool-calls'
     | '/login'
@@ -313,6 +368,7 @@ export interface FileRouteTypes {
     | '/connectors/import'
     | '/settings/audit'
     | '/settings/dlp'
+    | '/settings/instance'
     | '/settings/members'
     | '/settings/roles'
     | '/settings/security'
@@ -321,7 +377,11 @@ export interface FileRouteTypes {
     | '/invite/$token'
     | '/catalog/'
     | '/connectors/'
+    | '/settings/'
     | '/connectors/$id'
+    | '/settings/audit/retention'
+    | '/settings/audit/shipping'
+    | '/settings/audit/'
     | '/connectors/$id/history'
     | '/connectors/$id/tools/new'
     | '/connectors/$id/'
@@ -342,8 +402,8 @@ export interface FileRouteTypes {
     | '/login'
     | '/catalog/$slug'
     | '/connectors/import'
-    | '/settings/audit'
     | '/settings/dlp'
+    | '/settings/instance'
     | '/settings/members'
     | '/settings/roles'
     | '/settings/security'
@@ -352,6 +412,10 @@ export interface FileRouteTypes {
     | '/invite/$token'
     | '/catalog'
     | '/connectors'
+    | '/settings'
+    | '/settings/audit/retention'
+    | '/settings/audit/shipping'
+    | '/settings/audit'
     | '/connectors/$id/history'
     | '/connectors/$id/tools/new'
     | '/connectors/$id'
@@ -368,6 +432,7 @@ export interface FileRouteTypes {
     | '/_app/approvals'
     | '/_app/reauth'
     | '/_app/servers'
+    | '/_app/settings'
     | '/_app/status'
     | '/_app/tool-calls'
     | '/_public/login'
@@ -376,6 +441,7 @@ export interface FileRouteTypes {
     | '/_app/connectors/import'
     | '/_app/settings/audit'
     | '/_app/settings/dlp'
+    | '/_app/settings/instance'
     | '/_app/settings/members'
     | '/_app/settings/roles'
     | '/_app/settings/security'
@@ -384,7 +450,11 @@ export interface FileRouteTypes {
     | '/_public/invite/$token'
     | '/_app/catalog/'
     | '/_app/connectors/'
+    | '/_app/settings/'
     | '/_app/connectors/$id/_detail'
+    | '/_app/settings/audit/retention'
+    | '/_app/settings/audit/shipping'
+    | '/_app/settings/audit/'
     | '/_app/connectors/$id/_detail/history'
     | '/_app/connectors/$id/tools/new'
     | '/_app/connectors/$id/_detail/'
@@ -463,6 +533,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppServersRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/settings': {
+      id: '/_app/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof AppSettingsRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/status': {
       id: '/_app/status'
       path: '/status'
@@ -512,54 +589,68 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppConnectorsImportRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/settings/': {
+      id: '/_app/settings/'
+      path: '/'
+      fullPath: '/settings/'
+      preLoaderRoute: typeof AppSettingsIndexRouteImport
+      parentRoute: typeof AppSettingsRoute
+    }
     '/_app/settings/audit': {
       id: '/_app/settings/audit'
-      path: '/settings/audit'
+      path: '/audit'
       fullPath: '/settings/audit'
       preLoaderRoute: typeof AppSettingsAuditRouteImport
-      parentRoute: typeof AppRoute
+      parentRoute: typeof AppSettingsRoute
     }
     '/_app/settings/dlp': {
       id: '/_app/settings/dlp'
-      path: '/settings/dlp'
+      path: '/dlp'
       fullPath: '/settings/dlp'
       preLoaderRoute: typeof AppSettingsDlpRouteImport
-      parentRoute: typeof AppRoute
+      parentRoute: typeof AppSettingsRoute
+    }
+    '/_app/settings/instance': {
+      id: '/_app/settings/instance'
+      path: '/instance'
+      fullPath: '/settings/instance'
+      preLoaderRoute: typeof AppSettingsInstanceRouteImport
+      parentRoute: typeof AppSettingsRoute
     }
     '/_app/settings/members': {
       id: '/_app/settings/members'
-      path: '/settings/members'
+      path: '/members'
       fullPath: '/settings/members'
       preLoaderRoute: typeof AppSettingsMembersRouteImport
-      parentRoute: typeof AppRoute
+      parentRoute: typeof AppSettingsRoute
     }
     '/_app/settings/roles': {
       id: '/_app/settings/roles'
-      path: '/settings/roles'
+      path: '/roles'
       fullPath: '/settings/roles'
       preLoaderRoute: typeof AppSettingsRolesRouteImport
-      parentRoute: typeof AppRoute
+      parentRoute: typeof AppSettingsRoute
     }
     '/_app/settings/security': {
       id: '/_app/settings/security'
-      path: '/settings/security'
+      path: '/security'
       fullPath: '/settings/security'
       preLoaderRoute: typeof AppSettingsSecurityRouteImport
-      parentRoute: typeof AppRoute
+      parentRoute: typeof AppSettingsRoute
     }
     '/_app/settings/service-accounts': {
       id: '/_app/settings/service-accounts'
-      path: '/settings/service-accounts'
+      path: '/service-accounts'
       fullPath: '/settings/service-accounts'
       preLoaderRoute: typeof AppSettingsServiceAccountsRouteImport
-      parentRoute: typeof AppRoute
+      parentRoute: typeof AppSettingsRoute
     }
     '/_app/settings/sso': {
       id: '/_app/settings/sso'
-      path: '/settings/sso'
+      path: '/sso'
       fullPath: '/settings/sso'
       preLoaderRoute: typeof AppSettingsSsoRouteImport
-      parentRoute: typeof AppRoute
+      parentRoute: typeof AppSettingsRoute
     }
     '/_public/invite/$token': {
       id: '/_public/invite/$token'
@@ -574,6 +665,27 @@ declare module '@tanstack/react-router' {
       fullPath: '/connectors/$id'
       preLoaderRoute: typeof AppConnectorsIdDetailRouteImport
       parentRoute: typeof AppRoute
+    }
+    '/_app/settings/audit/': {
+      id: '/_app/settings/audit/'
+      path: '/'
+      fullPath: '/settings/audit/'
+      preLoaderRoute: typeof AppSettingsAuditIndexRouteImport
+      parentRoute: typeof AppSettingsAuditRoute
+    }
+    '/_app/settings/audit/retention': {
+      id: '/_app/settings/audit/retention'
+      path: '/retention'
+      fullPath: '/settings/audit/retention'
+      preLoaderRoute: typeof AppSettingsAuditRetentionRouteImport
+      parentRoute: typeof AppSettingsAuditRoute
+    }
+    '/_app/settings/audit/shipping': {
+      id: '/_app/settings/audit/shipping'
+      path: '/shipping'
+      fullPath: '/settings/audit/shipping'
+      preLoaderRoute: typeof AppSettingsAuditShippingRouteImport
+      parentRoute: typeof AppSettingsAuditRoute
     }
     '/_app/connectors/$id/_detail/': {
       id: '/_app/connectors/$id/_detail/'
@@ -620,6 +732,49 @@ declare module '@tanstack/react-router' {
   }
 }
 
+interface AppSettingsAuditRouteChildren {
+  AppSettingsAuditRetentionRoute: typeof AppSettingsAuditRetentionRoute
+  AppSettingsAuditShippingRoute: typeof AppSettingsAuditShippingRoute
+  AppSettingsAuditIndexRoute: typeof AppSettingsAuditIndexRoute
+}
+
+const AppSettingsAuditRouteChildren: AppSettingsAuditRouteChildren = {
+  AppSettingsAuditRetentionRoute: AppSettingsAuditRetentionRoute,
+  AppSettingsAuditShippingRoute: AppSettingsAuditShippingRoute,
+  AppSettingsAuditIndexRoute: AppSettingsAuditIndexRoute,
+}
+
+const AppSettingsAuditRouteWithChildren =
+  AppSettingsAuditRoute._addFileChildren(AppSettingsAuditRouteChildren)
+
+interface AppSettingsRouteChildren {
+  AppSettingsAuditRoute: typeof AppSettingsAuditRouteWithChildren
+  AppSettingsDlpRoute: typeof AppSettingsDlpRoute
+  AppSettingsInstanceRoute: typeof AppSettingsInstanceRoute
+  AppSettingsMembersRoute: typeof AppSettingsMembersRoute
+  AppSettingsRolesRoute: typeof AppSettingsRolesRoute
+  AppSettingsSecurityRoute: typeof AppSettingsSecurityRoute
+  AppSettingsServiceAccountsRoute: typeof AppSettingsServiceAccountsRoute
+  AppSettingsSsoRoute: typeof AppSettingsSsoRoute
+  AppSettingsIndexRoute: typeof AppSettingsIndexRoute
+}
+
+const AppSettingsRouteChildren: AppSettingsRouteChildren = {
+  AppSettingsAuditRoute: AppSettingsAuditRouteWithChildren,
+  AppSettingsDlpRoute: AppSettingsDlpRoute,
+  AppSettingsInstanceRoute: AppSettingsInstanceRoute,
+  AppSettingsMembersRoute: AppSettingsMembersRoute,
+  AppSettingsRolesRoute: AppSettingsRolesRoute,
+  AppSettingsSecurityRoute: AppSettingsSecurityRoute,
+  AppSettingsServiceAccountsRoute: AppSettingsServiceAccountsRoute,
+  AppSettingsSsoRoute: AppSettingsSsoRoute,
+  AppSettingsIndexRoute: AppSettingsIndexRoute,
+}
+
+const AppSettingsRouteWithChildren = AppSettingsRoute._addFileChildren(
+  AppSettingsRouteChildren,
+)
+
 interface AppConnectorsIdDetailRouteChildren {
   AppConnectorsIdDetailHistoryRoute: typeof AppConnectorsIdDetailHistoryRoute
   AppConnectorsIdDetailIndexRoute: typeof AppConnectorsIdDetailIndexRoute
@@ -644,18 +799,12 @@ interface AppRouteChildren {
   AppApprovalsRoute: typeof AppApprovalsRoute
   AppReauthRoute: typeof AppReauthRoute
   AppServersRoute: typeof AppServersRoute
+  AppSettingsRoute: typeof AppSettingsRouteWithChildren
   AppStatusRoute: typeof AppStatusRoute
   AppToolCallsRoute: typeof AppToolCallsRoute
   AppIndexRoute: typeof AppIndexRoute
   AppCatalogSlugRoute: typeof AppCatalogSlugRoute
   AppConnectorsImportRoute: typeof AppConnectorsImportRoute
-  AppSettingsAuditRoute: typeof AppSettingsAuditRoute
-  AppSettingsDlpRoute: typeof AppSettingsDlpRoute
-  AppSettingsMembersRoute: typeof AppSettingsMembersRoute
-  AppSettingsRolesRoute: typeof AppSettingsRolesRoute
-  AppSettingsSecurityRoute: typeof AppSettingsSecurityRoute
-  AppSettingsServiceAccountsRoute: typeof AppSettingsServiceAccountsRoute
-  AppSettingsSsoRoute: typeof AppSettingsSsoRoute
   AppCatalogIndexRoute: typeof AppCatalogIndexRoute
   AppConnectorsIndexRoute: typeof AppConnectorsIndexRoute
   AppConnectorsIdDetailRoute: typeof AppConnectorsIdDetailRouteWithChildren
@@ -671,18 +820,12 @@ const AppRouteChildren: AppRouteChildren = {
   AppApprovalsRoute: AppApprovalsRoute,
   AppReauthRoute: AppReauthRoute,
   AppServersRoute: AppServersRoute,
+  AppSettingsRoute: AppSettingsRouteWithChildren,
   AppStatusRoute: AppStatusRoute,
   AppToolCallsRoute: AppToolCallsRoute,
   AppIndexRoute: AppIndexRoute,
   AppCatalogSlugRoute: AppCatalogSlugRoute,
   AppConnectorsImportRoute: AppConnectorsImportRoute,
-  AppSettingsAuditRoute: AppSettingsAuditRoute,
-  AppSettingsDlpRoute: AppSettingsDlpRoute,
-  AppSettingsMembersRoute: AppSettingsMembersRoute,
-  AppSettingsRolesRoute: AppSettingsRolesRoute,
-  AppSettingsSecurityRoute: AppSettingsSecurityRoute,
-  AppSettingsServiceAccountsRoute: AppSettingsServiceAccountsRoute,
-  AppSettingsSsoRoute: AppSettingsSsoRoute,
   AppCatalogIndexRoute: AppCatalogIndexRoute,
   AppConnectorsIndexRoute: AppConnectorsIndexRoute,
   AppConnectorsIdDetailRoute: AppConnectorsIdDetailRouteWithChildren,
