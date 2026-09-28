@@ -5,6 +5,7 @@ import {
   clientGroups,
   clientSnippets,
   clientStorageKey,
+  codexKeyEnv,
   codexSnippet,
   curlSnippet,
   cursorSnippet,
@@ -18,6 +19,7 @@ import {
   protocolVersion,
   readClient,
   storeClient,
+  vscodeInputId,
   vscodeSnippet,
   windsurfSnippet,
   zedSnippet,
@@ -93,9 +95,12 @@ describe("claudeCodeSnippet", () => {
 });
 
 describe("vscodeSnippet", () => {
-  it("puts an http server under servers with the header", () => {
+  it("puts an http server under servers, its key from a password input", () => {
     expect(JSON.parse(vscodeSnippet({ url, name: "support-desk", secret }))).toEqual({
-      servers: { "support-desk": { type: "http", url, headers: { Authorization: `Bearer ${secret}` } } },
+      inputs: [{ type: "promptString", id: vscodeInputId, description: keyPlaceholder, password: true }],
+      servers: {
+        "support-desk": { type: "http", url, headers: { Authorization: `Bearer \${input:${vscodeInputId}}` } },
+      },
     });
   });
 });
@@ -117,19 +122,21 @@ describe("zedSnippet", () => {
 });
 
 describe("jetbrainsSnippet", () => {
-  it("runs mcp-remote as Claude Desktop does", () => {
-    const t = { url, name: "support-desk", secret };
-    expect(jetbrainsSnippet(t)).toBe(claudeDesktopSnippet(t));
+  it("uses VS Code's servers shape with the key written in", () => {
+    expect(JSON.parse(jetbrainsSnippet({ url, name: "support-desk", secret }))).toEqual({
+      servers: { "support-desk": { type: "http", url, headers: { Authorization: `Bearer ${secret}` } } },
+    });
   });
 });
 
 describe("codexSnippet", () => {
-  it("writes a TOML table with the url and the header", () => {
-    const lines = codexSnippet({ url, name: "support-desk", secret }).split("\n");
-    expect(lines).toContain("[mcp_servers.support-desk]");
-    expect(lines).toContain(`url = "${url}"`);
-    expect(lines).toContain(`http_headers = { "Authorization" = "Bearer ${secret}" }`);
-    expect(lines[0]).toMatch(/^# Check against the vendor's docs/);
+  it("writes a TOML table with the url and the key's environment variable", () => {
+    expect(codexSnippet({ url, name: "support-desk", secret }).split("\n")).toEqual([
+      "[mcp_servers.support-desk]",
+      `url = "${url}"`,
+      `bearer_token_env_var = "${codexKeyEnv}"`,
+    ]);
+    expect(codexKeyEnv).toBe("SUPERMCP_KEY");
   });
 });
 
@@ -139,20 +146,27 @@ describe("geminiSnippet", () => {
       mcpServers: { "support-desk": { httpUrl: url, headers: { Authorization: `Bearer ${secret}` } } },
     });
   });
+
+  it("keeps underscores out of the server's name", () => {
+    const cfg = JSON.parse(geminiSnippet({ url, name: "support_desk" }));
+    expect(Object.keys(cfg.mcpServers)).toEqual(["support-desk"]);
+  });
 });
 
 describe("openaiSnippet", () => {
-  it("passes the endpoint and the header as a Responses API mcp tool", () => {
+  it("passes the endpoint and the key as a Responses API mcp tool's authorization", () => {
     const cfg = JSON.parse(openaiSnippet({ url, name: "support-desk", secret }));
     expect(cfg.tools).toEqual([
       {
         type: "mcp",
         server_label: "support-desk",
         server_url: url,
-        headers: { Authorization: `Bearer ${secret}` },
+        authorization: secret,
         require_approval: "never",
       },
     ]);
+    const bare = JSON.parse(openaiSnippet({ url, name: "support-desk" }));
+    expect(bare.tools[0].authorization).toBe(keyPlaceholder);
   });
 });
 
@@ -192,30 +206,65 @@ describe("clientSnippets", () => {
 
   for (const [i, label] of labels.entries()) {
     describe(label, () => {
-      it("carries the endpoint and the placeholder when no secret is in hand", () => {
-        const s = clientSnippets({ url, name: "support-desk" })[i];
-        expect(s.text).toContain(url);
-        expect(s.text).toContain(keyPlaceholder);
-        expect(s.text).not.toContain("smk_");
-        expect(s.where.length).toBeGreaterThan(0);
-        expect(s.where).not.toContain("\n");
+      const bare = clientSnippets({ url, name: "support-desk" })[i];
+      const issued = clientSnippets({ url, name: "support-desk", secret })[i];
+
+      it("carries the endpoint and no secret when none is in hand", () => {
+        expect(bare.text).toContain(url);
+        expect(bare.text).not.toContain("smk_");
+        expect(bare.where.length).toBeGreaterThan(0);
+        expect(bare.where).not.toContain("\n");
       });
 
-      it("carries the secret, and not the placeholder, when one was just issued", () => {
-        const s = clientSnippets({ url, name: "support-desk", secret })[i];
-        expect(s.text).toContain(url);
-        expect(s.text).toContain(`Bearer ${secret}`);
-        expect(s.text).not.toContain(keyPlaceholder);
-      });
+      if (bare.keyFrom === "env") {
+        it("keeps the key out of the text, and says where it comes from", () => {
+          expect(bare.text).not.toContain(keyPlaceholder);
+          expect(issued.text).toBe(bare.text);
+          expect(issued.note).toContain(codexKeyEnv);
+        });
+      } else if (bare.keyFrom === "prompt") {
+        it("prompts for the key, naming it with the placeholder, and never writes the secret", () => {
+          expect(bare.text).toContain(keyPlaceholder);
+          expect(issued.text).toBe(bare.text);
+          expect(issued.note).toMatch(/asks for the key/);
+        });
+      } else {
+        it("carries the placeholder when no secret is in hand", () => {
+          expect(bare.text).toContain(keyPlaceholder);
+        });
+
+        it("carries the secret, and not the placeholder, when one was just issued", () => {
+          expect(issued.text).toContain(url);
+          expect(issued.text).toContain(secret);
+          expect(issued.text).not.toContain(keyPlaceholder);
+        });
+      }
     });
   }
 
-  it("says which clients reach the server through mcp-remote, and that ChatGPT's connectors need OAuth", () => {
+  it("takes the key from somewhere else only for VS Code and Codex", () => {
+    const all = clientSnippets({ url, name: "support-desk" });
+    expect(all.filter((s) => s.keyFrom).map((s) => [s.id, s.keyFrom])).toEqual([
+      ["vscode", "prompt"],
+      ["codex", "env"],
+    ]);
+  });
+
+  it("flags only JetBrains as not checked against its vendor's docs", () => {
+    const all = clientSnippets({ url, name: "support-desk" });
+    expect(all.filter((s) => s.unchecked).map((s) => s.id)).toEqual(["jetbrains"]);
+  });
+
+  it("says which notes a person needs before pasting", () => {
     const all = clientSnippets({ url, name: "support-desk" });
     const by = (id: string) => all.find((s) => s.id === id);
     expect(by("claude-desktop")?.note).toMatch(/mcp-remote/);
-    expect(by("jetbrains")?.note).toMatch(/mcp-remote/);
-    expect(by("chatgpt")?.note).toMatch(/OAuth/);
+    expect(by("chatgpt")?.note).toMatch(/OAuth 2\.1/);
+    expect(by("chatgpt")?.note).toMatch(/key is not used/);
+    expect(by("windsurf")?.where).toContain("~/.config/devin/mcp_config.json");
+    expect(by("windsurf")?.where).toContain("~/.codeium/windsurf/mcp_config.json");
+    expect(by("gemini")?.where).toMatch(/No underscores/);
+    expect(by("codex")?.where).toContain(".codex/config.toml");
   });
 });
 

@@ -51,6 +51,12 @@ export interface ClientSnippet {
   /** The maker's page on the format. */
   docs?: string;
   /**
+   * How the client gets the key when the text does not carry it: VS Code
+   * prompts for it, Codex reads it from the environment. Unset when the
+   * text carries the key (or its placeholder) itself.
+   */
+  keyFrom?: "prompt" | "env";
+  /**
    * Set when the format was written from memory of the maker's docs and
    * not checked against their current version: the panel says so.
    */
@@ -154,15 +160,24 @@ export function claudeCodeSnippet(t: SnippetTarget): string {
   return `claude mcp add --transport http ${configName(t.name)} ${t.url} --header "Authorization: ${bearer(t)}"`;
 }
 
-/** VS Code (Copilot's agent mode) keeps servers under `servers`, each with its transport named. */
+/** The id of the input VS Code prompts for the key with. */
+export const vscodeInputId = "api-token";
+
+/**
+ * VS Code (Copilot's agent mode) keeps servers under `servers`, each with
+ * its transport named. The key is not written into the file: VS Code's
+ * docs recommend an input, which it prompts for once and keeps in its
+ * secret storage. So even a key just issued stays out of the text.
+ */
 export function vscodeSnippet(t: SnippetTarget): string {
   return JSON.stringify(
     {
+      inputs: [{ type: "promptString", id: vscodeInputId, description: keyPlaceholder, password: true }],
       servers: {
         [configName(t.name)]: {
           type: "http",
           url: t.url,
-          headers: { Authorization: bearer(t) },
+          headers: { Authorization: `Bearer \${input:${vscodeInputId}}` },
         },
       },
     },
@@ -204,12 +219,24 @@ export function zedSnippet(t: SnippetTarget): string {
 }
 
 /**
- * JetBrains AI Assistant takes the same mcpServers JSON Claude Desktop
- * does. It goes through mcp-remote for the same reason: a local program
- * is the one kind of server every version of the dialog starts.
+ * JetBrains AI Assistant: VS Code's `servers` shape, with the key written
+ * in, since the dialog has no inputs to prompt with. Its docs could not be
+ * checked, so the panel says so.
  */
 export function jetbrainsSnippet(t: SnippetTarget): string {
-  return claudeDesktopSnippet(t);
+  return JSON.stringify(
+    {
+      servers: {
+        [configName(t.name)]: {
+          type: "http",
+          url: t.url,
+          headers: { Authorization: bearer(t) },
+        },
+      },
+    },
+    null,
+    2,
+  );
 }
 
 /** A TOML string: the JSON escapes of a basic string are TOML's too. */
@@ -217,22 +244,31 @@ function tomlString(s: string): string {
   return JSON.stringify(s);
 }
 
-/** Codex keeps servers in TOML, one table each; a remote one by URL with its headers. */
+/** The environment variable Codex reads the key from. */
+export const codexKeyEnv = "SUPERMCP_KEY";
+
+/**
+ * Codex keeps servers in TOML, one table each; a remote one by URL. The
+ * key comes from an environment variable, which Codex sends as the
+ * bearer token, so it is not written into the file.
+ */
 export function codexSnippet(t: SnippetTarget): string {
   return [
-    "# Check against the vendor's docs: http_headers is written from Codex's config reference.",
     `[mcp_servers.${configName(t.name)}]`,
     `url = ${tomlString(t.url)}`,
-    `http_headers = { "Authorization" = ${tomlString(bearer(t))} }`,
+    `bearer_token_env_var = ${tomlString(codexKeyEnv)}`,
   ].join("\n");
 }
 
-/** Gemini CLI tells streamable HTTP (`httpUrl`) from SSE (`url`) by the key's name. */
+/**
+ * Gemini CLI tells streamable HTTP (`httpUrl`) from SSE (`url`) by the
+ * key's name. It does not take underscores in a server's name.
+ */
 export function geminiSnippet(t: SnippetTarget): string {
   return JSON.stringify(
     {
       mcpServers: {
-        [configName(t.name)]: {
+        [configName(t.name).replace(/_/g, "-")]: {
           httpUrl: t.url,
           headers: { Authorization: bearer(t) },
         },
@@ -245,8 +281,9 @@ export function geminiSnippet(t: SnippetTarget): string {
 
 /**
  * The OpenAI Responses API calls a remote MCP server as a tool of the
- * request, and passes headers through. ChatGPT's own connectors do not
- * take a header; the panel says what to do there instead.
+ * request; `authorization` is its documented field for a bearer token,
+ * and takes the key alone. ChatGPT's own connectors do not take a key;
+ * the panel says what to do there instead.
  */
 export function openaiSnippet(t: SnippetTarget): string {
   return JSON.stringify(
@@ -256,7 +293,7 @@ export function openaiSnippet(t: SnippetTarget): string {
           type: "mcp",
           server_label: configName(t.name),
           server_url: t.url,
-          headers: { Authorization: bearer(t) },
+          authorization: t.secret || keyPlaceholder,
           require_approval: "never",
         },
       ],
@@ -309,7 +346,8 @@ export function clientSnippets(t: SnippetTarget): ClientSnippet[] {
       group: "Coding assistants",
       where:
         "Paste into `.vscode/mcp.json` in your workspace, or into the file MCP: Open User Configuration opens, for every workspace.",
-      note: "Copilot Chat uses the server in agent mode.",
+      note: "VS Code asks for the key the first time it starts the server and keeps it in its secret storage; Copilot Chat uses the server in agent mode.",
+      keyFrom: "prompt",
       docs: "https://code.visualstudio.com/docs/copilot/customization/mcp-servers",
       text: vscodeSnippet(t),
     },
@@ -317,7 +355,8 @@ export function clientSnippets(t: SnippetTarget): ClientSnippet[] {
       id: "windsurf",
       label: "Windsurf",
       group: "Coding assistants",
-      where: "Paste into `~/.codeium/windsurf/mcp_config.json`, then refresh the MCP servers in Cascade.",
+      where:
+        "Paste into `~/.config/devin/mcp_config.json`, where current Windsurf keeps it, or `~/.codeium/windsurf/mcp_config.json`, the classic path; then refresh the MCP servers in Cascade.",
       docs: "https://docs.windsurf.com/windsurf/cascade/mcp",
       text: windsurfSnippet(t),
     },
@@ -327,17 +366,13 @@ export function clientSnippets(t: SnippetTarget): ClientSnippet[] {
       group: "Coding assistants",
       where: "Add to `context_servers` in Zed's `settings.json`: `~/.config/zed/settings.json` on macOS and Linux.",
       docs: "https://zed.dev/docs/ai/mcp",
-      unchecked: true,
       text: zedSnippet(t),
     },
     {
       id: "jetbrains",
       label: "JetBrains AI Assistant",
       group: "Coding assistants",
-      where:
-        "In Settings, Tools, AI Assistant, Model Context Protocol (MCP), add a server and paste this in as JSON.",
-      note: "It reaches this server through mcp-remote, which needs Node.js.",
-      docs: "https://www.jetbrains.com/help/ai-assistant/mcp.html",
+      where: "In Settings, Tools, AI Assistant, MCP, add a server and paste this in as JSON.",
       unchecked: true,
       text: jetbrainsSnippet(t),
     },
@@ -345,16 +380,18 @@ export function clientSnippets(t: SnippetTarget): ClientSnippet[] {
       id: "codex",
       label: "OpenAI Codex CLI",
       group: "Coding assistants",
-      where: "Add to `~/.codex/config.toml`; the Codex IDE extension reads the same file.",
+      where:
+        "Add to `~/.codex/config.toml`, or `.codex/config.toml` in a project; the Codex IDE extension reads the same file.",
+      note: "Codex reads the key from SUPERMCP_KEY: export it in the shell that starts Codex. To write the key into the file instead, replace the last line with http_headers = { \"Authorization\" = \"Bearer <key>\" }.",
       docs: "https://developers.openai.com/codex/mcp",
-      unchecked: true,
+      keyFrom: "env",
       text: codexSnippet(t),
     },
     {
       id: "gemini",
       label: "Gemini CLI",
       group: "Coding assistants",
-      where: "Add to `~/.gemini/settings.json`, or `.gemini/settings.json` in a project.",
+      where: "Add to `~/.gemini/settings.json`, or `.gemini/settings.json` in a project. No underscores in the server's name.",
       docs: "https://github.com/google-gemini/gemini-cli/blob/main/docs/tools/mcp-server.md",
       text: geminiSnippet(t),
     },
@@ -371,10 +408,9 @@ export function clientSnippets(t: SnippetTarget): ClientSnippet[] {
       id: "chatgpt",
       label: "ChatGPT and the OpenAI API",
       group: "Desktop apps",
-      where: "Send as the `tools` of an OpenAI Responses API request; the Agents SDK takes the same URL and headers.",
-      note: "ChatGPT's own connectors cannot send an API key: they sign in with OAuth or not at all. Add the endpoint there as a connector with OAuth, and ChatGPT signs in to this workspace instead.",
+      where: "Send as the `tools` of an OpenAI Responses API request.",
+      note: "In the ChatGPT app the key is not used: its connectors sign in with OAuth 2.1 only, and this server is an OAuth provider. Turn on Developer mode and add the endpoint as a connector by its URL; ChatGPT then signs in to this workspace.",
       docs: "https://platform.openai.com/docs/guides/tools-connectors-mcp",
-      unchecked: true,
       text: openaiSnippet(t),
     },
     {
