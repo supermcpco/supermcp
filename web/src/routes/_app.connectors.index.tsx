@@ -7,12 +7,14 @@ import { useSession } from "../lib/session";
 import { Badge, Loading } from "../lib/ui";
 import { message } from "../lib/errors";
 import { EmptyState, HeaderWithAction } from "../components/form-dialog";
+import { WithTooltip } from "../components/tooltip";
 import {
   consentResult,
   consentSearch,
   stillNeeded,
   connectorCredentialFields,
   type ConsentSearch,
+  badgeWhy,
 } from "../lib/connector";
 import { ConsentReturn } from "../components/consent-return";
 
@@ -75,21 +77,29 @@ function Connectors() {
         {list.map((c) => (
           // The whole card opens the connector: its name is the link, and
           // the link's area is stretched over the card. The badges and the
-          // summary are read after the name, not as part of it.
+          // summary are read after the name, not as part of it. A name too
+          // long for the card is cut off, and shown whole in a tooltip.
           <li key={c.id} className="relative rounded-lg px-5 py-4 ring ring-kumo-line hover:bg-kumo-tint">
             <div className="grid gap-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <Link
-                  to="/connectors/$id"
-                  params={{ id: c.id }}
-                  className="font-semibold after:absolute after:inset-0 after:rounded-lg"
-                >
-                  {c.name}
-                </Link>
+              {/* Sized by the card, not by the name, so a long name is cut off instead of widening the page. */}
+              <div className="flex flex-wrap items-center gap-2 contain-inline-size">
+                <WithTooltip tip={c.name} onlyWhenTruncated>
+                  <Link
+                    to="/connectors/$id"
+                    params={{ id: c.id }}
+                    className="min-w-0 truncate font-semibold after:absolute after:inset-0 after:rounded-lg"
+                  >
+                    {c.name}
+                  </Link>
+                </WithTooltip>
                 {!c.enabled && <Badge>disabled</Badge>}
                 {c.readOnly && <Badge>read-only</Badge>}
-                {c.catalogOutdated && <Badge>catalog update available</Badge>}
-                {stillNeeded(connectorCredentialFields(c), {}).length > 0 && <Badge>credentials missing</Badge>}
+                {c.catalogOutdated && <Badge why={badgeWhy.catalogOutdated}>catalog update available</Badge>}
+                {stillNeeded(connectorCredentialFields(c), {}).length > 0 && (
+                  <Badge why={badgeWhy.credentialsMissing}>
+                    credentials missing
+                  </Badge>
+                )}
               </div>
               <Text as="span" variant="secondary">
                 {String(c.transport?.type ?? "")} · {String(c.auth?.type ?? "none")} · {c.toolCount} tools

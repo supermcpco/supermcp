@@ -6,6 +6,7 @@ import { ArrowLeft } from "@phosphor-icons/react";
 import type { ToolIssueDto } from "../api";
 import { toolsGetOptions } from "../api/@tanstack/react-query.gen";
 import { useSession } from "../lib/session";
+import { badgeWhy } from "../lib/connector";
 import { Badge, Loading, NotFound } from "../lib/ui";
 import { message, status } from "../lib/errors";
 import { ToolEditor } from "../components/tool-editor";
@@ -57,8 +58,8 @@ function EditTool() {
               {t ? t.name : "Tool"}
             </Text>
             {t && <Badge>{sourceLabel[t.source]}</Badge>}
-            {t?.edited && <Badge>edited</Badge>}
-            {t && !t.enabled && <Badge>off</Badge>}
+            {t?.edited && <Badge why={badgeWhy.edited}>edited</Badge>}
+            {t && !t.enabled && <Badge why={badgeWhy.off}>off</Badge>}
           </div>
           {t?.editedAt && (
             <Text variant="secondary">

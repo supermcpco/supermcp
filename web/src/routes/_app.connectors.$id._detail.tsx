@@ -148,6 +148,7 @@ function Header({ id }: { id: string }) {
             </Text>
             {c.readOnly && <Badge>read-only</Badge>}
             {!c.enabled && <Badge>disabled</Badge>}
+            {/* The notice below says what this means; the badge needs no sentence of its own here. */}
             {c.catalogOutdated && <Badge>catalog update available</Badge>}
           </div>
           <Text variant="secondary">
