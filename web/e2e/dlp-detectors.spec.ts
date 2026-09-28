@@ -102,7 +102,7 @@ test("a custom detector is tried, saved, added to a rule, and refuses a call tha
 
   // A rule picks it beside the built-ins.
   await page.getByRole("tab", { name: "Rules", exact: true }).click();
-  await page.getByRole("button", { name: "New rule" }).first().click();
+  await page.getByRole("button", { name: "New rule" }).click();
   const addRule = page.getByRole("dialog", { name: "Add a rule" });
   await addRule.getByLabel("What it is for").fill("Contract ids stay inside");
   await addRule.getByLabel("What it does").selectOption("refuse");

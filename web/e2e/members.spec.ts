@@ -32,7 +32,7 @@ async function invite(page: Page, email: string, role: string): Promise<string> 
 
 /** Opens the invitation form from the screen's header. */
 async function openInvite(page: Page) {
-  await page.getByRole("button", { name: "Invite someone" }).first().click();
+  await page.getByRole("button", { name: "Invite someone" }).click();
   const dialog = page.getByRole("dialog", { name: "Invite someone" });
   await expect(dialog).toBeVisible();
   return dialog;

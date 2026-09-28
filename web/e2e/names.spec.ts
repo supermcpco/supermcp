@@ -27,7 +27,7 @@ async function inviteViewer(page: Page, browser: Browser, org: string) {
   const email = `named-${Date.now()}-${Math.floor(Math.random() * 1e6)}@example.test`;
   const name = "Vera Viewer";
   await page.goto("/settings/members");
-  await page.getByRole("button", { name: "Invite someone" }).first().click();
+  await page.getByRole("button", { name: "Invite someone" }).click();
   const dialog = page.getByRole("dialog", { name: "Invite someone" });
   await dialog.getByLabel("Email", { exact: true }).fill(email);
   await dialog.getByLabel("Role", { exact: true }).selectOption({ label: "viewer" });

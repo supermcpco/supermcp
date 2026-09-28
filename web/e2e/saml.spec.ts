@@ -30,7 +30,7 @@ test("a SAML provider can be configured, and publishes what the identity provide
   expect(workspace.org).toBeTruthy();
   await page.goto("/settings/sso");
 
-  await page.getByRole("button", { name: "New SAML provider" }).first().click();
+  await page.getByRole("button", { name: "New SAML provider" }).click();
   const dialog = page.getByRole("dialog", { name: "Add a SAML provider" });
   await dialog.getByPlaceholder("Company SAML").fill("End to end SAML");
   await dialog.getByPlaceholder("<EntityDescriptor").fill(IDP_METADATA);

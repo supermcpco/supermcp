@@ -12,7 +12,7 @@ test("a stale session is asked for the password and then gets the key", async ({
   const form = page.getByRole("dialog", { name: "New API key" });
   const secret = page.getByRole("dialog", { name: "Copy this key now" });
   const openForm = async () => {
-    await page.getByRole("button", { name: "Create key" }).first().click();
+    await page.getByRole("button", { name: "Create key" }).click();
     await expect(form).toBeVisible();
   };
 
@@ -86,7 +86,7 @@ test("the re-authentication page explains a refusal and returns to where it was 
   await page.getByLabel("Password").fill(workspace.password);
   await page.getByRole("button", { name: "Confirm" }).click();
   await expect(page).toHaveURL(/\/api-keys$/);
-  await page.getByRole("button", { name: "Create key" }).first().click();
+  await page.getByRole("button", { name: "Create key" }).click();
   const form = page.getByRole("dialog", { name: "New API key" });
   await form.getByLabel("Name").fill("After the page");
   await form.getByRole("button", { name: "Create key" }).click();

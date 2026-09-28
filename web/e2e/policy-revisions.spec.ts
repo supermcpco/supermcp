@@ -11,7 +11,7 @@ test("a data-loss rule is changed in a dialog, and the earlier version restored 
   await expect(page.getByRole("tab", { name: "Data-loss rules", exact: true })).toHaveAttribute("aria-selected", "true");
   await expect(page.getByRole("tab", { name: "Rules", exact: true })).toHaveAttribute("aria-selected", "true");
 
-  await page.getByRole("button", { name: "New rule" }).first().click();
+  await page.getByRole("button", { name: "New rule" }).click();
   const addRule = page.getByRole("dialog", { name: "Add a rule" });
   await addRule.getByLabel("What it is for").fill("Customer addresses");
   await addRule.getByLabel("What it does").selectOption("mask");

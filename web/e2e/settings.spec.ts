@@ -85,7 +85,7 @@ test("a service account is created with a secret shown once", async ({ page, wor
   await expect(page.getByRole("heading", { name: "Service accounts" })).toBeVisible();
   // An empty screen offers the same button in its header and in the
   // empty state; the header's comes first.
-  await page.getByRole("button", { name: "New service account" }).first().click();
+  await page.getByRole("button", { name: "New service account" }).click();
   const dialog = page.getByRole("dialog", { name: "New service account" });
   await dialog.getByLabel("Name").fill("Nightly export");
   await dialog.getByRole("button", { name: "Create account" }).click();
@@ -128,7 +128,7 @@ test("the single sign-on screen tells an administrator what to register", async 
 
   // An issuer that does not exist must fail in the form rather than at
   // someone's first sign-in.
-  await page.getByRole("button", { name: "New OpenID Connect provider" }).first().click();
+  await page.getByRole("button", { name: "New OpenID Connect provider" }).click();
   const dialog = page.getByRole("dialog", { name: "Add a provider" });
   await expect(dialog.getByText("/auth/sso/callback")).toBeVisible();
   await expectAccessible(page);
@@ -226,7 +226,7 @@ test("a viewer sees only the settings tabs they may read", async ({ page, browse
   // A viewer joins the way anybody does: from an invitation link.
   const email = `viewer-${Date.now()}-${Math.floor(Math.random() * 1e6)}@example.test`;
   await page.goto("/settings/members");
-  await page.getByRole("button", { name: "Invite someone" }).first().click();
+  await page.getByRole("button", { name: "Invite someone" }).click();
   const invite = page.getByRole("dialog", { name: "Invite someone" });
   await invite.getByLabel("Email", { exact: true }).fill(email);
   await invite.getByLabel("Role", { exact: true }).selectOption({ label: "viewer" });
@@ -372,7 +372,7 @@ test("removing a provider, a rule and a service account each ask first", async (
 
   // An OpenID Connect provider.
   await page.goto("/settings/sso");
-  await page.getByRole("button", { name: "New OpenID Connect provider" }).first().click();
+  await page.getByRole("button", { name: "New OpenID Connect provider" }).click();
   const add = page.getByRole("dialog", { name: "Add a provider" }).getByRole("form", { name: "Add a provider" });
   await add.getByLabel("Provider").selectOption({ label: "Okta" });
   await add.getByLabel("Name").fill("Doomed Okta");
@@ -401,7 +401,7 @@ test("removing a provider, a rule and a service account each ask first", async (
 
   // A data-loss rule.
   await page.goto("/settings/dlp");
-  await page.getByRole("button", { name: "New rule" }).first().click();
+  await page.getByRole("button", { name: "New rule" }).click();
   const addRule = page.getByRole("dialog", { name: "Add a rule" });
   await addRule.getByLabel("What it is for").fill("Doomed rule");
   await addRule.getByRole("button", { name: "Add the rule" }).click();
@@ -422,7 +422,7 @@ test("removing a provider, a rule and a service account each ask first", async (
 
   // A service account.
   await page.goto("/settings/service-accounts");
-  await page.getByRole("button", { name: "New service account" }).first().click();
+  await page.getByRole("button", { name: "New service account" }).click();
   const newAccount = page.getByRole("dialog", { name: "New service account" });
   await newAccount.getByLabel("Name").fill("Doomed pipeline");
   await newAccount.getByRole("button", { name: "Create account" }).click();

@@ -64,7 +64,7 @@ test("the overview, the sidebar either way and the settings tabs are dark", asyn
 test("a create dialog, a toast, the connector page and a confirm dialog are dark", async ({ page, workspace }) => {
   expect(workspace.email).toBeTruthy();
   await page.goto("/servers");
-  await page.getByRole("button", { name: "Create server" }).first().click();
+  await page.getByRole("button", { name: "Create server" }).click();
   const create = page.getByRole("dialog", { name: "New server" });
   await expect(create.getByLabel("Name")).toBeVisible();
   await expectDark(page);

@@ -11,7 +11,7 @@ test("a create dialog closes on Escape without creating and returns focus", asyn
   await expect(page.getByRole("tab", { name: "Service accounts", exact: true })).toHaveAttribute("aria-selected", "true");
   await expect(page.getByText("No service accounts yet.")).toBeVisible();
 
-  const opener = page.getByRole("button", { name: "New service account" }).first();
+  const opener = page.getByRole("button", { name: "New service account" });
   await opener.click();
   const dialog = page.getByRole("dialog", { name: "New service account" });
   await expect(dialog).toBeVisible();
@@ -29,13 +29,13 @@ test("a create dialog closes on Escape without creating and returns focus", asyn
   const accounts = await (await page.request.get("/api/v1/service-accounts")).json();
   expect(accounts.accounts ?? []).toEqual([]);
 
-  // Cancel does the same, from the button in the empty state this time.
-  const fromEmpty = page.getByRole("button", { name: "New service account" }).last();
-  await fromEmpty.click();
+  // Cancel does the same. The header's button is the only one: the empty
+  // state says there is nothing and does not offer it again.
+  await opener.click();
   await dialog.getByLabel("Name").fill("Never created either");
   await dialog.getByRole("button", { name: "Cancel" }).click();
   await expect(dialog).toHaveCount(0);
-  await expect(fromEmpty).toBeFocused();
+  await expect(opener).toBeFocused();
   await expect(page.getByText("No service accounts yet.")).toBeVisible();
 });
 
@@ -54,7 +54,7 @@ test("an approval rule is added from its dialog", async ({ page, workspace }) =>
   await expect(explained).toHaveCount(0);
   await expect(about).toBeFocused();
 
-  await page.getByRole("button", { name: "Add rule", exact: true }).first().click();
+  await page.getByRole("button", { name: "Add rule", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "Add a rule" });
   await dialog.getByLabel("Which calls").selectOption("tool");
   await dialog.getByLabel("What it is for").fill("Hold the exchange rates");
@@ -75,7 +75,7 @@ test("an approval rule is only removed after confirming", async ({ page, workspa
   expect(workspace.email).toBeTruthy();
   const name = "Hold whatever writes";
   await page.goto("/approvals");
-  await page.getByRole("button", { name: "Add rule", exact: true }).first().click();
+  await page.getByRole("button", { name: "Add rule", exact: true }).click();
   const add = page.getByRole("dialog", { name: "Add a rule" });
   await add.getByLabel("What it is for").fill(name);
   await add.getByRole("button", { name: "Add rule", exact: true }).click();
