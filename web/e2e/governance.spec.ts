@@ -19,7 +19,7 @@ test("a rule inspects what a tool call carries, and an approval holds one until 
 
   const serverId = await createServer(page, "Governed server", [/Deutsche Bundesbank Statistics/]);
 
-  const secret = await createKey(page, "Governed key");
+  await createKey(page, "Governed key");
 
   // The data-loss rule, added the way an administrator adds it.
   await page.goto("/settings/dlp");
