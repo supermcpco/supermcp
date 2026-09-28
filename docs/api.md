@@ -87,6 +87,21 @@ instance has no users, or while `SUPERMCP_OPEN_REGISTRATION` is on.
 Otherwise register answers 403 and the sign-up is by invitation. `POST /api/v1/auth/switch-org` changes the
 active workspace after re-checking membership.
 
+`PATCH /api/v1/me` with `{"name": "..."}` changes the signed-in
+person's display name and answers with the session, in the same shape
+as `GET /api/v1/auth/session`. It needs no permission, but it takes a
+browser session: an API key, an OAuth access token or a service account
+gets `403`, and no credential gets `401`. The name is trimmed and must
+then be 1 to 120 characters with no control characters and no
+bidirectional formatting characters (U+061C, U+200E, U+200F, U+202A
+to U+202E and U+2066 to U+2069); anything else is `422` pointing at
+`body.name`. No session ends. The change is recorded as `account.update`, targeting
+the user, with the old and new name as the diff (`diff.before.name`,
+`diff.after.name`); a refused change is recorded under the same action
+with outcome `failure`. A person provisioned through SCIM can rename
+themselves, but the identity provider's next update of them sets the
+name it holds.
+
 Cookie-authenticated mutations are checked against `Sec-Fetch-Site` and
 `Origin`. Requests carrying an API key are exempt, because they carry no
 ambient credential a browser could attach on someone else's behalf.
@@ -1191,6 +1206,23 @@ The percentiles are left out when there is nothing to take them over. A
 its latest call recorded if it has been deleted. Calls that went through
 no MCP server are one entry with an empty `id` when `by=server`, and calls
 that recorded no tool id are one entry with an empty `id` when `by=tool`.
+
+## The workspace
+
+| Method | Path | Permission | Audit action |
+|---|---|---|---|
+| `PATCH` | `/api/v1/org` with `{"name": "..."}` | `org:update` | `org.update` |
+
+Renames the current workspace. The name follows the same rules as a
+person's (trimmed, 1 to 120 characters, no control or bidirectional
+formatting characters; `422` at `body.name` otherwise). The slug does
+not change. The answer is the workspace, `{"id", "slug", "name"}`, and
+the next `GET /api/v1/auth/session` of every member shows the new name
+in `organization` and `organizations`; nothing caches it. The audit
+event targets the organisation, named by its new name, with the old and
+new name as the diff. A refused change is recorded under the same action
+with outcome `failure`. The built-in `owner` and `admin` roles hold
+`org:update`.
 
 ## Members
 

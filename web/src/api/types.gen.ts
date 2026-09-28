@@ -1299,6 +1299,10 @@ export type MembersOutputBody = {
 };
 
 export type OrgDto = {
+    /**
+     * A URL to the JSON Schema for this object.
+     */
+    readonly $schema?: string;
     id: string;
     name: string;
     slug: string;
@@ -1455,6 +1459,17 @@ export type RegisterInputBody = {
     name?: string;
     orgName?: string;
     password: string;
+};
+
+export type RenameInputBody = {
+    /**
+     * A URL to the JSON Schema for this object.
+     */
+    readonly $schema?: string;
+    /**
+     * The new name: 1 to 120 characters once leading and trailing space is trimmed, with no control or bidirectional formatting characters
+     */
+    name: string;
 };
 
 export type RestrictionDto = {
@@ -3200,6 +3215,12 @@ export type MembersOutputBodyWritable = {
     members: Array<MemberDtoWritable>;
 };
 
+export type OrgDtoWritable = {
+    id: string;
+    name: string;
+    slug: string;
+};
+
 export type PasswordPolicyWritable = {
     history: number;
     maxAgeDays: number;
@@ -3280,6 +3301,13 @@ export type RegisterInputBodyWritable = {
     name?: string;
     orgName?: string;
     password: string;
+};
+
+export type RenameInputBodyWritable = {
+    /**
+     * The new name: 1 to 120 characters once leading and trailing space is trimmed, with no control or bidirectional formatting characters
+     */
+    name: string;
 };
 
 export type ResyncApplyInputBodyWritable = {
@@ -3566,8 +3594,8 @@ export type ServiceAccountInputWritable = {
 
 export type SessionBodyWritable = {
     anonymous?: boolean;
-    organization?: OrgDto;
-    organizations?: Array<OrgDto> | null;
+    organization?: OrgDtoWritable;
+    organizations?: Array<OrgDtoWritable> | null;
     passwordExpired?: boolean;
     permissions?: Array<string> | null;
     registrationOpen?: boolean;
@@ -6341,6 +6369,56 @@ export type InviteLookupResponses = {
 };
 
 export type InviteLookupResponse = InviteLookupResponses[keyof InviteLookupResponses];
+
+export type MeUpdateData = {
+    body: RenameInputBodyWritable;
+    path?: never;
+    query?: never;
+    url: '/api/v1/me';
+};
+
+export type MeUpdateErrors = {
+    /**
+     * Error
+     */
+    default: ErrorModel;
+};
+
+export type MeUpdateError = MeUpdateErrors[keyof MeUpdateErrors];
+
+export type MeUpdateResponses = {
+    /**
+     * OK
+     */
+    200: SessionBody;
+};
+
+export type MeUpdateResponse = MeUpdateResponses[keyof MeUpdateResponses];
+
+export type OrgUpdateData = {
+    body: RenameInputBodyWritable;
+    path?: never;
+    query?: never;
+    url: '/api/v1/org';
+};
+
+export type OrgUpdateErrors = {
+    /**
+     * Error
+     */
+    default: ErrorModel;
+};
+
+export type OrgUpdateError = OrgUpdateErrors[keyof OrgUpdateErrors];
+
+export type OrgUpdateResponses = {
+    /**
+     * OK
+     */
+    200: OrgDto;
+};
+
+export type OrgUpdateResponse = OrgUpdateResponses[keyof OrgUpdateResponses];
 
 export type InvitesListData = {
     body?: never;
