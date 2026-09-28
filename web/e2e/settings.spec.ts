@@ -334,7 +334,21 @@ test("audit retention and shipping sit on their own tabs and still save", async 
   await expect(page.getByRole("dialog", { name: "About shipping" }).getByText(/X-Supermcp-Signature/)).toBeVisible();
   await page.keyboard.press("Escape");
 
-  await shipping.getByRole("button", { name: "Stop" }).click();
+  // Stopping asks first, and changing one's mind stops nothing.
+  await shipping.getByRole("button", { name: "Stop shipping to https://siem.example/ingest", exact: true }).click();
+  const stop = page.getByRole("dialog", { name: "Stop shipping to https://siem.example/ingest?" });
+  await expect(stop).toBeVisible();
+  await stop.getByRole("button", { name: "Cancel" }).click();
+  await expect(stop).toBeHidden();
+  await expect(shipping.getByText("https://siem.example/ingest", { exact: true })).toBeVisible();
+
+  await shipping.getByRole("button", { name: "Stop shipping to https://siem.example/ingest", exact: true }).click();
+  const stopped = page.waitForResponse(
+    (r) => r.url().includes("/api/v1/audit/exporters/") && r.request().method() === "DELETE",
+  );
+  await stop.getByRole("button", { name: "Stop", exact: true }).click();
+  expect((await stopped).status()).toBeLessThan(300);
+  await expect(stop).toBeHidden();
   await expect(
     page.getByRole("heading", { name: "Stopped shipping the trail to https://siem.example/ingest", exact: true }),
   ).toBeVisible();

@@ -17,6 +17,7 @@ import { message } from "../lib/errors";
 import { toast } from "../components/shell/toast";
 import { CopyButton, ConnectClient } from "../components/connect-client";
 import { EmptyState, HeaderWithAction } from "../components/form-dialog";
+import { ConfirmAction } from "../components/confirm-dialog";
 import { canRotate, defaultGraceSeconds, graceChoices, stopsWorking } from "../lib/key-rotation";
 
 export const Route = createFileRoute("/_app/api-keys")({
@@ -48,9 +49,18 @@ function APIKeys() {
   const [issued, setIssued] = useState<Issued | null>(null);
   const [rotating, setRotating] = useState<string | null>(null);
 
+  // The key last asked about stays named while its dialog fades out.
+  const [revoking, setRevoking] = useState<ApiKeyDto | null>(null);
+  const [askingRevoke, setAskingRevoke] = useState(false);
+  const [revokeError, setRevokeError] = useState<string | null>(null);
   const revoke = useMutation({
     ...keysRevokeMutation(),
-    onSuccess: () => qc.invalidateQueries({ queryKey: keysListQueryKey() }),
+    onSuccess: async () => {
+      if (revoking) toast(`API key ${revoking.name} revoked`);
+      setAskingRevoke(false);
+      await qc.invalidateQueries({ queryKey: keysListQueryKey() });
+    },
+    onError: (e) => setRevokeError(message(e)),
   });
 
   const createKey = (
@@ -103,7 +113,13 @@ function APIKeys() {
                 </Button>
               )}
               {!k.revokedAt && (
-                <Button onClick={() => revoke.mutate({ path: { id: k.id } })} disabled={revoke.isPending}>
+                <Button
+                  onClick={() => {
+                    setRevokeError(null);
+                    setRevoking(k);
+                    setAskingRevoke(true);
+                  }}
+                >
                   Revoke<span className="sr-only"> {k.name}</span>
                 </Button>
               )}
@@ -135,6 +151,17 @@ function APIKeys() {
         }}
       />
       <SecretDialog issued={issued} onDone={() => setIssued(null)} />
+      <ConfirmAction
+        open={askingRevoke}
+        onOpenChange={setAskingRevoke}
+        title={`Revoke ${revoking?.name ?? "this key"}?`}
+        confirmLabel="Revoke"
+        pending={revoke.isPending}
+        error={revokeError}
+        onConfirm={() => revoking && revoke.mutate({ path: { id: revoking.id } })}
+      >
+        Any client using it is refused from then on. This cannot be undone: the client needs a new key.
+      </ConfirmAction>
     </div>
   );
 }
@@ -259,8 +286,10 @@ function SecretBody({ issued }: { issued: Issued }) {
   const secretId = useId();
   const serverSelectId = useId();
   const list = servers.data ?? [];
-  // A key bound to one server can only reach that one; otherwise the first.
-  const serverId = picked ?? key.serverId ?? list[0]?.id;
+  // A key bound to one server can only reach that one, so there is no
+  // choice to offer; otherwise the first, until another is picked.
+  const bound = key.serverId ?? null;
+  const serverId = bound ?? picked ?? list[0]?.id;
   const server = list.find((s) => s.id === serverId);
 
   return (
@@ -306,7 +335,12 @@ function SecretBody({ issued }: { issued: Issued }) {
               , then use this key with it.
             </Text>
           )}
-          {list.length > 0 && (
+          {bound && server && (
+            <Text>
+              Server: <span className="font-semibold">{server.name}</span>, the only one this key reaches.
+            </Text>
+          )}
+          {!bound && list.length > 0 && (
             <div className="flex flex-wrap items-center gap-2">
               <label htmlFor={serverSelectId}>
                 <Text as="span">Server</Text>
@@ -353,6 +387,8 @@ function ConfirmRotate({
   const rotate = useMutation({
     ...keysRotateMutation(),
     onSuccess: async (res) => {
+      // The name only: the new secret is shown once, in its own dialog.
+      toast(`API key ${apiKey.name} rotated`);
       onRotated(res);
       await qc.invalidateQueries({ queryKey: keysListQueryKey() });
     },

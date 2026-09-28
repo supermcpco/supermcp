@@ -17,6 +17,7 @@ test("a server can be switched to stateful sessions and back", async ({ page, wo
   await expect(row.getByText(/sticky routing/)).toHaveCount(0);
 
   await sessions.selectOption("stateful");
+  await expect(page.getByRole("heading", { name: "Session server now uses stateful sessions", exact: true })).toBeVisible();
   await expect(row.getByText(/sticky routing/)).toBeVisible();
   await expectAccessible(page);
 
@@ -29,6 +30,7 @@ test("a server can be switched to stateful sessions and back", async ({ page, wo
   expect(stored.sessions).toBe("stateful");
 
   await row.getByLabel("Sessions").selectOption("stateless");
+  await expect(page.getByRole("heading", { name: "Session server now uses stateless sessions", exact: true })).toBeVisible();
   await expect(row.getByText(/sticky routing/)).toHaveCount(0);
   await expect(row.getByLabel("Sessions")).toHaveValue("stateless");
 });

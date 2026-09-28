@@ -13,6 +13,7 @@ import { Badge } from "../lib/ui";
 import { message } from "../lib/errors";
 import { toast } from "../components/shell/toast";
 import { Help, HeadingWithHelp } from "../components/help";
+import { ConfirmAction } from "../components/confirm-dialog";
 
 /** Where a copy of the trail is delivered as it is written. */
 export const Route = createFileRoute("/_app/settings/audit/shipping")({
@@ -51,15 +52,19 @@ function Destinations() {
     },
     onError,
   });
+  // The destination last asked about stays named while its dialog fades out.
+  const [stopping, setStopping] = useState<{ id: string; url: string } | null>(null);
+  const [askingStop, setAskingStop] = useState(false);
+  const [stopError, setStopError] = useState<string | null>(null);
   const remove = useMutation({
     ...auditExportersDeleteMutation(),
-    onSuccess: async (_, vars) => {
-      const url = list.data?.exporters?.find((e) => e.id === vars.path.id)?.url;
-      toast(url ? `Stopped shipping the trail to ${url}` : "Stopped shipping the trail there");
+    onSuccess: async () => {
+      toast(stopping?.url ? `Stopped shipping the trail to ${stopping.url}` : "Stopped shipping the trail there");
+      setAskingStop(false);
       setError(null);
       await refresh();
     },
-    onError,
+    onError: (e) => setStopError(message(e)),
   });
 
   if (!canSee) return null;
@@ -109,14 +114,33 @@ function Destinations() {
               </Text>
             </div>
             {canManage && (
-              <Button variant="secondary" onClick={() => remove.mutate({ path: { id: e.id } })} disabled={remove.isPending}>
-                Stop
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setStopError(null);
+                  setStopping({ id: e.id, url: e.url });
+                  setAskingStop(true);
+                }}
+              >
+                Stop<span className="sr-only"> shipping to {e.url || "this destination"}</span>
               </Button>
             )}
           </li>
         ))}
       </ul>
       {rows.length === 0 && <Text variant="secondary">The trail is not being shipped anywhere.</Text>}
+      <ConfirmAction
+        open={askingStop}
+        onOpenChange={setAskingStop}
+        title={`Stop shipping to ${stopping?.url || "this destination"}?`}
+        confirmLabel="Stop"
+        pending={remove.isPending}
+        error={stopError}
+        onConfirm={() => stopping && remove.mutate({ path: { id: stopping.id } })}
+      >
+        Nothing more is delivered there, and its signing secret is forgotten. Shipping there again starts from a new
+        destination with a new secret.
+      </ConfirmAction>
       {canManage && (
         <form
           className="flex flex-wrap items-end gap-2"
