@@ -91,16 +91,44 @@ active workspace after re-checking membership.
 person's display name and answers with the session, in the same shape
 as `GET /api/v1/auth/session`. It needs no permission, but it takes a
 browser session: an API key, an OAuth access token or a service account
-gets `403`, and no credential gets `401`. The name is trimmed and must
-then be 1 to 120 characters with no control characters and no
-bidirectional formatting characters (U+061C, U+200E, U+200F, U+202A
-to U+202E and U+2066 to U+2069); anything else is `422` pointing at
-`body.name`. No session ends. The change is recorded as `account.update`, targeting
-the user, with the old and new name as the diff (`diff.before.name`,
-`diff.after.name`); a refused change is recorded under the same action
-with outcome `failure`. A person provisioned through SCIM can rename
-themselves, but the identity provider's next update of them sets the
-name it holds.
+gets `403`, recorded as `account.update` with outcome `denied`, and no
+credential gets `401`. A session with no workspace selected gets `409`
+("select a workspace first"). No session ends.
+
+A person an identity provider provisions through SCIM, in any of their
+workspaces, gets `409` with `errors[0].value = "scim_managed"`: the
+provider owns the name and would put its own back. The refusal is
+recorded as `account.update` with outcome `denied`.
+
+The change is recorded as `account.update`, targeting the user, with
+the old and new name as the diff (`diff.before.name`,
+`diff.after.name`). The name belongs to the person, not to a
+workspace, so the event is written to the trail of every workspace they
+belong to. A refused change is recorded once, in the selected
+workspace, with outcome `failure` or `denied`.
+
+**What a name may be.** Every name the server stores, a person's or a
+workspace's, from this call, `PATCH /api/v1/org`, registration
+(`name`, `orgName`), accepting an invite (`name`) or SCIM, follows one
+rule. The text is normalised to NFC and trimmed, and must then be 1 to
+120 characters (the request field itself is capped at 512). It may not
+contain:
+
+- control characters (Cc), line or paragraph separators (Zl, Zp),
+  private-use (Co) or unassigned (Cn) code points;
+- format characters (Cf), which include the bidirectional controls,
+  the zero-width space and the soft hyphen, except the zero-width
+  non-joiner and joiner (U+200C, U+200D) that some scripts and emoji
+  need.
+
+It must also hold at least one character that is neither white space
+nor default ignorable, so a lone zero-width character, a Hangul filler
+or a blank Braille pattern is refused. A refusal is `422` whose
+`errors[0].location` names the field (`body.name`, `body.orgName`).
+SCIM answers `400` with `scimType` `invalidValue`. A name an identity
+provider asserts at a single sign-on or SAML sign-in that breaks the
+rule is dropped rather than refused: the sign-in goes ahead and the
+account keeps the name it had.
 
 Cookie-authenticated mutations are checked against `Sec-Fetch-Site` and
 `Origin`. Requests carrying an API key are exempt, because they carry no
@@ -1213,9 +1241,9 @@ that recorded no tool id are one entry with an empty `id` when `by=tool`.
 |---|---|---|---|
 | `PATCH` | `/api/v1/org` with `{"name": "..."}` | `org:update` | `org.update` |
 
-Renames the current workspace. The name follows the same rules as a
-person's (trimmed, 1 to 120 characters, no control or bidirectional
-formatting characters; `422` at `body.name` otherwise). The slug does
+Renames the current workspace. The name follows the rule in
+[What a name may be](#a-person-the-session-cookie) (`422` at
+`body.name` otherwise). The slug does
 not change. The answer is the workspace, `{"id", "slug", "name"}`, and
 the next `GET /api/v1/auth/session` of every member shows the new name
 in `organization` and `organizations`; nothing caches it. The audit
@@ -1523,8 +1551,8 @@ nothing more; the pod's log says why.
 | 401 | No credential, or one that did not verify. |
 | 403 | Authenticated, but the permission is not held — or no workspace is selected, or the account is disabled, or registration is closed, or the session signed in too long ago for the operation (`errors[].value` is `reauth_required`; see "Recent sign-in"). |
 | 404 | No such object *in your workspace*. Objects in other workspaces are not distinguishable from objects that do not exist. |
-| 409 | A record that already exists (a role binding, a tool name, anything else held unique), removing the last owner of a workspace, or a tool write that conflicts (see "Managing tools"). |
-| 422 | The body is well formed but its content is not acceptable: a tool definition with errors, or a required field missing. |
+| 409 | A record that already exists (a role binding, a tool name, anything else held unique), removing the last owner of a workspace, a tool write that conflicts (see "Managing tools"), or renaming yourself with no workspace selected or while SCIM provisions you. |
+| 422 | The body is well formed but its content is not acceptable: a tool definition with errors, a required field missing, or a name that breaks the rule in "A person: the session cookie". |
 | 429 | Over a rate-limit budget, locked out after failed sign-ins, or the limiter could not be evaluated. |
 | 503 | The database is unreachable or the schema is behind the binary (`/readyz`), or a subsystem the endpoint needs is not configured. |
 

@@ -12,6 +12,7 @@ import (
 	crewjam "github.com/crewjam/saml"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/supermcpco/supermcp/internal/identity"
 	"github.com/supermcpco/supermcp/internal/tenant"
 )
 
@@ -198,6 +199,9 @@ func (s *Service) spend(ctx context.Context, p *Provider, c *Claims) error {
 // link finds or creates the account behind the claims and syncs the roles
 // the provider's groups map to.
 func (s *Service) link(ctx context.Context, p *Provider, c *Claims) (*Result, error) {
+	// A name the account cannot hold is dropped, not a reason to refuse
+	// the sign-in: the account keeps the name it has.
+	c.Name = identity.ProviderName(c.Name)
 	var userID *string
 	err := s.DB.Pre(ctx, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx, `SELECT auth_saml_link($1,$2,$3,$4,$5,$6,$7)`,

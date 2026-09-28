@@ -1271,7 +1271,7 @@ export const inviteLookup = <ThrowOnError extends boolean = false>(options: Opti
 /**
  * Change your own display name
  *
- * Only a browser session may call it: an API key, an OAuth access token or a service account acts for a person but is not them, and gets 403. Answers with the session, as GET /api/v1/auth/session does. No session ends.
+ * Only a browser session may call it: an API key, an OAuth access token or a service account acts for a person but is not them, and gets 403. A person an identity provider provisions through SCIM, in any workspace, gets 409: the provider owns the name. Answers with the session, as GET /api/v1/auth/session does. No session ends.
  */
 export const meUpdate = <ThrowOnError extends boolean = false>(options: Options<MeUpdateData, ThrowOnError>) => (options.client ?? client).patch<MeUpdateResponses, MeUpdateErrors, ThrowOnError>({
     security: [{

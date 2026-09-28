@@ -319,6 +319,10 @@ func (s *Service) LookupInvite(ctx context.Context, token, ip string) (*InviteLo
 // account whatever the open-registration setting, unless the address
 // already has one (ErrInviteSignInFirst).
 func (s *Service) AcceptInvite(ctx context.Context, token, ip, signedInID string, in AcceptInput) (*Accepted, error) {
+	name, err := cleanField("name", in.Name)
+	if err != nil {
+		return nil, err
+	}
 	inv, err := s.pendingInvite(ctx, token, ip)
 	if err != nil {
 		return nil, err
@@ -327,7 +331,6 @@ func (s *Service) AcceptInvite(ctx context.Context, token, ip, signedInID string
 	out := &Accepted{Org: Org{ID: inv.OrgID, Name: inv.OrgName}, InviteID: inv.ID, RoleID: inv.RoleID, RoleName: inv.RoleName}
 
 	var existing, newID, email, hash *string
-	name := strings.TrimSpace(in.Name)
 	if signedInID != "" {
 		if in.Password != "" {
 			return nil, ErrInviteSignedIn
