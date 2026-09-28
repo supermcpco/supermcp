@@ -58,6 +58,7 @@ test("a custom detector is tried, saved, added to a rule, and refuses a call tha
     ),
     page.getByRole("button", { name: "Add the detector" }).click(),
   ]);
+  await expect(page.getByRole("heading", { name: "Detector contract_id added", exact: true })).toBeVisible();
   const detector = page.getByRole("listitem").filter({ hasText: "Contract ids" }).first();
   await expect(detector.getByText("custom:contract_id", { exact: true })).toBeVisible();
   await expectAccessible(page);
@@ -75,13 +76,16 @@ test("a custom detector is tried, saved, added to a rule, and refuses a call tha
 
   // A rule picks it beside the built-ins.
   await page.getByRole("tab", { name: "Rules" }).click();
-  await page.getByLabel("What it is for").fill("Contract ids stay inside");
-  await page.getByLabel("What it does").selectOption("refuse");
-  await page.getByRole("checkbox", { name: /custom:contract_id/ }).check();
+  await page.getByRole("button", { name: "New rule" }).first().click();
+  const addRule = page.getByRole("dialog", { name: "Add a rule" });
+  await addRule.getByLabel("What it is for").fill("Contract ids stay inside");
+  await addRule.getByLabel("What it does").selectOption("refuse");
+  await addRule.getByRole("checkbox", { name: /custom:contract_id/ }).check();
   await Promise.all([
     page.waitForResponse((r) => r.url().endsWith("/api/v1/dlp/policies") && r.request().method() === "POST" && r.ok()),
-    page.getByRole("button", { name: "Add the rule" }).click(),
+    addRule.getByRole("button", { name: "Add the rule" }).click(),
   ]);
+  await expect(addRule).toHaveCount(0);
   const rule = page.getByRole("listitem").filter({ hasText: "Contract ids stay inside" }).first();
   await expect(rule.getByText(/custom:contract_id/)).toBeVisible();
   await expectAccessible(page);

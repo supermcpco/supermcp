@@ -22,6 +22,8 @@ import { useSession } from "../lib/session";
 import { Badge } from "../lib/ui";
 import { message } from "../lib/errors";
 import { HistoryPanel } from "../components/revisions";
+import { toast } from "../components/shell/toast";
+import { EmptyState, FormDialog, HeaderWithAction } from "../components/form-dialog";
 
 export const Route = createFileRoute("/_app/settings/sso")({
   component: SingleSignOn,
@@ -129,24 +131,34 @@ function SingleSignOn() {
   const [probe, setProbe] = useState<string | null>(null);
   const [history, setHistory] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
   const canRestore = can("revisions:rollback");
 
   const create = useMutation({
     ...createIdpMutation(),
-    onSuccess: async () => {
+    onSuccess: async (_, vars) => {
+      toast(`Provider ${vars.body.name || "without a name"} added`);
       setForm(blank);
       setError(null);
+      setProbe(null);
+      setAdding(false);
       await qc.invalidateQueries({ queryKey: listIdpsQueryKey() });
     },
     onError: (e) => setError(message(e)),
   });
   const remove = useMutation({
     ...deleteIdpMutation(),
-    onSuccess: () => qc.invalidateQueries({ queryKey: listIdpsQueryKey() }),
+    onSuccess: async (_, vars) => {
+      const name = idps.data?.providers?.find((p) => p.id === vars.path.id)?.name;
+      toast(name ? `Provider ${name} removed` : "Provider removed");
+      await qc.invalidateQueries({ queryKey: listIdpsQueryKey() });
+    },
+    onError: (e) => toast(message(e), { kind: "error" }),
   });
   const check = useMutation({
     ...probeIdpMutation(),
-    onSuccess: (doc) => {
+    onSuccess: (doc, vars) => {
+      toast(`Issuer ${vars.body.issuer} answered`);
       setProbe(`Found ${doc.authorizationEndpoint ?? "an authorization endpoint"}`);
       setError(null);
     },
@@ -168,6 +180,12 @@ function SingleSignOn() {
   const chosen = presets.find((p) => p.id === form.preset);
   const needsIssuer = chosen?.needsIssuer !== false && form.preset !== "github";
 
+  const addOidc = (
+    <Button variant="primary" onClick={() => setAdding(true)}>
+      New OpenID Connect provider
+    </Button>
+  );
+
   return (
     <div className="grid gap-8">
       <div className="grid gap-1.5">
@@ -180,20 +198,12 @@ function SingleSignOn() {
         </Text>
       </div>
 
-      <section className="grid gap-3">
-        <Text as="h2" variant="heading3">
-          Redirect URI
-        </Text>
-        <Text variant="secondary">Register this with your provider as the application's redirect URI.</Text>
-        <code className="overflow-x-auto rounded-md bg-kumo-tint px-2 py-1 font-mono text-[0.9em]">
-          {idps.data?.redirectUri ?? ""}
-        </code>
-      </section>
-
-      <section className="grid gap-3">
-        <Text as="h2" variant="heading3">
-          Providers
-        </Text>
+      <section className="grid gap-3" aria-labelledby="oidc-heading">
+        <HeaderWithAction action={addOidc}>
+          <Text as="h2" variant="heading3" id="oidc-heading">
+            Providers
+          </Text>
+        </HeaderWithAction>
         <ul className="grid gap-2">
           {idps.data?.providers?.map((p) => (
             <li key={p.id} className="grid gap-4 rounded-lg px-5 py-4 ring ring-kumo-line">
@@ -241,163 +251,170 @@ function SingleSignOn() {
               {history === p.id && <ProviderHistory id={p.id} name={p.name} canRestore={canRestore} />}
             </li>
           ))}
-          {idps.data?.providers?.length === 0 && (
-            <li>
-              <Text variant="secondary">No providers yet. Add one below.</Text>
-            </li>
-          )}
         </ul>
+        {idps.data?.providers?.length === 0 && <EmptyState action={addOidc}>No providers yet.</EmptyState>}
       </section>
+
+      <FormDialog
+        open={adding}
+        onOpenChange={(open) => {
+          setAdding(open);
+          setError(null);
+        }}
+        title="Add a provider"
+        description={
+          <>
+            Register <span className="font-mono">{idps.data?.redirectUri ?? ""}</span> with your provider as the
+            application&apos;s redirect URI.
+          </>
+        }
+        submitLabel="Add provider"
+        pending={create.isPending}
+        canSubmit={form.clientId !== ""}
+        error={error}
+        size="xl"
+        onSubmit={() =>
+          create.mutate({
+            body: {
+              name: form.name,
+              preset: form.preset as Preset,
+              issuer: form.issuer,
+              clientId: form.clientId,
+              clientSecret: form.clientSecret,
+              groupsClaim: form.groupsClaim,
+              jitProvisioning: form.jitProvisioning,
+              enabled: form.enabled,
+              allowedDomains: list(form.allowedDomains),
+              // GitHub issues no ID token, so it has no rule to send.
+              ...(form.preset !== "github" && { mfa: { amr: list(form.mfaAmr), acr: list(form.mfaAcr) } }),
+            },
+          })
+        }
+      >
+        <div className="flex flex-wrap gap-3">
+          <label className="grid gap-1.5">
+            <Text as="span">Provider</Text>
+            <select
+              className="rounded-md border border-kumo-line bg-kumo-base px-3 py-2"
+              value={form.preset}
+              onChange={(e) => setForm({ ...form, preset: e.target.value })}
+            >
+              {presets.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="grid flex-1 gap-1.5">
+            <Text as="span">Name</Text>
+            <Input
+              value={form.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+              placeholder="Company sign-in"
+            />
+          </label>
+        </div>
+
+        {needsIssuer && (
+          <label className="grid gap-1.5">
+            <Text as="span">Issuer URL</Text>
+            <Input
+              required
+              value={form.issuer}
+              onChange={(e) => setForm({ ...form, issuer: e.target.value })}
+              placeholder="https://login.microsoftonline.com/<tenant>/v2.0"
+            />
+            <div className="flex items-center gap-3">
+              <Button
+                type="button"
+                disabled={!form.issuer || check.isPending}
+                onClick={() => check.mutate({ body: { issuer: form.issuer } })}
+              >
+                Test this issuer
+              </Button>
+              {probe && <Text variant="secondary">{probe}</Text>}
+            </div>
+          </label>
+        )}
+
+        <div className="flex flex-wrap gap-3">
+          <label className="grid flex-1 gap-1.5">
+            <Text as="span">Client ID</Text>
+            <Input required value={form.clientId} onChange={(e) => setForm({ ...form, clientId: e.target.value })} />
+          </label>
+          <label className="grid flex-1 gap-1.5">
+            <Text as="span">Client secret</Text>
+            <Input
+              type="password"
+              value={form.clientSecret}
+              onChange={(e) => setForm({ ...form, clientSecret: e.target.value })}
+            />
+          </label>
+        </div>
+
+        <div className="flex flex-wrap gap-3">
+          <label className="grid flex-1 gap-1.5">
+            <Text as="span">Allowed email domains</Text>
+            <Input
+              value={form.allowedDomains}
+              onChange={(e) => setForm({ ...form, allowedDomains: e.target.value })}
+              placeholder="example.com, example.co.uk"
+            />
+          </label>
+          <label className="grid flex-1 gap-1.5">
+            <Text as="span">Groups claim</Text>
+            <Input
+              value={form.groupsClaim}
+              onChange={(e) => setForm({ ...form, groupsClaim: e.target.value })}
+              placeholder="groups"
+            />
+          </label>
+        </div>
+        <Text variant="secondary">
+          A group named in that claim grants whatever roles are bound to it here. Leave the domains empty to accept
+          anyone the provider admits.
+        </Text>
+
+        {form.preset !== "github" && (
+          <SecondFactorFields
+            amr={form.mfaAmr}
+            acr={form.mfaAcr}
+            onChange={(amr, acr) => setForm({ ...form, mfaAmr: amr, mfaAcr: acr })}
+          />
+        )}
+
+        <div className="flex flex-wrap items-center gap-4">
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={form.jitProvisioning}
+              onChange={(e) => setForm({ ...form, jitProvisioning: e.target.checked })}
+            />
+            <Text as="span">Create an account on first sign-in</Text>
+          </label>
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={form.enabled}
+              onChange={(e) => setForm({ ...form, enabled: e.target.checked })}
+            />
+            <Text as="span">Offer it on the sign-in page</Text>
+          </label>
+        </div>
+      </FormDialog>
+
+      <SamlSection />
 
       <section className="grid gap-3">
         <Text as="h2" variant="heading3">
-          Add a provider
+          Redirect URI
         </Text>
-        <form
-          className="grid max-w-3xl gap-3 rounded-lg px-5 py-4 ring ring-kumo-line"
-          aria-label="Add a provider"
-          onSubmit={(e) => {
-            e.preventDefault();
-            create.mutate({
-              body: {
-                name: form.name,
-                preset: form.preset as Preset,
-                issuer: form.issuer,
-                clientId: form.clientId,
-                clientSecret: form.clientSecret,
-                groupsClaim: form.groupsClaim,
-                jitProvisioning: form.jitProvisioning,
-                enabled: form.enabled,
-                allowedDomains: list(form.allowedDomains),
-                // GitHub issues no ID token, so it has no rule to send.
-                ...(form.preset !== "github" && { mfa: { amr: list(form.mfaAmr), acr: list(form.mfaAcr) } }),
-              },
-            });
-          }}
-        >
-          <div className="flex flex-wrap gap-3">
-            <label className="grid gap-1.5">
-              <Text as="span">Provider</Text>
-              <select
-                className="rounded-md border border-kumo-line bg-kumo-base px-3 py-2"
-                value={form.preset}
-                onChange={(e) => setForm({ ...form, preset: e.target.value })}
-              >
-                {presets.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="grid flex-1 gap-1.5">
-              <Text as="span">Name</Text>
-              <Input
-                value={form.name}
-                onChange={(e) => setForm({ ...form, name: e.target.value })}
-                placeholder="Company sign-in"
-              />
-            </label>
-          </div>
-
-          {needsIssuer && (
-            <label className="grid gap-1.5">
-              <Text as="span">Issuer URL</Text>
-              <Input
-                required
-                value={form.issuer}
-                onChange={(e) => setForm({ ...form, issuer: e.target.value })}
-                placeholder="https://login.microsoftonline.com/<tenant>/v2.0"
-              />
-              <div className="flex items-center gap-3">
-                <Button
-                  type="button"
-                  disabled={!form.issuer || check.isPending}
-                  onClick={() => check.mutate({ body: { issuer: form.issuer } })}
-                >
-                  Test this issuer
-                </Button>
-                {probe && <Text variant="secondary">{probe}</Text>}
-              </div>
-            </label>
-          )}
-
-          <div className="flex flex-wrap gap-3">
-            <label className="grid flex-1 gap-1.5">
-              <Text as="span">Client ID</Text>
-              <Input required value={form.clientId} onChange={(e) => setForm({ ...form, clientId: e.target.value })} />
-            </label>
-            <label className="grid flex-1 gap-1.5">
-              <Text as="span">Client secret</Text>
-              <Input
-                type="password"
-                value={form.clientSecret}
-                onChange={(e) => setForm({ ...form, clientSecret: e.target.value })}
-              />
-            </label>
-          </div>
-
-          <div className="flex flex-wrap gap-3">
-            <label className="grid flex-1 gap-1.5">
-              <Text as="span">Allowed email domains</Text>
-              <Input
-                value={form.allowedDomains}
-                onChange={(e) => setForm({ ...form, allowedDomains: e.target.value })}
-                placeholder="example.com, example.co.uk"
-              />
-            </label>
-            <label className="grid flex-1 gap-1.5">
-              <Text as="span">Groups claim</Text>
-              <Input
-                value={form.groupsClaim}
-                onChange={(e) => setForm({ ...form, groupsClaim: e.target.value })}
-                placeholder="groups"
-              />
-            </label>
-          </div>
-          <Text variant="secondary">
-            A group named in that claim grants whatever roles are bound to it here. Leave the domains empty to accept
-            anyone the provider admits.
-          </Text>
-
-          {form.preset !== "github" && (
-            <SecondFactorFields
-              amr={form.mfaAmr}
-              acr={form.mfaAcr}
-              onChange={(amr, acr) => setForm({ ...form, mfaAmr: amr, mfaAcr: acr })}
-            />
-          )}
-
-          <div className="flex flex-wrap items-center gap-4">
-            <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={form.jitProvisioning}
-                onChange={(e) => setForm({ ...form, jitProvisioning: e.target.checked })}
-              />
-              <Text as="span">Create an account on first sign-in</Text>
-            </label>
-            <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={form.enabled}
-                onChange={(e) => setForm({ ...form, enabled: e.target.checked })}
-              />
-              <Text as="span">Offer it on the sign-in page</Text>
-            </label>
-            <Button type="submit" variant="primary" disabled={create.isPending || !form.clientId}>
-              Add provider
-            </Button>
-          </div>
-        </form>
-        {error && (
-          <div role="alert">
-            <Text>{error}</Text>
-          </div>
-        )}
+        <Text variant="secondary">Register this with your provider as the application's redirect URI.</Text>
+        <code className="overflow-x-auto rounded-md bg-kumo-tint px-2 py-1 font-mono text-[0.9em]">
+          {idps.data?.redirectUri ?? ""}
+        </code>
       </section>
-
-      <SamlSection />
 
       <section className="grid gap-3">
         <Text as="h2" variant="heading3">
@@ -471,6 +488,7 @@ function SecondFactorEditor({ provider: p, onDone }: { provider: IdpDto; onDone:
   const save = useMutation({
     ...updateIdpMfaMutation(),
     onSuccess: async () => {
+      toast(`Second-factor rule of ${p.name} saved`);
       await qc.invalidateQueries({ queryKey: listIdpsQueryKey() });
       onDone();
     },
@@ -522,25 +540,33 @@ function SamlSection() {
   const [form, setForm] = useState(blankSaml);
   const [error, setError] = useState<string | null>(null);
   const [found, setFound] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
 
   const create = useMutation({
     mutationFn: createSaml,
-    onSuccess: async () => {
+    onSuccess: async (created) => {
+      toast(`SAML provider ${created.name} added`);
       setForm(blankSaml);
       setError(null);
       setFound(null);
+      setAdding(false);
       await qc.invalidateQueries({ queryKey: samlQueryKey });
     },
     onError: (e) => setError(message(e)),
   });
   const remove = useMutation({
     mutationFn: deleteSaml,
-    onSuccess: () => qc.invalidateQueries({ queryKey: samlQueryKey }),
-    onError: (e) => setError(message(e)),
+    onSuccess: async (_, id) => {
+      const name = providers.data?.providers?.find((p) => p.id === id)?.name;
+      toast(name ? `SAML provider ${name} removed` : "SAML provider removed");
+      await qc.invalidateQueries({ queryKey: samlQueryKey });
+    },
+    onError: (e) => toast(message(e), { kind: "error" }),
   });
   const check = useMutation({
     mutationFn: probeSaml,
     onSuccess: (doc) => {
+      toast(`Metadata for ${doc.idpEntityId} read`);
       setFound(`Found ${doc.idpEntityId} with ${doc.certificates} signing certificate(s).`);
       setError(null);
     },
@@ -551,17 +577,24 @@ function SamlSection() {
   });
 
   const described = form.metadataUrl.trim() !== "" || form.metadataXml.trim() !== "";
+  const addSaml = (
+    <Button variant="primary" onClick={() => setAdding(true)}>
+      New SAML provider
+    </Button>
+  );
 
   return (
-    <section className="grid gap-3">
-      <Text as="h2" variant="heading3">
-        SAML 2.0
-      </Text>
-      <Text variant="secondary">
-        For providers that speak SAML rather than OpenID Connect. Add the provider below, then give your identity
-        provider the three addresses it shows you. Each provider gets its own signing key, so one workspace's
-        federation cannot be used to sign in to another.
-      </Text>
+    <section className="grid gap-3" aria-labelledby="saml-heading">
+      <HeaderWithAction action={addSaml}>
+        <Text as="h2" variant="heading3" id="saml-heading">
+          SAML 2.0
+        </Text>
+        <Text variant="secondary">
+          For providers that speak SAML rather than OpenID Connect. Add the provider, then give your identity provider
+          the three addresses it shows you. Each provider gets its own signing key, so one workspace's federation
+          cannot be used to sign in to another.
+        </Text>
+      </HeaderWithAction>
 
       <ul className="grid gap-2">
         {providers.data?.providers?.map((p) => (
@@ -624,17 +657,22 @@ function SamlSection() {
             </details>
           </li>
         ))}
-        {providers.data?.providers?.length === 0 && (
-          <li>
-            <Text variant="secondary">No SAML providers yet. Add one below.</Text>
-          </li>
-        )}
       </ul>
+      {providers.data?.providers?.length === 0 && <EmptyState action={addSaml}>No SAML providers yet.</EmptyState>}
 
-      <form
-        className="grid max-w-3xl gap-3 rounded-lg px-5 py-4 ring ring-kumo-line"
-        onSubmit={(e) => {
-          e.preventDefault();
+      <FormDialog
+        open={adding}
+        onOpenChange={(open) => {
+          setAdding(open);
+          setError(null);
+        }}
+        title="Add a SAML provider"
+        submitLabel="Add SAML provider"
+        pending={create.isPending}
+        canSubmit={described}
+        error={error}
+        size="xl"
+        onSubmit={() =>
           create.mutate({
             name: form.name,
             metadataUrl: form.metadataUrl.trim() || undefined,
@@ -647,8 +685,8 @@ function SamlSection() {
               .split(",")
               .map((d) => d.trim())
               .filter(Boolean),
-          });
-        }}
+          })
+        }
       >
         <label className="grid gap-1.5">
           <Text as="span">Name</Text>
@@ -741,16 +779,8 @@ function SamlSection() {
             />
             <Text as="span">Offer it on the sign-in page</Text>
           </label>
-          <Button type="submit" variant="primary" disabled={create.isPending || !described}>
-            Add SAML provider
-          </Button>
         </div>
-      </form>
-      {error && (
-        <div role="alert">
-          <Text>{error}</Text>
-        </div>
-      )}
+      </FormDialog>
     </section>
   );
 }
@@ -765,7 +795,8 @@ function ProviderHistory({ id, name, canRestore }: { id: string; name: string; c
   const revisions = useQuery({ ...idpsRevisionsListOptions(key), retry: false });
   const restore = useMutation({
     ...idpsRevisionsRestoreMutation(),
-    onSuccess: async () => {
+    onSuccess: async (_, vars) => {
+      toast(`${name} restored to version ${vars.path.revision}`);
       await qc.invalidateQueries({ queryKey: idpsRevisionsListQueryKey(key) });
       await qc.invalidateQueries({ queryKey: listIdpsQueryKey() });
     },
@@ -796,7 +827,8 @@ function SamlHistory({ id, name, canRestore }: { id: string; name: string; canRe
   const revisions = useQuery({ ...samlProvidersRevisionsListOptions(key), retry: false });
   const restore = useMutation({
     ...samlProvidersRevisionsRestoreMutation(),
-    onSuccess: async () => {
+    onSuccess: async (_, vars) => {
+      toast(`${name} restored to version ${vars.path.revision}`);
       await qc.invalidateQueries({ queryKey: samlProvidersRevisionsListQueryKey(key) });
       await qc.invalidateQueries({ queryKey: samlQueryKey });
     },

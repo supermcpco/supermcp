@@ -22,6 +22,8 @@ import { useSession } from "../lib/session";
 import { Badge, Loading } from "../lib/ui";
 import { message } from "../lib/errors";
 import { HistoryPanel } from "../components/revisions";
+import { toast } from "../components/shell/toast";
+import { EmptyState, FormDialog, HeaderWithAction } from "../components/form-dialog";
 
 export const Route = createFileRoute("/_app/approvals")({
   component: Approvals,
@@ -56,10 +58,27 @@ function Approvals() {
   };
   const onError = (e: unknown) => setError(message(e));
 
-  const approve = useMutation({ ...approvalsApproveMutation(), onSuccess: refresh, onError });
-  const reject = useMutation({ ...approvalsRejectMutation(), onSuccess: refresh, onError });
-
   const pending = waiting.data?.approvals ?? [];
+  const toolOf = (id: string) => pending.find((r) => r.id === id)?.toolName ?? "the tool";
+  const approve = useMutation({
+    ...approvalsApproveMutation(),
+    onSuccess: async (_, vars) => {
+      toast(`Call to ${toolOf(vars.path.id)} approved`);
+      setError(null);
+      await refresh();
+    },
+    onError,
+  });
+  const reject = useMutation({
+    ...approvalsRejectMutation(),
+    onSuccess: async (_, vars) => {
+      toast(`Call to ${toolOf(vars.path.id)} refused`);
+      setError(null);
+      await refresh();
+    },
+    onError,
+  });
+
   const history = (recent.data?.approvals ?? []).filter((r) => r.state !== "pending");
 
   return (
@@ -164,28 +183,43 @@ function Rules() {
   const [trigger, setTrigger] = useState<"destructive" | "tool">("destructive");
   const [toolName, setToolName] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
 
   const refresh = () => qc.invalidateQueries({ queryKey: approvalPoliciesListQueryKey() });
-  const onError = (e: unknown) => setError(message(e));
   const add = useMutation({
     ...approvalPoliciesCreateMutation(),
-    onSuccess: async () => {
+    onSuccess: async (_, vars) => {
+      toast(`Rule ${vars.body.name} added`);
       setName("");
       setToolName("");
       setError(null);
+      setAdding(false);
       await refresh();
     },
-    onError,
+    onError: (e) => setError(message(e)),
   });
-  const remove = useMutation({ ...approvalPoliciesDeleteMutation(), onSuccess: refresh, onError });
+  const remove = useMutation({
+    ...approvalPoliciesDeleteMutation(),
+    onSuccess: async (_, vars) => {
+      const gone = rules.data?.policies?.find((r) => r.id === vars.path.id)?.name;
+      toast(gone ? `Rule ${gone} deleted` : "Rule deleted");
+      await refresh();
+    },
+    onError: (e) => toast(message(e), { kind: "error" }),
+  });
 
   const list = rules.data?.policies ?? [];
   const names = new Map((connectors.data ?? []).map((c) => [c.id, c.name]));
+  const addRule = canManage ? (
+    <Button variant="primary" onClick={() => setAdding(true)}>
+      New rule
+    </Button>
+  ) : null;
 
   return (
-    <section className="grid gap-3">
-      <div className="grid gap-1.5">
-        <Text as="h2" variant="heading3">
+    <section className="grid gap-3" aria-labelledby="held-heading">
+      <HeaderWithAction action={addRule}>
+        <Text as="h2" variant="heading3" id="held-heading">
           What gets held
         </Text>
         <Text>
@@ -193,12 +227,7 @@ function Rules() {
           straight away with the identifier of the request it raised, and runs when somebody approves it and the caller
           asks again with that identifier.
         </Text>
-      </div>
-      {error && (
-        <div role="alert">
-          <Text>{error}</Text>
-        </div>
-      )}
+      </HeaderWithAction>
       <ul className="grid gap-2">
         {list.map((r) => (
           <li key={r.id} className="grid gap-4 rounded-lg px-5 py-4 ring ring-kumo-line">
@@ -243,12 +272,20 @@ function Rules() {
           </li>
         ))}
       </ul>
-      {list.length === 0 && <Text variant="secondary">No rules, so no call is ever held.</Text>}
+      {list.length === 0 && <EmptyState action={addRule}>No rules, so no call is ever held.</EmptyState>}
       {canManage && (
-        <form
-          className="grid max-w-3xl gap-3"
-          onSubmit={(e) => {
-            e.preventDefault();
+        <FormDialog
+          open={adding}
+          onOpenChange={(open) => {
+            setAdding(open);
+            setError(null);
+          }}
+          title="Add a rule"
+          submitLabel="Add the rule"
+          pending={add.isPending}
+          canSubmit={name.trim() !== "" && !(trigger === "tool" && toolName.trim() === "")}
+          error={error}
+          onSubmit={() =>
             add.mutate({
               body: {
                 name,
@@ -260,49 +297,42 @@ function Rules() {
                 ttlSeconds: 3600,
                 enabled: true,
               },
-            });
-          }}
+            })
+          }
         >
           <label className="grid gap-1">
             <Text as="span">What it is for</Text>
             <Input value={name} onChange={(e) => setName(e.currentTarget.value)} required maxLength={200} />
           </label>
-          <div className="flex flex-wrap gap-3">
+          <label className="grid gap-1">
+            <Text as="span">Where it applies</Text>
+            <select className={selectClass} value={scopeId} onChange={(e) => setScopeId(e.currentTarget.value)}>
+              <option value="">Every connector</option>
+              {(connectors.data ?? []).map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="grid gap-1">
+            <Text as="span">Which calls</Text>
+            <select
+              className={selectClass}
+              value={trigger}
+              onChange={(e) => setTrigger(e.currentTarget.value as typeof trigger)}
+            >
+              <option value="destructive">Anything that changes something</option>
+              <option value="tool">One tool, by name</option>
+            </select>
+          </label>
+          {trigger === "tool" && (
             <label className="grid gap-1">
-              <Text as="span">Where it applies</Text>
-              <select className={selectClass} value={scopeId} onChange={(e) => setScopeId(e.currentTarget.value)}>
-                <option value="">Every connector</option>
-                {(connectors.data ?? []).map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
+              <Text as="span">Tool name</Text>
+              <Input value={toolName} onChange={(e) => setToolName(e.currentTarget.value)} required />
             </label>
-            <label className="grid gap-1">
-              <Text as="span">Which calls</Text>
-              <select
-                className={selectClass}
-                value={trigger}
-                onChange={(e) => setTrigger(e.currentTarget.value as typeof trigger)}
-              >
-                <option value="destructive">Anything that changes something</option>
-                <option value="tool">One tool, by name</option>
-              </select>
-            </label>
-            {trigger === "tool" && (
-              <label className="grid gap-1">
-                <Text as="span">Tool name</Text>
-                <Input value={toolName} onChange={(e) => setToolName(e.currentTarget.value)} required />
-              </label>
-            )}
-          </div>
-          <div>
-            <Button type="submit" disabled={add.isPending || name.trim() === "" || (trigger === "tool" && toolName.trim() === "")}>
-              Add the rule
-            </Button>
-          </div>
-        </form>
+          )}
+        </FormDialog>
       )}
     </section>
   );
@@ -411,7 +441,8 @@ function RuleHistory({
   const revisions = useQuery({ ...approvalPoliciesRevisionsListOptions(key), retry: false });
   const restore = useMutation({
     ...approvalPoliciesRevisionsRestoreMutation(),
-    onSuccess: async () => {
+    onSuccess: async (_, vars) => {
+      toast(`Rule ${rule.name} restored to version ${vars.path.revision}`);
       await qc.invalidateQueries({ queryKey: approvalPoliciesRevisionsListQueryKey(key) });
       await onRestored();
     },

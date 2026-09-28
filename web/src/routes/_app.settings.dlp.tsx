@@ -20,6 +20,8 @@ import { Badge, Loading } from "../lib/ui";
 import { message } from "../lib/errors";
 import { HistoryPanel } from "../components/revisions";
 import { DetectorsPanel } from "../components/dlp-detectors";
+import { toast } from "../components/shell/toast";
+import { EmptyState, FormDialog, HeaderWithAction } from "../components/form-dialog";
 
 type Tab = "rules" | "detectors";
 
@@ -109,20 +111,30 @@ function RulesTab() {
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
   const [history, setHistory] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
 
   const refresh = () => qc.invalidateQueries({ queryKey: dlpPoliciesListQueryKey() });
-  const onError = (e: unknown) => setError(message(e));
   const create = useMutation({
     ...dlpPolicyCreateMutation(),
-    onSuccess: async () => {
+    onSuccess: async (_, vars) => {
+      toast(`Rule ${vars.body.name} added`);
       setName("");
       setChosen([]);
       setError(null);
+      setAdding(false);
       await refresh();
     },
-    onError,
+    onError: (e) => setError(message(e)),
   });
-  const remove = useMutation({ ...dlpPolicyDeleteMutation(), onSuccess: refresh, onError });
+  const remove = useMutation({
+    ...dlpPolicyDeleteMutation(),
+    onSuccess: async (_, vars) => {
+      const gone = policies.data?.policies?.find((p) => p.id === vars.path.id)?.name;
+      toast(gone ? `Rule ${gone} deleted` : "Rule deleted");
+      await refresh();
+    },
+    onError: (e) => toast(message(e), { kind: "error" }),
+  });
 
   const list = policies.data?.policies ?? [];
   const builtins = detectors.data?.detectors ?? [];
@@ -131,22 +143,23 @@ function RulesTab() {
   // A scope holds one rule, so the form can say which rule is in the way
   // before anybody presses the button.
   const occupying = list.find((p) => (p.connectorId ?? "") === connectorId);
+  const addRule = canManage ? (
+    <Button variant="primary" onClick={() => setAdding(true)}>
+      New rule
+    </Button>
+  ) : null;
 
   return (
     <>
-      {error && (
-        <div role="alert">
-          <Text>{error}</Text>
-        </div>
-      )}
-
-      <section className="grid gap-2">
-        <Text as="h2" variant="heading3">
-          Rules
-        </Text>
+      <section className="grid gap-2" aria-labelledby="dlp-rules-heading">
+        <HeaderWithAction action={addRule}>
+          <Text as="h2" variant="heading3" id="dlp-rules-heading">
+            Rules
+          </Text>
+        </HeaderWithAction>
         {policies.isPending && <Loading />}
         {!policies.isPending && list.length === 0 && (
-          <Text variant="secondary">No rules yet, so nothing is inspected and nothing is masked.</Text>
+          <EmptyState action={addRule}>No rules yet, so nothing is inspected and nothing is masked.</EmptyState>
         )}
         <ul className="grid gap-2">
           {list.map((p) => (
@@ -212,68 +225,65 @@ function RulesTab() {
       </section>
 
       {canManage && (
-        <section className="grid gap-3">
-          <Text as="h2" variant="heading3">
-            Add a rule
-          </Text>
-          <form
-            className="grid max-w-3xl gap-3"
-            onSubmit={(e) => {
-              e.preventDefault();
-              create.mutate({
-                body: { name, connectorId: connectorId || undefined, scan, action, detectors: chosen, enabled: true },
-              });
-            }}
-          >
+        <FormDialog
+          open={adding}
+          onOpenChange={(open) => {
+            setAdding(open);
+            setError(null);
+          }}
+          title="Add a rule"
+          submitLabel="Add the rule"
+          pending={create.isPending}
+          canSubmit={name.trim() !== "" && occupying === undefined}
+          error={error}
+          size="xl"
+          onSubmit={() =>
+            create.mutate({
+              body: { name, connectorId: connectorId || undefined, scan, action, detectors: chosen, enabled: true },
+            })
+          }
+        >
+          <label className="grid gap-1">
+            <Text as="span">What it is for</Text>
+            <Input value={name} onChange={(e) => setName(e.currentTarget.value)} required maxLength={120} />
+          </label>
+          <label className="grid gap-1">
+            <Text as="span">Where it applies</Text>
+            <select className={selectClass} value={connectorId} onChange={(e) => setConnectorId(e.currentTarget.value)}>
+              <option value="">Every connector</option>
+              {(connectors.data ?? []).map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="flex flex-wrap gap-3">
             <label className="grid gap-1">
-              <Text as="span">What it is for</Text>
-              <Input value={name} onChange={(e) => setName(e.currentTarget.value)} required maxLength={120} />
-            </label>
-            <label className="grid gap-1">
-              <Text as="span">Where it applies</Text>
-              <select className={selectClass} value={connectorId} onChange={(e) => setConnectorId(e.currentTarget.value)}>
-                <option value="">Every connector</option>
-                {(connectors.data ?? []).map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
+              <Text as="span">What it reads</Text>
+              <select className={selectClass} value={scan} onChange={(e) => setScan(e.currentTarget.value as typeof scan)}>
+                <option value="both">Arguments and result</option>
+                <option value="arguments">Arguments only</option>
+                <option value="result">Result only</option>
               </select>
             </label>
-            <div className="flex flex-wrap gap-3">
-              <label className="grid gap-1">
-                <Text as="span">What it reads</Text>
-                <select className={selectClass} value={scan} onChange={(e) => setScan(e.currentTarget.value as typeof scan)}>
-                  <option value="both">Arguments and result</option>
-                  <option value="arguments">Arguments only</option>
-                  <option value="result">Result only</option>
-                </select>
-              </label>
-              <label className="grid gap-1">
-                <Text as="span">What it does</Text>
-                <select className={selectClass} value={action} onChange={(e) => setAction(e.currentTarget.value as typeof action)}>
-                  <option value="mask">Mask what it finds</option>
-                  <option value="refuse">Refuse the call</option>
-                  <option value="allow">Record only</option>
-                </select>
-              </label>
-            </div>
-            <DetectorChoices builtins={builtins} custom={custom} chosen={chosen} onChange={setChosen} />
-            <div className="grid gap-2">
-              {occupying && (
-                <Text variant="secondary">
-                  {connectorId ? names.get(connectorId) ?? connectorId : "Every connector"} already has the rule
-                  “{occupying.name}”. A scope holds one rule: delete that one, or choose a connector that has none.
-                </Text>
-              )}
-              <div>
-                <Button type="submit" disabled={create.isPending || name.trim() === "" || occupying !== undefined}>
-                  Add the rule
-                </Button>
-              </div>
-            </div>
-          </form>
-        </section>
+            <label className="grid gap-1">
+              <Text as="span">What it does</Text>
+              <select className={selectClass} value={action} onChange={(e) => setAction(e.currentTarget.value as typeof action)}>
+                <option value="mask">Mask what it finds</option>
+                <option value="refuse">Refuse the call</option>
+                <option value="allow">Record only</option>
+              </select>
+            </label>
+          </div>
+          <DetectorChoices builtins={builtins} custom={custom} chosen={chosen} onChange={setChosen} />
+          {occupying && (
+            <Text variant="secondary">
+              {connectorId ? names.get(connectorId) ?? connectorId : "Every connector"} already has the rule
+              “{occupying.name}”. A scope holds one rule: delete that one, or choose a connector that has none.
+            </Text>
+          )}
+        </FormDialog>
       )}
     </>
   );
@@ -360,7 +370,13 @@ function RuleEditor({
   const [scan, setScan] = useState(policy.scan);
   const [action, setAction] = useState(policy.action);
   const [enabled, setEnabled] = useState(policy.enabled);
-  const save = useMutation({ ...dlpPolicyUpdateMutation(), onSuccess: onDone });
+  const save = useMutation({
+    ...dlpPolicyUpdateMutation(),
+    onSuccess: async (_, vars) => {
+      toast(`Rule ${vars.body.name} saved`);
+      await onDone();
+    },
+  });
 
   return (
     <form
@@ -446,7 +462,8 @@ function RuleHistory({
   const revisions = useQuery({ ...dlpPoliciesRevisionsListOptions(key), retry: false });
   const restore = useMutation({
     ...dlpPoliciesRevisionsRestoreMutation(),
-    onSuccess: async () => {
+    onSuccess: async (_, vars) => {
+      toast(`Rule ${policy.name} restored to version ${vars.path.revision}`);
       await qc.invalidateQueries({ queryKey: dlpPoliciesRevisionsListQueryKey(key) });
       await onRestored();
     },
