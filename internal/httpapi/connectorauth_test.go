@@ -195,20 +195,40 @@ func TestConnectorAuthCallbackRedirect(t *testing.T) {
 	}
 }
 
-// statementLog records the SQL of every statement a pool runs.
+// statementLog records the SQL of every statement a pool runs, whether
+// sent on its own or in a batch.
 type statementLog struct {
 	mu   sync.Mutex
 	sqls []string
 }
 
-func (l *statementLog) TraceQueryStart(ctx context.Context, _ *pgx.Conn, d pgx.TraceQueryStartData) context.Context {
+var (
+	_ pgx.QueryTracer = (*statementLog)(nil)
+	_ pgx.BatchTracer = (*statementLog)(nil)
+)
+
+func (l *statementLog) add(sql string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.sqls = append(l.sqls, d.SQL)
+	l.sqls = append(l.sqls, sql)
+}
+
+func (l *statementLog) TraceQueryStart(ctx context.Context, _ *pgx.Conn, d pgx.TraceQueryStartData) context.Context {
+	l.add(d.SQL)
 	return ctx
 }
 
 func (l *statementLog) TraceQueryEnd(context.Context, *pgx.Conn, pgx.TraceQueryEndData) {}
+
+func (l *statementLog) TraceBatchStart(ctx context.Context, _ *pgx.Conn, _ pgx.TraceBatchStartData) context.Context {
+	return ctx
+}
+
+func (l *statementLog) TraceBatchQuery(_ context.Context, _ *pgx.Conn, d pgx.TraceBatchQueryData) {
+	l.add(d.SQL)
+}
+
+func (l *statementLog) TraceBatchEnd(context.Context, *pgx.Conn, pgx.TraceBatchEndData) {}
 
 func (l *statementLog) reset() []string {
 	l.mu.Lock()
@@ -270,6 +290,7 @@ INSERT INTO connector_tokens (connector_id, organization_id, token_enc, expires_
 		t.Fatal(err)
 	}
 	cfg.ConnConfig.Tracer = log2
+	cfg.MaxConns = 1
 	cfg.AfterConnect = func(ctx context.Context, c *pgx.Conn) error {
 		_, err := c.Exec(ctx, "SET ROLE supermcp_app")
 		return err
@@ -279,6 +300,13 @@ INSERT INTO connector_tokens (connector_id, organization_id, token_enc, expires_
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
+	// One connection, opened (and its SET ROLE sent) before anything is
+	// counted, so every request below reuses it.
+	c, err := pool.Acquire(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.Release()
 	counted := &tenant.DB{App: pool, Log: log}
 
 	_, api := humatest.New(t)
@@ -299,13 +327,15 @@ INSERT INTO connector_tokens (connector_id, organization_id, token_enc, expires_
 		for _, c := range out {
 			got[c.ID] = c.OAuthAuthorized
 		}
-		var reads []string
+		// Everything the request sent but the tenant's set_config, which
+		// every transaction starts with.
+		var sent []string
 		for _, sql := range log2.reset() {
-			if strings.Contains(sql, "connectors") || strings.Contains(sql, "connector_tokens") {
-				reads = append(reads, sql)
+			if !strings.Contains(sql, "app.current_org") {
+				sent = append(sent, sql)
 			}
 		}
-		return got, reads
+		return got, sent
 	}
 
 	got, reads := list(t)
@@ -313,9 +343,7 @@ INSERT INTO connector_tokens (connector_id, organization_id, token_enc, expires_
 	if fmt.Sprint(got) != fmt.Sprint(want) {
 		t.Errorf("three connectors: got %v, want %v", got, want)
 	}
-	if len(reads) != 1 {
-		t.Errorf("three connectors took %d statements: %q", len(reads), reads)
-	}
+	wantSent(t, "three connectors", reads)
 
 	exec(`
 INSERT INTO connectors (id, organization_id, name, transport, auth) VALUES
@@ -329,7 +357,15 @@ INSERT INTO connector_tokens (connector_id, organization_id, token_enc, expires_
 	if fmt.Sprint(got) != fmt.Sprint(want) {
 		t.Errorf("six connectors: got %v, want %v", got, want)
 	}
-	if len(reads) != 1 {
-		t.Errorf("six connectors took %d statements: %q", len(reads), reads)
+	wantSent(t, "six connectors", reads)
+}
+
+// wantSent checks that listing connectors sent one transaction holding
+// one statement: the connectors with their tool counts and token rows.
+func wantSent(t *testing.T, what string, sent []string) {
+	t.Helper()
+	if len(sent) != 3 || !strings.EqualFold(sent[0], "begin") || !strings.Contains(sent[1], "FROM connectors") ||
+		!strings.Contains(sent[1], "connector_tokens") || !strings.EqualFold(sent[2], "commit") {
+		t.Errorf("%s sent %d statements, want begin, one select, commit: %q", what, len(sent), sent)
 	}
 }

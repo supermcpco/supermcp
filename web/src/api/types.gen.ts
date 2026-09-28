@@ -1101,15 +1101,15 @@ export type InvocationDto = {
     error?: string;
     id: string;
     /**
-     * The user, key or service account; absent for anonymous
+     * The user id for user and for api_key (the user who owns the key), the service account id for service_account. Absent for anonymous, and when the caller lacks org:read
      */
     principalId?: string;
     /**
-     * Who made the call: user, api_key, service_account or anonymous
+     * How the caller signed in: user, api_key, service_account or anonymous
      */
     principalKind: string;
     /**
-     * The MCP server the call came through; absent for a call through none
+     * The MCP server the call came through; absent for a call through none, and when the caller lacks servers:read
      */
     serverId?: string;
     status: 'success' | 'error' | 'timeout' | 'denied';
@@ -7492,7 +7492,7 @@ export type InvocationsListData = {
          */
         connectorId?: string;
         /**
-         * Only calls made through this MCP server
+         * Only calls made through this MCP server. Needs servers:read
          */
         serverId?: string;
         /**

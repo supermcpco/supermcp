@@ -3,6 +3,8 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -12,8 +14,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/humatest"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/supermcpco/supermcp/internal/authz"
 	"github.com/supermcpco/supermcp/internal/hardening"
@@ -111,16 +115,75 @@ func TestToolCallWindow(t *testing.T) {
 	}
 }
 
-// TestToolCallsSummaryBudget: the summary aggregates up to 90 days of
-// calls, so it draws on the analytics budget; the list does not.
-func TestToolCallsSummaryBudget(t *testing.T) {
+// TestToolCallsBudget: the summary aggregates up to 90 days of calls and
+// a filtered list can walk as many, so both draw on the analytics budget;
+// the unfiltered list does not.
+func TestToolCallsBudget(t *testing.T) {
 	t.Parallel()
 	d := Deps{Budgets: hardening.DefaultBudgets()}
-	if got := d.budgetFor("/api/v1/tool-calls/summary").Name; got != "analytics" {
-		t.Errorf("the summary draws on the %q budget", got)
+	tests := []struct {
+		url  string
+		want string
+	}{
+		{"/api/v1/tool-calls/summary", "analytics"},
+		{"/api/v1/tool-calls/summary?since=2026-01-01T00:00:00Z", "analytics"},
+		{"/api/v1/tool-calls", "api"},
+		{"/api/v1/tool-calls?limit=500", "api"},
+		{"/api/v1/tool-calls?q=", "api"},
+		{"/api/v1/tool-calls?q=search", "analytics"},
+		{"/api/v1/tool-calls?status=error", "analytics"},
+		{"/api/v1/tool-calls?since=2026-01-01T00:00:00Z", "analytics"},
+		{"/api/v1/tool-calls?until=2026-01-01T00:00:00Z", "analytics"},
+		{"/api/v1/tool-calls?connectorId=c", "analytics"},
+		{"/api/v1/tool-calls?limit=5&serverId=s", "analytics"},
 	}
-	if got := d.budgetFor("/api/v1/tool-calls").Name; got == "analytics" {
-		t.Error("the list draws on the analytics budget")
+	api := d.budgetFor("/api/v1/tool-calls").Name
+	for _, tt := range tests {
+		u, err := url.Parse(tt.url)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := tt.want
+		if want == "api" {
+			want = api
+		}
+		if got := d.budgetForURL(u).Name; got != want {
+			t.Errorf("%s draws on the %q budget, want %q", tt.url, got, want)
+		}
+	}
+}
+
+// TestToolCallsErr: our own time limit is a 503; the caller going away,
+// which cancels the query the same way, is not.
+func TestToolCallsErr(t *testing.T) {
+	t.Parallel()
+	live := context.Background()
+	gone, cancel := context.WithCancel(context.Background())
+	cancel()
+	canceled := fmt.Errorf("list tool calls: %w", &pgconn.PgError{Code: pgQueryCanceled})
+	other := errors.New("boom")
+	tests := []struct {
+		name    string
+		ctx     context.Context
+		err     error
+		want503 bool
+	}{
+		{"statement timeout", live, canceled, true},
+		{"our deadline", live, fmt.Errorf("x: %w", context.DeadlineExceeded), true},
+		{"the caller went away", gone, canceled, false},
+		{"the caller went away during our deadline", gone, context.DeadlineExceeded, false},
+		{"anything else", live, other, false},
+	}
+	for _, tt := range tests {
+		got := toolCallsErr(tt.ctx, tt.err)
+		var se huma.StatusError
+		is503 := errors.As(got, &se) && se.GetStatus() == http.StatusServiceUnavailable
+		if is503 != tt.want503 {
+			t.Errorf("%s: got %v, want 503 = %v", tt.name, got, tt.want503)
+		}
+		if !tt.want503 && !errors.Is(got, tt.err) {
+			t.Errorf("%s: %v is not the error it was given", tt.name, got)
+		}
 	}
 }
 
@@ -129,11 +192,22 @@ func TestToolCallsSummaryBudget(t *testing.T) {
 // forgot the organisation would show it to A.
 const toolCallsSeed = `
 INSERT INTO users (id, email, name) VALUES
-    ('tc_u_a','a@toolcalls.test','A'), ('tc_u_b','b@toolcalls.test','B'), ('tc_u_none','none@toolcalls.test','N');
+    ('tc_u_a','a@toolcalls.test','A'), ('tc_u_b','b@toolcalls.test','B'), ('tc_u_none','none@toolcalls.test','N'),
+    ('tc_u_conn','conn@toolcalls.test','C'), ('tc_u_noorg','noorg@toolcalls.test','O'), ('tc_u_noserv','noserv@toolcalls.test','S');
 INSERT INTO organizations (id, slug, name) VALUES ('tc_a','tc-a','A'), ('tc_b','tc-b','B');
-INSERT INTO organization_members (user_id, organization_id) VALUES ('tc_u_a','tc_a'), ('tc_u_b','tc_b'), ('tc_u_none','tc_a');
+INSERT INTO organization_members (user_id, organization_id) VALUES ('tc_u_a','tc_a'), ('tc_u_b','tc_b'), ('tc_u_none','tc_a'),
+    ('tc_u_conn','tc_a'), ('tc_u_noorg','tc_a'), ('tc_u_noserv','tc_a');
 INSERT INTO role_bindings (id, organization_id, principal_kind, principal_id, role_id)
     VALUES ('tc_rb_a','tc_a','user','tc_u_a','role_viewer'), ('tc_rb_b','tc_b','user','tc_u_b','role_viewer');
+-- Roles that may read the calls but lack servers:read, org:read or both.
+INSERT INTO roles (id, organization_id, name, permissions) VALUES
+    ('tc_r_conn','tc_a','calls only','{connectors:read}'),
+    ('tc_r_noorg','tc_a','calls and servers','{connectors:read,servers:read}'),
+    ('tc_r_noserv','tc_a','calls and org','{connectors:read,org:read}');
+INSERT INTO role_bindings (id, organization_id, principal_kind, principal_id, role_id) VALUES
+    ('tc_rb_conn','tc_a','user','tc_u_conn','tc_r_conn'),
+    ('tc_rb_noorg','tc_a','user','tc_u_noorg','tc_r_noorg'),
+    ('tc_rb_noserv','tc_a','user','tc_u_noserv','tc_r_noserv');
 INSERT INTO tool_invocations (id, organization_id, server_id, connector_id, tool_id, tool_name, principal_kind, principal_id, auth_method, status, duration_ms, input, output, error, created_at) VALUES
     ('tc_i01','tc_a','tc_m1','tc_c1','tc_t1','Search_Issues','user','tc_u_a','session','success', 10, '{"q":"secret"}', '{"r":"secret"}', NULL, '2026-01-10T01:00:00Z'),
     ('tc_i02','tc_a','tc_m1','tc_c1','tc_t1','search_issues','user','tc_u_a','session','error',   20, NULL, NULL, 'boom', '2026-01-10T01:30:00Z'),
@@ -150,7 +224,7 @@ INSERT INTO tool_invocations (id, organization_id, server_id, connector_id, tool
 const toolCallsCleanup = `
 DELETE FROM tool_invocations WHERE organization_id IN ('tc_a','tc_b');
 DELETE FROM organizations WHERE id IN ('tc_a','tc_b');
-DELETE FROM users WHERE id IN ('tc_u_a','tc_u_b','tc_u_none');
+DELETE FROM users WHERE id IN ('tc_u_a','tc_u_b','tc_u_none','tc_u_conn','tc_u_noorg','tc_u_noserv');
 `
 
 // TestToolCallsAgainstPostgres checks each filter of the tool-call list
@@ -183,7 +257,8 @@ func TestToolCallsAgainstPostgres(t *testing.T) {
 	t.Cleanup(func() { exec(toolCallsCleanup) })
 
 	_, api := humatest.New(t)
-	Deps{DB: &tenant.DB{App: st.App, Log: log}, Authz: authz.New(db), Log: log}.invocationRoutes(api)
+	guard := newAnalyticsGuard(nil)
+	Deps{DB: &tenant.DB{App: st.App, Log: log}, Authz: authz.New(db), Log: log, analytics: guard}.invocationRoutes(api)
 
 	get := func(t *testing.T, user, org, path string, q url.Values, wantStatus int) []byte {
 		t.Helper()
@@ -288,6 +363,70 @@ func TestToolCallsAgainstPostgres(t *testing.T) {
 			url.Values{"since": {"2025-10-01T00:00:00Z"}, "until": {"2026-01-10T00:00:00Z"}}, http.StatusUnprocessableEntity)
 		get(t, "tc_u_a", "tc_a", "/api/v1/tool-calls/summary",
 			url.Values{"since": {"2026-01-10T00:00:00Z"}, "until": {"2026-01-10T00:00:00Z"}}, http.StatusUnprocessableEntity)
+	})
+
+	t.Run("server and caller need their own permissions", func(t *testing.T) {
+		tests := []struct {
+			user                      string
+			wantServer, wantPrincipal bool
+		}{
+			{"tc_u_a", true, true},
+			{"tc_u_conn", false, false},
+			{"tc_u_noorg", true, false},
+			{"tc_u_noserv", false, true},
+		}
+		for _, tt := range tests {
+			t.Run(tt.user, func(t *testing.T) {
+				var got invocationDTO
+				for _, i := range list(t, tt.user, "tc_a", nil) {
+					if i.ID == "tc_i02" {
+						got = i
+					}
+				}
+				if (got.ServerID == "tc_m1") != tt.wantServer {
+					t.Errorf("serverId = %q, want it shown: %v", got.ServerID, tt.wantServer)
+				}
+				if (got.PrincipalID == "tc_u_a") != tt.wantPrincipal {
+					t.Errorf("principalId = %q, want it shown: %v", got.PrincipalID, tt.wantPrincipal)
+				}
+				// The rest of the row is there either way.
+				if got.ConnectorID != "tc_c1" || got.PrincipalKind != "user" || got.ToolID != "tc_t1" {
+					t.Errorf("row: %+v", got)
+				}
+				want := http.StatusOK
+				if !tt.wantServer {
+					want = http.StatusForbidden
+				}
+				get(t, tt.user, "tc_a", "/api/v1/tool-calls", url.Values{"serverId": {"tc_m1"}}, want)
+			})
+		}
+	})
+
+	t.Run("a workspace runs two searches at a time", func(t *testing.T) {
+		for range usageInflightPerOrg {
+			if !guard.acquire("tc_a") {
+				t.Fatal("slot not free")
+			}
+		}
+		get(t, "tc_u_a", "tc_a", "/api/v1/tool-calls", url.Values{"q": {"search"}}, http.StatusTooManyRequests)
+		get(t, "tc_u_a", "tc_a", "/api/v1/tool-calls/summary", nil, http.StatusTooManyRequests)
+		// The unfiltered list takes no slot, and the other workspace has
+		// its own.
+		get(t, "tc_u_a", "tc_a", "/api/v1/tool-calls", url.Values{"limit": {"5"}}, http.StatusOK)
+		get(t, "tc_u_b", "tc_b", "/api/v1/tool-calls/summary", nil, http.StatusOK)
+		for range usageInflightPerOrg {
+			guard.release("tc_a")
+		}
+		get(t, "tc_u_a", "tc_a", "/api/v1/tool-calls", url.Values{"q": {"search"}}, http.StatusOK)
+		// Every request gave its slot back.
+		for range usageInflightPerOrg {
+			if !guard.acquire("tc_a") {
+				t.Fatal("a slot was not released")
+			}
+		}
+		for range usageInflightPerOrg {
+			guard.release("tc_a")
+		}
 	})
 
 	summary := func(t *testing.T, user, org string, q url.Values) toolCallsSummary {

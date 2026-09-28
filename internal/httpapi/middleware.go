@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -24,7 +25,7 @@ func (d Deps) rateLimit(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		decision, err := d.Limiter.Allow(r.Context(), hardening.Identity(r), d.budgetFor(r.URL.Path))
+		decision, err := d.Limiter.Allow(r.Context(), hardening.Identity(r), d.budgetForURL(r.URL))
 		if err != nil {
 			// A budget that cannot be evaluated is not permission. Failing
 			// open here would make an unreachable limiter the cheapest way
@@ -42,6 +43,28 @@ func (d Deps) rateLimit(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// budgetForURL is budgetFor, except that a tool-call list with a filter
+// draws on the analytics budget: it can walk a workspace's calls for as
+// long as an aggregate does. The unfiltered list stays on the API's.
+func (d Deps) budgetForURL(u *url.URL) hardening.Limit {
+	if u.Path == "/api/v1/tool-calls" && toolCallsFilteredQuery(u.Query()) {
+		return d.Budgets.Analytics
+	}
+	return d.budgetFor(u.Path)
+}
+
+// toolCallsFilteredQuery reports whether a tool-call list request sets a
+// filter, the same parameters toolCallFilter.filtered counts. An empty
+// value is no filter, there as here.
+func toolCallsFilteredQuery(q url.Values) bool {
+	for _, k := range []string{"since", "until", "connectorId", "serverId", "status", "q"} {
+		if q.Get(k) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // budgetFor picks the budget by path. The middleware runs before chi has
