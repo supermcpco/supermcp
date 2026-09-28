@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button, LinkButton, Text } from "@cloudflare/kumo";
+import { Button, LinkButton, Switch, Text } from "@cloudflare/kumo";
 import type { ToolDto, ToolReferencesDto } from "../api";
 import {
   connectorsToolsOptions,
@@ -112,16 +112,18 @@ function Tools() {
                   )}
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
+                  {/* The word is drawn here, not through Kumo's `label`: that
+                      names the switch by the word alone, and somebody who
+                      cannot see which row it is in needs the tool's name too. */}
                   <label className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
+                    <Switch
+                      aria-label={`Offered ${t.name}`}
+                      size="sm"
                       checked={t.enabled}
                       disabled={!canEdit || enable.isPending}
-                      onChange={(e) => enable.mutate({ path: { id: t.id }, body: { enabled: e.target.checked } })}
+                      onCheckedChange={(enabled) => enable.mutate({ path: { id: t.id }, body: { enabled } })}
                     />
-                    <Text as="span">
-                      Offered<span className="sr-only"> {t.name}</span>
-                    </Text>
+                    <Text as="span">Offered</Text>
                   </label>
                   <Link
                     to="/connectors/$id/tools/$toolId"

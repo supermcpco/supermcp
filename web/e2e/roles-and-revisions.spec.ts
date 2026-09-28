@@ -86,8 +86,8 @@ test("a role is built from the permission list, with a preview of what it allows
 
   await page.getByLabel("Name", { exact: true }).fill("Support engineer");
   await page.getByLabel("Who it is for", { exact: true }).fill("People who answer customer questions");
-  await page.getByLabel("See which connectors are installed and how they are configured").check();
-  await page.getByLabel("See the available tools and what each one expects").check();
+  await page.getByRole("checkbox", { name: "See which connectors are installed and how they are configured", exact: true }).check();
+  await page.getByRole("checkbox", { name: "See the available tools and what each one expects", exact: true }).check();
 
   // The preview is the point of the screen: it answers what somebody
   // holding this could do, worked out by the server rather than guessed
@@ -108,7 +108,7 @@ test("the preview says what another role the holder has already allows", async (
   await page.goto("/settings/roles");
   await page.getByRole("button", { name: "Build a role" }).click();
   await page.getByLabel("Name", { exact: true }).fill("Second opinion");
-  await page.getByLabel("See the roles and who holds them").check();
+  await page.getByRole("checkbox", { name: "See the roles and who holds them", exact: true }).check();
 
   // The person who made the workspace owns it, so everything this role
   // would allow they can already do. Saying so is the difference between
@@ -173,8 +173,8 @@ test("a role's permissions unfold from its row and a custom role is built from t
   await expect(dialog.getByLabel("Name", { exact: true })).toHaveValue("");
   await expect(dialog.getByRole("button", { name: "Create this role" })).toBeDisabled();
   await dialog.getByLabel("Name", { exact: true }).fill("Night desk");
-  await dialog.getByLabel("See the roles and who holds them").check();
-  await dialog.getByLabel("See the available tools and what each one expects").check();
+  await dialog.getByRole("checkbox", { name: "See the roles and who holds them", exact: true }).check();
+  await dialog.getByRole("checkbox", { name: "See the available tools and what each one expects", exact: true }).check();
   await dialog.getByRole("button", { name: "Create this role" }).click();
   await expect(dialog).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Role Night desk created", exact: true })).toBeVisible();
@@ -190,7 +190,7 @@ test("a role's permissions unfold from its row and a custom role is built from t
   await night.getByRole("button", { name: "Change what Night desk allows" }).click();
   const change = page.getByRole("dialog", { name: "Change what Night desk allows" });
   await expect(change.getByLabel("Name", { exact: true })).toHaveValue("Night desk");
-  await change.getByLabel("See the roles and who holds them").uncheck();
+  await change.getByRole("checkbox", { name: "See the roles and who holds them", exact: true }).uncheck();
   await change.getByRole("button", { name: "Save what it allows" }).click();
   await expect(page.getByRole("heading", { name: "Role Night desk saved", exact: true })).toBeVisible();
   await expect(night.getByRole("cell").nth(3)).toHaveText("1");
@@ -209,7 +209,7 @@ test("a role keeps a history that can be restored", async ({ page, workspace }) 
   await page.goto("/settings/roles");
   await page.getByRole("button", { name: "Build a role" }).click();
   await page.getByLabel("Name", { exact: true }).fill("Rota keeper");
-  await page.getByLabel("See the roles and who holds them").check();
+  await page.getByRole("checkbox", { name: "See the roles and who holds them", exact: true }).check();
   const [created] = await Promise.all([
     page.waitForResponse((r) => r.request().method() === "POST" && new URL(r.url()).pathname === "/api/v1/roles"),
     page.getByRole("button", { name: "Create this role" }).click(),
@@ -221,7 +221,7 @@ test("a role keeps a history that can be restored", async ({ page, workspace }) 
 
   await role.getByRole("button", { name: "Change what Rota keeper allows" }).click();
   const editor = page.getByRole("dialog", { name: "Change what Rota keeper allows" });
-  await editor.getByLabel("See the available tools and what each one expects").check();
+  await editor.getByRole("checkbox", { name: "See the available tools and what each one expects", exact: true }).check();
   // The save is awaited by its own answer, matched by method and by this
   // role's address. Ticking the box also asks the server for a preview,
   // POST /api/v1/roles/preview, and a looser match took that answer for
@@ -269,7 +269,7 @@ test("an open history shows a change to the role as soon as it is saved", async 
   await page.goto("/settings/roles");
   await page.getByRole("button", { name: "Build a role" }).click();
   await page.getByLabel("Name", { exact: true }).fill("Shift lead");
-  await page.getByLabel("See the roles and who holds them").check();
+  await page.getByRole("checkbox", { name: "See the roles and who holds them", exact: true }).check();
   await page.getByRole("button", { name: "Create this role" }).click();
 
   const role = page.getByRole("row").filter({ hasText: "Shift lead" });
@@ -289,7 +289,7 @@ test("an open history shows a change to the role as soon as it is saved", async 
   // saying so makes the panel read it again.
   await role.getByRole("button", { name: "Change what Shift lead allows" }).click();
   const editor = page.getByRole("dialog", { name: "Change what Shift lead allows" });
-  await editor.getByLabel("See the available tools and what each one expects").check();
+  await editor.getByRole("checkbox", { name: "See the available tools and what each one expects", exact: true }).check();
   await editor.getByRole("button", { name: "Save what it allows" }).click();
   await expect(editor).toHaveCount(0);
   await expect(versions).toHaveCount(before + 1);

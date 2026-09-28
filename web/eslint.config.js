@@ -27,12 +27,13 @@ export default tseslint.config(
       ...reactHooks.configs.recommended.rules,
       ...jsxA11y.flatConfigs.recommended.rules,
       "react-refresh/only-export-components": ["warn", { allowConstantExport: true }],
-      // Kumo's Input and Textarea render a real input, and every label here
-      // wraps its control, which is what associates them. The rule cannot
-      // see through a component, so it is told which ones are controls.
+      // Kumo's Input and Textarea render a real input, its Switch a real
+      // button, and every label here wraps its control, which is what
+      // associates them. The rule cannot see through a component, so it is
+      // told which ones are controls.
       "jsx-a11y/label-has-associated-control": [
         "error",
-        { controlComponents: ["Input", "Textarea", "Select", "Checkbox"], depth: 3 },
+        { controlComponents: ["Input", "Textarea", "Select", "Checkbox", "Switch"], depth: 3 },
       ],
       // An unused argument named with a leading underscore is a signature
       // being honoured, not a mistake.

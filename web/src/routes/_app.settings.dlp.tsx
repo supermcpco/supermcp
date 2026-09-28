@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button, Text } from "@cloudflare/kumo";
+import { Button, Checkbox, Text } from "@cloudflare/kumo";
 import {
   connectorsListOptions,
   dlpDetectorsOptions,
@@ -349,33 +349,37 @@ function DetectorChoices({
       </legend>
       <div className="grid gap-1">
         {builtins.map((d) => (
-          <label key={d.name} className="flex items-baseline gap-2">
-            <input type="checkbox" checked={chosen.includes(d.name)} onChange={(e) => toggle(d.name, e.currentTarget.checked)} />
-            <span>
-              <Text as="span">{d.summary}</Text>{" "}
-              <Text as="span" variant="secondary">
-                Does not match: {d.excludes}
-              </Text>
-            </span>
-          </label>
+          <Checkbox
+            key={d.name}
+            checked={chosen.includes(d.name)}
+            onCheckedChange={(on) => toggle(d.name, on)}
+            label={
+              <span>
+                <Text as="span">{d.summary}</Text>{" "}
+                <Text as="span" variant="secondary">
+                  Does not match: {d.excludes}
+                </Text>
+              </span>
+            }
+          />
         ))}
         {custom.map((d) => (
-          <label key={d.id} className="flex items-baseline gap-2">
-            <input
-              type="checkbox"
-              checked={chosen.includes(d.detector)}
-              onChange={(e) => toggle(d.detector, e.currentTarget.checked)}
-            />
-            <span>
-              <Text as="span">
-                {d.detector}
-                {d.description ? `: ${d.description}` : ""}
-              </Text>{" "}
-              <Text as="span" variant="secondary">
-                This workspace's own{d.enabled ? "" : ", switched off"}.
-              </Text>
-            </span>
-          </label>
+          <Checkbox
+            key={d.id}
+            checked={chosen.includes(d.detector)}
+            onCheckedChange={(on) => toggle(d.detector, on)}
+            label={
+              <span>
+                <Text as="span">
+                  {d.detector}
+                  {d.description ? `: ${d.description}` : ""}
+                </Text>{" "}
+                <Text as="span" variant="secondary">
+                  This workspace's own{d.enabled ? "" : ", switched off"}.
+                </Text>
+              </span>
+            }
+          />
         ))}
       </div>
     </fieldset>
@@ -470,10 +474,7 @@ function RuleEditor({
         />
       </div>
       <DetectorChoices builtins={builtins} custom={custom} chosen={chosen} onChange={setChosen} />
-      <label className="flex items-center gap-2">
-        <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.currentTarget.checked)} />
-        <Text as="span">The rule is on</Text>
-      </label>
+      <Checkbox label="The rule is on" checked={enabled} onCheckedChange={setEnabled} />
     </FormDialog>
   );
 }

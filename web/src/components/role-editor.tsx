@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Text } from "@cloudflare/kumo";
+import { Checkbox, Text } from "@cloudflare/kumo";
 import { previewRole, type PermissionGroupDto, type RoleDto } from "../api";
 import { createRoleMutation, updateRoleMutation } from "../api/@tanstack/react-query.gen";
 import { message } from "../lib/errors";
@@ -135,15 +135,12 @@ export function RoleEditor({
                 </Text>
               </legend>
               {group.permissions.map((permission) => (
-                <label key={permission.id} className="flex items-start gap-2">
-                  <input
-                    type="checkbox"
-                    className="mt-1"
-                    checked={picked.has(permission.id)}
-                    onChange={() => toggle(permission.id)}
-                  />
-                  <Text as="span">{permission.description}</Text>
-                </label>
+                <Checkbox
+                  key={permission.id}
+                  label={permission.description}
+                  checked={picked.has(permission.id)}
+                  onCheckedChange={() => toggle(permission.id)}
+                />
               ))}
             </fieldset>
           ))}
