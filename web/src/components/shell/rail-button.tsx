@@ -1,6 +1,21 @@
 import { Sidebar, useSidebar, type SidebarMenuButtonProps } from "@cloudflare/kumo";
 import { NamedTooltip } from "./named-tooltip";
 
+/*
+ * KUMO COPY: written against @cloudflare/kumo 2.14.0 (Base UI 1.8.0).
+ *
+ * Why it exists: Sidebar.MenuButton's `tooltip` prop takes only a string,
+ * and the popup it draws has no role, so this puts a NamedTooltip around
+ * the button instead.
+ *
+ * Delete when: Sidebar.MenuButton's tooltip has the role `tooltip` (or
+ * takes a node, and NamedTooltip is gone). Then use
+ * `<Sidebar.MenuButton tooltip={label}>` directly.
+ *
+ * src/components/kumo-copies.test.ts fails when the installed Kumo version
+ * changes. When it does, re-check this, then update the version above.
+ */
+
 type RailButtonProps = Omit<SidebarMenuButtonProps, "tooltip" | "children"> & {
   /** What the entry says, and what its tooltip says on the icon rail. */
   label: string;

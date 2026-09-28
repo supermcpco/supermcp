@@ -1,6 +1,23 @@
 import { cloneElement, useId, useState, type ComponentProps, type ReactElement } from "react";
 import { Tooltip } from "@cloudflare/kumo";
 
+/*
+ * KUMO COPY: written against @cloudflare/kumo 2.14.0 (Base UI 1.8.0).
+ *
+ * Why it exists: Kumo's Tooltip draws its popup (Base UI's Tooltip.Popup)
+ * with no role and takes no prop for one, so TooltipText puts the words in
+ * a `role="tooltip"` span with an id that the trigger's `aria-describedby`
+ * points at.
+ *
+ * Delete when: Kumo's Tooltip gives its popup the role `tooltip` and
+ * describes its trigger. Then WithTooltip can be dropped in favour of Kumo's
+ * Tooltip, as long as the tooltip browser tests and tooltip.test.tsx still
+ * hold.
+ *
+ * src/components/kumo-copies.test.ts fails when the installed Kumo version
+ * changes. When it does, re-check this, then update the version above.
+ */
+
 /** What the wrapper reads from, and adds to, the element it wraps. */
 interface TriggerProps {
   "aria-label"?: string;
