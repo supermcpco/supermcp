@@ -818,6 +818,12 @@ from it. For the authorization code grant that means the consent has been
 completed; for the client credentials grant, that a token has been
 obtained. It is false for every other kind of auth.
 
+Both also carry `credentials`: one entry per `{{env.X}}` the connector's
+transport or auth refers to, with `name`, `set` (a value is stored),
+`secret` and `required`. Values are never returned. An entry with `set`
+false is a credential the connector needs and does not have. The list
+is always an array, empty when the connector refers to none.
+
 ## Connectors and servers: concurrent edits
 
 Connectors and MCP servers carry a `version`, as tools do. These writes

@@ -243,10 +243,11 @@ DELETE FROM organizations WHERE id IN ('ok_a','ok_b');
 DELETE FROM users WHERE id = 'ok_u_a';
 `
 
-// TestConnectorsListOAuthAuthorized checks oauthAuthorized on the
-// connector list and that the list is one statement however many
-// connectors there are: the token rows are read in the statement that
-// reads the connectors, not one query per connector. Requires
+// TestConnectorsListOAuthAuthorized checks oauthAuthorized and
+// credentials on the connector list, and that the list is two statements
+// however many connectors there are: the token rows are read in the
+// statement that reads the connectors and the credential rows in one
+// more for the whole page, not one query per connector. Requires
 // DATABASE_URL.
 func TestConnectorsListOAuthAuthorized(t *testing.T) {
 	dsn := os.Getenv("DATABASE_URL")
@@ -276,10 +277,11 @@ INSERT INTO role_bindings (id, organization_id, principal_kind, principal_id, ro
 INSERT INTO connectors (id, organization_id, name, transport, auth, created_at) VALUES
     ('ok_c1','ok_a','consented','{}','{"type":"oauth2","grant":"authorization_code"}', '2026-01-01T00:00:01Z'),
     ('ok_c2','ok_a','not yet','{}','{"type":"oauth2","grant":"authorization_code"}', '2026-01-01T00:00:02Z'),
-    ('ok_c3','ok_a','api key','{}','{"type":"apiKey"}', '2026-01-01T00:00:03Z'),
+    ('ok_c3','ok_a','api key','{}','{"type":"apiKey","in":"header","name":"X-Key","value":"{{env.API_KEY}}"}', '2026-01-01T00:00:03Z'),
     ('ok_cb','ok_b','theirs','{}','{"type":"oauth2","grant":"authorization_code"}', '2026-01-01T00:00:04Z');
 INSERT INTO connector_tokens (connector_id, organization_id, token_enc, expires_at) VALUES
     ('ok_c1','ok_a','\x00', now()), ('ok_c3','ok_a','\x00', now()), ('ok_cb','ok_b','\x00', now());
+INSERT INTO connector_credentials (connector_id, organization_id, name, value_enc) VALUES ('ok_c3','ok_a','API_KEY','\x00');
 `)
 
 	// The routes read through a pool of their own whose statements are
@@ -311,7 +313,7 @@ INSERT INTO connector_tokens (connector_id, organization_id, token_enc, expires_
 
 	_, api := humatest.New(t)
 	Deps{DB: counted, Authz: authz.New(db), Log: log, Connectors: connector.New(counted, nil, nil)}.connectorRoutes(api)
-	list := func(t *testing.T) (map[string]bool, []string) {
+	list := func(t *testing.T) (map[string]connectorDTO, []string) {
 		t.Helper()
 		log2.reset()
 		p := &authz.Principal{Kind: authz.KindUser, ID: "ok_u_a", OrgID: "ok_a", AuthMethod: "session"}
@@ -323,9 +325,9 @@ INSERT INTO connector_tokens (connector_id, organization_id, token_enc, expires_
 		if err := json.Unmarshal(resp.Body.Bytes(), &out); err != nil {
 			t.Fatal(err)
 		}
-		got := map[string]bool{}
+		got := map[string]connectorDTO{}
 		for _, c := range out {
-			got[c.ID] = c.OAuthAuthorized
+			got[c.ID] = c
 		}
 		// Everything the request sent but the tenant's set_config, which
 		// every transaction starts with.
@@ -340,32 +342,74 @@ INSERT INTO connector_tokens (connector_id, organization_id, token_enc, expires_
 
 	got, reads := list(t)
 	want := map[string]bool{"ok_c1": true, "ok_c2": false, "ok_c3": false}
-	if fmt.Sprint(got) != fmt.Sprint(want) {
-		t.Errorf("three connectors: got %v, want %v", got, want)
+	if a := authorized(got); fmt.Sprint(a) != fmt.Sprint(want) {
+		t.Errorf("three connectors: got %v, want %v", a, want)
+	}
+	wantCreds := map[string]string{"ok_c1": "[]", "ok_c2": "[]", "ok_c3": "[API_KEY:set]"}
+	if c := credentials(got); fmt.Sprint(c) != fmt.Sprint(wantCreds) {
+		t.Errorf("three connectors: credentials %v, want %v", c, wantCreds)
 	}
 	wantSent(t, "three connectors", reads)
 
 	exec(`
 INSERT INTO connectors (id, organization_id, name, transport, auth) VALUES
     ('ok_c4','ok_a','client credentials','{}','{"type":"oauth2","grant":"client_credentials"}'),
-    ('ok_c5','ok_a','none','{}','{}'),
+    ('ok_c5','ok_a','key not set','{}','{"type":"apiKey","in":"header","name":"X-Key","value":"{{env.API_KEY}}"}'),
     ('ok_c6','ok_a','not yet either','{}','{"type":"oauth2","grant":"authorization_code"}');
 INSERT INTO connector_tokens (connector_id, organization_id, token_enc, expires_at) VALUES ('ok_c4','ok_a','\x00', now());
 `)
 	got, reads = list(t)
 	want = map[string]bool{"ok_c1": true, "ok_c2": false, "ok_c3": false, "ok_c4": true, "ok_c5": false, "ok_c6": false}
-	if fmt.Sprint(got) != fmt.Sprint(want) {
-		t.Errorf("six connectors: got %v, want %v", got, want)
+	if a := authorized(got); fmt.Sprint(a) != fmt.Sprint(want) {
+		t.Errorf("six connectors: got %v, want %v", a, want)
+	}
+	// ok_c5 uses the same credential as ok_c3 but has none stored: the
+	// list tells the two apart.
+	wantCreds = map[string]string{"ok_c1": "[]", "ok_c2": "[]", "ok_c3": "[API_KEY:set]", "ok_c4": "[]", "ok_c5": "[API_KEY:missing]", "ok_c6": "[]"}
+	if c := credentials(got); fmt.Sprint(c) != fmt.Sprint(wantCreds) {
+		t.Errorf("six connectors: credentials %v, want %v", c, wantCreds)
 	}
 	wantSent(t, "six connectors", reads)
 }
 
+func authorized(list map[string]connectorDTO) map[string]bool {
+	out := map[string]bool{}
+	for id, c := range list {
+		out[id] = c.OAuthAuthorized
+	}
+	return out
+}
+
+// credentials renders each connector's credentials as name:set or
+// name:missing, and a JSON null as null.
+func credentials(list map[string]connectorDTO) map[string]string {
+	out := map[string]string{}
+	for id, c := range list {
+		if c.Credentials == nil {
+			out[id] = "null"
+			continue
+		}
+		var s []string
+		for _, cr := range c.Credentials {
+			state := "missing"
+			if cr.Set {
+				state = "set"
+			}
+			s = append(s, cr.Name+":"+state)
+		}
+		out[id] = fmt.Sprint(s)
+	}
+	return out
+}
+
 // wantSent checks that listing connectors sent one transaction holding
-// one statement: the connectors with their tool counts and token rows.
+// two statements: the connectors with their tool counts and token rows,
+// then the credential rows of all of them.
 func wantSent(t *testing.T, what string, sent []string) {
 	t.Helper()
-	if len(sent) != 3 || !strings.EqualFold(sent[0], "begin") || !strings.Contains(sent[1], "FROM connectors") ||
-		!strings.Contains(sent[1], "connector_tokens") || !strings.EqualFold(sent[2], "commit") {
-		t.Errorf("%s sent %d statements, want begin, one select, commit: %q", what, len(sent), sent)
+	if len(sent) != 4 || !strings.EqualFold(sent[0], "begin") || !strings.Contains(sent[1], "FROM connectors") ||
+		!strings.Contains(sent[1], "connector_tokens") || !strings.Contains(sent[2], "FROM connector_credentials") ||
+		!strings.Contains(sent[2], "ANY($1)") || !strings.EqualFold(sent[3], "commit") {
+		t.Errorf("%s sent %d statements, want begin, two selects, commit: %q", what, len(sent), sent)
 	}
 }
