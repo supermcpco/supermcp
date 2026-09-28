@@ -13,6 +13,9 @@ test("the sidebar lists the screens under Build, Operate and Settings", async ({
   // The owner of a new workspace holds every permission, so every screen
   // is there, the last one included.
   await expect(nav.getByRole("link", { name: "Service accounts" })).toBeVisible();
+  // Calls and analytics are one entry, Activity, with a tab each.
+  await expect(nav.getByRole("link", { name: "Activity" })).toBeVisible();
+  await expect(nav.getByRole("link", { name: /^(Tool calls|Analytics)$/ })).toHaveCount(0);
   await expect(page.getByText(workspace.email)).toBeVisible();
   await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
   await expectAccessible(page);
