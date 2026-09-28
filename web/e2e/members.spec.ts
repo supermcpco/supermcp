@@ -59,6 +59,7 @@ test("an owner invites someone who joins from the link, then changes, deactivate
   await test.step("the owner's own row cannot be changed", async () => {
     await page.goto("/settings/members");
     await expect(page.getByRole("heading", { name: "Members", exact: true })).toBeVisible();
+    await expect(page.getByRole("tab", { name: "Members", exact: true })).toHaveAttribute("aria-selected", "true");
     const self = memberRow(page, workspace.email);
     await expect(self).toBeVisible();
     await expect(self.getByRole("button", { name: /^Deactivate/ })).toBeDisabled();

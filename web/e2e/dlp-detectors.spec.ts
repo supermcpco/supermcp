@@ -24,7 +24,7 @@ test("a custom detector is tried, saved, added to a rule, and refuses a call tha
 
   // The detector, on its own tab.
   await page.goto("/settings/dlp");
-  await page.getByRole("tab", { name: "Detectors" }).click();
+  await page.getByRole("tab", { name: "Detectors", exact: true }).click();
   await expect(page).toHaveURL(/tab=detectors/);
   await expect(page.getByText(/No detectors of this workspace's own yet/)).toBeVisible();
 
@@ -75,7 +75,7 @@ test("a custom detector is tried, saved, added to a rule, and refuses a call tha
   await expect(page.getByRole("region", { name: "History of contract_id" }).getByText("Version 1")).toBeVisible();
 
   // A rule picks it beside the built-ins.
-  await page.getByRole("tab", { name: "Rules" }).click();
+  await page.getByRole("tab", { name: "Rules", exact: true }).click();
   await page.getByRole("button", { name: "New rule" }).first().click();
   const addRule = page.getByRole("dialog", { name: "Add a rule" });
   await addRule.getByLabel("What it is for").fill("Contract ids stay inside");
@@ -114,4 +114,17 @@ test("a custom detector is tried, saved, added to a rule, and refuses a call tha
   await page.getByRole("searchbox", { name: "Search" }).fill('"custom:contract_id"');
   await expect(page.getByRole("row").filter({ hasText: toolName }).first()).toBeVisible();
   await expect(page.getByText(contractId)).toHaveCount(0);
+
+  // Deleting the detector asks first. A rule still names it, so the server
+  // refuses, names the rule, and offers to take it out of that rule too.
+  await page.goto("/settings/dlp?tab=detectors");
+  await detector.getByRole("button", { name: "Delete contract_id" }).click();
+  const confirm = page.getByRole("dialog", { name: "Delete contract_id" });
+  await confirm.getByRole("textbox", { name: "Type contract_id to confirm deletion" }).fill("contract_id");
+  await confirm.getByRole("button", { name: "Delete detector" }).click();
+  await expect(confirm).toHaveCount(0);
+  await expect(detector.getByRole("alert")).toContainText("Contract ids stay inside");
+  await detector.getByRole("button", { name: "Delete contract_id and take it out of the rules" }).click();
+  await expect(page.getByRole("heading", { name: "Detector contract_id deleted", exact: true })).toBeVisible();
+  await expect(page.getByText(/No detectors of this workspace's own yet/)).toBeVisible();
 });

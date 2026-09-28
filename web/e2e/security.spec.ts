@@ -14,11 +14,17 @@ const screens = [
   "/activity",
   "/activity?tab=analytics",
   "/status",
+  "/settings",
+  "/settings/members",
   "/settings/security",
   "/settings/audit",
+  "/settings/audit/retention",
+  "/settings/audit/shipping",
+  "/settings/dlp",
   "/settings/roles",
   "/settings/sso",
   "/settings/service-accounts",
+  "/settings/instance",
 ];
 
 test("every screen loads with no policy violation and no console error", async ({ page, workspace }) => {

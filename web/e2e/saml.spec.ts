@@ -75,6 +75,17 @@ test("a SAML provider can be configured, and publishes what the identity provide
   const target = new URL(start.headers()["location"]);
   expect(target.origin + target.pathname).toBe("https://e2e.idp.example/sso");
   expect(target.searchParams.get("SAMLRequest"), "no request means nothing for the provider to answer").toBeTruthy();
+
+  // Removing it asks first; only the typed name lets it go.
+  await page.getByRole("button", { name: "Remove End to end SAML" }).click();
+  const confirm = page.getByRole("dialog", { name: "Delete End to end SAML" });
+  const remove = confirm.getByRole("button", { name: "Remove SAML provider" });
+  await expect(remove).toBeDisabled();
+  await confirm.getByRole("textbox", { name: "Type End to end SAML to confirm deletion" }).fill("End to end SAML");
+  await remove.click();
+  await expect(confirm).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "SAML provider End to end SAML removed", exact: true })).toBeVisible();
+  expect((await (await page.request.get("/api/v1/saml-providers")).json()).providers ?? []).toEqual([]);
 });
 
 test("the assertion consumer refuses a response nobody signed", async ({ page, request, workspace }) => {

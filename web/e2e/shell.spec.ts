@@ -11,8 +11,12 @@ test("the sidebar lists the screens under Build, Operate and Settings", async ({
     await expect(nav.getByRole("heading", { name: group, exact: true })).toBeVisible();
   }
   // The owner of a new workspace holds every permission, so every screen
-  // is there, the last one included.
-  await expect(nav.getByRole("link", { name: "Service accounts" })).toBeVisible();
+  // is there. Settings is one item: its parts are tabs on its own screen,
+  // not entries here.
+  await expect(nav.getByRole("link", { name: "Settings", exact: true })).toBeVisible();
+  for (const tab of ["Members", "Roles", "Audit trail", "Single sign-on", "Service accounts", "Status"]) {
+    await expect(nav.getByRole("link", { name: tab })).toHaveCount(0);
+  }
   // Calls and analytics are one entry, Activity, with a tab each.
   await expect(nav.getByRole("link", { name: "Activity" })).toBeVisible();
   await expect(nav.getByRole("link", { name: /^(Tool calls|Analytics)$/ })).toHaveCount(0);
@@ -33,8 +37,8 @@ test("the sign-out button stays in view on a short window", async ({ page, works
   await expect(page.getByText(workspace.email)).toBeInViewport();
   await expect(page.getByRole("button", { name: "Sign out" })).toBeInViewport();
   const nav = page.getByRole("navigation", { name: "Primary" });
-  await nav.getByRole("link", { name: "Service accounts" }).click();
-  await expect(page.getByRole("heading", { name: "Service accounts", level: 1 })).toBeVisible();
+  await nav.getByRole("link", { name: "Settings", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Settings", level: 1 })).toBeVisible();
   await expect(page.getByRole("button", { name: "Sign out" })).toBeInViewport();
 });
 
