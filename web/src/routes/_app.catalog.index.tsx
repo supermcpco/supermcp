@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { Button, Input, Text } from "@cloudflare/kumo";
+import { Button, Checkbox, Input, Text } from "@cloudflare/kumo";
 import { catalogListOptions } from "../api/@tanstack/react-query.gen";
+import { plural } from "../lib/analytics";
 import { message } from "../lib/errors";
 import { EmptyState } from "../components/form-dialog";
 
@@ -29,17 +30,26 @@ function Catalog() {
         </Text>
         <Text>Install an adapter to create a connector with its tools.</Text>
       </div>
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="w-72">
-          <Input aria-label="Search adapters" placeholder="Search" value={q} onChange={(e) => setQ(e.target.value)} />
+      {/* One row on a wide screen: the search at a readable width, the
+          filter beside it, the count against the right edge. On a phone the
+          search takes the whole line and the filter and count wrap under it. */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
+        <div className="w-full sm:max-w-md sm:flex-1">
+          <Input
+            type="search"
+            className="w-full"
+            aria-label="Search adapters"
+            placeholder="Search"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+          />
         </div>
-        <label className="flex items-center gap-2">
-          <input type="checkbox" checked={keyless} onChange={(e) => setKeyless(e.target.checked)} />
-          <Text as="span">No credentials needed</Text>
-        </label>
-        <Text as="span" variant="secondary">
-          {list.data ? `${list.data.count} adapters` : list.isPending ? "Loading…" : ""}
-        </Text>
+        <Checkbox label="No credentials needed" checked={keyless} onCheckedChange={(checked) => setKeyless(checked)} />
+        <span className="ml-auto">
+          <Text as="span" variant="secondary" aria-live="polite">
+            {list.data ? plural(list.data.count, "adapter") : list.isPending ? "Loading…" : ""}
+          </Text>
+        </span>
       </div>
       {list.isError && (
         <div role="alert">
