@@ -28,8 +28,11 @@ test("the history screen shows a change and restores it", async ({ page, workspa
 
   await page.goto(`/connectors/${id}/history`);
   await expect(page.getByRole("heading", { name: "History" })).toBeVisible();
-  await expect(page.getByText("Renamed in the browser test")).toBeVisible();
-  await expect(page.getByText(original).first()).toBeVisible();
+  // The connector's current name also heads the page; the change is read
+  // in the history tab itself.
+  const history = page.getByRole("tabpanel", { name: "History" });
+  await expect(history.getByText("Renamed in the browser test")).toBeVisible();
+  await expect(history.getByText(original).first()).toBeVisible();
 
   // Restoring adds a further version rather than rewinding, so waiting
   // for that row is what tells us the change has actually landed.

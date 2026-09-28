@@ -18,8 +18,10 @@ test("a workspace installs an adapter, exposes it and calls a tool", async ({ pa
 
   await page.getByRole("button", { name: "Install" }).click();
   await expect(page.getByText("Deutsche Bundesbank Statistics installed", { exact: true })).toBeVisible();
-  await expect(page).toHaveURL(/\/connectors/);
-  await expect(page.getByText("Deutsche Bundesbank Statistics", { exact: true })).toBeVisible();
+  // It lands on the new connector's own page.
+  await expect(page).toHaveURL(/\/connectors\/[^/]+$/);
+  await expect(page.getByRole("heading", { name: "Deutsche Bundesbank Statistics", level: 1 })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Status" })).toBeVisible();
 
   // An MCP server is what an AI client is actually pointed at.
   const serverId = await createServer(page, "Browser server", [/Deutsche Bundesbank Statistics/]);
@@ -48,6 +50,7 @@ test("an API key from one workspace cannot reach another workspace's server", as
   expect(workspace.email).toBeTruthy();
   // The first workspace installs something and exposes it.
   await installAdapter(page);
+  await expect(page).toHaveURL(/\/connectors\/[^/]+$/);
   const serverId = await createServer(page, "Private server", [/Deutsche Bundesbank Statistics/]);
 
   // The second workspace gets its own browser context rather than sharing

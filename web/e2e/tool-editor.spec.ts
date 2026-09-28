@@ -11,7 +11,7 @@ import type { Page } from "@playwright/test";
 async function installBundesbank(page: Page): Promise<string> {
   await page.goto("/catalog/bundesbank");
   await page.getByRole("button", { name: "Install" }).click();
-  await expect(page).toHaveURL(/\/connectors/);
+  await expect(page).toHaveURL(/\/connectors\/[^/]+$/);
   const connectors = await (await page.request.get("/api/v1/connectors")).json();
   return connectors[0].id as string;
 }
@@ -24,7 +24,8 @@ test("a catalog tool can be edited, shows it was, and its history restores it", 
   const connectorId = await installBundesbank(page);
 
   await page.goto("/connectors");
-  await page.getByRole("link", { name: "Tools" }).first().click();
+  await page.getByRole("link", { name: "Deutsche Bundesbank Statistics", exact: true }).click();
+  await page.getByRole("tab", { name: "Tools" }).click();
   await expect(page).toHaveURL(new RegExp(`/connectors/${connectorId}/tools`));
   await expect(page.getByRole("heading", { name: /^Tools/ })).toBeVisible();
   await expect(page.getByText(catalogTool, { exact: true }).first()).toBeVisible();
