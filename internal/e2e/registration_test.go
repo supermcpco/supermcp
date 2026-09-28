@@ -224,8 +224,8 @@ func TestRegisterFunctionDecides(t *testing.T) {
 // registration is on and $6 the owner binding's id.
 const registerSQL = "SELECT auth_register($1,$2,'',NULL,$3,$4,'Org',$5,$6)"
 
-// registerPreviousSQL is the eight-argument auth_register of migration
-// 00035, which pods of the previous release call: registerSQL without $6.
+// registerPreviousSQL calls the eight-argument auth_register of migration
+// 00035: registerSQL without $6.
 const registerPreviousSQL = "SELECT auth_register($1,$2,'',NULL,$3,$4,'Org',$5)"
 
 const (
@@ -461,6 +461,92 @@ func TestRegisterEmailTaken(t *testing.T) {
 	}
 	if users != 1 || orgs != 1 {
 		t.Errorf("after a refused duplicate there are %d users and %d organisations, want 1 and 1", users, orgs)
+	}
+}
+
+// TestRepairOrphanOwners builds by hand organisations with no owner, as
+// the three-transaction registration before migration 00037 could leave
+// them, and some that look alike but did not come from a failed
+// registration. auth_repair_orphan_owners binds the owner only in the
+// first kind, and a second call binds nothing.
+func TestRepairOrphanOwners(t *testing.T) {
+	h := startWith(t, harnessOptions{dsn: unclaimedDatabase(t), closedRegistration: true})
+	ctx := context.Background()
+	cases := []struct {
+		name        string
+		members     int
+		joinLater   bool // the members join in a later transaction than the organisation
+		deactivated bool
+		wantOwner   bool
+	}{
+		{name: "failed registration", members: 1, wantOwner: true},
+		{name: "two members", members: 2},
+		{name: "the one member joined later", members: 1, joinLater: true},
+		{name: "the one member is deactivated", members: 1, deactivated: true},
+	}
+	orgs := make([]string, len(cases))
+	users := make([][]string, len(cases))
+	for i, tc := range cases {
+		orgs[i] = newID()
+		for range tc.members {
+			users[i] = append(users[i], newID())
+		}
+		addMembers := func(tx pgx.Tx) error {
+			for _, u := range users[i] {
+				if _, err := tx.Exec(ctx, `INSERT INTO users (id, email, name) VALUES ($1, $1 || '@e2e.test', '')`, u); err != nil {
+					return err
+				}
+				if _, err := tx.Exec(ctx, `INSERT INTO organization_members (user_id, organization_id, deactivated_at)
+					VALUES ($1, $2, CASE WHEN $3 THEN now() END)`, u, orgs[i], tc.deactivated); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+		if err := pgx.BeginFunc(ctx, h.db.Maint, func(tx pgx.Tx) error {
+			if _, err := tx.Exec(ctx, `INSERT INTO organizations (id, slug, name) VALUES ($1, $1, 'Orphan')`, orgs[i]); err != nil {
+				return err
+			}
+			if tc.joinLater {
+				return nil
+			}
+			return addMembers(tx)
+		}); err != nil {
+			t.Fatalf("%s: create the organisation: %v", tc.name, err)
+		}
+		if tc.joinLater {
+			// A transaction of its own, so now() is later than the
+			// organisation's created_at.
+			if err := pgx.BeginFunc(ctx, h.db.Maint, addMembers); err != nil {
+				t.Fatalf("%s: add the member: %v", tc.name, err)
+			}
+		}
+	}
+
+	for call, want := range []int{1, 0} {
+		var bound int
+		if err := h.db.Maint.QueryRow(ctx, "SELECT auth_repair_orphan_owners()").Scan(&bound); err != nil {
+			t.Fatalf("call %d: auth_repair_orphan_owners: %v", call+1, err)
+		}
+		if bound != want {
+			t.Errorf("call %d bound %d owners, want %d", call+1, bound, want)
+		}
+	}
+	for i, tc := range cases {
+		var owners, all int64
+		if err := h.db.Maint.QueryRow(ctx, `SELECT
+				count(*) FILTER (WHERE role_id = 'role_owner' AND principal_kind = 'user'
+				                 AND principal_id = $2 AND scope_kind = 'org' AND created_by = $2),
+				count(*)
+			FROM role_bindings WHERE organization_id = $1`, orgs[i], users[i][0]).Scan(&owners, &all); err != nil {
+			t.Fatalf("%s: read bindings: %v", tc.name, err)
+		}
+		switch {
+		case tc.wantOwner && (owners != 1 || all != 1):
+			t.Errorf("%s: %d owner bindings for the member and %d bindings in all, want 1 and 1", tc.name, owners, all)
+		case !tc.wantOwner && all != 0:
+			t.Errorf("%s: the repair bound %d roles, want it left alone", tc.name, all)
+		}
 	}
 }
 
