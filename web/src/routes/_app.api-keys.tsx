@@ -1,7 +1,7 @@
 import { useId, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button, Dialog, DialogRoot, DialogTitle, Text } from "@cloudflare/kumo";
+import { Button, Dialog, DialogRoot, DialogTitle, Input, Text } from "@cloudflare/kumo";
 import {
   keysCreateMutation,
   keysListOptions,
@@ -289,16 +289,18 @@ function SecretBody({ issued }: { issued: Issued }) {
         <Text variant="secondary">
           {key.name}: it is not stored and cannot be shown again.
         </Text>
-        <label htmlFor={secretId}>
+        <label htmlFor={secretId} id={`${secretId}-label`}>
           <Text as="span">Secret</Text>
         </label>
-        <div className="flex items-center gap-2">
-          <input
+        {/* One row, one height: the field and its button are both Kumo's base size. */}
+        <div className="flex items-stretch gap-2">
+          <Input
             id={secretId}
+            aria-labelledby={`${secretId}-label`}
             readOnly
             value={secret}
             onFocus={(e) => e.currentTarget.select()}
-            className="min-w-0 flex-1 rounded-md bg-kumo-tint px-2 py-1 font-mono text-[0.9em]"
+            className="min-w-0 flex-1 bg-kumo-tint font-mono text-[0.9em]"
           />
           <CopyButton text={secret} what="secret" />
         </div>

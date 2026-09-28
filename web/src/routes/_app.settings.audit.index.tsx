@@ -1,7 +1,7 @@
 import { useEffect, useId, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { Text } from "@cloudflare/kumo";
+import { LinkButton, Text } from "@cloudflare/kumo";
 import { auditListOptions, auditVerifyOptions } from "../api/@tanstack/react-query.gen";
 import {
   auditCategories,
@@ -81,22 +81,26 @@ function AuditLog() {
     <div className="grid gap-6">
       <ChainStatus />
 
-      <div className="flex flex-wrap items-end gap-3">
-        <LabelledSelect
-          label="Category"
-          value={search.category ?? ""}
-          onChange={setCategory}
-          options={["", ...auditCategories].map((c) => ({ value: c, label: c === "" ? "Everything" : c }))}
-        />
-        <LabelledInput
-          labelClassName="grid flex-1 gap-1.5"
-          label="Actor"
-          value={draft.actor}
-          onChange={(e) => setDraft((d) => ({ ...d, actor: e.target.value }))}
-          placeholder="User id"
-        />
-        <div className="grid flex-[2] gap-1.5">
+      {/* The row holds the controls alone, so their bottoms line up; the
+          search's hint sits under the whole row rather than pushing the
+          Export button out of line. */}
+      <div className="grid gap-1.5">
+        <div className="flex flex-wrap items-end gap-3">
+          <LabelledSelect
+            label="Category"
+            value={search.category ?? ""}
+            onChange={setCategory}
+            options={["", ...auditCategories].map((c) => ({ value: c, label: c === "" ? "Everything" : c }))}
+          />
           <LabelledInput
+            labelClassName="grid flex-1 gap-1.5"
+            label="Actor"
+            value={draft.actor}
+            onChange={(e) => setDraft((d) => ({ ...d, actor: e.target.value }))}
+            placeholder="User id"
+          />
+          <LabelledInput
+            labelClassName="grid flex-[2] gap-1.5"
             label="Search"
             type="search"
             value={draft.q}
@@ -105,13 +109,13 @@ function AuditLog() {
             placeholder='connector.created, "quarterly review", -denied'
             aria-describedby={searchHint}
           />
-          <Text as="span" variant="secondary" id={searchHint}>
-            Whole words, any case. An export records its search in the trail, so do not search for a secret.
-          </Text>
+          <LinkButton variant="secondary" href={auditExportHref(filters)}>
+            Export
+          </LinkButton>
         </div>
-        <a className="rounded-md px-4 py-2 ring ring-kumo-line hover:bg-kumo-tint" href={auditExportHref(filters)}>
-          <Text as="span">Export</Text>
-        </a>
+        <Text as="span" variant="secondary" id={searchHint}>
+          Search: whole words, any case. An export records its search in the trail, so do not search for a secret.
+        </Text>
       </div>
 
       <table className="w-full text-left">
