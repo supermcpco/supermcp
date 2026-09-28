@@ -15,6 +15,7 @@ import { Badge } from "../lib/ui";
 import { message } from "../lib/errors";
 import { toast } from "../components/shell/toast";
 import { EmptyState, FormDialog, HeaderWithAction } from "../components/form-dialog";
+import { ConfirmDialog } from "../components/confirm-dialog";
 
 export const Route = createFileRoute("/_app/settings/service-accounts")({
   component: ServiceAccounts,
@@ -32,6 +33,11 @@ function ServiceAccounts() {
   const [issued, setIssued] = useState<{ clientId: string; secret: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  // The account whose deletion is being asked about. It outlives the
+  // dialog's closing, so the dialog keeps its name while it fades.
+  const [deleting, setDeleting] = useState<{ id: string; name: string } | null>(null);
+  const [asking, setAsking] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const refresh = () => qc.invalidateQueries({ queryKey: listServiceAccountsQueryKey() });
 
@@ -70,9 +76,12 @@ function ServiceAccounts() {
     ...deleteServiceAccountMutation(),
     onSuccess: async (_, vars) => {
       toast(`Service account ${nameOf(vars.path.id)} deleted`);
+      setAsking(false);
+      setDeleteError(null);
       await refresh();
     },
-    onError: failed,
+    // Said in the dialog it was asked from, which stays open to say it.
+    onError: (e) => setDeleteError(message(e)),
   });
 
   if (!can("serviceaccounts:manage")) {
@@ -89,18 +98,15 @@ function ServiceAccounts() {
   return (
     <div className="grid gap-8">
       <HeaderWithAction action={newAccount}>
-        <Text as="h1" variant="heading2">
+        <Text as="h2" variant="heading3">
           Service accounts
         </Text>
-        <Text>
-          A service account is a principal that is not a person: a pipeline, a scheduler, another service. It takes the
-          same roles a person would, and nobody has to lend it their own key.
-        </Text>
+        <Text>Sign-ins for pipelines and other services, holding roles the way a person does.</Text>
       </HeaderWithAction>
 
       {issued && (
         <div className="grid gap-1.5 rounded-lg px-5 py-4 ring ring-kumo-line" role="alert">
-          <Text as="h2" variant="heading3">
+          <Text as="h3" variant="heading3">
             Copy this secret now
           </Text>
           <Text variant="secondary">It is not stored and cannot be shown again.</Text>
@@ -168,7 +174,15 @@ function ServiceAccounts() {
               >
                 {a.disabledAt ? "Enable" : "Disable"}
               </Button>
-              <Button onClick={() => remove.mutate({ path: { id: a.id } })} disabled={remove.isPending}>
+              <Button
+                variant="secondary-destructive"
+                onClick={() => {
+                  setDeleteError(null);
+                  setDeleting({ id: a.id, name: a.name });
+                  setAsking(true);
+                }}
+                aria-label={`Delete ${a.name}`}
+              >
                 Delete
               </Button>
             </div>
@@ -176,6 +190,17 @@ function ServiceAccounts() {
         ))}
       </ul>
       {accounts.data?.accounts?.length === 0 && <EmptyState action={newAccount}>No service accounts yet.</EmptyState>}
+
+      <ConfirmDialog
+        open={asking}
+        onOpenChange={setAsking}
+        resourceType="Service account"
+        resourceName={deleting?.name ?? ""}
+        confirmLabel="Delete service account"
+        pending={remove.isPending}
+        error={deleteError}
+        onConfirm={() => deleting && remove.mutate({ path: { id: deleting.id } })}
+      />
     </div>
   );
 }

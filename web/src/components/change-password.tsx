@@ -13,9 +13,12 @@ import { toast } from "./shell/toast";
 export function ChangePassword({
   onChanged,
   intro = "Changing it signs out every other device.",
+  level = "h2",
 }: {
   onChanged?: (qc: QueryClient) => Promise<unknown>;
   intro?: string;
+  /** The heading's level where it is shown: a section of a tab sits a level lower. */
+  level?: "h2" | "h3";
 }) {
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
@@ -38,7 +41,7 @@ export function ChangePassword({
   return (
     <section className="grid gap-3">
       <div className="grid gap-1">
-        <Text as="h2" variant="heading3">
+        <Text as={level} variant="heading3">
           Change your password
         </Text>
         <Text variant="secondary">{intro}</Text>

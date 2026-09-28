@@ -22,6 +22,8 @@ import { formatSamples, isStale, parseSamples, referencingPolicies, verdicts } f
 import { Badge, Loading } from "../lib/ui";
 import { HistoryPanel } from "./revisions";
 import { toast } from "./shell/toast";
+import { ConfirmDialog } from "./confirm-dialog";
+import { Help, HeadingWithHelp } from "./help";
 
 /** How long typing must pause before the pattern is tried again. */
 const testTypingMs = 300;
@@ -48,12 +50,6 @@ export function DetectorsPanel({ canManage, canRestore }: { canManage: boolean; 
 
   return (
     <div className="grid gap-6">
-      <Text>
-        Patterns for identifiers only this workspace knows, such as customer numbers or contract ids. A rule runs a
-        detector when it names it, beside the built-in detectors it names. Each pattern is tried against its samples
-        whenever it is saved. Use made-up samples: they are stored as written.
-      </Text>
-
       {detectors.error && (
         <div role="alert">
           <Text>{message(detectors.error)}</Text>
@@ -61,9 +57,26 @@ export function DetectorsPanel({ canManage, canRestore }: { canManage: boolean; 
       )}
 
       <section className="grid gap-2">
-        <Text as="h2" variant="heading3">
-          Detectors
-        </Text>
+        <HeadingWithHelp
+          heading={
+            <Text as="h3" variant="heading3">
+              Detectors
+            </Text>
+          }
+          help={
+            <Help about="detectors">
+              <Text>
+                A rule runs one of this workspace&rsquo;s detectors when it names it, beside the built-in detectors it
+                names.
+              </Text>
+              <Text>
+                Each pattern is tried against its samples whenever it is saved. Use made-up samples: they are stored as
+                written.
+              </Text>
+            </Help>
+          }
+        />
+        <Text variant="secondary">Patterns for identifiers only this workspace knows, such as contract ids.</Text>
         {detectors.isPending && <Loading />}
         {!detectors.isPending && list.length === 0 && (
           <Text variant="secondary">No detectors of this workspace's own yet; rules use the built-in ones.</Text>
@@ -131,7 +144,7 @@ export function DetectorsPanel({ canManage, canRestore }: { canManage: boolean; 
 
       {canManage && (
         <section className="grid gap-3">
-          <Text as="h2" variant="heading3">
+          <Text as="h3" variant="heading3">
             Add a detector
           </Text>
           <DetectorForm onDone={refresh} />
@@ -165,12 +178,17 @@ function EditDetector({ id, onDone, onCancel }: { id: string; onDone: () => Prom
  * built-in.
  */
 function DeleteDetector({ detector, onDeleted }: { detector: CustomDetectorDto; onDeleted: () => Promise<void> }) {
+  const [asking, setAsking] = useState(false);
   const remove = useMutation({
     ...dlpDetectorDeleteMutation(),
     onSuccess: async () => {
+      setAsking(false);
       toast(`Detector ${detector.name} deleted`);
       await onDeleted();
     },
+    // A refusal is said beside the detector, where the way past it (taking
+    // it out of the rules that use it) is offered.
+    onError: () => setAsking(false),
   });
   const users = remove.error ? referencingPolicies(remove.error) : [];
   return (
@@ -199,14 +217,26 @@ function DeleteDetector({ detector, onDeleted }: { detector: CustomDetectorDto; 
       )}
       <div>
         <Button
-          variant="secondary"
-          onClick={() => remove.mutate({ path: { id: detector.id } })}
+          variant="secondary-destructive"
+          onClick={() => {
+            remove.reset();
+            setAsking(true);
+          }}
           disabled={remove.isPending}
           aria-label={`Delete ${detector.name}`}
         >
           Delete
         </Button>
       </div>
+      <ConfirmDialog
+        open={asking}
+        onOpenChange={setAsking}
+        resourceType="Detector"
+        resourceName={detector.name}
+        confirmLabel="Delete detector"
+        pending={remove.isPending}
+        onConfirm={() => remove.mutate({ path: { id: detector.id } })}
+      />
     </div>
   );
 }

@@ -1,7 +1,8 @@
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button, Input, Text } from "@cloudflare/kumo";
+import { CaretDown, CaretRight } from "@phosphor-icons/react";
 import {
   createRoleBindingMutation,
   deleteRoleBindingMutation,
@@ -21,17 +22,22 @@ import { useSession } from "../lib/session";
 import { Badge, Loading } from "../lib/ui";
 import { message } from "../lib/errors";
 import { RoleEditor, type Holder } from "../components/role-editor";
-import { RevisionList } from "../components/revisions";
+import { HistoryPanel } from "../components/revisions";
 import { toast } from "../components/shell/toast";
+import { HeaderWithAction } from "../components/form-dialog";
+import { ConfirmDialog } from "../components/confirm-dialog";
+import { Help, HeadingWithHelp } from "../components/help";
 
 export const Route = createFileRoute("/_app/settings/roles")({
   component: Roles,
 });
 
-/** How many lines of "what it allows" a collapsed role shows. */
-const summaryLength = 4;
-
 const selectClass = "rounded-md border border-kumo-line bg-kumo-base px-3 py-2";
+
+const columns = ["Role", "Kind", "Holders", "Permissions", "Actions"] as const;
+
+/** Which role the editor dialog is open on: a new one, or an existing custom one. */
+type Editing = { key: number; role?: RoleDto };
 
 function Roles() {
   const { signedIn, can } = useSession();
@@ -90,10 +96,16 @@ function Roles() {
     [people, accounts.data],
   );
 
-  const [open, setOpen] = useState<string | null>(null);
-  const [editing, setEditing] = useState<string | null>(null);
+  // What each row has unfolded: its permissions, its holders, its history.
+  const [unfolded, setUnfolded] = useState<ReadonlySet<string>>(new Set());
+  const [holdersOf, setHoldersOf] = useState<string | null>(null);
   const [history, setHistory] = useState<string | null>(null);
-  const [confirming, setConfirming] = useState<string | null>(null);
+  // The editor is keyed afresh on every opening, so it starts from the
+  // role as it is now; the key is kept while it closes, so it fades out.
+  const [editing, setEditing] = useState<Editing>({ key: 0 });
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [deleting, setDeleting] = useState<RoleDto | null>(null);
+  const [asking, setAsking] = useState(false);
   const [kind, setKind] = useState<"user" | "service_account">("user");
   const [principal, setPrincipal] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -133,19 +145,28 @@ function Roles() {
     onSuccess: async (_, vars) => {
       const role = roleList.find((r) => r.id === vars.path.id)?.name;
       toast(role ? `Role ${role} deleted` : "Role deleted");
-      setConfirming(null);
-      setError(null);
+      setAsking(false);
       await refresh();
     },
-    onError: (e) => setError(message(e)),
   });
 
   if (!canRead) return <Text>You do not have permission to see the roles in this workspace.</Text>;
 
-  const toggle = (id: string) => {
-    setOpen((current) => (current === id ? null : id));
+  const unfold = (id: string) =>
+    setUnfolded((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  const toggleHolders = (id: string) => {
+    setHoldersOf((current) => (current === id ? null : id));
     setPrincipal("");
     setError(null);
+  };
+  const openEditor = (role?: RoleDto) => {
+    setEditing((current) => ({ key: current.key + 1, role }));
+    setEditorOpen(true);
   };
 
   // A change to a role is a new version in its history, so the history
@@ -153,242 +174,306 @@ function Roles() {
   // alone it would be served from the cache, and an open history panel
   // would go on showing the role as it was.
   const afterSave = async (id?: string) => {
-    setEditing(null);
+    setEditorOpen(false);
     await Promise.all([
       refresh(),
       id ? qc.invalidateQueries({ queryKey: rolesRevisionsListQueryKey({ path: { id } }) }) : undefined,
     ]);
   };
 
+  const build = canManage ? (
+    <Button variant="primary" onClick={() => openEditor()}>
+      Build a role
+    </Button>
+  ) : null;
+
   return (
-    <div className="grid gap-8">
-      <div className="grid gap-1.5">
-        <Text as="h1" variant="heading2">
-          Roles
-        </Text>
-        <Text>
-          A role is a named set of things somebody is allowed to do. Give a person or a service account a role and they
-          can do everything it lists, anywhere in this workspace.
-        </Text>
-        <Text variant="secondary">
-          The roles that came with the product are the same everywhere and cannot be changed. Build one of your own for
-          anything else, and the screen will tell you what somebody holding it could do before you save it.
-        </Text>
-      </div>
+    <div className="grid gap-6">
+      <HeaderWithAction action={build}>
+        <HeadingWithHelp
+          heading={
+            <Text as="h2" variant="heading3">
+              Roles
+            </Text>
+          }
+          help={
+            <Help about="roles">
+              <Text>
+                A role is a named set of things somebody is allowed to do. Give a person or a service account a role
+                and they can do everything it lists, anywhere in this workspace.
+              </Text>
+              <Text>
+                The roles that came with the product are the same everywhere and cannot be changed. Build one of your
+                own for anything else, and the editor tells you what somebody holding it could do before you save it.
+              </Text>
+            </Help>
+          }
+        />
+        <Text>What each role allows, and who holds it.</Text>
+      </HeaderWithAction>
 
-      {error && !open && (
+      {roles.isPending && <Loading />}
+      {roles.error && (
         <div role="alert" className="rounded-md bg-kumo-tint px-4 py-3 ring ring-kumo-line">
-          <Text>{error}</Text>
+          <Text>{message(roles.error)}</Text>
         </div>
       )}
 
-      {canManage && editing !== "new" && (
-        <div>
-          <Button variant="primary" onClick={() => setEditing("new")}>
-            Build a role
-          </Button>
+      {roleList.length > 0 && (
+        <div className="overflow-x-auto">
+          <table className="w-full text-left">
+            <caption className="sr-only">Roles in this workspace</caption>
+            <thead>
+              <tr className="border-b border-kumo-line">
+                {columns.map((h) => (
+                  <th key={h} scope="col" className="py-2 pr-4">
+                    <Text as="span" variant="secondary">
+                      {h}
+                    </Text>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {roleList.map((role, index) => {
+                const open = unfolded.has(role.id);
+                const holding = holdersOf === role.id;
+                const showingHistory = history === role.id;
+                const details = `role-${role.id}-details`;
+                const bindings = holderQueries[index]?.data?.bindings ?? [];
+                const custom = !role.builtIn;
+                return (
+                  <Fragment key={role.id}>
+                    <tr className="border-b border-kumo-line align-top">
+                      <td className="py-2 pr-4">
+                        <button
+                          type="button"
+                          className="flex items-center gap-1.5 rounded text-left font-semibold focus-visible:ring-2 focus-visible:ring-kumo-brand focus-visible:outline-none"
+                          aria-expanded={open}
+                          aria-controls={open ? details : undefined}
+                          onClick={() => unfold(role.id)}
+                        >
+                          <span className="h-lh flex items-center">
+                            {open ? <CaretDown size={14} aria-hidden /> : <CaretRight size={14} aria-hidden />}
+                          </span>
+                          {role.name}
+                        </button>
+                        {role.description && (
+                          <Text as="span" variant="secondary">
+                            {role.description}
+                          </Text>
+                        )}
+                      </td>
+                      <td className="py-2 pr-4">
+                        <Badge>{custom ? "custom" : "built in"}</Badge>
+                      </td>
+                      <td className="py-2 pr-4">
+                        <Text as="span">{role.holders}</Text>
+                      </td>
+                      <td className="py-2 pr-4">
+                        <Text as="span">{role.permissions.length}</Text>
+                      </td>
+                      <td className="py-2">
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            size="sm"
+                            onClick={() => toggleHolders(role.id)}
+                            aria-expanded={holding}
+                            aria-label={`${holding ? "Hide who holds" : "Who holds"} ${role.name}`}
+                          >
+                            {holding ? "Hide holders" : "Who holds it"}
+                          </Button>
+                          {custom && canManage && (
+                            <Button size="sm" onClick={() => openEditor(role)} aria-label={`Change what ${role.name} allows`}>
+                              Change
+                            </Button>
+                          )}
+                          {custom && (
+                            <Button
+                              size="sm"
+                              onClick={() => setHistory((current) => (current === role.id ? null : role.id))}
+                              aria-expanded={showingHistory}
+                              aria-label={`${showingHistory ? "Hide the history of" : "History of"} ${role.name}`}
+                            >
+                              {showingHistory ? "Hide history" : "History"}
+                            </Button>
+                          )}
+                          {custom && canManage && (
+                            <Button
+                              size="sm"
+                              variant="secondary-destructive"
+                              onClick={() => {
+                                remove.reset();
+                                setDeleting(role);
+                                setAsking(true);
+                              }}
+                              aria-label={`Delete ${role.name}`}
+                            >
+                              Delete
+                            </Button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                    {(open || holding || showingHistory) && (
+                      <tr className="border-b border-kumo-line">
+                        <td colSpan={columns.length} className="py-3 pl-6">
+                          <div className="grid gap-4">
+                          {open && (
+                            <section id={details} aria-label={`Permissions of ${role.name}`} className="grid gap-1">
+                              <Text as="span" variant="secondary">
+                                What it allows
+                              </Text>
+                              <ul className="grid list-disc gap-1 pl-5">
+                                {role.permissions.map((p) => (
+                                  <li key={p}>
+                                    <Text as="span">{allows.get(p) ?? p}</Text>
+                                  </li>
+                                ))}
+                              </ul>
+                            </section>
+                          )}
+                          {holding && (
+                            <section aria-label={`Holders of ${role.name}`} className="grid gap-3">
+                              {/* Beside the buttons it belongs to: a refusal at
+                                  the top of a long table is one nobody reads. */}
+                              {error && (
+                                <div role="alert" className="rounded-md bg-kumo-tint px-4 py-3 ring ring-kumo-line">
+                                  <Text>{error}</Text>
+                                </div>
+                              )}
+                              <ul className="grid gap-2">
+                                {bindings.map((b) => (
+                                  <li key={b.id} className="flex flex-wrap items-center justify-between gap-3">
+                                    <div className="grid gap-0.5">
+                                      <Text as="span">{b.display || b.principalId}</Text>
+                                      <Text as="span" variant="secondary">
+                                        {holderKind(b)}
+                                        {scope(b)}
+                                        {b.source === "sso" ? " · from your identity provider" : ""}
+                                      </Text>
+                                    </div>
+                                    {canManage && (
+                                      <Button
+                                        onClick={() => revoke.mutate({ path: { id: role.id, bindingId: b.id } })}
+                                        disabled={revoke.isPending}
+                                      >
+                                        Take away
+                                      </Button>
+                                    )}
+                                  </li>
+                                ))}
+                                {bindings.length === 0 && (
+                                  <li>
+                                    <Text variant="secondary">Nobody holds this role.</Text>
+                                  </li>
+                                )}
+                              </ul>
+
+                              {canManage && (
+                                <form
+                                  className="flex flex-wrap items-end gap-3"
+                                  onSubmit={(e) => {
+                                    e.preventDefault();
+                                    grant.mutate({
+                                      path: { id: role.id },
+                                      body: { principalKind: kind, principalId: principal, scopeKind: "org" },
+                                    });
+                                  }}
+                                >
+                                  <label className="grid gap-1.5">
+                                    <Text as="span">Give it to</Text>
+                                    <select
+                                      className={selectClass}
+                                      value={kind}
+                                      onChange={(e) => {
+                                        setKind(e.target.value === "service_account" ? "service_account" : "user");
+                                        setPrincipal("");
+                                      }}
+                                    >
+                                      <option value="user">A person</option>
+                                      <option value="service_account">A service account</option>
+                                    </select>
+                                  </label>
+                                  {kind === "service_account" ? (
+                                    <label className="grid flex-1 gap-1.5">
+                                      <Text as="span">Service account</Text>
+                                      <select
+                                        className={selectClass}
+                                        value={principal}
+                                        onChange={(e) => setPrincipal(e.target.value)}
+                                      >
+                                        <option value="">Choose one</option>
+                                        {accounts.data?.accounts?.map((a) => (
+                                          <option key={a.id} value={a.id}>
+                                            {a.name}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    </label>
+                                  ) : (
+                                    <label className="grid flex-1 gap-1.5">
+                                      <Text as="span">Person</Text>
+                                      <Input
+                                        list={`people-${role.id}`}
+                                        value={principal}
+                                        onChange={(e) => setPrincipal(e.target.value)}
+                                        placeholder="Name or user id"
+                                      />
+                                      <datalist id={`people-${role.id}`}>
+                                        {people.map((p) => (
+                                          <option key={p.id} value={p.id}>
+                                            {p.display}
+                                          </option>
+                                        ))}
+                                      </datalist>
+                                    </label>
+                                  )}
+                                  <Button type="submit" variant="primary" disabled={grant.isPending || !principal}>
+                                    Give this role
+                                  </Button>
+                                </form>
+                              )}
+                            </section>
+                          )}
+                          {showingHistory && <RoleHistory role={role} canRestore={canRestore} onRestored={refresh} />}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       )}
+      {roles.isSuccess && roleList.length === 0 && <Text variant="secondary">No roles yet.</Text>}
 
-      {canManage && editing === "new" && (
+      {canManage && (
         <RoleEditor
+          key={editing.key}
+          open={editorOpen}
+          onOpenChange={setEditorOpen}
+          role={editing.role}
           groups={permissions.data?.groups ?? []}
           holders={previewHolders}
-          onSaved={() => afterSave()}
-          onCancel={() => setEditing(null)}
+          onSaved={() => afterSave(editing.role?.id)}
         />
       )}
 
-      <ul className="grid gap-2">
-        {roleList.map((role, index) => {
-          const expanded = open === role.id;
-          const descriptions = role.permissions.map((p) => allows.get(p) ?? p);
-          const shown = expanded ? descriptions : descriptions.slice(0, summaryLength);
-          const bindings = holderQueries[index]?.data?.bindings ?? [];
-          return (
-            <li key={role.id} className="grid gap-4 rounded-lg px-5 py-4 ring ring-kumo-line">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="grid gap-1">
-                  <div className="flex items-center gap-2">
-                    <Text as="span" bold>
-                      {role.name}
-                    </Text>
-                    {role.builtIn && <Badge>built in</Badge>}
-                  </div>
-                  {role.description && <Text as="span">{role.description}</Text>}
-                  <Text as="span" variant="secondary">
-                    {holders(role.holders)}
-                  </Text>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <Button onClick={() => toggle(role.id)} aria-expanded={expanded}>
-                    {expanded ? "Hide holders" : "Who holds it"}
-                  </Button>
-                  {!role.builtIn && canManage && editing !== role.id && (
-                    <Button onClick={() => setEditing(role.id)}>Change what it allows</Button>
-                  )}
-                  {!role.builtIn && (
-                    <Button
-                      onClick={() => setHistory((current) => (current === role.id ? null : role.id))}
-                      aria-expanded={history === role.id}
-                    >
-                      {history === role.id ? "Hide history" : "History"}
-                    </Button>
-                  )}
-                  {!role.builtIn && canManage && confirming !== role.id && (
-                    <Button onClick={() => setConfirming(role.id)}>Delete</Button>
-                  )}
-                  {!role.builtIn && canManage && confirming === role.id && (
-                    <>
-                      <Button
-                        variant="primary"
-                        disabled={remove.isPending}
-                        onClick={() => remove.mutate({ path: { id: role.id } })}
-                      >
-                        Delete {role.name} for good
-                      </Button>
-                      <Button onClick={() => setConfirming(null)}>Keep it</Button>
-                    </>
-                  )}
-                </div>
-              </div>
-
-              <div className="grid gap-1">
-                <Text as="span" variant="secondary">
-                  What it allows
-                </Text>
-                <ul className="grid list-disc gap-1 pl-5">
-                  {shown.map((line) => (
-                    <li key={line}>
-                      <Text as="span">{line}</Text>
-                    </li>
-                  ))}
-                </ul>
-                {!expanded && descriptions.length > summaryLength && (
-                  <Text variant="secondary">and {descriptions.length - summaryLength} more</Text>
-                )}
-              </div>
-
-              {canManage && editing === role.id && (
-                <RoleEditor
-                  role={role}
-                  groups={permissions.data?.groups ?? []}
-                  holders={previewHolders}
-                  onSaved={() => afterSave(role.id)}
-                  onCancel={() => setEditing(null)}
-                />
-              )}
-
-              {history === role.id && <RoleHistory role={role} canRestore={canRestore} onRestored={refresh} />}
-
-              {expanded && (
-                <div className="grid gap-3 border-t border-kumo-line pt-4">
-                  {/* Beside the buttons it belongs to: this page is long,
-                      and a refusal at the top is a refusal nobody reads. */}
-                  {error && (
-                    <div role="alert" className="rounded-md bg-kumo-tint px-4 py-3 ring ring-kumo-line">
-                      <Text>{error}</Text>
-                    </div>
-                  )}
-                  <ul className="grid gap-2">
-                    {bindings.map((b) => (
-                      <li key={b.id} className="flex flex-wrap items-center justify-between gap-3">
-                        <div className="grid gap-0.5">
-                          <Text as="span">{b.display || b.principalId}</Text>
-                          <Text as="span" variant="secondary">
-                            {holderKind(b)}
-                            {scope(b)}
-                            {b.source === "sso" ? " · from your identity provider" : ""}
-                          </Text>
-                        </div>
-                        {canManage && (
-                          <Button
-                            onClick={() => revoke.mutate({ path: { id: role.id, bindingId: b.id } })}
-                            disabled={revoke.isPending}
-                          >
-                            Take away
-                          </Button>
-                        )}
-                      </li>
-                    ))}
-                    {bindings.length === 0 && (
-                      <li>
-                        <Text variant="secondary">Nobody holds this role.</Text>
-                      </li>
-                    )}
-                  </ul>
-
-                  {canManage && (
-                    <form
-                      className="flex flex-wrap items-end gap-3"
-                      onSubmit={(e) => {
-                        e.preventDefault();
-                        grant.mutate({
-                          path: { id: role.id },
-                          body: { principalKind: kind, principalId: principal, scopeKind: "org" },
-                        });
-                      }}
-                    >
-                      <label className="grid gap-1.5">
-                        <Text as="span">Give it to</Text>
-                        <select
-                          className={selectClass}
-                          value={kind}
-                          onChange={(e) => {
-                            setKind(e.target.value === "service_account" ? "service_account" : "user");
-                            setPrincipal("");
-                          }}
-                        >
-                          <option value="user">A person</option>
-                          <option value="service_account">A service account</option>
-                        </select>
-                      </label>
-                      {kind === "service_account" ? (
-                        <label className="grid flex-1 gap-1.5">
-                          <Text as="span">Service account</Text>
-                          <select className={selectClass} value={principal} onChange={(e) => setPrincipal(e.target.value)}>
-                            <option value="">Choose one</option>
-                            {accounts.data?.accounts?.map((a) => (
-                              <option key={a.id} value={a.id}>
-                                {a.name}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                      ) : (
-                        <label className="grid flex-1 gap-1.5">
-                          <Text as="span">Person</Text>
-                          <Input
-                            list={`people-${role.id}`}
-                            value={principal}
-                            onChange={(e) => setPrincipal(e.target.value)}
-                            placeholder="Name or user id"
-                          />
-                          <datalist id={`people-${role.id}`}>
-                            {people.map((p) => (
-                              <option key={p.id} value={p.id}>
-                                {p.display}
-                              </option>
-                            ))}
-                          </datalist>
-                        </label>
-                      )}
-                      <Button type="submit" variant="primary" disabled={grant.isPending || !principal}>
-                        Give this role
-                      </Button>
-                    </form>
-                  )}
-                </div>
-              )}
-            </li>
-          );
-        })}
-        {roles.isSuccess && roleList.length === 0 && (
-          <li>
-            <Text variant="secondary">No roles yet.</Text>
-          </li>
-        )}
-      </ul>
+      {canManage && (
+        <ConfirmDialog
+          open={asking}
+          onOpenChange={setAsking}
+          resourceType="Role"
+          resourceName={deleting?.name ?? ""}
+          confirmLabel="Delete role"
+          pending={remove.isPending}
+          error={remove.error ? message(remove.error) : null}
+          onConfirm={() => deleting && remove.mutate({ path: { id: deleting.id } })}
+        />
+      )}
     </div>
   );
 }
@@ -413,37 +498,18 @@ function RoleHistory({ role, canRestore, onRestored }: { role: RoleDto; canResto
   });
 
   return (
-    <div className="grid gap-3 border-t border-kumo-line pt-4">
-      <Text as="span" variant="secondary">
-        Every change to this role, newest first. Restoring an earlier version is recorded as a further change rather
-        than a rewind.
-      </Text>
-      {restore.error && (
-        <div role="alert">
-          <Text>{message(restore.error)}</Text>
-        </div>
-      )}
-      {/* "Nothing has changed yet" is a claim, and a screen that makes it
-          before the answer has arrived is telling the reader something it
-          does not know. */}
-      {revisions.isPending ? (
-        <Loading />
-      ) : (
-        <RevisionList
-          revisions={revisions.data?.revisions ?? []}
-          canRestore={canRestore}
-          restoring={restore.isPending}
-          onRestore={(revision) => restore.mutate({ path: { id: role.id, revision } })}
-          empty="Nothing has changed about this role yet."
-        />
-      )}
-    </div>
+    <HistoryPanel
+      label={`History of ${role.name}`}
+      intro="Every change to this role, newest first. Restoring an earlier version is recorded as a further change rather than a rewind."
+      loading={revisions.isPending}
+      revisions={revisions.data?.revisions ?? []}
+      error={restore.error ? message(restore.error) : revisions.error ? message(revisions.error) : null}
+      canRestore={canRestore}
+      restoring={restore.isPending}
+      onRestore={(revision) => restore.mutate({ path: { id: role.id, revision } })}
+      empty="Nothing has changed about this role yet."
+    />
   );
-}
-
-function holders(count: number) {
-  if (count === 0) return "Nobody holds this role";
-  return count === 1 ? "1 holder" : `${count} holders`;
 }
 
 function holderKind(b: BindingDto) {

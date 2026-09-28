@@ -1,20 +1,13 @@
 import type { Icon } from "@phosphor-icons/react";
 import {
   ChartLine,
-  ClipboardText,
+  GearSix,
   Key,
   Plugs,
-  Pulse,
-  Robot,
   SealCheck,
-  ShieldCheck,
-  ShieldWarning,
-  SignIn,
   SquaresFour,
   Stack,
   Storefront,
-  Users,
-  UsersThree,
 } from "@phosphor-icons/react";
 import type { LinkProps } from "@tanstack/react-router";
 
@@ -40,8 +33,9 @@ export interface NavGroup {
  * An item is listed exactly when the person can open its screen without
  * being refused: `needs` is what the screen's first read asks the server
  * for. Write controls are the screens' own business, and each hides them
- * from somebody who may only read. Single sign-on and service accounts
- * have no read-only view, so they need the permission to manage them.
+ * from somebody who may only read. Settings is one screen of tabs, and
+ * its Security tab (your own password) needs nothing, so it is listed
+ * for everyone; which of its tabs a person sees is decided on the screen.
  */
 export const navGroups: readonly NavGroup[] = [
   {
@@ -62,34 +56,31 @@ export const navGroups: readonly NavGroup[] = [
       // Somebody who may only ask sees their own requests there; an
       // approver sees the queue.
       { to: "/approvals", label: "Approvals", icon: SealCheck, needs: ["approvals:request", "approvals:decide"] },
-      { to: "/status", label: "Status", icon: Pulse },
     ],
   },
   {
     label: "Settings",
-    items: [
-      { to: "/settings/members", label: "Members", icon: Users, needs: "org:read" },
-      // Your own password and sessions: anyone signed in.
-      { to: "/settings/security", label: "Security", icon: ShieldCheck },
-      { to: "/settings/audit", label: "Audit trail", icon: ClipboardText, needs: "audit:read" },
-      { to: "/settings/dlp", label: "Data-loss rules", icon: ShieldWarning, needs: "connectors:read" },
-      { to: "/settings/roles", label: "Roles", icon: UsersThree, needs: "roles:read" },
-      { to: "/settings/sso", label: "Single sign-on", icon: SignIn, needs: "idp:manage" },
-      { to: "/settings/service-accounts", label: "Service accounts", icon: Robot, needs: "serviceaccounts:manage" },
-    ],
+    items: [{ to: "/settings", label: "Settings", icon: GearSix }],
   },
 ];
+
+/**
+ * Whether somebody may open a screen that needs `needs`: nothing, one
+ * permission, or any one of a list. The sidebar and the settings tabs
+ * both ask it, so the two cannot disagree about what a person may read.
+ */
+export function mayOpen(can: (permission: string) => boolean, needs?: string | readonly string[]): boolean {
+  if (needs === undefined) return true;
+  const any: readonly string[] = typeof needs === "string" ? [needs] : needs;
+  return any.some(can);
+}
 
 /**
  * The groups as one person sees them: items they lack the permission for
  * are left out, and a group left with nothing is left out with them.
  */
 export function visibleGroups(can: (permission: string) => boolean, groups: readonly NavGroup[] = navGroups): NavGroup[] {
-  const allowed = (item: NavItem) => {
-    if (item.needs === undefined) return true;
-    const needs: readonly string[] = typeof item.needs === "string" ? [item.needs] : item.needs;
-    return needs.some(can);
-  };
+  const allowed = (item: NavItem) => mayOpen(can, item.needs);
   return groups
     .map((g) => ({ ...g, items: g.items.filter(allowed) }))
     .filter((g) => g.items.length > 0);
