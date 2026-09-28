@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button, Text } from "@cloudflare/kumo";
@@ -7,33 +7,157 @@ import {
   getPasswordPolicyQueryKey,
   listSessionsOptions,
   listSessionsQueryKey,
+  meUpdateMutation,
   revokeSessionMutation,
+  sessionQueryKey,
   setPasswordPolicyMutation,
 } from "../api/@tanstack/react-query.gen";
 import { useSession } from "../lib/session";
 import { Badge } from "../lib/ui";
-import { message } from "../lib/errors";
+import { asSentence, details, message } from "../lib/errors";
 import { ChangePassword } from "../components/change-password";
 import { toast } from "../components/shell/toast";
 import { LabelledInput } from "../components/labelled-input";
 
+/**
+ * Account: who you are here, your password, the devices you are signed in
+ * on, and the password rules this workspace sets for everyone. It keeps
+ * the address it had when it held only the security parts, so links to it
+ * (the account menu's among them) still land here.
+ */
 export const Route = createFileRoute("/_app/settings/security")({
-  component: Security,
+  component: Account,
 });
 
-function Security() {
+function Account() {
   return (
     <div className="grid gap-8">
       <div className="grid gap-1.5">
         <Text as="h2" variant="heading">
-          Security
+          Account
         </Text>
-        <Text>Your password, the devices you are signed in on, and the rules this workspace sets for everyone.</Text>
+        <Text>
+          Your name, your password, the devices you are signed in on, and the password rules this workspace sets for
+          everyone.
+        </Text>
       </div>
+      <Profile />
       <ChangePassword level="h3" onChanged={(qc) => qc.invalidateQueries({ queryKey: listSessionsQueryKey() })} />
       <Sessions />
       <PasswordPolicy />
     </div>
+  );
+}
+
+/** How a session signed in, in words. */
+function signInMethod(method?: string, provider?: string): string {
+  switch (method) {
+    case "password":
+      return "Password";
+    case "sso":
+    case "saml":
+      return provider ? `Single sign-on through ${provider}` : "Single sign-on";
+    default:
+      return "Unknown";
+  }
+}
+
+/**
+ * The person's own email and display name. The email is how they sign in
+ * and is not theirs to change here; the name is what other people see in
+ * the members list and what the sidebar shows instead of the address.
+ */
+function Profile() {
+  const { session } = useSession();
+  const qc = useQueryClient();
+  const errorId = useId();
+  const saved = session?.user?.name ?? "";
+  // What the server holds until somebody types; the typing takes over from
+  // there, and a save hands it back to the server's answer.
+  const [edited, setEdited] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const name = edited ?? saved;
+
+  const save = useMutation({
+    ...meUpdateMutation(),
+    onSuccess: (body) => {
+      // The answer is the session itself, so the sidebar shows the new
+      // name without asking again.
+      qc.setQueryData(sessionQueryKey(), body);
+      setEdited(null);
+      setError(null);
+      toast("Name saved");
+    },
+    onError: (e) => {
+      const field = details(e).find((d) => d.location === "body.name")?.message;
+      setError(asSentence(field || message(e)));
+    },
+  });
+
+  const changed = name.trim() !== saved.trim();
+
+  return (
+    <section className="grid gap-3" aria-labelledby="profile-heading">
+      <div className="grid gap-1">
+        <Text as="h3" variant="heading" id="profile-heading">
+          Profile
+        </Text>
+        <Text variant="secondary">Your name is what other people in this workspace see, and what the sidebar shows.</Text>
+      </div>
+      <div className="grid max-w-3xl gap-4 rounded-lg px-5 py-4 ring ring-kumo-line">
+        <dl className="grid gap-x-6 gap-y-1 sm:grid-cols-[max-content_1fr]">
+          <dt>
+            <Text as="span" variant="secondary">
+              Email
+            </Text>
+          </dt>
+          <dd>
+            <Text as="span">{session?.user?.email}</Text>
+          </dd>
+          <dt>
+            <Text as="span" variant="secondary">
+              Signed in with
+            </Text>
+          </dt>
+          <dd>
+            <Text as="span">{signInMethod(session?.signIn?.method, session?.signIn?.providerName)}</Text>
+          </dd>
+        </dl>
+        <form
+          className="grid gap-2"
+          aria-label="Your name"
+          onSubmit={(e) => {
+            e.preventDefault();
+            setError(null);
+            save.mutate({ body: { name } });
+          }}
+        >
+          <div className="flex flex-wrap items-end gap-3">
+            <LabelledInput
+              labelClassName="grid flex-1 gap-1.5"
+              label="Name"
+              autoComplete="name"
+              placeholder="How you want to be shown"
+              value={name}
+              aria-invalid={error ? true : undefined}
+              aria-describedby={error ? errorId : undefined}
+              onChange={(e) => {
+                setEdited(e.currentTarget.value);
+                setError(null);
+              }}
+            />
+            <Button type="submit" variant="primary" disabled={save.isPending || !changed}>
+              Save name
+            </Button>
+          </div>
+          {error && (
+            <div role="alert" id={errorId}>
+              <Text>{error}</Text>
+            </div>
+          )}
+        </form>
+      </div>
+    </section>
   );
 }
 

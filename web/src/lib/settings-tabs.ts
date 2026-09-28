@@ -27,8 +27,9 @@ export interface SettingsTab {
 export const settingsTabs: readonly SettingsTab[] = [
   { to: "/settings/members", label: "Members", needs: "org:read" },
   { to: "/settings/roles", label: "Roles", needs: "roles:read" },
-  // Your own password and sessions: anyone signed in.
-  { to: "/settings/security", label: "Security" },
+  // Your own name, password and sessions: anyone signed in. The address
+  // is the one it had as "Security", so older links still land on it.
+  { to: "/settings/security", label: "Account" },
   { to: "/settings/audit", label: "Audit", needs: "audit:read" },
   { to: "/settings/dlp", label: "Data-loss rules", needs: "connectors:read" },
   { to: "/settings/sso", label: "Single sign-on", needs: "idp:manage" },
@@ -37,7 +38,7 @@ export const settingsTabs: readonly SettingsTab[] = [
   { to: "/settings/instance", label: "Instance" },
 ];
 
-/** The tabs one person sees. Security and Instance need nothing, so it is never empty. */
+/** The tabs one person sees. Account and Instance need nothing, so it is never empty. */
 export function visibleSettingsTabs(can: (permission: string) => boolean): SettingsTab[] {
   return settingsTabs.filter((t) => mayOpen(can, t.needs));
 }

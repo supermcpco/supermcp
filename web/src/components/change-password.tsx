@@ -7,7 +7,7 @@ import { toast } from "./shell/toast";
 import { LabelledInput } from "./labelled-input";
 
 /**
- * Changing your own password. The security screen shows it, and so does
+ * Changing your own password. The account screen shows it, and so does
  * the shell in place of every other screen when the workspace's maximum
  * age has passed: until the password changes, nothing else will answer.
  */

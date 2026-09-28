@@ -14,7 +14,7 @@ describe("settings tabs", () => {
     expect(labels(["*"])).toEqual([
       "Members",
       "Roles",
-      "Security",
+      "Account",
       "Audit",
       "Data-loss rules",
       "Single sign-on",
@@ -24,7 +24,7 @@ describe("settings tabs", () => {
   });
 
   it("shows a viewer only the tabs they may read", () => {
-    expect(labels(viewer)).toEqual(["Members", "Roles", "Security", "Data-loss rules", "Instance"]);
+    expect(labels(viewer)).toEqual(["Members", "Roles", "Account", "Data-loss rules", "Instance"]);
   });
 
   it("shows an auditor the audit trail", () => {
@@ -32,8 +32,8 @@ describe("settings tabs", () => {
     expect(labels(auditor)).not.toContain("Single sign-on");
   });
 
-  it("leaves somebody who holds almost nothing their own security and the instance", () => {
-    expect(labels(consumer)).toEqual(["Security", "Instance"]);
+  it("leaves somebody who holds almost nothing their own account and the instance", () => {
+    expect(labels(consumer)).toEqual(["Account", "Instance"]);
   });
 
   it("opens on the first tab the person may read", () => {
