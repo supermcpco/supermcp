@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/go-chi/chi/v5/middleware"
@@ -42,7 +43,29 @@ func (d Deps) emitAs(ctx context.Context, e audit.Event) {
 	if e.RequestID == "" {
 		e.RequestID = middleware.GetReqID(ctx)
 	}
-	d.Audit.Emit(ctx, e)
+	ectx, cancel := auditContext(ctx)
+	defer cancel()
+	d.Audit.Emit(ectx, e)
+}
+
+// auditEmitGrace is how long an event may wait for room in a full audit
+// queue once the caller that caused it has gone.
+const auditEmitGrace = 5 * time.Second
+
+// auditContext is the context an audit event is queued under. The event
+// records something that has already happened, so the caller hanging up
+// must not drop it: under SUPERMCP_AUDIT_ON_UNAVAILABLE=block a full
+// queue makes Emit wait for room until its context ends, and the
+// request's context ends the moment the connection closes. So the
+// cancellation is not inherited, and the wait lasts until the request's
+// own deadline (the router's limit) or auditEmitGrace from now,
+// whichever is later: a caller still there waits as long as before.
+func auditContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	deadline := time.Now().Add(auditEmitGrace)
+	if dl, ok := ctx.Deadline(); ok && dl.After(deadline) {
+		deadline = dl
+	}
+	return context.WithDeadline(context.WithoutCancel(ctx), deadline)
 }
 
 // admin records a change an administrator made, with what it changed.
