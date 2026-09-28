@@ -157,14 +157,18 @@ test("the client picker groups its clients and remembers the last one picked", a
   await pick(card, "VS Code (GitHub Copilot)");
   const vscode = card.getByRole("region", { name: "VS Code (GitHub Copilot) config" });
   await expect(vscode).toContainText(".vscode/mcp.json");
-  const entry = Object.values((await configIn(vscode)).servers)[0] as {
+  await expect(vscode).toContainText("VS Code asks for the key");
+  const cfg = await configIn(vscode);
+  const entry = Object.values(cfg.servers)[0] as {
     type: string;
     url: string;
     headers: { Authorization: string };
   };
   expect(entry.type).toBe("http");
   expect(entry.url).toMatch(new RegExp(`/mcp/${serverId}$`));
-  expect(entry.headers.Authorization).toBe("Bearer <your API key>");
+  // The key is prompted for, not written into the file.
+  expect(entry.headers.Authorization).toBe("Bearer ${input:api-token}");
+  expect(cfg.inputs).toEqual([{ type: "promptString", id: "api-token", description: "<your API key>", password: true }]);
 
   // The pick outlives the page.
   await page.reload();

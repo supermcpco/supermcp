@@ -147,12 +147,12 @@ export function ConnectClient({
           <WithCode text={shown.where} />
         </Text>
         {shown.note && <Text variant="secondary">{shown.note}</Text>}
-        {!secret && (
+        {!secret && !shown.keyFrom && (
           <Text variant="secondary">
             Replace <span className="font-mono text-[0.9em]">&lt;your API key&gt;</span> with a key from API keys.
           </Text>
         )}
-        {shown.docs && (
+        {shown.docs ? (
           <Text variant="secondary">
             {shown.unchecked ? "Check this against the vendor's docs: the " : "The format is from the "}
             <a href={shown.docs} className="underline" target="_blank" rel="noreferrer">
@@ -160,6 +160,8 @@ export function ConnectClient({
             </a>
             .
           </Text>
+        ) : (
+          shown.unchecked && <Text variant="secondary">Check this against the vendor&apos;s docs.</Text>
         )}
         {/* Wrapped, not scrolled: a scrolling block would need its own tab stop. */}
         <pre className="rounded-md bg-kumo-tint px-3 py-2 font-mono text-[0.85em] break-all whitespace-pre-wrap">
