@@ -19,24 +19,20 @@ export function ChangePassword({
 }) {
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
-  const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const qc = useQueryClient();
 
   const change = useMutation({
     ...changePasswordMutation(),
     onSuccess: async () => {
-      toast("Password changed");
+      // The toast is the only confirmation, so it carries the consequence too.
+      toast("Password changed, and your other devices have been signed out");
       setCurrent("");
       setNext("");
-      setDone(true);
       setError(null);
       await onChanged?.(qc);
     },
-    onError: (e) => {
-      setDone(false);
-      setError(message(e));
-    },
+    onError: (e) => setError(message(e)),
   });
 
   return (
@@ -77,11 +73,6 @@ export function ChangePassword({
           Change password
         </Button>
       </form>
-      {done && (
-        <div role="status">
-          <Text>Password changed. Other devices have been signed out.</Text>
-        </div>
-      )}
       {error && (
         <div role="alert">
           <Text>{error}</Text>

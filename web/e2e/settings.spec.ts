@@ -56,7 +56,6 @@ test("the workspace's password rules are enforced on a real change", async ({ pa
 
   await page.getByLabel("Minimum length").fill("16");
   await page.getByRole("button", { name: "Save rules" }).click();
-  await expect(page.getByText("Saved.")).toBeVisible();
   await expect(page.getByRole("heading", { name: "Password rules saved", exact: true })).toBeVisible();
 
   // Too short for the rule that was just saved.
@@ -70,8 +69,9 @@ test("the workspace's password rules are enforced on a real change", async ({ pa
   await page.getByLabel("Current password").fill(workspace.password);
   await page.getByLabel("New password").fill(next);
   await page.getByRole("button", { name: "Change password" }).click();
-  await expect(page.getByRole("status")).toContainText(/password changed/i);
-  await expect(page.getByRole("heading", { name: "Password changed", exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Password changed, and your other devices have been signed out", exact: true }),
+  ).toBeVisible();
 
   // And the new password is the one that works.
   await page.context().clearCookies();

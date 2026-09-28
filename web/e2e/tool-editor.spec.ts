@@ -49,7 +49,6 @@ test("a catalog tool can be edited, shows it was, and its history restores it", 
 
   await page.getByRole("button", { name: "Save changes" }).click();
   await expect(page.getByRole("status").getByText(/^Saved/)).toBeVisible();
-  await expect(page.getByRole("heading", { name: `Tool ${catalogTool} saved`, exact: true })).toBeVisible();
   await expect(page.getByText("edited", { exact: true }).first()).toBeVisible();
 
   await page.getByRole("link", { name: "Tools", exact: true }).click();

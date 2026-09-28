@@ -196,7 +196,7 @@ test("the invite page states the workspace's own password rules, and an account 
   await page.getByLabel("Minimum length").fill("16");
   await page.getByLabel("Character classes").fill("3");
   await page.getByRole("button", { name: "Save rules" }).click();
-  await expect(page.getByText("Saved.")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Password rules saved", exact: true })).toBeVisible();
 
   const email = unique("meanwhile");
   const link = await invite(page, email, "viewer");

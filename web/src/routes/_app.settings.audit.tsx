@@ -312,20 +312,15 @@ function Retention() {
   // null while the field shows the stored value; a string once edited.
   const [draft, setDraft] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [note, setNote] = useState<string | null>(null);
   const save = useMutation({
     ...auditSetRetentionMutation(),
     onSuccess: async (r) => {
       setDraft(null);
       setError(null);
-      setNote(`Events now keep their content for ${r.days} days.`);
-      toast(`Retention set to ${r.days} days`);
+      toast(`Events now keep their content for ${r.days} days`);
       await qc.invalidateQueries({ queryKey: auditGetRetentionQueryKey() });
     },
-    onError: (e) => {
-      setNote(null);
-      setError(message(e));
-    },
+    onError: (e) => setError(message(e)),
   });
   const editable = can("audit:policy:manage");
 
@@ -385,11 +380,6 @@ function Retention() {
       {error && (
         <div role="alert">
           <Text>{error}</Text>
-        </div>
-      )}
-      {note && (
-        <div role="status">
-          <Text variant="secondary">{note}</Text>
         </div>
       )}
     </section>
@@ -506,21 +496,21 @@ function LegalHold() {
   const { can } = useSession();
   const [from, setFrom] = useState("");
   const [reason, setReason] = useState("");
-  const [note, setNote] = useState<string | null>(null);
-  const onError = (e: unknown) => setNote(message(e));
+  const [error, setError] = useState<string | null>(null);
+  const onError = (e: unknown) => setError(message(e));
   const place = useMutation({
     ...auditLegalHoldMutation(),
     onSuccess: (r) => {
-      setNote(`${r.held} events are now held.`);
-      toast(`Hold placed on ${r.held} events`);
+      setError(null);
+      toast(`${r.held} events are now held`);
     },
     onError,
   });
   const release = useMutation({
     ...auditLegalHoldReleaseMutation(),
     onSuccess: (r) => {
-      setNote(`${r.held} events were released.`);
-      toast(`Hold released on ${r.held} events`);
+      setError(null);
+      toast(`${r.held} events were released from the hold`);
     },
     onError,
   });
@@ -555,7 +545,11 @@ function LegalHold() {
           Release
         </Button>
       </div>
-      {note && <Text variant="secondary">{note}</Text>}
+      {error && (
+        <div role="alert">
+          <Text>{error}</Text>
+        </div>
+      )}
     </section>
   );
 }

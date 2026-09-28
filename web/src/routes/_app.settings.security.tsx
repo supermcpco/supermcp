@@ -113,26 +113,18 @@ function PasswordPolicy() {
   // takes over from there. Copying the query into state in an effect would
   // render twice and fight the next refetch.
   const [edited, setEdited] = useState<PolicyForm | null>(null);
-  const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const form: PolicyForm = edited ?? { ...defaultPolicy, ...policy.data };
-  const setForm = (next: PolicyForm) => {
-    setEdited(next);
-    setSaved(false);
-  };
+  const setForm = (next: PolicyForm) => setEdited(next);
 
   const save = useMutation({
     ...setPasswordPolicyMutation(),
     onSuccess: async () => {
       toast("Password rules saved");
-      setSaved(true);
       setError(null);
       await qc.invalidateQueries({ queryKey: getPasswordPolicyQueryKey() });
     },
-    onError: (e) => {
-      setSaved(false);
-      setError(message(e));
-    },
+    onError: (e) => setError(message(e)),
   });
 
   const editable = can("org:settings:manage");
@@ -204,11 +196,10 @@ function PasswordPolicy() {
           Of lower case, upper case, digits and symbols, a password must use this many. Zero days never expires.
         </Text>
         {editable && (
-          <div className="flex items-center gap-3">
+          <div>
             <Button type="submit" variant="primary" disabled={save.isPending}>
               Save rules
             </Button>
-            {saved && <Text variant="secondary">Saved.</Text>}
           </div>
         )}
       </form>
