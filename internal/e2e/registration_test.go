@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -164,8 +165,9 @@ func TestRegisterConcurrently(t *testing.T) {
 // TestRegisterFunctionDecides calls auth_register the way each release
 // does on a claimed instance. The current one refuses with SQLSTATE SM001
 // when open registration is off, so the refusal does not rest on the
-// check Register makes before it; the seven-argument form, which pods of
-// the previous release call during a rolling upgrade, still works.
+// check Register makes before it; the eight- and seven-argument forms,
+// which pods of earlier releases call during a rolling upgrade, still
+// work, and the eight-argument one still refuses.
 func TestRegisterFunctionDecides(t *testing.T) {
 	h := startWith(t, harnessOptions{dsn: unclaimedDatabase(t), closedRegistration: true})
 	ctx := context.Background()
@@ -178,23 +180,29 @@ func TestRegisterFunctionDecides(t *testing.T) {
 		name     string
 		sql      string
 		open     *bool
+		binding  bool           // pass a binding id, as the current form takes
 		iso      pgx.TxIsoLevel // "" is the server's default, READ COMMITTED
 		wantCode string         // "" for success
 	}{
-		{name: "closed", sql: registerSQL, open: new(false), wantCode: pgRegistrationClosed},
-		{name: "open", sql: registerSQL, open: new(true)},
-		{name: "previous release", sql: "SELECT auth_register($1,$2,'',NULL,$3,$4,'Org')"},
+		{name: "closed", sql: registerSQL, open: new(false), binding: true, wantCode: pgRegistrationClosed},
+		{name: "open", sql: registerSQL, open: new(true), binding: true},
+		{name: "previous release closed", sql: registerPreviousSQL, open: new(false), wantCode: pgRegistrationClosed},
+		{name: "previous release open", sql: registerPreviousSQL, open: new(true)},
+		{name: "release before", sql: "SELECT auth_register($1,$2,'',NULL,$3,$4,'Org')"},
 		// The lock only works under READ COMMITTED, so anything else is
 		// refused rather than left to race; an open instance takes no lock.
-		{name: "closed under repeatable read", sql: registerSQL, open: new(false), iso: pgx.RepeatableRead, wantCode: "P0001"},
-		{name: "closed under serializable", sql: registerSQL, open: new(false), iso: pgx.Serializable, wantCode: "P0001"},
-		{name: "open under repeatable read", sql: registerSQL, open: new(true), iso: pgx.RepeatableRead},
+		{name: "closed under repeatable read", sql: registerSQL, open: new(false), binding: true, iso: pgx.RepeatableRead, wantCode: "P0001"},
+		{name: "closed under serializable", sql: registerSQL, open: new(false), binding: true, iso: pgx.Serializable, wantCode: "P0001"},
+		{name: "open under repeatable read", sql: registerSQL, open: new(true), binding: true, iso: pgx.RepeatableRead},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			id := newID()
 			args := []any{id, id + "@e2e.test", newID(), "org-" + id}
 			if tc.open != nil {
 				args = append(args, *tc.open)
+			}
+			if tc.binding {
+				args = append(args, newID())
 			}
 			err := pgx.BeginTxFunc(ctx, h.db.App, pgx.TxOptions{IsoLevel: tc.iso}, func(tx pgx.Tx) error {
 				_, err := tx.Exec(ctx, tc.sql, args...)
@@ -212,13 +220,19 @@ func TestRegisterFunctionDecides(t *testing.T) {
 }
 
 // registerSQL calls the current auth_register with $1 the user id, $2 the
-// email, $3 the organisation id, $4 its slug and $5 whether open
-// registration is on.
-const registerSQL = "SELECT auth_register($1,$2,'',NULL,$3,$4,'Org',$5)"
+// email, $3 the organisation id, $4 its slug, $5 whether open
+// registration is on and $6 the owner binding's id.
+const registerSQL = "SELECT auth_register($1,$2,'',NULL,$3,$4,'Org',$5,$6)"
+
+// registerPreviousSQL is the eight-argument auth_register of migration
+// 00035, which pods of the previous release call: registerSQL without $6.
+const registerPreviousSQL = "SELECT auth_register($1,$2,'',NULL,$3,$4,'Org',$5)"
 
 const (
 	// pgRegistrationClosed is the SQLSTATE auth_register refuses with.
 	pgRegistrationClosed = "SM001"
+	// pgForeignKeyViolation is what a binding to a missing role raises.
+	pgForeignKeyViolation = "23503"
 	// pgLockNotAvailable is what running out of lock_timeout raises.
 	pgLockNotAvailable = "55P03"
 	// registerLockClass is the advisory lock class auth_register takes
@@ -229,7 +243,7 @@ const (
 // registerArgs are registerSQL's arguments for a fresh user.
 func registerArgs(open bool) []any {
 	id := newID()
-	return []any{id, id + "@e2e.test", newID(), "org-" + id, open}
+	return []any{id, id + "@e2e.test", newID(), "org-" + id, open, newID()}
 }
 
 // TestRegisterWaitsForTheLock orders two closed registrations on an
@@ -337,6 +351,116 @@ func TestRegisterLockTimeout(t *testing.T) {
 		return err
 	}); err != nil {
 		t.Errorf("an open registration behind a held lock: %v", err)
+	}
+}
+
+// TestRegisterWritesEverythingTogether registers on an unclaimed instance
+// and reads, in one statement and so one snapshot, what registration
+// leaves: one user, one organisation with them as its member, their
+// password in the history, and them bound to the owner role.
+func TestRegisterWritesEverythingTogether(t *testing.T) {
+	h := startWith(t, harnessOptions{dsn: unclaimedDatabase(t), closedRegistration: true})
+	ctx := context.Background()
+	u, o, err := h.deps.Identity.Register(ctx, identity.RegisterInput{
+		Email: newID() + "@e2e.test", Password: "correct horse battery 9", OrgName: "Together",
+	})
+	if err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	var users, orgs, members, history, bindings, owner int64
+	if err := h.db.Maint.QueryRow(ctx, `SELECT
+			(SELECT count(*) FROM users),
+			(SELECT count(*) FROM organizations),
+			(SELECT count(*) FROM organization_members WHERE user_id = $1 AND organization_id = $2),
+			(SELECT count(*) FROM password_history p JOIN users u ON u.id = p.user_id
+			  WHERE p.user_id = $1 AND p.hash = u.password_hash),
+			(SELECT count(*) FROM role_bindings),
+			(SELECT count(*) FROM role_bindings WHERE organization_id = $2 AND principal_kind = 'user'
+			  AND principal_id = $1 AND role_id = 'role_owner' AND scope_kind = 'org' AND created_by = $1)`,
+		u.ID, o.ID).Scan(&users, &orgs, &members, &history, &bindings, &owner); err != nil {
+		t.Fatalf("read what registration wrote: %v", err)
+	}
+	for _, c := range []struct {
+		what string
+		got  int64
+	}{
+		{"users", users}, {"organisations", orgs}, {"memberships", members},
+		{"password history rows", history}, {"role bindings", bindings}, {"owner bindings", owner},
+	} {
+		if c.got != 1 {
+			t.Errorf("registration left %d %s, want 1", c.got, c.what)
+		}
+	}
+}
+
+// TestRegisterFailsWhole makes the owner binding fail by removing the
+// owner role from this test's database. The registration fails, leaves no
+// user and no organisation behind, and the instance is still unclaimed,
+// so the person can try again once the fault is fixed. Before migration
+// 00037 the user and organisation stayed, without an owner, and closed
+// registration then refused the retry.
+func TestRegisterFailsWhole(t *testing.T) {
+	h := startWith(t, harnessOptions{dsn: unclaimedDatabase(t), closedRegistration: true})
+	ctx := context.Background()
+	if _, err := h.db.Maint.Exec(ctx, "DELETE FROM roles WHERE id = 'role_owner'"); err != nil {
+		t.Fatalf("remove the owner role: %v", err)
+	}
+	_, _, err := h.deps.Identity.Register(ctx, identity.RegisterInput{
+		Email: newID() + "@e2e.test", Password: "correct horse battery 9", OrgName: "Broken",
+	})
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) || pgErr.Code != pgForeignKeyViolation {
+		t.Fatalf("registering without an owner role answered %v, want SQLSTATE %s", err, pgForeignKeyViolation)
+	}
+	var users, orgs, history int64
+	if err := h.db.Maint.QueryRow(ctx, `SELECT (SELECT count(*) FROM users), (SELECT count(*) FROM organizations),
+			(SELECT count(*) FROM password_history)`).Scan(&users, &orgs, &history); err != nil {
+		t.Fatalf("count what is left: %v", err)
+	}
+	if users != 0 || orgs != 0 || history != 0 {
+		t.Errorf("a failed registration left %d users, %d organisations and %d password history rows, want none",
+			users, orgs, history)
+	}
+	var exists bool
+	if err := h.db.Pre(ctx, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, "SELECT auth_users_exist()").Scan(&exists)
+	}); err != nil {
+		t.Fatalf("auth_users_exist: %v", err)
+	}
+	if exists {
+		t.Error("auth_users_exist() is true after a failed registration, want the instance unclaimed")
+	}
+	if !h.deps.Identity.RegistrationOpen(ctx) {
+		t.Error("registration is closed after a failed first registration")
+	}
+}
+
+// TestRegisterEmailTaken registers the same address twice with open
+// registration on, the second time in other case. The second answers
+// ErrEmailTaken, which Register reads from the unique violation's
+// SQLSTATE and constraint, and adds no account.
+func TestRegisterEmailTaken(t *testing.T) {
+	h := startWith(t, harnessOptions{dsn: unclaimedDatabase(t), closedRegistration: false})
+	ctx := context.Background()
+	email := newID() + "@e2e.test"
+	for i, addr := range []string{email, strings.ToUpper(email)} {
+		_, _, err := h.deps.Identity.Register(ctx, identity.RegisterInput{
+			Email: addr, Password: "correct horse battery 9", OrgName: "Taken",
+		})
+		switch {
+		case i == 0 && err != nil:
+			t.Fatalf("the first registration: %v", err)
+		case i == 1 && !errors.Is(err, identity.ErrEmailTaken):
+			t.Errorf("registering a taken address answered %v, want %v", err, identity.ErrEmailTaken)
+		}
+	}
+	var users, orgs int64
+	if err := h.db.Maint.QueryRow(ctx, `SELECT (SELECT count(*) FROM users), (SELECT count(*) FROM organizations)`).
+		Scan(&users, &orgs); err != nil {
+		t.Fatalf("count accounts: %v", err)
+	}
+	if users != 1 || orgs != 1 {
+		t.Errorf("after a refused duplicate there are %d users and %d organisations, want 1 and 1", users, orgs)
 	}
 }
 

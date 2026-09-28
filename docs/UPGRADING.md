@@ -79,6 +79,17 @@ list's connector filter; see "The tool-call list can be filtered" below.
 The OAuth2 consent callback now lands on the connector's own page; see the
 same section.
 
+Migration 00037 adds a function and needs nothing from you: a third
+`auth_register` that records the first password and makes the new user
+the owner of their organisation in the same transaction that creates
+them. Before, those were two more transactions: a failure recording the
+password was ignored, and one binding the owner left an account with no
+owner, which on an instance with open registration off could then not
+register again. It takes no table lock and
+rollout order does not matter. The two earlier `auth_register` functions
+stay for pods of the previous release during the rollout; those pods keep
+the three-transaction registration until they are replaced.
+
 ### The tool-call list can be filtered
 
 `GET /api/v1/tool-calls` takes `since`, `until`, `connectorId`,
