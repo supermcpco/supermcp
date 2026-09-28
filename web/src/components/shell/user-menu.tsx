@@ -6,6 +6,7 @@ import { logoutMutation, sessionQueryKey } from "../../api/@tanstack/react-query
 import { useRefreshSession, useSession } from "../../lib/session";
 import { message } from "../../lib/errors";
 import { toast } from "./toast";
+import { RailButton } from "./rail-button";
 
 /**
  * Who is signed in and the way out. Somebody sharing a machine needs that
@@ -45,14 +46,7 @@ export function UserMenu() {
         </Text>
       </span>
       <Sidebar.Menu>
-        <Sidebar.MenuButton
-          icon={SignOut}
-          tooltip="Sign out"
-          onClick={() => signOut.mutate({})}
-          disabled={signOut.isPending}
-        >
-          Sign out
-        </Sidebar.MenuButton>
+        <RailButton icon={SignOut} label="Sign out" onClick={() => signOut.mutate({})} disabled={signOut.isPending} />
       </Sidebar.Menu>
     </>
   );

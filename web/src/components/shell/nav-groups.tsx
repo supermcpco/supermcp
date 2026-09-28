@@ -2,6 +2,7 @@ import { useMatchRoute } from "@tanstack/react-router";
 import { Sidebar, useSidebar } from "@cloudflare/kumo";
 import { useSession } from "../../lib/session";
 import { visibleGroups } from "./nav";
+import { RailButton } from "./rail-button";
 
 /**
  * The primary navigation: one landmark, a heading per group, and only
@@ -25,18 +26,16 @@ export function NavGroups() {
             </Sidebar.GroupLabel>
             <Sidebar.Menu aria-labelledby={heading}>
               {g.items.map(({ to, label, icon }) => (
-                <Sidebar.MenuButton
+                <RailButton
                   key={to}
                   href={to}
                   icon={icon}
-                  tooltip={label}
+                  label={label}
                   // The overview is current only on itself; every other
                   // screen stays current on the pages beneath it.
                   active={Boolean(matchRoute({ to, fuzzy: to !== "/" }))}
                   onClick={isMobile ? () => setOpenMobile(false) : undefined}
-                >
-                  {label}
-                </Sidebar.MenuButton>
+                />
               ))}
             </Sidebar.Menu>
           </Sidebar.Group>
