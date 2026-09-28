@@ -1,5 +1,5 @@
 import { test as anonymous } from "@playwright/test";
-import { test, expect, expectAccessible, installAdapter, signUp } from "./fixtures";
+import { test, expect, expectAccessible, installAdapter, openAccountMenu, signUp } from "./fixtures";
 
 // The frame every screen sits in: where the screens are listed, what a
 // person sees for an address that leads nowhere, and how the list is
@@ -22,8 +22,16 @@ test("the sidebar lists the screens under Build, Operate and Settings", async ({
   await expect(nav.getByRole("link", { name: "Activity" })).toBeVisible();
   await expect(nav.getByRole("link", { name: /^(Tool calls|Analytics)$/ })).toHaveCount(0);
   await expect(page.getByText(workspace.email)).toBeVisible();
-  await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
   await expectAccessible(page);
+  // Who is signed in, and the way out, behind one button at the foot.
+  const menu = await openAccountMenu(page, workspace.email);
+  await expect(menu.getByText(workspace.email)).toBeVisible();
+  await expect(menu.getByRole("menuitem", { name: "Account settings" })).toBeVisible();
+  await expect(menu.getByRole("menuitem", { name: "Sign out" })).toBeVisible();
+  await expectAccessible(page);
+  await menu.getByRole("menuitem", { name: "Account settings" }).click();
+  await expect(page.getByRole("heading", { name: "Security", level: 2 })).toBeVisible();
+  await expect(menu).toHaveCount(0);
 
   // Importing is something done to connectors, so it lives on their screen.
   await expect(nav.getByRole("link", { name: "Import an API" })).toHaveCount(0);
@@ -35,12 +43,14 @@ test("the sidebar lists the screens under Build, Operate and Settings", async ({
 
 test("the sign-out button stays in view on a short window", async ({ page, workspace }) => {
   await page.setViewportSize({ width: 1280, height: 420 });
-  await expect(page.getByText(workspace.email)).toBeInViewport();
-  await expect(page.getByRole("button", { name: "Sign out" })).toBeInViewport();
+  const account = page.getByRole("complementary", { name: "Sidebar" }).getByRole("button", { name: workspace.email });
+  await expect(account).toBeInViewport();
   const nav = page.getByRole("navigation", { name: "Primary" });
   await nav.getByRole("link", { name: "Settings", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Settings", level: 1 })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Sign out" })).toBeInViewport();
+  await expect(account).toBeInViewport();
+  const menu = await openAccountMenu(page, workspace.email);
+  await expect(menu.getByRole("menuitem", { name: "Sign out" })).toBeInViewport();
 });
 
 test("the sidebar footer keeps the email, sign out and the toggle in view at a short window, expanded and collapsed", async ({
@@ -51,26 +61,35 @@ test("the sidebar footer keeps the email, sign out and the toggle in view at a s
   const sidebar = page.getByRole("complementary", { name: "Sidebar" });
   const nav = page.getByRole("navigation", { name: "Primary" });
   const email = sidebar.getByText(workspace.email);
-  const signOut = sidebar.getByRole("button", { name: "Sign out" });
+  const account = sidebar.getByRole("button", { name: workspace.email });
   await expect(email).toBeInViewport();
-  await expect(signOut).toBeInViewport();
+  await expect(sidebar.getByText(workspace.org)).toBeInViewport();
+  await expect(account).toBeInViewport();
   await expect(sidebar.getByRole("button", { name: "Collapse sidebar" })).toBeInViewport();
-  // Sign out is an entry like the screens above it, and starts where they do.
+  // The person's button starts where the screens above it do.
   const lineUp = async () => {
     const entry = await nav.getByRole("link", { name: "Settings", exact: true }).boundingBox();
-    const out = await signOut.boundingBox();
-    expect(out?.x).toBe(entry?.x);
+    const mine = await account.boundingBox();
+    expect(mine?.x).toBe(entry?.x);
   };
   await lineUp();
+  let menu = await openAccountMenu(page, workspace.email);
+  await expect(menu.getByRole("menuitem", { name: "Sign out" })).toBeInViewport();
+  await page.keyboard.press("Escape");
+  await expect(menu).toHaveCount(0);
 
   await sidebar.getByRole("button", { name: "Collapse sidebar" }).click();
   await expect(sidebar).toHaveAttribute("data-state", "collapsed");
   await expect.poll(async () => (await sidebar.boundingBox())?.width).toBeLessThan(80);
-  // The address has no room on the rail; the way out and the way back do.
+  // The address has no room on the rail; the badge, the way out behind it
+  // and the way back do.
   await expect(email).toBeHidden();
-  await expect(signOut).toBeInViewport();
+  await expect(account).toBeInViewport();
   await expect(sidebar.getByRole("button", { name: "Expand sidebar" })).toBeInViewport();
   await lineUp();
+  menu = await openAccountMenu(page, workspace.email);
+  await expect(menu.getByText(workspace.email)).toBeVisible();
+  await expect(menu.getByRole("menuitem", { name: "Sign out" })).toBeInViewport();
 });
 
 anonymous("a workspace name too long for the sidebar is shown whole in a tooltip", async ({ page }) => {
@@ -118,6 +137,7 @@ test("on a narrow window the navigation opens from the Menu button", async ({ pa
   await expect(nav).toBeVisible();
   await expect(sheet.getByText(workspace.org)).toBeVisible();
   await expect(sheet.getByText(workspace.email)).toBeVisible();
+  await expect(sheet.getByRole("button", { name: workspace.email })).toBeVisible();
   for (const group of ["Build", "Operate", "Settings"]) {
     await expect(nav.getByRole("heading", { name: group, exact: true })).toBeVisible();
   }
@@ -178,17 +198,29 @@ test("the sidebar collapses to icons and remembers it after a reload", async ({ 
   await nav.getByRole("link", { name: "Catalog" }).hover();
   await expect(page.getByRole("tooltip", { name: "Catalog" })).toBeVisible();
   await expectAccessible(page);
-  await page.getByRole("button", { name: "Sign out" }).hover();
-  await expect(page.getByRole("tooltip", { name: "Sign out" })).toBeVisible();
+  // The person is only a badge of initials on the rail; its tooltip says
+  // who it is.
+  const account = page.getByRole("complementary", { name: "Sidebar" }).getByRole("button", { name: workspace.email });
+  await account.hover();
+  await expect(page.getByRole("tooltip", { name: workspace.email })).toBeVisible();
   // The toggle is only an icon either way, so it names itself too.
   await expand.hover();
   await expect(page.getByRole("tooltip", { name: "Expand sidebar" })).toBeVisible();
-  // Somebody on a keyboard gets the same names, one Tab at a time.
+  // Somebody on a keyboard gets the same names, one Tab at a time, and
+  // works the menu with Enter, the arrows and Escape.
   await page.mouse.move(700, 400);
   await nav.getByRole("link", { name: "Settings", exact: true }).focus();
   await page.keyboard.press("Tab");
-  await expect(page.getByRole("button", { name: "Sign out" })).toBeFocused();
-  await expect(page.getByRole("tooltip", { name: "Sign out" })).toBeVisible();
+  await expect(account).toBeFocused();
+  await expect(page.getByRole("tooltip", { name: workspace.email })).toBeVisible();
+  await page.keyboard.press("Enter");
+  const menu = page.getByRole("menu");
+  await expect(menu.getByRole("menuitem", { name: "Account settings" })).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await expect(menu.getByRole("menuitem", { name: "Sign out" })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(menu).toHaveCount(0);
+  await expect(account).toBeFocused();
   await page.keyboard.press("Tab");
   await expect(expand).toBeFocused();
   await expect(page.getByRole("tooltip", { name: "Expand sidebar" })).toBeVisible();
