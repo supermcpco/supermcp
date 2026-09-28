@@ -97,7 +97,8 @@ test("a role is built from the permission list, with a preview of what it allows
   await expectAccessible(page);
 
   await page.getByRole("button", { name: "Create this role" }).click();
-  await expect(page.getByText("Support engineer")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Role Support engineer created", exact: true })).toBeVisible();
+  await expect(page.getByText("Support engineer", { exact: true })).toBeVisible();
   await expect(page.getByText("People who answer customer questions")).toBeVisible();
 });
 
@@ -129,7 +130,7 @@ test("a role keeps a history that can be restored", async ({ page, workspace }) 
   ]);
   expect(created.ok()).toBe(true);
   const id: string = (await created.json()).id;
-  await expect(page.getByText("Rota keeper")).toBeVisible();
+  await expect(page.getByText("Rota keeper", { exact: true })).toBeVisible();
 
   const role = page.getByRole("listitem").filter({ hasText: "Rota keeper" }).first();
   await role.getByRole("button", { name: "Change what it allows" }).click();
@@ -144,6 +145,7 @@ test("a role keeps a history that can be restored", async ({ page, workspace }) 
   ]);
   expect(saved.ok()).toBe(true);
   expect((await saved.json()).permissions, "the save's answer carries the new permission").toHaveLength(2);
+  await expect(page.getByRole("heading", { name: "Role Rota keeper saved", exact: true })).toBeVisible();
 
   // What the history holds is read from the answer itself, so the test
   // is not racing the panel that draws it.

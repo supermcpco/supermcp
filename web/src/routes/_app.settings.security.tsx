@@ -14,6 +14,7 @@ import { useSession } from "../lib/session";
 import { Badge } from "../lib/ui";
 import { message } from "../lib/errors";
 import { ChangePassword } from "../components/change-password";
+import { toast } from "../components/shell/toast";
 
 export const Route = createFileRoute("/_app/settings/security")({
   component: Security,
@@ -40,7 +41,12 @@ function Sessions() {
   const sessions = useQuery({ ...listSessionsOptions(), retry: false });
   const revoke = useMutation({
     ...revokeSessionMutation(),
-    onSuccess: () => qc.invalidateQueries({ queryKey: listSessionsQueryKey() }),
+    onSuccess: async (_, vars) => {
+      const s = sessions.data?.sessions?.find((x) => x.id === vars.path.id);
+      toast(s ? `${describeAgent(s.userAgent)} signed out` : "Session signed out");
+      await qc.invalidateQueries({ queryKey: listSessionsQueryKey() });
+    },
+    onError: (e) => toast(message(e), { kind: "error" }),
   });
 
   return (
@@ -118,6 +124,7 @@ function PasswordPolicy() {
   const save = useMutation({
     ...setPasswordPolicyMutation(),
     onSuccess: async () => {
+      toast("Password rules saved");
       setSaved(true);
       setError(null);
       await qc.invalidateQueries({ queryKey: getPasswordPolicyQueryKey() });

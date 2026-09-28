@@ -4,6 +4,7 @@ import { Button, Input, Text } from "@cloudflare/kumo";
 import { previewRole, type PermissionGroupDto, type RoleDto } from "../api";
 import { createRoleMutation, updateRoleMutation } from "../api/@tanstack/react-query.gen";
 import { message } from "../lib/errors";
+import { toast } from "./shell/toast";
 
 /** Somebody the preview can be worked out for. */
 export interface Holder {
@@ -49,7 +50,8 @@ export function RoleEditor({
 
   // Creating and changing are two calls with two shapes, so they are two
   // mutations rather than one with a branch inside it.
-  const saved = async () => {
+  const saved = async (result: RoleDto) => {
+    toast(role ? `Role ${result.name} saved` : `Role ${result.name} created`);
     setError(null);
     await onSaved();
   };

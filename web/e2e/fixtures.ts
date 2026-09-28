@@ -52,6 +52,17 @@ export async function signIn(page: Page, w: Workspace) {
  * Best-practice rules are left out so the check stays actionable.
  */
 export async function expectAccessible(page: Page) {
+  // Measured at rest: a toast fading behind the next one is half its own
+  // colour for a quarter of a second, and axe would read that as a fault.
+  // Endless animations (a spinner) never finish, so they are not waited on.
+  await page.evaluate(() =>
+    Promise.all(
+      document
+        .getAnimations()
+        .filter((a) => a.effect?.getComputedTiming().endTime !== Infinity)
+        .map((a) => a.finished.catch(() => undefined)),
+    ),
+  );
   const results = await new AxeBuilder({ page })
     .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
     .analyze();

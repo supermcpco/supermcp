@@ -49,6 +49,7 @@ test("a catalog tool can be edited, shows it was, and its history restores it", 
 
   await page.getByRole("button", { name: "Save changes" }).click();
   await expect(page.getByRole("status").getByText(/^Saved/)).toBeVisible();
+  await expect(page.getByRole("heading", { name: `Tool ${catalogTool} saved`, exact: true })).toBeVisible();
   await expect(page.getByText("edited", { exact: true }).first()).toBeVisible();
 
   await page.getByRole("link", { name: "Tools", exact: true }).click();
@@ -88,7 +89,9 @@ test("a custom tool is built with a live preview, edited as JSON and deleted", a
   await expectAccessible(page);
 
   await page.getByRole("button", { name: "Create tool" }).click();
-  await expect(page.getByRole("heading", { name: customTool })).toBeVisible();
+  // Exact: the confirmation is a heading that names the tool too.
+  await expect(page.getByRole("heading", { name: customTool, exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: `Tool ${customTool} created`, exact: true })).toBeVisible();
   const toolId = /\/tools\/([^/]+)$/.exec(new URL(page.url()).pathname)?.[1];
   expect(toolId).toBeTruthy();
 
@@ -110,7 +113,8 @@ test("a custom tool is built with a live preview, edited as JSON and deleted", a
   await page.getByRole("button", { name: `Delete ${customTool}` }).click();
   await expect(page.getByRole("heading", { name: `Delete ${customTool}?` })).toBeVisible();
   await page.getByRole("button", { name: `Delete ${customTool} for good` }).click();
-  await expect(page.getByText(customTool)).toHaveCount(0);
+  // Exact: the confirmation that it was saved also names it.
+  await expect(page.getByText(customTool, { exact: true })).toHaveCount(0);
   expect((await page.request.get(`/api/v1/tools/${toolId}`)).status()).toBe(404);
 });
 
