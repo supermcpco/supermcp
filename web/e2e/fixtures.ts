@@ -37,6 +37,23 @@ export async function signUp(page: Page, w: Workspace) {
   await expect(page.getByText(w.org, { exact: false })).toBeVisible();
 }
 
+/**
+ * Opens the menu behind the person's button at the foot of the sidebar,
+ * the one named by their address, and returns it.
+ */
+export async function openAccountMenu(page: Page, email: string) {
+  await page.getByRole("complementary", { name: "Sidebar" }).getByRole("button", { name: email }).click();
+  const menu = page.getByRole("menu");
+  await expect(menu).toBeVisible();
+  return menu;
+}
+
+/** Signs out through the sidebar's account menu, the way a person does. */
+export async function signOutFromMenu(page: Page, email: string) {
+  const menu = await openAccountMenu(page, email);
+  await menu.getByRole("menuitem", { name: "Sign out" }).click();
+}
+
 /** Signs in an existing account. */
 export async function signIn(page: Page, w: Workspace) {
   await page.goto("/login");

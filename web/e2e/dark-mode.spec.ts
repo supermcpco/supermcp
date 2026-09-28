@@ -1,4 +1,4 @@
-import { test, expect, expectAccessible, createServer, createKey, installAdapter } from "./fixtures";
+import { test, expect, expectAccessible, createServer, createKey, installAdapter, openAccountMenu } from "./fixtures";
 import type { Page } from "@playwright/test";
 
 // The console follows the system's light or dark setting. Every screen
@@ -33,14 +33,23 @@ test("the overview, the sidebar either way and the settings tabs are dark", asyn
   await page.getByRole("button", { name: "Collapse sidebar" }).click();
   await expect(page.getByRole("complementary", { name: "Sidebar" })).toHaveAttribute("data-state", "collapsed");
   await expectAccessible(page);
-  // The footer on a short window, with a tooltip out over the page.
+  // The footer on a short window, with a tooltip out over the page, and
+  // with the account menu open.
   await page.setViewportSize({ width: 1440, height: 600 });
-  await page.getByRole("button", { name: "Sign out" }).hover();
-  await expect(page.getByRole("tooltip", { name: "Sign out" })).toBeVisible();
+  await page.getByRole("complementary", { name: "Sidebar" }).getByRole("button", { name: workspace.email }).hover();
+  await expect(page.getByRole("tooltip", { name: workspace.email })).toBeVisible();
   await expectAccessible(page);
+  await openAccountMenu(page, workspace.email);
+  await expectAccessible(page);
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("menu")).toHaveCount(0);
   await page.setViewportSize({ width: 1280, height: 720 });
   await page.getByRole("button", { name: "Expand sidebar" }).click();
   await expect(page.getByRole("complementary", { name: "Sidebar" })).toHaveAttribute("data-state", "expanded");
+  await openAccountMenu(page, workspace.email);
+  await expectAccessible(page);
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("menu")).toHaveCount(0);
 
   await page.goto("/settings");
   await expect(page.getByRole("tablist").first()).toBeVisible();

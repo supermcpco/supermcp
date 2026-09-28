@@ -1,9 +1,8 @@
 import { useEffect, useEffectEvent } from "react";
 import { Sidebar, Text, useSidebar } from "@cloudflare/kumo";
-import { Hexagon, List } from "@phosphor-icons/react";
-import { useSession } from "../../lib/session";
+import { Hexagon, List, SidebarSimple } from "@phosphor-icons/react";
 import { NavGroups } from "./nav-groups";
-import { NamedTooltip, TruncatedText } from "./named-tooltip";
+import { NamedTooltip } from "./named-tooltip";
 import { UserMenu } from "./user-menu";
 
 /** The width below which the sidebar is a sheet (Tailwind's lg). */
@@ -13,15 +12,13 @@ export const sidebarBreakpoint = 1024;
  * The application's sidebar, for use inside `Sidebar.Provider`. From
  * 1024px up it sits beside the content and collapses to a rail of icons;
  * below that Kumo renders it as a sheet that the top bar's Menu button
- * opens. The navigation scrolls on a short window while the person's own
- * block and the toggle stay pinned underneath it, so signing out never
- * scrolls away.
+ * opens. The navigation scrolls on a short window while the footer, the
+ * person's menu and the toggle, stays pinned underneath it, so signing out
+ * never scrolls away.
  */
 export function AppSidebar() {
-  const { session } = useSession();
-  const { isMobile, state } = useSidebar();
+  const { isMobile } = useSidebar();
   useSheetPutAwayAcrossBreakpoint();
-  const workspace = session?.organization?.name ?? "No workspace";
   return (
     // On a narrow screen the sheet is the menu the top bar's button opens,
     // so it carries that button's name.
@@ -30,15 +27,10 @@ export function AppSidebar() {
         <span className="grid size-8 shrink-0 place-items-center">
           <Hexagon size={20} weight="duotone" aria-hidden />
         </span>
-        <span className="grid min-w-0 flex-1 transition-opacity group-data-[state=collapsed]/sidebar:opacity-0">
+        <span className="min-w-0 flex-1 transition-opacity group-data-[state=collapsed]/sidebar:opacity-0">
           <Text as="span" bold>
             supermcp
           </Text>
-          <TruncatedText text={workspace} disabled={state === "collapsed"}>
-            <Text as="span" variant="secondary">
-              {workspace}
-            </Text>
-          </TruncatedText>
         </span>
         {isMobile && <Sidebar.Close />}
       </Sidebar.Header>
@@ -49,15 +41,16 @@ export function AppSidebar() {
       <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-[11px] py-3 transition-[padding] duration-(--sidebar-animation-duration) group-not-data-[state=collapsed]/sidebar:px-3.5">
         <NavGroups />
       </div>
-      <UserMenu />
-      {/* Kumo's footer as Kumo lays it out: one row, the toggle alone in
-          it, in line with the icons above whether expanded or a rail. The
-          sheet on a narrow screen has no use for the toggle, so no row. */}
-      {!isMobile && (
-        <Sidebar.Footer>
-          <SidebarToggle />
-        </Sidebar.Footer>
-      )}
+      {/* Kumo's footer, pinned under the scrolling navigation: the
+          person's button and the toggle beside it in one row. On the rail
+          there is room for one icon a row, so the two stack, each centred
+          where the navigation's icons are. The footer takes the
+          navigation's padding for that. The sheet on a narrow screen has
+          no use for the toggle. */}
+      <Sidebar.Footer className="gap-1 px-[11px] group-not-data-[state=collapsed]/sidebar:px-3.5 group-data-[state=collapsed]/sidebar:h-auto group-data-[state=collapsed]/sidebar:flex-col group-data-[state=collapsed]/sidebar:items-start group-data-[state=collapsed]/sidebar:py-2">
+        <UserMenu />
+        {!isMobile && <SidebarToggle />}
+      </Sidebar.Footer>
     </Sidebar>
   );
 }
@@ -68,7 +61,17 @@ export function AppSidebar() {
  */
 function SidebarToggle() {
   const { open } = useSidebar();
-  return <NamedTooltip label={open ? "Collapse sidebar" : "Expand sidebar"} side="right" render={<Sidebar.Trigger />} />;
+  return (
+    <NamedTooltip
+      label={open ? "Collapse sidebar" : "Expand sidebar"}
+      side="right"
+      render={
+        <Sidebar.Trigger>
+          <SidebarSimple size={18} aria-hidden />
+        </Sidebar.Trigger>
+      }
+    />
+  );
 }
 
 /**
