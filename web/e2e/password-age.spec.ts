@@ -20,7 +20,7 @@ test("an expired password gets the change screen and nothing else, until it is c
   await page.goto("/settings/security");
   await page.getByLabel("Expires after (days)").fill("30");
   await page.getByRole("button", { name: "Save rules" }).click();
-  await expect(page.getByText("Saved.")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Password rules saved", exact: true })).toBeVisible();
 
   // Every screen is now the same screen.
   for (const path of ["/connectors", "/catalog", "/api-keys"]) {

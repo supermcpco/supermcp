@@ -131,7 +131,9 @@ export function ToolEditor({
   };
 
   const saved = async (result: ToolWriteResult) => {
-    toast(tool ? `Tool ${result.tool.name} saved` : `Tool ${result.tool.name} created`);
+    // A change is confirmed on the tool's own screen, beside the form; a new
+    // tool is not, because saving it moves to that screen.
+    if (!tool) toast(`Tool ${result.tool.name} created`);
     setError(null);
     setServerIssues([]);
     setAck(null);
