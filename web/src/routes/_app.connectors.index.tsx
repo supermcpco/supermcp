@@ -1,5 +1,5 @@
 import { useCallback } from "react";
-import { createFileRoute, Link, redirect, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { LinkButton, Text } from "@cloudflare/kumo";
 import { connectorsListOptions } from "../api/@tanstack/react-query.gen";
@@ -19,28 +19,10 @@ import { ConsentReturn } from "../components/consent-return";
 /**
  * The server sends a browser back to the connector's own page from a
  * vendor's consent screen, and here when the return names no connector
- * it could go on to (`oauth=expired`). Until the release after this one,
- * the older return here, naming the connector in `connector` and the
- * outcome in `connected` or `connect_error`, is sent on to that page in
- * the newer form.
+ * it could go on to (`oauth=expired`).
  */
-type ListSearch = ConsentSearch & { connector?: string };
-
 export const Route = createFileRoute("/_app/connectors/")({
-  validateSearch: (search: Record<string, unknown>): ListSearch => ({
-    ...consentSearch(search),
-    ...(typeof search.connector === "string" && search.connector !== "" ? { connector: search.connector } : {}),
-  }),
-  beforeLoad: ({ search }) => {
-    if (!search.connector) return;
-    const result = consentResult(search);
-    throw redirect({
-      to: "/connectors/$id",
-      params: { id: search.connector },
-      search: result ? { oauth: result } : {},
-      replace: true,
-    });
-  },
+  validateSearch: (search: Record<string, unknown>): ConsentSearch => consentSearch(search),
   component: Connectors,
 });
 

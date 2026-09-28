@@ -12,22 +12,20 @@ import {
   connectorsListQueryKey,
   connectorsOauthAuthorizeMutation,
   connectorsOauthRedirectUriOptions,
-  connectorsToolsOptions,
   invocationsListOptions,
 } from "../api/@tanstack/react-query.gen";
 import { useSession } from "../lib/session";
 import { Badge, Loading } from "../lib/ui";
-import { message } from "../lib/errors";
+import { message, status as httpStatus } from "../lib/errors";
 import {
   authLabel,
+  authorizationLabel,
   authorizesInBrowser,
-  callsTo,
   connectorCredentialFields,
   consentResult,
   consentSearch,
   credentialDescriptions,
   filled,
-  lastFailure,
   stillNeeded,
   targetHost,
   type ConsentSearch,
@@ -41,16 +39,17 @@ import { ConsentReturn } from "../components/consent-return";
 
 /**
  * Where a vendor's consent screen sends a person back to: `oauth` is "ok"
- * or the server's code for why the connection was not made. The older
- * names are read until the release after this one.
+ * or the server's code for why the connection was not made.
  */
 export const Route = createFileRoute("/_app/connectors/$id/_detail/")({
   validateSearch: (search: Record<string, unknown>): ConsentSearch => consentSearch(search),
   component: Overview,
 });
 
-/** How many recent calls the page reads to find this connector's. */
-const recentWindow = 500;
+/** How many of the connector's latest calls the page reads. */
+const recentWindow = 20;
+/** How many of them it lists. */
+const recentShown = 5;
 
 function Overview() {
   const { id } = Route.useParams();
@@ -117,9 +116,10 @@ function CatalogNotice({ connector }: { connector: ConnectorDto }) {
 /** Whether the connector can be called, where it goes, and how its calls went. */
 function Status({ connector: c }: { connector: ConnectorDto }) {
   const { signedIn } = useSession();
-  const tools = useQuery({ ...connectorsToolsOptions({ path: { id: c.id } }), enabled: signedIn, retry: false });
+  // The server finds the connector's own calls; a filtered list is held
+  // to the analytics limits, so it can be refused while two others run.
   const recent = useQuery({
-    ...invocationsListOptions({ query: { limit: recentWindow } }),
+    ...invocationsListOptions({ query: { limit: recentWindow, connectorId: c.id } }),
     enabled: signedIn,
     retry: false,
   });
@@ -127,9 +127,12 @@ function Status({ connector: c }: { connector: ConnectorDto }) {
   const fields = connectorCredentialFields(c);
   const needed = stillNeeded(fields, {});
   const host = targetHost(c.transport);
-  const names = new Set((tools.data ?? []).map((t) => t.name));
-  const calls = tools.data && recent.data ? callsTo(recent.data, names) : [];
-  const failure = tools.data && recent.data ? lastFailure(recent.data, names) : undefined;
+  const authorization = authorizationLabel(c);
+  const calls = (recent.data ?? []).slice(0, recentShown);
+  const failure = recent.data?.find((i) => i.status !== "success");
+  const busy = recent.isError && httpStatus(recent.error) === 429;
+  // "…" while the calls are read, a dash when they could not be.
+  const unknown = recent.isPending ? "…" : recent.isError ? "–" : undefined;
 
   return (
     <section aria-labelledby="status-heading" className="grid gap-3">
@@ -159,6 +162,18 @@ function Status({ connector: c }: { connector: ConnectorDto }) {
         <dd>
           <Text as="span">{authLabel(c.auth)}</Text>
         </dd>
+        {authorization && (
+          <>
+            <dt>
+              <Text as="span" variant="secondary">
+                Authorization
+              </Text>
+            </dt>
+            <dd>
+              <Text as="span">{authorization}</Text>
+            </dd>
+          </>
+        )}
         <dt>
           <Text as="span" variant="secondary">
             Reaches
@@ -184,7 +199,7 @@ function Status({ connector: c }: { connector: ConnectorDto }) {
           </Text>
         </dt>
         <dd>
-          <Text as="span">{recent.isPending || tools.isPending ? "…" : calls[0] ? callLine(calls[0]) : "None yet."}</Text>
+          <Text as="span">{unknown ?? (calls[0] ? callLine(calls[0]) : "None yet.")}</Text>
         </dd>
         <dt>
           <Text as="span" variant="secondary">
@@ -193,18 +208,24 @@ function Status({ connector: c }: { connector: ConnectorDto }) {
         </dt>
         <dd>
           <Text as="span">
-            {recent.isPending || tools.isPending
-              ? "…"
-              : failure
+            {unknown ??
+              (failure
                 ? `${callLine(failure)}${failure.error ? `: ${failure.error}` : ""}`
-                : "None among the recent calls."}
+                : "None among the recent calls.")}
           </Text>
         </dd>
       </dl>
-      {recent.error && (
-        <div role="alert">
-          <Text>{message(recent.error)}</Text>
+      {busy ? (
+        <div role="status" className="flex flex-wrap items-center gap-3 rounded-md bg-kumo-tint px-4 py-3 ring ring-kumo-line">
+          <Text>Another search is still running, try again in a moment.</Text>
+          <Button onClick={() => void recent.refetch()}>Try again</Button>
         </div>
+      ) : (
+        recent.error && (
+          <div role="alert">
+            <Text>{message(recent.error)}</Text>
+          </div>
+        )
       )}
 
       {calls.length > 0 && (
@@ -256,9 +277,6 @@ function Status({ connector: c }: { connector: ConnectorDto }) {
               ))}
             </tbody>
           </table>
-          <Text variant="secondary">
-            Found by tool name among the workspace&rsquo;s {recentWindow} most recent calls.
-          </Text>
         </div>
       )}
     </section>
@@ -370,13 +388,14 @@ function Credentials({ connector: c }: { connector: ConnectorDto }) {
           )}
           <div>
             <Button
+              variant={c.oauthAuthorized ? "secondary" : "primary"}
               disabled={!allowed || authorize.isPending}
               onClick={() => {
                 setError(null);
                 authorize.mutate({ path: { id: c.id } });
               }}
             >
-              {authorize.isPending ? "Opening the consent screen…" : "Authorize"}
+              {authorize.isPending ? "Opening the consent screen…" : c.oauthAuthorized ? "Re-authorize" : "Authorize"}
             </Button>
           </div>
         </div>

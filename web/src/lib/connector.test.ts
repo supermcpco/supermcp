@@ -1,13 +1,11 @@
 import { describe, expect, it } from "vitest";
-import type { InvocationDto } from "../api";
 import {
+  authorizationLabel,
   authorizesInBrowser,
-  callsTo,
   consentResult,
   consentSearch,
   credentialDescriptions,
   filled,
-  lastFailure,
   parseAdapter,
   stillNeeded,
   targetHost,
@@ -77,24 +75,16 @@ describe("authorizesInBrowser", () => {
   });
 });
 
-describe("calls of one connector", () => {
-  const call = (id: string, toolName: string, status = "success"): InvocationDto => ({
-    id,
-    toolName,
-    status,
-    durationMs: 10,
-    createdAt: "2026-09-28T10:00:00Z",
-  });
-  const recent = [call("1", "a"), call("2", "other"), call("3", "b", "error"), call("4", "a"), call("5", "b", "timeout")];
-  const mine = new Set(["a", "b"]);
-
-  it("keeps only calls to its tools, newest first, up to the limit", () => {
-    expect(callsTo(recent, mine, 3).map((c) => c.id)).toEqual(["1", "3", "4"]);
-  });
-
-  it("finds the newest failure", () => {
-    expect(lastFailure(recent, mine)?.id).toBe("3");
-    expect(lastFailure([call("1", "a")], mine)).toBeUndefined();
+describe("authorizationLabel", () => {
+  it("says whether an OAuth2 connector holds a token, and nothing for other sign-ins", () => {
+    expect(authorizationLabel({ auth: { type: "oauth2", grant: "authorization_code" }, oauthAuthorized: true })).toBe(
+      "Authorized",
+    );
+    expect(authorizationLabel({ auth: { type: "oauth2", grant: "client_credentials" }, oauthAuthorized: false })).toBe(
+      "Not authorized yet",
+    );
+    expect(authorizationLabel({ auth: { type: "apiKey" }, oauthAuthorized: false })).toBeUndefined();
+    expect(authorizationLabel({ auth: undefined, oauthAuthorized: false })).toBeUndefined();
   });
 });
 
@@ -102,12 +92,10 @@ describe("consent returns", () => {
   it.each([
     [{ oauth: "ok" }, "ok"],
     [{ oauth: "vendor_refused" }, "vendor_refused"],
-    // The older names, read for one more release.
-    [{ connected: "1" }, "ok"],
-    [{ connected: true }, "ok"],
-    [{ connectError: "expired" }, "expired"],
-    [{ connect_error: "unavailable" }, "unavailable"],
-    [{ connected: "1", connect_error: "vendor_refused" }, "vendor_refused"],
+    // The older names are no longer read.
+    [{ connected: "1" }, null],
+    [{ connectError: "expired" }, null],
+    [{ connect_error: "unavailable" }, null],
     [{}, null],
     [{ oauth: "" }, null],
     [{ oauth: 7, connected: "no" }, null],

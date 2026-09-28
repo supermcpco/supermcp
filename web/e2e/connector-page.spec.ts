@@ -1,4 +1,4 @@
-import { test, expect, expectAccessible } from "./fixtures";
+import { test, expect, expectAccessible, createKey, createServer } from "./fixtures";
 import type { Page } from "@playwright/test";
 
 // A connector's own page: what it is, whether it can be called, the values
@@ -241,32 +241,85 @@ test("the return from a vendor's consent screen is told on the connector's page"
   await expect(page).toHaveURL(/\/connectors$/);
 });
 
-test("the older consent-return addresses still lead to the same words", async ({ page, workspace }) => {
+test("an OAuth connector's page says whether it is authorized", async ({ page, request, workspace }) => {
   expect(workspace.email).toBeTruthy();
-  const id = await installBundesbank(page);
-  const page$ = new RegExp(`/connectors/${id}$`);
+  test.setTimeout(90_000);
 
-  // The list, naming the connector, sends the browser on to its page.
-  await page.goto(`/connectors?connect_error=vendor_refused&connector=${id}`);
-  await expect(page.getByRole("alert").filter({ hasText: "The vendor refused the request" })).toBeVisible();
-  await expect(page).toHaveURL(page$);
+  // A consent-screen connector nobody has approved yet.
+  await page.goto("/catalog/datev-sandbox");
+  await page.getByLabel("DATEV_CLIENT_ID").fill("browser-test-client");
+  await page.getByLabel("DATEV_CLIENT_SECRET").fill("not-a-real-secret"); // gitleaks:allow
+  await page.getByRole("button", { name: "Install" }).click();
+  await expect(page).toHaveURL(/\/connectors\/[^/]+$/);
+  const status = page.getByRole("region", { name: "Status" });
+  const credentials = page.getByRole("region", { name: "Credentials" });
+  await expect(status.getByText("Not authorized yet", { exact: true })).toBeVisible();
+  await expect(credentials.getByRole("button", { name: "Authorize", exact: true })).toBeVisible();
+  await expect(credentials.getByRole("button", { name: "Re-authorize" })).toHaveCount(0);
+  await expectAccessible(page);
 
-  await page.goto(`/connectors?connected=1&connector=${id}`);
-  await expect(
-    page.getByRole("heading", {
-      name: "Connected. The vendor approved access, and the workspace now holds the tokens.",
-      exact: true,
+  // A client-credentials connector holds a token once it has fetched one,
+  // which it does at its first call. Its token endpoint is this instance's
+  // own, and its client a service account of this workspace, so the grant
+  // really happens and nothing outside is reached.
+  await page.goto("/settings/service-accounts");
+  await page.getByRole("button", { name: "New service account" }).first().click();
+  const dialog = page.getByRole("dialog", { name: "New service account" });
+  await dialog.getByLabel("Name").fill("Token source");
+  await dialog.getByRole("button", { name: "Create account" }).click();
+  const issued = await page.getByRole("alert").filter({ hasText: /copy this secret now/i }).innerText();
+  const clientId = /client_id: (\S+)/.exec(issued)?.[1];
+  const clientSecret = /client_secret: (\S+)/.exec(issued)?.[1];
+  expect(clientId && clientSecret, issued).toBeTruthy();
+  await page.getByRole("button", { name: "Done" }).click();
+
+  const origin = new URL(page.url()).origin;
+  await page.goto("/connectors/import");
+  await page.getByRole("radio", { name: "OpenAPI", exact: true }).check();
+  await page.getByLabel("OpenAPI document").fill(
+    JSON.stringify({
+      openapi: "3.1.0",
+      info: { title: "Self check", version: "1.0.0" },
+      servers: [{ url: origin }],
+      security: [{ machine: [] }],
+      components: {
+        securitySchemes: {
+          machine: { type: "oauth2", flows: { clientCredentials: { tokenUrl: `${origin}/oauth/token`, scopes: {} } } },
+        },
+      },
+      paths: {
+        "/healthz": {
+          get: { operationId: "readHealth", summary: "Whether the instance is up", responses: { "200": { description: "Up" } } },
+        },
+      },
     }),
-  ).toBeVisible();
-  await expect(page).toHaveURL(page$);
+  );
+  await page.getByLabel("Connector name").fill("Self check");
+  await page.getByLabel("Tool name prefix").fill("selfcheck");
+  await page.getByRole("button", { name: "Preview import" }).click();
+  await expect(page.getByRole("region", { name: "What this would create" })).toBeVisible();
+  await page.getByLabel("OAUTH_CLIENT_ID").fill(clientId as string);
+  await page.getByLabel("OAUTH_CLIENT_SECRET").fill(clientSecret as string);
+  await page.getByRole("button", { name: "Import connector" }).click();
+  await expect(page.getByRole("heading", { name: "Self check", level: 1 })).toBeVisible();
+  const connectorPage = page.url();
+  await expect(status.getByText("Not authorized yet", { exact: true })).toBeVisible();
+  // Nobody approves a client-credentials grant, so there is nothing to press.
+  await expect(page.getByRole("button", { name: /authorize/i })).toHaveCount(0);
 
-  // The page's own older names.
-  await page.goto(`/connectors/${id}?connectError=expired`);
-  await expect(page.getByRole("alert").filter({ hasText: /The approval took too long/ })).toBeVisible();
-  await expect(page).toHaveURL(page$);
+  const serverId = await createServer(page, "Self check server", [/Self check/]);
+  const secret = await createKey(page, "Self check key");
+  const call = await request.post(`/mcp/${serverId}`, {
+    headers: { "X-API-Key": secret, Accept: "application/json, text/event-stream" },
+    data: { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "selfcheck_read_health", arguments: {} } },
+  });
+  expect(call.ok(), `tools/call: ${call.status()} ${await call.text()}`).toBeTruthy();
 
-  // And a refusal with no connector to go on to stays on the list.
-  await page.goto("/connectors?connect_error=unavailable");
-  await expect(page.getByRole("alert").filter({ hasText: "This connector no longer exists." })).toBeVisible();
-  await expect(page).toHaveURL(/\/connectors$/);
+  await page.goto(connectorPage);
+  await expect(status.getByText("Authorized", { exact: true })).toBeVisible();
+  // The call is found by the server as this connector's own.
+  const recent = page.waitForResponse((r) => new URL(r.url()).searchParams.has("connectorId"));
+  await page.reload();
+  expect((await recent).status()).toBe(200);
+  await expect(status.getByRole("cell", { name: "selfcheck_read_health" })).toBeVisible();
 });

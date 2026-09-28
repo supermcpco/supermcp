@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { ConnectorDto, InvocationDto } from "../api";
+import type { ConnectorDto } from "../api";
 
 // What the connector screens say about one connector: which credentials it
 // still needs, where it reaches, how it signs in and what it last did. The
@@ -159,17 +159,12 @@ export function authLabel(auth: Record<string, unknown> | undefined): string {
 }
 
 /**
- * The calls among `recent` that went to one of `toolNames`, newest first.
- * The list of calls names the tool but not its connector, so a tool of the
- * same name on another connector would be counted here too.
+ * Whether an OAuth2 connector holds a token, in words, as the server
+ * reports it; undefined for a connector that signs in some other way.
  */
-export function callsTo(recent: readonly InvocationDto[], toolNames: ReadonlySet<string>, limit = 5): InvocationDto[] {
-  return recent.filter((c) => toolNames.has(c.toolName)).slice(0, limit);
-}
-
-/** The newest failed call among `recent` that went to one of `toolNames`. */
-export function lastFailure(recent: readonly InvocationDto[], toolNames: ReadonlySet<string>): InvocationDto | undefined {
-  return recent.find((c) => toolNames.has(c.toolName) && c.status !== "success");
+export function authorizationLabel(c: Pick<ConnectorDto, "auth" | "oauthAuthorized">): string | undefined {
+  if (c.auth?.type !== "oauth2") return undefined;
+  return c.oauthAuthorized ? "Authorized" : "Not authorized yet";
 }
 
 /**
@@ -198,43 +193,19 @@ export function consentOutcome(code: string): string {
 export const consentConnected = "Connected. The vendor approved access, and the workspace now holds the tokens.";
 
 /**
- * The address parameters a return from a vendor's consent screen can
- * carry. The server sends `oauth`: "ok" or the code for why not. Until
- * the release after this one, the older `connected` and `connectError`
- * (on a connector's page) and `connect_error` (on the list) are read too.
+ * The address parameter a return from a vendor's consent screen carries:
+ * `oauth`, "ok" or the server's code for why not.
  */
 export interface ConsentSearch {
   oauth?: string;
-  connected?: boolean;
-  connectError?: string;
-  connect_error?: string;
 }
 
-/** The consent-return parameters out of an address's search, checked. */
+/** The consent-return parameter out of an address's search, checked. */
 export function consentSearch(search: Record<string, unknown>): ConsentSearch {
-  const text = (v: unknown) => (typeof v === "string" && v !== "" ? v : undefined);
-  const out: ConsentSearch = {};
-  const oauth = text(search.oauth);
-  if (oauth) out.oauth = oauth;
-  if (search.connected === true || search.connected === "1" || search.connected === 1 || search.connected === "true") {
-    out.connected = true;
-  }
-  const connectError = text(search.connectError);
-  if (connectError) out.connectError = connectError;
-  const legacy = text(search.connect_error);
-  if (legacy) out.connect_error = legacy;
-  return out;
+  return typeof search.oauth === "string" && search.oauth !== "" ? { oauth: search.oauth } : {};
 }
 
-/**
- * How a consent return went: "ok", the server's code for why not, or
- * null when the address is not a consent return at all. A refusal wins
- * over an approval if an address somehow says both.
- */
+/** How a consent return went: "ok", the server's code for why not, or null when there was none. */
 export function consentResult(search: ConsentSearch): string | null {
-  const refused = search.connectError ?? search.connect_error;
-  if (search.oauth) return search.oauth;
-  if (refused) return refused;
-  if (search.connected) return "ok";
-  return null;
+  return search.oauth ?? null;
 }
