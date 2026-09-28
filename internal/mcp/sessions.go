@@ -240,7 +240,8 @@ func (t *sessionTable) release(owner, org string) {
 // the session's there and then: the client may open its next session
 // before this initialise returns, and must find one place held, not two.
 // It reports whether the session was kept; if not, the reservation is
-// still held and settle gives it back.
+// still held and settle gives it back. add must follow a reserve that
+// succeeded for the same owner and org.
 func (t *sessionTable) add(id, serverID, owner, org string, srv *sdk.Server) bool {
 	t.mu.Lock()
 	if t.closed {
@@ -254,8 +255,14 @@ func (t *sessionTable) add(id, serverID, owner, org string, srv *sdk.Server) boo
 	t.byID[id] = &sessionEntry{id: id, serverID: serverID, owner: owner, org: org, srv: srv,
 		created: now, lastSeen: now, inflight: 1}
 	// The place is the session's now, not the reservation's: byOwner and
-	// byOrg already count it.
-	t.reserved--
+	// byOrg already count it. Without a reservation to hand over, which
+	// only a misuse of add can cause, the count is left alone rather than
+	// taken below zero, where it would let the table overfill.
+	if t.reserved > 0 {
+		t.reserved--
+	} else {
+		t.log.Error("mcp session added without a reservation", "server", serverID)
+	}
 	if t.timer == nil {
 		t.timer = time.AfterFunc(t.sweepEvery(), t.sweep)
 	}
