@@ -14,6 +14,7 @@ import { useSession } from "../lib/session";
 import { Badge } from "../lib/ui";
 import { message } from "../lib/errors";
 import { toast } from "../components/shell/toast";
+import { EmptyState, FormDialog, HeaderWithAction } from "../components/form-dialog";
 
 export const Route = createFileRoute("/_app/settings/service-accounts")({
   component: ServiceAccounts,
@@ -30,6 +31,7 @@ function ServiceAccounts() {
   const [name, setName] = useState("");
   const [issued, setIssued] = useState<{ clientId: string; secret: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
 
   const refresh = () => qc.invalidateQueries({ queryKey: listServiceAccountsQueryKey() });
 
@@ -40,29 +42,53 @@ function ServiceAccounts() {
       setIssued({ clientId: a.clientId, secret: a.secret ?? "" });
       setName("");
       setError(null);
+      setCreating(false);
       await refresh();
     },
     onError: (e) => setError(message(e)),
   });
+  const nameOf = (id: string) => accounts.data?.accounts?.find((a) => a.id === id)?.name ?? "The service account";
+  const failed = (e: unknown) => toast(message(e), { kind: "error" });
   const rotate = useMutation({
     ...rotateServiceAccountSecretMutation(),
     onSuccess: (res, vars) => {
       const account = accounts.data?.accounts?.find((a) => a.id === vars.path.id);
+      toast(`New secret issued for ${nameOf(vars.path.id)}`);
       setIssued({ clientId: account?.clientId ?? "", secret: res.secret });
     },
+    onError: failed,
   });
-  const setDisabled = useMutation({ ...setServiceAccountDisabledMutation(), onSuccess: refresh });
-  const remove = useMutation({ ...deleteServiceAccountMutation(), onSuccess: refresh });
+  const setDisabled = useMutation({
+    ...setServiceAccountDisabledMutation(),
+    onSuccess: async (_, vars) => {
+      toast(`${nameOf(vars.path.id)} ${vars.body.disabled ? "disabled" : "enabled"}`);
+      await refresh();
+    },
+    onError: failed,
+  });
+  const remove = useMutation({
+    ...deleteServiceAccountMutation(),
+    onSuccess: async (_, vars) => {
+      toast(`Service account ${nameOf(vars.path.id)} deleted`);
+      await refresh();
+    },
+    onError: failed,
+  });
 
   if (!can("serviceaccounts:manage")) {
     return <Text>You do not have permission to manage service accounts in this workspace.</Text>;
   }
 
   const tokenUrl = accounts.data?.tokenUrl ?? "";
+  const newAccount = (
+    <Button variant="primary" onClick={() => setCreating(true)}>
+      New service account
+    </Button>
+  );
 
   return (
     <div className="grid gap-8">
-      <div className="grid gap-1.5">
+      <HeaderWithAction action={newAccount}>
         <Text as="h1" variant="heading2">
           Service accounts
         </Text>
@@ -70,7 +96,7 @@ function ServiceAccounts() {
           A service account is a principal that is not a person: a pipeline, a scheduler, another service. It takes the
           same roles a person would, and nobody has to lend it their own key.
         </Text>
-      </div>
+      </HeaderWithAction>
 
       {issued && (
         <div className="grid gap-1.5 rounded-lg px-5 py-4 ring ring-kumo-line" role="alert">
@@ -93,26 +119,25 @@ function ServiceAccounts() {
         </div>
       )}
 
-      <form
-        className="flex max-w-3xl flex-wrap items-end gap-3 rounded-lg px-5 py-4 ring ring-kumo-line"
-        onSubmit={(e) => {
-          e.preventDefault();
-          create.mutate({ body: { name } });
+      <FormDialog
+        open={creating}
+        onOpenChange={(open) => {
+          setCreating(open);
+          setError(null);
         }}
+        title="New service account"
+        description="Its secret is shown once, when it is created."
+        submitLabel="Create account"
+        pending={create.isPending}
+        canSubmit={name !== ""}
+        error={error}
+        onSubmit={() => create.mutate({ body: { name } })}
       >
-        <label className="grid flex-1 gap-1.5">
+        <label className="grid gap-1.5">
           <Text as="span">Name</Text>
           <Input required value={name} onChange={(e) => setName(e.target.value)} placeholder="Nightly export" />
         </label>
-        <Button type="submit" variant="primary" disabled={create.isPending || !name}>
-          Create account
-        </Button>
-      </form>
-      {error && (
-        <div role="alert">
-          <Text>{error}</Text>
-        </div>
-      )}
+      </FormDialog>
 
       <ul className="grid gap-2">
         {accounts.data?.accounts?.map((a) => (
@@ -149,12 +174,8 @@ function ServiceAccounts() {
             </div>
           </li>
         ))}
-        {accounts.data?.accounts?.length === 0 && (
-          <li>
-            <Text variant="secondary">No service accounts yet.</Text>
-          </li>
-        )}
       </ul>
+      {accounts.data?.accounts?.length === 0 && <EmptyState action={newAccount}>No service accounts yet.</EmptyState>}
     </div>
   );
 }

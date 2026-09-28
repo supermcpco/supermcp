@@ -9,12 +9,16 @@ test("a data-loss rule is changed, and the earlier version restored from its his
   await page.goto("/settings/dlp");
   await expect(page.getByRole("heading", { name: "Data-loss rules" })).toBeVisible();
 
-  await page.getByLabel("What it is for").fill("Customer addresses");
-  await page.getByLabel("What it does").selectOption("mask");
+  await page.getByRole("button", { name: "New rule" }).first().click();
+  const addRule = page.getByRole("dialog", { name: "Add a rule" });
+  await addRule.getByLabel("What it is for").fill("Customer addresses");
+  await addRule.getByLabel("What it does").selectOption("mask");
   await Promise.all([
     page.waitForResponse((r) => r.url().endsWith("/api/v1/dlp/policies") && r.request().method() === "POST" && r.ok()),
-    page.getByRole("button", { name: "Add the rule" }).click(),
+    addRule.getByRole("button", { name: "Add the rule" }).click(),
   ]);
+  await expect(addRule).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Rule Customer addresses added", exact: true })).toBeVisible();
   const rule = page.getByRole("listitem").filter({ hasText: "Customer addresses" }).first();
   await expect(rule.getByText("mask", { exact: true })).toBeVisible();
 
@@ -27,6 +31,7 @@ test("a data-loss rule is changed, and the earlier version restored from its his
     rule.getByRole("button", { name: "Save the rule" }).click(),
   ]);
   await expect(rule.getByText("refuse", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Rule Customer addresses saved", exact: true })).toBeVisible();
 
   const [answer] = await Promise.all([
     page.waitForResponse((r) => /\/api\/v1\/dlp\/policies\/[^/]+\/revisions(\?|$)/.test(r.url())),
@@ -50,6 +55,9 @@ test("a data-loss rule is changed, and the earlier version restored from its his
     history.getByRole("button", { name: "Restore this version" }).click(),
   ]);
   await expect(versions).toHaveCount(3);
+  await expect(
+    page.getByRole("heading", { name: "Rule Customer addresses restored to version 1", exact: true }),
+  ).toBeVisible();
 
   await rule.getByRole("button", { name: "Hide the history of Customer addresses" }).click();
   await expect(rule.getByText("mask", { exact: true })).toBeVisible();
@@ -58,4 +66,9 @@ test("a data-loss rule is changed, and the earlier version restored from its his
   // And the server agrees: the rule masks again.
   const policies = await (await page.request.get("/api/v1/dlp/policies")).json();
   expect(policies.policies.find((p: { name: string }) => p.name === "Customer addresses").action).toBe("mask");
+
+  // Deleting it says so, and the empty screen offers the way back.
+  await rule.getByRole("button", { name: "Delete Customer addresses" }).click();
+  await expect(page.getByRole("heading", { name: "Rule Customer addresses deleted", exact: true })).toBeVisible();
+  await expect(page.getByText("No rules yet, so nothing is inspected and nothing is masked.")).toBeVisible();
 });

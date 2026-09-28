@@ -8,7 +8,8 @@ import { test, expect, expectAccessible } from "./fixtures";
 test("an administrator sets which answers from a provider count as a second factor", async ({ page, workspace }) => {
   expect(workspace.org).toBeTruthy();
   await page.goto("/settings/sso");
-  const add = page.getByRole("form", { name: "Add a provider" });
+  await page.getByRole("button", { name: "New OpenID Connect provider" }).first().click();
+  const add = page.getByRole("dialog", { name: "Add a provider" }).getByRole("form", { name: "Add a provider" });
   await expect(add.getByLabel("Second factor: amr values that count")).toHaveValue("mfa, otp, hwk, sc");
 
   await add.getByLabel("Provider").selectOption({ label: "Okta" });
@@ -19,6 +20,8 @@ test("an administrator sets which answers from a provider count as a second fact
   await add.getByLabel("Second factor: amr values that count").fill("mfa, hwk");
   await add.getByLabel("Second factor: acr values that count").fill("phr");
   await add.getByRole("button", { name: "Add provider" }).click();
+  await expect(add).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Provider Company Okta added", exact: true })).toBeVisible();
   await expect(page.getByText("Second factor: amr mfa, hwk or acr phr")).toBeVisible();
   await expectAccessible(page);
 
@@ -34,6 +37,9 @@ test("an administrator sets which answers from a provider count as a second fact
   await rule.getByLabel("Second factor: acr values that count").fill("phr, urn:okta:loa:2fa:any");
   await rule.getByRole("button", { name: "Save second-factor rule" }).click();
   await expect(page.getByText("Second factor: acr phr, urn:okta:loa:2fa:any")).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Second-factor rule of Company Okta saved", exact: true }).first(),
+  ).toBeVisible();
   await expect(rule).toHaveCount(0);
 
   // No rule at all is allowed, and the screen says what it means. Saving

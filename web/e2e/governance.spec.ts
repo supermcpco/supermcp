@@ -28,10 +28,14 @@ test("a rule inspects what a tool call carries, and an approval holds one until 
   // What the detectors match is covered by the Go tests; what matters here
   // is that a rule can be added from the screen and that a call still goes
   // through the gate it puts on the path.
-  await page.getByLabel("What it is for").fill("Mask identifiers in results");
-  await page.getByLabel("What it does").selectOption("mask");
-  await page.getByRole("button", { name: "Add the rule" }).click();
-  await expect(page.getByText("Mask identifiers in results").first()).toBeVisible();
+  await page.getByRole("button", { name: "New rule" }).first().click();
+  const addRule = page.getByRole("dialog", { name: "Add a rule" });
+  await addRule.getByLabel("What it is for").fill("Mask identifiers in results");
+  await addRule.getByLabel("What it does").selectOption("mask");
+  await addRule.getByRole("button", { name: "Add the rule" }).click();
+  await expect(addRule).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Rule Mask identifiers in results added", exact: true })).toBeVisible();
+  await expect(page.getByText("Mask identifiers in results", { exact: true })).toBeVisible();
   await expectAccessible(page);
 
   // The approval policy has no screen yet, so it is set the way the API
@@ -62,8 +66,11 @@ test("a rule inspects what a tool call carries, and an approval holds one until 
   // approve it: nobody approves their own call, which the API enforces and
   // this test would otherwise trip over.
   await page.goto("/settings/service-accounts");
-  await page.getByLabel("Name").fill("Caller");
-  await page.getByRole("button", { name: "Create account" }).click();
+  await page.getByRole("button", { name: "New service account" }).first().click();
+  const newAccount = page.getByRole("dialog", { name: "New service account" });
+  await newAccount.getByLabel("Name").fill("Caller");
+  await newAccount.getByRole("button", { name: "Create account" }).click();
+  await expect(newAccount).toHaveCount(0);
   const issued = await page.getByRole("alert").locator("code").innerText();
   const clientId = /client_id: (\S+)/.exec(issued)?.[1] ?? "";
   const clientSecret = /client_secret: (\S+)/.exec(issued)?.[1] ?? "";
@@ -111,5 +118,6 @@ test("a rule inspects what a tool call carries, and an approval holds one until 
 
   await page.getByRole("textbox", { name: `Why, for ${toolName}` }).fill("Checked with the requester");
   await page.getByRole("button", { name: "Approve" }).click();
+  await expect(page.getByRole("heading", { name: `Call to ${toolName} approved`, exact: true })).toBeVisible();
   await expect(page.getByText("Checked with the requester")).toBeVisible();
 });

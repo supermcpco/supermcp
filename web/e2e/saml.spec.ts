@@ -30,19 +30,22 @@ test("a SAML provider can be configured, and publishes what the identity provide
   expect(workspace.org).toBeTruthy();
   await page.goto("/settings/sso");
 
-  await page.getByRole("heading", { name: "SAML 2.0" }).scrollIntoViewIfNeeded();
-  await page.getByPlaceholder("Company SAML").fill("End to end SAML");
-  await page.getByPlaceholder("<EntityDescriptor").fill(IDP_METADATA);
+  await page.getByRole("button", { name: "New SAML provider" }).first().click();
+  const dialog = page.getByRole("dialog", { name: "Add a SAML provider" });
+  await dialog.getByPlaceholder("Company SAML").fill("End to end SAML");
+  await dialog.getByPlaceholder("<EntityDescriptor").fill(IDP_METADATA);
 
   // Reading the metadata before saving is what turns a typo into a
   // message here rather than a failed sign-in next week.
-  await page.getByRole("button", { name: "Test this metadata" }).click();
+  await dialog.getByRole("button", { name: "Test this metadata" }).click();
   // The pasted XML contains the entity id too, so the assertion names the
   // sentence the screen writes rather than the substring.
-  await expect(page.getByText(`Found ${IDP_ENTITY_ID}`, { exact: false })).toBeVisible();
+  await expect(dialog.getByText(`Found ${IDP_ENTITY_ID}`, { exact: false })).toBeVisible();
 
-  await page.getByRole("button", { name: "Add SAML provider" }).click();
-  await expect(page.getByText("End to end SAML")).toBeVisible();
+  await dialog.getByRole("button", { name: "Add SAML provider" }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "SAML provider End to end SAML added", exact: true })).toBeVisible();
+  await expect(page.getByText("End to end SAML", { exact: true })).toBeVisible();
 
   // The addresses on the screen are the ones the identity provider is
   // given, so they have to be the ones that actually answer.

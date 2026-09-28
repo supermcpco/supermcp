@@ -15,14 +15,27 @@ function unique(prefix: string) {
 /** Creates an invitation through the form and returns the link shown once. */
 async function invite(page: Page, email: string, role: string): Promise<string> {
   await page.goto("/settings/members");
-  await page.getByLabel("Email", { exact: true }).fill(email);
-  await page.getByLabel("Role", { exact: true }).selectOption({ label: role });
-  await page.getByLabel("Link works for (days)").fill("3");
-  await page.getByRole("button", { name: "Create invitation link" }).click();
-  await expect(page.getByText("This link is shown once. Send it to the person yourself; no email is sent.")).toBeVisible();
-  const url = (await page.getByTestId("invite-url").textContent())?.trim() ?? "";
+  const dialog = await openInvite(page);
+  await dialog.getByLabel("Email", { exact: true }).fill(email);
+  await dialog.getByLabel("Role", { exact: true }).selectOption({ label: role });
+  await dialog.getByLabel("Link works for (days)").fill("3");
+  await dialog.getByRole("button", { name: "Create invitation link" }).click();
+  // The link is shown on the screen once the dialog has closed.
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: `Invitation for ${email} created`, exact: true })).toBeVisible();
+  const banner = page.getByRole("alert").filter({ hasText: `Copy the invitation link for ${email} now` });
+  await expect(banner.getByText("This link is shown once. Send it to the person yourself; no email is sent.")).toBeVisible();
+  const url = (await banner.getByText(/\/invite\/[A-Za-z0-9_-]+$/).textContent())?.trim() ?? "";
   expect(url).toMatch(/\/invite\/[A-Za-z0-9_-]+$/);
   return url;
+}
+
+/** Opens the invitation form from the screen's header. */
+async function openInvite(page: Page) {
+  await page.getByRole("button", { name: "Invite someone" }).first().click();
+  const dialog = page.getByRole("dialog", { name: "Invite someone" });
+  await expect(dialog).toBeVisible();
+  return dialog;
 }
 
 /** A browser with no cookies: the person the link was sent to. */
@@ -71,10 +84,15 @@ test("an owner invites someone who joins from the link, then changes, deactivate
 
     // One open invitation per address.
     await page.getByRole("button", { name: "Done" }).click();
-    await page.getByLabel("Email", { exact: true }).fill(email);
-    await page.getByLabel("Role", { exact: true }).selectOption({ label: "viewer" });
-    await page.getByRole("button", { name: "Create invitation link" }).click();
-    await expect(page.getByRole("alert").filter({ hasText: /already open/ })).toBeVisible();
+    const dialog = await openInvite(page);
+    await dialog.getByLabel("Email", { exact: true }).fill(email);
+    await dialog.getByLabel("Role", { exact: true }).selectOption({ label: "viewer" });
+    await dialog.getByRole("button", { name: "Create invitation link" }).click();
+    // Refused inside the dialog, which stays open with what was typed.
+    await expect(dialog.getByRole("alert").filter({ hasText: /already open/ })).toBeVisible();
+    await expect(dialog.getByLabel("Email", { exact: true })).toHaveValue(email);
+    await dialog.getByRole("button", { name: "Cancel" }).click();
+    await expect(dialog).toHaveCount(0);
   });
 
   const member = await stranger(browser);
@@ -108,6 +126,7 @@ test("an owner invites someone who joins from the link, then changes, deactivate
   await test.step("the owner changes their role", async () => {
     await page.getByLabel(`Role for ${invitee.name}`).selectOption({ label: "editor" });
     await page.getByRole("button", { name: `Change ${invitee.name}'s role` }).click();
+    await expect(page.getByRole("heading", { name: `${invitee.name} now holds editor`, exact: true })).toBeVisible();
     const roles = memberRow(page, email).getByRole("list", { name: `Roles of ${invitee.name}` });
     await expect(roles.getByText("editor")).toBeVisible();
     await expect(roles.getByText("viewer")).toHaveCount(0);
@@ -116,6 +135,7 @@ test("an owner invites someone who joins from the link, then changes, deactivate
   await test.step("deactivating them ends their session", async () => {
     await page.getByRole("button", { name: `Deactivate ${invitee.name}` }).click();
     await page.getByRole("button", { name: `Yes, deactivate ${invitee.name}` }).click();
+    await expect(page.getByRole("heading", { name: `${invitee.name} deactivated`, exact: true })).toBeVisible();
     await expect(memberRow(page, email).getByText("deactivated", { exact: true })).toBeVisible();
 
     const res = await member.page.request.get("/api/v1/auth/session");
@@ -128,6 +148,7 @@ test("an owner invites someone who joins from the link, then changes, deactivate
   await test.step("removing them takes them off the list", async () => {
     await page.getByRole("button", { name: `Remove ${invitee.name}` }).click();
     await page.getByRole("button", { name: `Remove ${invitee.name} for good` }).click();
+    await expect(page.getByRole("heading", { name: `${invitee.name} removed from the workspace`, exact: true })).toBeVisible();
     await expect(memberRow(page, email)).toHaveCount(0);
   });
 
@@ -148,6 +169,7 @@ test("a revoked link shows the same generic error as any other", async ({ page, 
   await page.getByRole("button", { name: "Done" }).click();
 
   await page.getByRole("button", { name: `Revoke the invitation for ${email}` }).click();
+  await expect(page.getByRole("heading", { name: `Invitation for ${email} revoked`, exact: true })).toBeVisible();
   const listed = page.getByRole("list", { name: "Invitations" }).getByRole("listitem").filter({ hasText: email });
   // Exact: the address itself starts with "revoked".
   await expect(listed.getByText("revoked", { exact: true })).toBeVisible();

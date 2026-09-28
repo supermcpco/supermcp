@@ -57,6 +57,7 @@ test("the workspace's password rules are enforced on a real change", async ({ pa
   await page.getByLabel("Minimum length").fill("16");
   await page.getByRole("button", { name: "Save rules" }).click();
   await expect(page.getByText("Saved.")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Password rules saved", exact: true })).toBeVisible();
 
   // Too short for the rule that was just saved.
   await page.getByLabel("Current password").fill(workspace.password);
@@ -70,6 +71,7 @@ test("the workspace's password rules are enforced on a real change", async ({ pa
   await page.getByLabel("New password").fill(next);
   await page.getByRole("button", { name: "Change password" }).click();
   await expect(page.getByRole("status")).toContainText(/password changed/i);
+  await expect(page.getByRole("heading", { name: "Password changed", exact: true })).toBeVisible();
 
   // And the new password is the one that works.
   await page.context().clearCookies();
@@ -80,9 +82,16 @@ test("a service account is created with a secret shown once", async ({ page, wor
   expect(workspace.email).toBeTruthy();
   await page.goto("/settings/service-accounts");
   await expect(page.getByRole("heading", { name: "Service accounts" })).toBeVisible();
-  await page.getByLabel("Name").fill("Nightly export");
-  await page.getByRole("button", { name: "Create account" }).click();
+  // An empty screen offers the same button in its header and in the
+  // empty state; the header's comes first.
+  await page.getByRole("button", { name: "New service account" }).first().click();
+  const dialog = page.getByRole("dialog", { name: "New service account" });
+  await dialog.getByLabel("Name").fill("Nightly export");
+  await dialog.getByRole("button", { name: "Create account" }).click();
 
+  // The secret is shown on the screen once the dialog has gone, not in it.
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Service account Nightly export created", exact: true })).toBeVisible();
   await expect(page.getByRole("alert")).toContainText(/copy this secret now/i);
   const shown = await page.getByRole("alert").locator("code").innerText();
   expect(shown).toContain("client_id: sms_");
@@ -91,9 +100,16 @@ test("a service account is created with a secret shown once", async ({ page, wor
   await page.getByRole("button", { name: "Done" }).click();
   await expect(page.getByText("Nightly export", { exact: true })).toBeVisible();
 
+  await page.getByRole("button", { name: "Disable" }).click();
+  await expect(page.getByRole("heading", { name: "Nightly export disabled", exact: true })).toBeVisible();
+
   // Reloading must not show the secret again.
   await page.reload();
   await expect(page.getByText(/client_secret:/)).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Delete" }).click();
+  await expect(page.getByRole("heading", { name: "Service account Nightly export deleted", exact: true })).toBeVisible();
+  await expect(page.getByText("No service accounts yet.")).toBeVisible();
 });
 
 test("the single sign-on screen tells an administrator what to register", async ({ page, workspace }) => {
@@ -104,11 +120,15 @@ test("the single sign-on screen tells an administrator what to register", async 
   await expect(page.getByText("/scim/v2")).toBeVisible();
   await expectAccessible(page);
 
-  // An issuer that does not exist must fail on this screen rather than at
+  // An issuer that does not exist must fail in the form rather than at
   // someone's first sign-in.
-  await page.getByLabel("Issuer URL").fill("https://localhost:9/not-a-provider");
-  await page.getByRole("button", { name: /test this issuer/i }).click();
-  await expect(page.getByRole("alert")).toBeVisible({ timeout: 15_000 });
+  await page.getByRole("button", { name: "New OpenID Connect provider" }).first().click();
+  const dialog = page.getByRole("dialog", { name: "Add a provider" });
+  await expect(dialog.getByText("/auth/sso/callback")).toBeVisible();
+  await expectAccessible(page);
+  await dialog.getByLabel("Issuer URL").fill("https://localhost:9/not-a-provider");
+  await dialog.getByRole("button", { name: /test this issuer/i }).click();
+  await expect(dialog.getByRole("alert")).toBeVisible({ timeout: 15_000 });
 });
 
 test("signing out ends the session", async ({ page, workspace }) => {

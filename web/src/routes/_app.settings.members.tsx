@@ -18,6 +18,7 @@ import { useSession } from "../lib/session";
 import { Badge, Loading } from "../lib/ui";
 import { status } from "../lib/errors";
 import { toast } from "../components/shell/toast";
+import { EmptyState, FormDialog, HeaderWithAction } from "../components/form-dialog";
 import {
   defaultExpiryDays,
   expiryDays,
@@ -51,23 +52,36 @@ function Members() {
 
   const [pending, setPending] = useState<Pending | null>(null);
   const [rowError, setRowError] = useState<{ userId: string; text: string } | null>(null);
+  const [inviting, setInviting] = useState(false);
+  const [link, setLink] = useState<{ url: string; email: string } | null>(null);
 
   const refresh = () => qc.invalidateQueries({ queryKey: membersListQueryKey() });
-  const settle = {
-    onSuccess: async () => {
-      setPending(null);
-      setRowError(null);
-      await refresh();
-    },
+  const settle = async () => {
+    setPending(null);
+    setRowError(null);
+    await refresh();
+  };
+  const who = (userId: string) => {
+    const m = members.data?.members?.find((x) => x.userId === userId);
+    return m ? displayName(m) : "The member";
   };
   const update = useMutation({
     ...membersUpdateMutation(),
-    ...settle,
+    onSuccess: async (_, v) => {
+      if (v.body.roleId) {
+        const role = roles.data?.roles?.find((r) => r.id === v.body.roleId)?.name ?? "the new role";
+        toast(`${who(v.path.userId)} now holds ${role}`);
+      } else toast(`${who(v.path.userId)} ${v.body.status === "deactivated" ? "deactivated" : "reactivated"}`);
+      await settle();
+    },
     onError: (e, v) => setRowError({ userId: v.path.userId, text: memberError(e) }),
   });
   const remove = useMutation({
     ...membersRemoveMutation(),
-    ...settle,
+    onSuccess: async (_, v) => {
+      toast(`${who(v.path.userId)} removed from the workspace`);
+      await settle();
+    },
     onError: (e, v) => setRowError({ userId: v.path.userId, text: memberError(e) }),
   });
 
@@ -89,9 +103,15 @@ function Members() {
       });
   };
 
+  const invite = canManage ? (
+    <Button variant="primary" onClick={() => setInviting(true)}>
+      Invite someone
+    </Button>
+  ) : null;
+
   return (
     <div className="grid gap-8">
-      <div className="grid gap-1.5">
+      <HeaderWithAction action={invite}>
         <Text as="h1" variant="heading2">
           Members
         </Text>
@@ -102,7 +122,9 @@ function Members() {
         {!canManage && (
           <Text variant="secondary">You can see the members; changing them needs the permission to manage members.</Text>
         )}
-      </div>
+      </HeaderWithAction>
+
+      {link && <InviteLink link={link} onDone={() => setLink(null)} />}
 
       <section className="grid gap-3" aria-labelledby="members-heading">
         <Text as="h2" variant="heading3" id="members-heading">
@@ -114,7 +136,7 @@ function Members() {
             <Text>{status(members.error) === 501 ? notReady : memberError(members.error)}</Text>
           </div>
         )}
-        {members.isSuccess && list.length === 0 && <Text variant="secondary">Nobody is a member yet.</Text>}
+        {members.isSuccess && list.length === 0 && <EmptyState action={invite}>Nobody is a member yet.</EmptyState>}
         {list.length > 0 && (
           <div className="overflow-x-auto">
             <table className="w-full text-left">
@@ -164,7 +186,21 @@ function Members() {
         )}
       </section>
 
-      {canManage && <InviteSection roles={assignable} rolesLoading={roles.isPending} />}
+      {canManage && (
+        <>
+          <InviteDialog
+            open={inviting}
+            onOpenChange={setInviting}
+            roles={assignable}
+            rolesLoading={roles.isPending}
+            onCreated={(created) => {
+              setLink(created);
+              setInviting(false);
+            }}
+          />
+          <Invitations />
+        </>
+      )}
     </div>
   );
 }
@@ -375,40 +411,158 @@ function confirmLabel(p: Pending, who: string) {
 }
 
 /**
- * Inviting someone: the server hands back a link once, and this screen
- * shows it once. Nothing is emailed; the administrator sends it.
+ * Inviting someone: the server hands back a link once, and the screen
+ * shows it once, in the banner above the list after this dialog has
+ * closed. Nothing is emailed; the administrator sends it.
  */
-function InviteSection({ roles, rolesLoading }: { roles: RoleDto[]; rolesLoading: boolean }) {
+function InviteDialog({
+  open,
+  onOpenChange,
+  roles,
+  rolesLoading,
+  onCreated,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  roles: RoleDto[];
+  rolesLoading: boolean;
+  onCreated: (link: { url: string; email: string }) => void;
+}) {
   const qc = useQueryClient();
   const ids = useId();
-  const invites = useQuery({ ...invitesListOptions(), retry: false });
 
   const [email, setEmail] = useState("");
   const [roleId, setRoleId] = useState("");
   const [days, setDays] = useState(String(defaultExpiryDays));
-  const [link, setLink] = useState<{ url: string; email: string } | null>(null);
-  const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const refresh = () => qc.invalidateQueries({ queryKey: invitesListQueryKey() });
   const create = useMutation({
     ...invitesCreateMutation(),
     onSuccess: async (res) => {
       toast(`Invitation for ${res.invite.email} created`);
-      setLink({ url: res.url, email: res.invite.email });
-      setCopied(false);
+      onCreated({ url: res.url, email: res.invite.email });
       setEmail("");
       setDays(String(defaultExpiryDays));
       setError(null);
-      await refresh();
+      await qc.invalidateQueries({ queryKey: invitesListQueryKey() });
     },
     onError: (e) => setError(memberError(e)),
   });
+
+  return (
+    <FormDialog
+      open={open}
+      onOpenChange={(next) => {
+        onOpenChange(next);
+        setError(null);
+      }}
+      title="Invite someone"
+      description="You get a link to send them. It works once, for that email address only, and no email is sent."
+      submitLabel={create.isPending ? "Creating…" : "Create invitation link"}
+      pending={create.isPending}
+      canSubmit={email.trim() !== "" && roleId !== ""}
+      error={error}
+      onSubmit={() => {
+        setError(null);
+        create.mutate({ body: { email: email.trim(), roleId, expiresInDays: expiryDays(days) } });
+      }}
+    >
+      <label className="grid gap-1.5">
+        <Text as="span">Email</Text>
+        <Input
+          type="email"
+          required
+          autoComplete="off"
+          value={email}
+          onChange={(e) => setEmail(e.currentTarget.value)}
+          placeholder="ada@example.com"
+        />
+      </label>
+      {/* Labelled by id rather than by wrapping: a wrapped control's
+          value becomes part of its name, and "Role Choose a role" helps
+          nobody. */}
+      <div className="grid gap-1.5">
+        <label htmlFor={`${ids}-role`}>
+          <Text as="span">Role</Text>
+        </label>
+        <select
+          id={`${ids}-role`}
+          className={selectClass}
+          required
+          value={roleId}
+          onChange={(e) => setRoleId(e.currentTarget.value)}
+        >
+          <option value="">{rolesLoading ? "Loading roles…" : "Choose a role"}</option>
+          {roles.map((r) => (
+            <option key={r.id} value={r.id}>
+              {r.name}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="grid gap-1.5">
+        <label htmlFor={`${ids}-days`}>
+          <Text as="span">Link works for (days)</Text>
+        </label>
+        <Input
+          id={`${ids}-days`}
+          type="number"
+          min={1}
+          max={maxExpiryDays}
+          required
+          value={days}
+          onChange={(e) => setDays(e.currentTarget.value)}
+        />
+      </div>
+    </FormDialog>
+  );
+}
+
+/** The link an invitation was created with, shown this once. */
+function InviteLink({ link, onDone }: { link: { url: string; email: string }; onDone: () => void }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <div className="grid gap-1.5 rounded-lg px-5 py-4 ring ring-kumo-line" role="alert">
+      <Text as="h2" variant="heading3">
+        Copy the invitation link for {link.email} now
+      </Text>
+      <Text variant="secondary">This link is shown once. Send it to the person yourself; no email is sent.</Text>
+      <code className="overflow-x-auto rounded-md bg-kumo-tint px-2 py-1 font-mono text-[0.9em]">{link.url}</code>
+      <div className="flex items-center gap-2">
+        <Button
+          onClick={() =>
+            void navigator.clipboard.writeText(link.url).then(
+              () => setCopied(true),
+              () => setCopied(false),
+            )
+          }
+        >
+          Copy
+        </Button>
+        <Button onClick={onDone}>Done</Button>
+        <span aria-live="polite">
+          <Text as="span" variant="secondary">
+            {copied ? "Copied." : ""}
+          </Text>
+        </span>
+      </div>
+    </div>
+  );
+}
+
+/** Every invitation, and the way to take back one that is still open. */
+function Invitations() {
+  const qc = useQueryClient();
+  const invites = useQuery({ ...invitesListOptions(), retry: false });
+  const [error, setError] = useState<string | null>(null);
+
   const revoke = useMutation({
     ...invitesRevokeMutation(),
-    onSuccess: async () => {
+    onSuccess: async (_, v) => {
+      const email = invites.data?.invites?.find((i) => i.id === v.path.id)?.email;
+      toast(email ? `Invitation for ${email} revoked` : "Invitation revoked");
       setError(null);
-      await refresh();
+      await qc.invalidateQueries({ queryKey: invitesListQueryKey() });
     },
     onError: (e) => setError(memberError(e)),
   });
@@ -416,121 +570,15 @@ function InviteSection({ roles, rolesLoading }: { roles: RoleDto[]; rolesLoading
   const list = sortInvites(invites.data?.invites ?? []);
 
   return (
-    <section className="grid gap-3" aria-labelledby="invite-heading">
-      <Text as="h2" variant="heading3" id="invite-heading">
-        Invite someone
+    <section className="grid gap-3" aria-labelledby="invitations-heading">
+      <Text as="h2" variant="heading3" id="invitations-heading">
+        Invitations
       </Text>
-      <Text variant="secondary">
-        You get a link to send them. It works once, for that email address only, and no email is sent.
-      </Text>
-
-      {link && (
-        <div className="grid gap-1.5 rounded-lg px-5 py-4 ring ring-kumo-line" role="alert">
-          <Text as="h3" variant="heading3">
-            Copy the invitation link for {link.email} now
-          </Text>
-          <Text variant="secondary">This link is shown once. Send it to the person yourself; no email is sent.</Text>
-          <code className="overflow-x-auto rounded-md bg-kumo-tint px-2 py-1 font-mono text-[0.9em]" data-testid="invite-url">
-            {link.url}
-          </code>
-          <div className="flex items-center gap-2">
-            <Button
-              onClick={() =>
-                void navigator.clipboard.writeText(link.url).then(
-                  () => setCopied(true),
-                  () => setCopied(false),
-                )
-              }
-            >
-              Copy
-            </Button>
-            <Button
-              onClick={() => {
-                setLink(null);
-                setCopied(false);
-              }}
-            >
-              Done
-            </Button>
-            <span aria-live="polite">
-              <Text as="span" variant="secondary">
-                {copied ? "Copied." : ""}
-              </Text>
-            </span>
-          </div>
-        </div>
-      )}
-
-      <form
-        className="flex max-w-3xl flex-wrap items-end gap-3 rounded-lg px-5 py-4 ring ring-kumo-line"
-        aria-labelledby="invite-heading"
-        onSubmit={(e) => {
-          e.preventDefault();
-          setError(null);
-          create.mutate({ body: { email: email.trim(), roleId, expiresInDays: expiryDays(days) } });
-        }}
-      >
-        <label className="grid flex-1 gap-1.5">
-          <Text as="span">Email</Text>
-          <Input
-            type="email"
-            required
-            autoComplete="off"
-            value={email}
-            onChange={(e) => setEmail(e.currentTarget.value)}
-            placeholder="ada@example.com"
-          />
-        </label>
-        {/* Labelled by id rather than by wrapping: a wrapped control's
-            value becomes part of its name, and "Role Choose a role" helps
-            nobody. */}
-        <div className="grid gap-1.5">
-          <label htmlFor={`${ids}-role`}>
-            <Text as="span">Role</Text>
-          </label>
-          <select
-            id={`${ids}-role`}
-            className={selectClass}
-            required
-            value={roleId}
-            onChange={(e) => setRoleId(e.currentTarget.value)}
-          >
-            <option value="">{rolesLoading ? "Loading roles…" : "Choose a role"}</option>
-            {roles.map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.name}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="grid gap-1.5">
-          <label htmlFor={`${ids}-days`}>
-            <Text as="span">Link works for (days)</Text>
-          </label>
-          <Input
-            id={`${ids}-days`}
-            type="number"
-            min={1}
-            max={maxExpiryDays}
-            required
-            value={days}
-            onChange={(e) => setDays(e.currentTarget.value)}
-          />
-        </div>
-        <Button type="submit" variant="primary" disabled={create.isPending || !email.trim() || !roleId}>
-          {create.isPending ? "Creating…" : "Create invitation link"}
-        </Button>
-      </form>
-
       {error && (
         <div role="alert" className="rounded-md bg-kumo-tint px-4 py-3 ring ring-kumo-line">
           <Text>{error}</Text>
         </div>
       )}
-
-      <Text as="h3" variant="heading3">
-        Invitations
-      </Text>
       {invites.isPending && <Loading />}
       {invites.error && (
         <Text variant="secondary">
