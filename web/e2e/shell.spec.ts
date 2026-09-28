@@ -131,7 +131,13 @@ test("the sidebar collapses to icons and remembers it after a reload", async ({ 
   await nav.getByRole("link", { name: "Connectors" }).click();
   await expect(page.getByRole("heading", { name: "Connectors", level: 1 })).toBeVisible();
   await expect(nav.getByRole("link", { name: "Connectors" })).toHaveAttribute("aria-current", "page");
+  // On the rail each entry names itself in a tooltip, one a screen reader
+  // knows for a tooltip.
+  await nav.getByRole("link", { name: "Catalog" }).hover();
+  await expect(page.getByRole("tooltip", { name: "Catalog" })).toBeVisible();
   await expectAccessible(page);
+  await page.getByRole("button", { name: "Sign out" }).hover();
+  await expect(page.getByRole("tooltip", { name: "Sign out" })).toBeVisible();
 
   await page.reload();
   await expect(page.getByRole("heading", { name: "Connectors", level: 1 })).toBeVisible();
@@ -178,4 +184,13 @@ test("no screen uses a Kumo variant or prop that Kumo has deprecated", async ({ 
   await expect(page.getByRole("heading", { name: "Deutsche Bundesbank Statistics", level: 1 })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Status", level: 2 })).toBeVisible();
   expect(warnings.filter((w) => /deprecated/i.test(w))).toEqual([]);
+});
+
+test("a confirmation is announced as a status, not a dialog", async ({ page, workspace }) => {
+  expect(workspace.email).toBeTruthy();
+  await installAdapter(page);
+  await expect(page.getByRole("status", { name: "Deutsche Bundesbank Statistics installed" })).toBeVisible();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(page.getByRole("alertdialog")).toHaveCount(0);
+  await expectAccessible(page);
 });

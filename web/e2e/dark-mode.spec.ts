@@ -58,7 +58,7 @@ test("a create dialog, a toast, the connector page and a confirm dialog are dark
   await expect(create).toHaveCount(0);
 
   await installAdapter(page);
-  await expect(page.getByText("Deutsche Bundesbank Statistics installed", { exact: true })).toBeVisible();
+  await expect(page.getByRole("status", { name: "Deutsche Bundesbank Statistics installed" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Deutsche Bundesbank Statistics", level: 1 })).toBeVisible();
   await expectAccessible(page);
 
