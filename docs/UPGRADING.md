@@ -90,6 +90,31 @@ rollout order does not matter. The two earlier `auth_register` functions
 stay for pods of the previous release during the rollout; those pods keep
 the three-transaction registration until they are replaced.
 
+The migration also repairs organisations the old registration left
+without an owner. It calls `auth_repair_orphan_owners()` once, which makes
+the only member the owner of an organisation that has no owner binding,
+exactly one active member, and that member added in the same transaction
+that created it. That is the mark of a registration that failed half-way,
+so an organisation that lost its owner some other way is not handed to
+whoever is left. It only inserts rows into `role_bindings`, and migrating
+down keeps them. A pod of the previous release can still leave another
+such organisation during the rollout. You can run the function again as
+the migration role once the rollout finishes; it returns how many owners
+it bound and does nothing the second time. To list organisations that
+still have no owner, including those the repair leaves for you to decide,
+run this as the same role (row-level security hides the rows from the
+application role):
+
+```sql
+SELECT o.id, o.slug, o.created_at, count(m.user_id) AS members
+FROM organizations o
+LEFT JOIN organization_members m ON m.organization_id = o.id
+WHERE NOT EXISTS (SELECT 1 FROM role_bindings b
+                  WHERE b.organization_id = o.id AND b.role_id = 'role_owner')
+GROUP BY o.id
+ORDER BY o.created_at;
+```
+
 ### The tool-call list can be filtered
 
 `GET /api/v1/tool-calls` takes `since`, `until`, `connectorId`,
