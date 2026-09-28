@@ -178,11 +178,17 @@ func TestRegisterFunctionDecides(t *testing.T) {
 		name     string
 		sql      string
 		open     *bool
-		wantCode string // "" for success
+		iso      pgx.TxIsoLevel // "" is the server's default, READ COMMITTED
+		wantCode string         // "" for success
 	}{
-		{name: "closed", sql: "SELECT auth_register($1,$2,'',NULL,$3,$4,'Org',$5)", open: new(false), wantCode: "SM001"},
-		{name: "open", sql: "SELECT auth_register($1,$2,'',NULL,$3,$4,'Org',$5)", open: new(true)},
+		{name: "closed", sql: registerSQL, open: new(false), wantCode: pgRegistrationClosed},
+		{name: "open", sql: registerSQL, open: new(true)},
 		{name: "previous release", sql: "SELECT auth_register($1,$2,'',NULL,$3,$4,'Org')"},
+		// The lock only works under READ COMMITTED, so anything else is
+		// refused rather than left to race; an open instance takes no lock.
+		{name: "closed under repeatable read", sql: registerSQL, open: new(false), iso: pgx.RepeatableRead, wantCode: "P0001"},
+		{name: "closed under serializable", sql: registerSQL, open: new(false), iso: pgx.Serializable, wantCode: "P0001"},
+		{name: "open under repeatable read", sql: registerSQL, open: new(true), iso: pgx.RepeatableRead},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			id := newID()
@@ -190,7 +196,7 @@ func TestRegisterFunctionDecides(t *testing.T) {
 			if tc.open != nil {
 				args = append(args, *tc.open)
 			}
-			err := h.db.Pre(ctx, func(tx pgx.Tx) error {
+			err := pgx.BeginTxFunc(ctx, h.db.App, pgx.TxOptions{IsoLevel: tc.iso}, func(tx pgx.Tx) error {
 				_, err := tx.Exec(ctx, tc.sql, args...)
 				return err
 			})
@@ -202,6 +208,135 @@ func TestRegisterFunctionDecides(t *testing.T) {
 				t.Errorf("auth_register answered %v, want SQLSTATE %s", err, tc.wantCode)
 			}
 		})
+	}
+}
+
+// registerSQL calls the current auth_register with $1 the user id, $2 the
+// email, $3 the organisation id, $4 its slug and $5 whether open
+// registration is on.
+const registerSQL = "SELECT auth_register($1,$2,'',NULL,$3,$4,'Org',$5)"
+
+const (
+	// pgRegistrationClosed is the SQLSTATE auth_register refuses with.
+	pgRegistrationClosed = "SM001"
+	// pgLockNotAvailable is what running out of lock_timeout raises.
+	pgLockNotAvailable = "55P03"
+	// registerLockClass is the advisory lock class auth_register takes
+	// (migration 00035), with 0 as the second key.
+	registerLockClass = 0x5247
+)
+
+// registerArgs are registerSQL's arguments for a fresh user.
+func registerArgs(open bool) []any {
+	id := newID()
+	return []any{id, id + "@e2e.test", newID(), "org-" + id, open}
+}
+
+// TestRegisterWaitsForTheLock orders two closed registrations on an
+// unclaimed instance by hand: the first holds its transaction open, the
+// second is seen waiting on the lock, the first commits, and the second
+// is refused. Nothing depends on how the scheduler happens to interleave
+// them.
+func TestRegisterWaitsForTheLock(t *testing.T) {
+	h := startWith(t, harnessOptions{dsn: unclaimedDatabase(t), closedRegistration: true})
+	ctx := context.Background()
+
+	first, err := h.db.App.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = first.Rollback(ctx) }()
+	if _, err := first.Exec(ctx, registerSQL, registerArgs(false)...); err != nil {
+		t.Fatalf("the first registration: %v", err)
+	}
+
+	// Owned by this test; it ends when the second call returns, which the
+	// commit below or lock_timeout guarantees.
+	second := make(chan error, 1)
+	go func() {
+		second <- h.db.Pre(ctx, func(tx pgx.Tx) error {
+			_, err := tx.Exec(ctx, registerSQL, registerArgs(false)...)
+			return err
+		})
+	}()
+	waitForRegisterWaiter(t, h, second)
+
+	if err := first.Commit(ctx); err != nil {
+		t.Fatalf("commit the first registration: %v", err)
+	}
+	err = <-second
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) || pgErr.Code != pgRegistrationClosed {
+		t.Errorf("the second registration answered %v, want SQLSTATE %s", err, pgRegistrationClosed)
+	}
+}
+
+// waitForRegisterWaiter returns once a session in h's database is waiting
+// for the registration lock. It fails the test if the waiter finishes
+// first or none shows up.
+func waitForRegisterWaiter(t *testing.T, h *harness, done <-chan error) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	tick := time.NewTicker(10 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		var waiting bool
+		if err := h.db.Maint.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_locks
+			WHERE locktype = 'advisory' AND NOT granted AND classid = $1 AND objid = 0 AND objsubid = 2
+			  AND database = (SELECT oid FROM pg_database WHERE datname = current_database()))`,
+			registerLockClass).Scan(&waiting); err != nil {
+			t.Fatalf("reading pg_locks: %v", err)
+		}
+		if waiting {
+			return
+		}
+		select {
+		case err := <-done:
+			t.Fatalf("the second registration returned without waiting for the lock: %v", err)
+		case <-ctx.Done():
+			t.Fatal("the second registration never waited for the lock")
+		case <-tick.C:
+		}
+	}
+}
+
+// TestRegisterLockTimeout holds the registration lock. A closed
+// registration gives up after auth_register's lock_timeout with an error
+// that is not a refusal, and an open one does not wait at all.
+func TestRegisterLockTimeout(t *testing.T) {
+	h := startWith(t, harnessOptions{dsn: unclaimedDatabase(t), closedRegistration: true})
+	ctx := context.Background()
+
+	holder, err := h.db.Maint.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = holder.Rollback(ctx) }()
+	if _, err := holder.Exec(ctx, "SELECT pg_advisory_xact_lock($1, 0)", registerLockClass); err != nil {
+		t.Fatalf("take the registration lock: %v", err)
+	}
+
+	_, _, err = h.deps.Identity.Register(ctx, identity.RegisterInput{
+		Email: newID() + "@e2e.test", Password: "correct horse battery 9", OrgName: "Held",
+	})
+	if errors.Is(err, identity.ErrRegistrationClosed) {
+		t.Errorf("a registration that timed out on the lock was refused as closed")
+	}
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) || pgErr.Code != pgLockNotAvailable {
+		t.Errorf("a registration behind a held lock answered %v, want SQLSTATE %s", err, pgLockNotAvailable)
+	}
+
+	// Well under lock_timeout: an open registration that waited would
+	// fail here rather than succeed late.
+	openCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	if err := h.db.Pre(openCtx, func(tx pgx.Tx) error {
+		_, err := tx.Exec(openCtx, registerSQL, registerArgs(true)...)
+		return err
+	}); err != nil {
+		t.Errorf("an open registration behind a held lock: %v", err)
 	}
 }
 

@@ -211,7 +211,10 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (*User, *Org, 
 		if strings.Contains(err.Error(), "users_email_lower_idx") {
 			return nil, nil, ErrEmailTaken
 		}
-		return nil, nil, err
+		// Includes lock_not_available (55P03) when another registration
+		// holds the lock past auth_register's lock_timeout: a failure,
+		// not a refusal.
+		return nil, nil, fmt.Errorf("register: %w", err)
 	}
 	// Count the first password against the reuse policy as well.
 	_ = s.DB.Pre(ctx, func(tx pgx.Tx) error {
