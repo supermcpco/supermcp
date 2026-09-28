@@ -2,16 +2,37 @@ import { Button, Toast, cn, useKumoToastManager } from "@cloudflare/kumo";
 import { CheckCircle, Info, WarningOctagon, X } from "@phosphor-icons/react";
 import { toasts, type ToastKind } from "./toast";
 
+/*
+ * KUMO COPY: written against @cloudflare/kumo 2.14.0 (Base UI 1.8.0).
+ *
+ * Why it exists: Kumo's <Toasty> renders each toast through Base UI's
+ * Toast.Root, which gives it the role `dialog` (`alertdialog` at high
+ * priority). Neither Toasty nor its internal ToastList takes a role, and
+ * Kumo does not export `toastVariants` or `KUMO_TOAST_VARIANTS`. So the
+ * one prop that matters (`role`) cannot be passed through a wrapper, and
+ * the classes below are copied from Toasty's ToastList and its variant
+ * table. Only what `toast()` uses is kept: a title, the kinds success,
+ * error and info, and the down and right swipes of Base UI's default
+ * viewport. Descriptions, actions, the warning kind and the left and up
+ * swipes are left out.
+ *
+ * Delete when: Kumo's Toasty (or its toast manager) lets a toast be a
+ * `status` or an `alert` instead of a dialog. Then mount
+ * <Toasty toastManager={toasts}> instead of <Toaster />, and keep the
+ * browser tests that assert role=status on a confirmation.
+ *
+ * src/components/kumo-copies.test.ts fails when the installed Kumo version
+ * changes. When it does, re-check this against the new Toasty, then update
+ * the version above.
+ */
+
 /**
  * Where confirmations appear. The viewport is a labelled live region, so
  * each one is announced as well as shown. Mount it once, outside anything
  * that unmounts on navigation.
  *
- * This is Kumo's Toasty drawn from Kumo's own toast parts, for one
- * difference: Toasty gives every toast the role `dialog` (`alertdialog`
- * when it is an error) and takes no prop to change that. A confirmation is
- * not a dialog, so here it is a `status`, and an error an `alert`. The
- * classes are Toasty's, trimmed to what `toast()` uses: a title and a kind.
+ * Kumo's Toasty, except that a confirmation is a `status` and an error an
+ * `alert`, not a dialog (see the note above).
  */
 export function Toaster() {
   return (
