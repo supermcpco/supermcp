@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { RouterProvider, createRouter } from "@tanstack/react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { CSPProvider } from "@cloudflare/kumo/primitives/csp-provider";
 import { routeTree } from "./routeTree.gen";
 import { client } from "./api/client.gen";
 import { createReauthGate, reauthInterceptors } from "./lib/reauth";
@@ -35,11 +36,17 @@ declare module "@tanstack/react-router" {
   }
 }
 
+// The server's content security policy (style-src 'self') refuses the
+// <style> elements Base UI injects for its ScrollArea and Select, so Base
+// UI is told not to render them; app.css carries the one rule they held.
+// This sits above the router so the reauth dialog is covered as well.
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
-      <ReauthDialog gate={reauthGate} />
-    </QueryClientProvider>
+    <CSPProvider disableStyleElements>
+      <QueryClientProvider client={queryClient}>
+        <RouterProvider router={router} />
+        <ReauthDialog gate={reauthGate} />
+      </QueryClientProvider>
+    </CSPProvider>
   </StrictMode>,
 );

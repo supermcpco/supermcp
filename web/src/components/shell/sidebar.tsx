@@ -34,13 +34,13 @@ export function AppSidebar() {
         </span>
         {isMobile && <Sidebar.Close />}
       </Sidebar.Header>
-      {/* Not Sidebar.Content: that is Base UI's ScrollArea, which injects a
-          <style> element the content security policy (style-src 'self')
-          refuses. A plain scrolling column with Kumo's own spacing does
-          the same job without widening the policy. */}
-      <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-[11px] py-3 transition-[padding] duration-(--sidebar-animation-duration) group-not-data-[state=collapsed]/sidebar:px-3.5">
+      {/* Base UI's ScrollArea underneath: the navigation scrolls on a
+          short window, fading at the edge where more is hidden. Its
+          <style> element is switched off by CSPProvider (main.tsx), since
+          the content security policy refuses it; app.css holds its rule. */}
+      <Sidebar.Content>
         <NavGroups />
-      </div>
+      </Sidebar.Content>
       {/* Kumo's footer, pinned under the scrolling navigation: the
           person's button and the toggle beside it in one row. On the rail
           there is room for one icon a row, so the two stack, each centred

@@ -15,3 +15,19 @@ body,
     color-scheme: dark;
   }
 }
+
+/* KUMO COPY: written against @cloudflare/kumo 2.14.0 (Base UI 1.8.0).
+   Why it exists: Base UI's ScrollArea (under Sidebar.Content) and Select
+   hide the native scrollbar with a <style> element they inject, and the
+   content security policy (style-src 'self') refuses it. So main.tsx sets
+   CSPProvider disableStyleElements, and the rule is copied here from
+   @base-ui/react utils/styles.
+   Delete when: Kumo ships this rule in its own stylesheet.
+   src/components/kumo-copies.test.ts fails when the installed Kumo version
+   changes, or when Base UI renames the class. */
+.base-ui-disable-scrollbar {
+  scrollbar-width: none;
+}
+.base-ui-disable-scrollbar::-webkit-scrollbar {
+  display: none;
+}

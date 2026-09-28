@@ -92,6 +92,71 @@ test("the sidebar footer keeps the email, sign out and the toggle in view at a s
   await expect(menu.getByRole("menuitem", { name: "Sign out" })).toBeInViewport();
 });
 
+test("a signed-in visit breaks no part of the content security policy", async ({ page, workspace }) => {
+  // The policy allows no inline <style>. Base UI injects one for the
+  // sidebar's ScrollArea unless CSPProvider says not to, and the browser
+  // only says so in the console.
+  const violations: string[] = [];
+  page.on("console", (m) => {
+    if (/Content Security Policy/i.test(m.text())) violations.push(m.text());
+  });
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "Overview", level: 1 })).toBeVisible();
+  await expect(page.getByText(workspace.email)).toBeVisible();
+  const nav = page.getByRole("navigation", { name: "Primary" });
+  await nav.getByRole("link", { name: "Settings", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Settings", level: 1 })).toBeVisible();
+  await page.getByRole("button", { name: "Collapse sidebar" }).click();
+  await expect(page.getByRole("button", { name: "Expand sidebar" })).toBeVisible();
+  await page.setViewportSize({ width: 900, height: 700 });
+  await page.getByRole("button", { name: "Menu" }).click();
+  await expect(page.getByRole("navigation", { name: "Menu" })).toBeVisible();
+  expect(violations).toEqual([]);
+});
+
+for (const colorScheme of ["light", "dark"] as const) {
+  test(`on a short window the navigation scrolls to its last entry and fades where more is hidden (${colorScheme})`, async ({
+    page,
+    workspace,
+  }) => {
+    expect(workspace.email).toBeTruthy();
+    await page.emulateMedia({ colorScheme });
+    await page.setViewportSize({ width: 1440, height: 420 });
+    await page.goto("/");
+    await expect(page.getByRole("heading", { name: "Overview", level: 1 })).toBeVisible();
+    const nav = page.getByRole("navigation", { name: "Primary" });
+    const last = nav.getByRole("link", { name: "Settings", exact: true });
+    // What Kumo's Sidebar.Content draws around the navigation: Base UI
+    // marks the edges that have more beyond them, Kumo masks those edges
+    // into a fade, and the native scrollbar is hidden in favour of Kumo's
+    // thin one, which only shows while scrolling.
+    const scroller = () =>
+      nav.evaluate((el) => {
+        const viewport = el.closest("[data-sidebar=viewport]");
+        if (!(viewport instanceof HTMLElement)) return null;
+        return {
+          moreAbove: viewport.hasAttribute("data-overflow-y-start"),
+          moreBelow: viewport.hasAttribute("data-overflow-y-end"),
+          mask: getComputedStyle(viewport).maskImage,
+          // Measuring the scrollbar proves nothing here: headless Chromium
+          // draws overlay scrollbars no wider than zero either way.
+          scrollbarWidth: getComputedStyle(viewport).getPropertyValue("scrollbar-width"),
+        };
+      });
+    await expect(last).not.toBeInViewport();
+    await expect.poll(scroller).toMatchObject({ moreAbove: false, moreBelow: true, scrollbarWidth: "none" });
+    expect((await scroller())?.mask).toMatch(/linear-gradient/);
+
+    await nav.getByRole("link", { name: "Overview" }).hover();
+    await page.mouse.wheel(0, 2000);
+    await expect(last).toBeInViewport();
+    await expect.poll(scroller).toMatchObject({ moreAbove: true, moreBelow: false, scrollbarWidth: "none" });
+    await expectAccessible(page);
+    await last.click();
+    await expect(page.getByRole("heading", { name: "Settings", level: 1 })).toBeVisible();
+  });
+}
+
 anonymous("a workspace name too long for the sidebar is shown whole in a tooltip", async ({ page }) => {
   const unique = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
   const org = `Northwind Traders International Holdings ${unique}`;

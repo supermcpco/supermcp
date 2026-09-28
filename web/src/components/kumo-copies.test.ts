@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 // A few components here stand in for Kumo ones that fall short in a way
@@ -20,6 +21,7 @@ const copies = [
   "shell/rail-button.tsx",
   "tooltip.tsx",
   "labelled-input.tsx",
+  "../app.css",
 ];
 
 function installedKumo(): string {
@@ -44,8 +46,21 @@ describe("Kumo copies", () => {
       stale,
       `@cloudflare/kumo is now ${installed}. Read the KUMO COPY note at the top of each file below: ` +
         `delete the copy if the new Kumo does what it stands in for, otherwise check it still matches ` +
-        `and set its note to ${installed}. Also check src/components/shell/sidebar.tsx, which draws ` +
-        `its own scrolling column instead of Sidebar.Content. Files: ${stale.join(", ")}`,
+        `and set its note to ${installed}. Files: ${stale.join(", ")}`,
     ).toEqual([]);
+  });
+
+  it("app.css hides the scrollbar under the class Base UI still uses", () => {
+    // With CSPProvider disableStyleElements (main.tsx), Base UI leaves this
+    // rule to the page. If it renames the class, Sidebar.Content grows a
+    // native scrollbar beside its own, and nothing else would notice.
+    const kumoDir = dirname(kumoPackage);
+    const baseUiPackage = createRequire(kumoPackage).resolve("@base-ui/react/package.json", { paths: [kumoDir] });
+    const styles = readFileSync(join(dirname(baseUiPackage), "utils/styles.js"), "utf8");
+    const className = /DISABLE_SCROLLBAR_CLASS_NAME = ['"]([\w-]+)['"]/.exec(styles)?.[1];
+    expect(className).toBe("base-ui-disable-scrollbar");
+    const css = readFileSync(join(componentsDir, "../app.css"), "utf8");
+    expect(css).toContain(`.${className} {\n  scrollbar-width: none;\n}`);
+    expect(css).toContain(`.${className}::-webkit-scrollbar {\n  display: none;\n}`);
   });
 });
