@@ -356,7 +356,8 @@ func (d Deps) toolRestoreRoute(api huma.API) {
 			}
 			enabled, _ := snapshot["enabled"].(bool)
 
-			t := current
+			// Either branch sets t to the tool as it stands after the restore.
+			var t *connector.Tool
 			if raw, ok := snapshot["definition"].(string); ok {
 				def, err := connector.ParseToolJSON([]byte(raw))
 				if err != nil {
