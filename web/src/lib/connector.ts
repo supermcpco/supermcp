@@ -194,3 +194,47 @@ export function consentOutcome(code: string): string {
   }
 }
 
+/** What is said when the vendor approved access. */
+export const consentConnected = "Connected. The vendor approved access, and the workspace now holds the tokens.";
+
+/**
+ * The address parameters a return from a vendor's consent screen can
+ * carry. The server sends `oauth`: "ok" or the code for why not. Until
+ * the release after this one, the older `connected` and `connectError`
+ * (on a connector's page) and `connect_error` (on the list) are read too.
+ */
+export interface ConsentSearch {
+  oauth?: string;
+  connected?: boolean;
+  connectError?: string;
+  connect_error?: string;
+}
+
+/** The consent-return parameters out of an address's search, checked. */
+export function consentSearch(search: Record<string, unknown>): ConsentSearch {
+  const text = (v: unknown) => (typeof v === "string" && v !== "" ? v : undefined);
+  const out: ConsentSearch = {};
+  const oauth = text(search.oauth);
+  if (oauth) out.oauth = oauth;
+  if (search.connected === true || search.connected === "1" || search.connected === 1 || search.connected === "true") {
+    out.connected = true;
+  }
+  const connectError = text(search.connectError);
+  if (connectError) out.connectError = connectError;
+  const legacy = text(search.connect_error);
+  if (legacy) out.connect_error = legacy;
+  return out;
+}
+
+/**
+ * How a consent return went: "ok", the server's code for why not, or
+ * null when the address is not a consent return at all. A refusal wins
+ * over an approval if an address somehow says both.
+ */
+export function consentResult(search: ConsentSearch): string | null {
+  const refused = search.connectError ?? search.connect_error;
+  if (search.oauth) return search.oauth;
+  if (refused) return refused;
+  if (search.connected) return "ok";
+  return null;
+}

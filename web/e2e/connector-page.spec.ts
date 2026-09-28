@@ -200,13 +200,73 @@ test("an OAuth connector is authorized from its page", async ({ page, workspace 
 test("the return from a vendor's consent screen is told on the connector's page", async ({ page, workspace }) => {
   expect(workspace.email).toBeTruthy();
   const id = await installBundesbank(page);
+  const page$ = new RegExp(`/connectors/${id}$`);
 
-  // Where the server sends the browser back to, as it builds the address.
+  // Where the server sends the browser back to: the connector's own page,
+  // with how it went. Said once, then taken off the address.
+  await page.goto(`/connectors/${id}?oauth=vendor_refused`);
+  const refused = page.getByRole("alert").filter({ hasText: "The vendor refused the request" });
+  await expect(refused).toBeVisible();
+  await expect(page).toHaveURL(page$);
+  await expectAccessible(page);
+  // A refusal says what to do next, so it stays until put away.
+  await refused.getByRole("button", { name: "Dismiss" }).click();
+  await expect(refused).toHaveCount(0);
+
+  await page.goto(`/connectors/${id}?oauth=no_refresh_token`);
+  await expect(page.getByRole("alert").filter({ hasText: /sent no refresh token/ })).toBeVisible();
+  await expect(page).toHaveURL(page$);
+
+  // A code this page does not know is said as plainly as it can be.
+  await page.goto(`/connectors/${id}?oauth=connect_failed`);
+  await expect(page.getByRole("alert").filter({ hasText: "Connecting failed." })).toBeVisible();
+  await expect(page).toHaveURL(page$);
+
+  await page.goto(`/connectors/${id}?oauth=ok`);
+  await expect(
+    page.getByRole("heading", {
+      name: "Connected. The vendor approved access, and the workspace now holds the tokens.",
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(page).toHaveURL(page$);
+  // Reloading does not say it again.
+  await page.reload();
+  await expect(page.getByRole("heading", { name: bundesbank, level: 1 })).toBeVisible();
+  await expect(page.getByRole("alert").filter({ hasText: /vendor/ })).toHaveCount(0);
+
+  // A return that names no connector ends on the list.
+  await page.goto("/connectors?oauth=expired");
+  await expect(page.getByRole("alert").filter({ hasText: /The approval took too long/ })).toBeVisible();
+  await expect(page).toHaveURL(/\/connectors$/);
+});
+
+test("the older consent-return addresses still lead to the same words", async ({ page, workspace }) => {
+  expect(workspace.email).toBeTruthy();
+  const id = await installBundesbank(page);
+  const page$ = new RegExp(`/connectors/${id}$`);
+
+  // The list, naming the connector, sends the browser on to its page.
   await page.goto(`/connectors?connect_error=vendor_refused&connector=${id}`);
-  await expect(page).toHaveURL(new RegExp(`/connectors/${id}\\?connectError=vendor_refused$`));
-  await expect(page.getByRole("alert").getByText(/The vendor refused the request/)).toBeVisible();
+  await expect(page.getByRole("alert").filter({ hasText: "The vendor refused the request" })).toBeVisible();
+  await expect(page).toHaveURL(page$);
 
   await page.goto(`/connectors?connected=1&connector=${id}`);
-  await expect(page).toHaveURL(new RegExp(`/connectors/${id}\\?connected=true$`));
-  await expect(page.getByRole("status").getByText(/^Connected\./)).toBeVisible();
+  await expect(
+    page.getByRole("heading", {
+      name: "Connected. The vendor approved access, and the workspace now holds the tokens.",
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(page).toHaveURL(page$);
+
+  // The page's own older names.
+  await page.goto(`/connectors/${id}?connectError=expired`);
+  await expect(page.getByRole("alert").filter({ hasText: /The approval took too long/ })).toBeVisible();
+  await expect(page).toHaveURL(page$);
+
+  // And a refusal with no connector to go on to stays on the list.
+  await page.goto("/connectors?connect_error=unavailable");
+  await expect(page.getByRole("alert").filter({ hasText: "This connector no longer exists." })).toBeVisible();
+  await expect(page).toHaveURL(/\/connectors$/);
 });

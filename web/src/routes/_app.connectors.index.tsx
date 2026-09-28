@@ -1,4 +1,5 @@
-import { createFileRoute, Link, redirect } from "@tanstack/react-router";
+import { useCallback } from "react";
+import { createFileRoute, Link, redirect, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { LinkButton, Text } from "@cloudflare/kumo";
 import { connectorsListOptions } from "../api/@tanstack/react-query.gen";
@@ -6,35 +7,37 @@ import { useSession } from "../lib/session";
 import { Badge, Loading } from "../lib/ui";
 import { message } from "../lib/errors";
 import { EmptyState, HeaderWithAction } from "../components/form-dialog";
-import { consentOutcome, stillNeeded, connectorCredentialFields } from "../lib/connector";
+import {
+  consentResult,
+  consentSearch,
+  stillNeeded,
+  connectorCredentialFields,
+  type ConsentSearch,
+} from "../lib/connector";
+import { ConsentReturn } from "../components/consent-return";
 
 /**
- * The server sends a browser back here from a vendor's consent screen,
- * naming the connector and how it went. The connector's own page is where
- * that is said, so a return that names one goes straight on to it.
+ * The server sends a browser back to the connector's own page from a
+ * vendor's consent screen, and here when the return names no connector
+ * it could go on to (`oauth=expired`). Until the release after this one,
+ * the older return here, naming the connector in `connector` and the
+ * outcome in `connected` or `connect_error`, is sent on to that page in
+ * the newer form.
  */
-interface ConsentReturn {
-  connector?: string;
-  connected?: string;
-  connect_error?: string;
-}
+type ListSearch = ConsentSearch & { connector?: string };
 
 export const Route = createFileRoute("/_app/connectors/")({
-  validateSearch: (search: Record<string, unknown>): ConsentReturn => ({
-    ...(typeof search.connector === "string" ? { connector: search.connector } : {}),
-    ...(search.connected !== undefined ? { connected: String(search.connected) } : {}),
-    ...(typeof search.connect_error === "string" ? { connect_error: search.connect_error } : {}),
+  validateSearch: (search: Record<string, unknown>): ListSearch => ({
+    ...consentSearch(search),
+    ...(typeof search.connector === "string" && search.connector !== "" ? { connector: search.connector } : {}),
   }),
   beforeLoad: ({ search }) => {
     if (!search.connector) return;
+    const result = consentResult(search);
     throw redirect({
       to: "/connectors/$id",
       params: { id: search.connector },
-      search: search.connect_error
-        ? { connectError: search.connect_error }
-        : search.connected
-          ? { connected: true }
-          : {},
+      search: result ? { oauth: result } : {},
       replace: true,
     });
   },
@@ -44,6 +47,8 @@ export const Route = createFileRoute("/_app/connectors/")({
 function Connectors() {
   const { signedIn, can } = useSession();
   const search = Route.useSearch();
+  const navigate = useNavigate();
+  const clear = useCallback(() => void navigate({ to: "/connectors", search: {}, replace: true }), [navigate]);
   const q = useQuery({ ...connectorsListOptions(), enabled: signedIn, retry: false });
   const list = q.data ?? [];
 
@@ -69,13 +74,8 @@ function Connectors() {
         <Text>The systems this workspace can reach.</Text>
       </HeaderWithAction>
 
-      {/* A consent that failed for a connector that no longer exists comes
-          back without one to go on to. */}
-      {search.connect_error && (
-        <div role="alert" className="rounded-md bg-kumo-tint px-4 py-3 ring ring-kumo-line">
-          <Text>{consentOutcome(search.connect_error)}</Text>
-        </div>
-      )}
+      {/* A consent whose return names no connector ends here. */}
+      <ConsentReturn result={consentResult(search)} onRead={clear} />
 
       {q.isPending && <Loading />}
       {q.isError && (

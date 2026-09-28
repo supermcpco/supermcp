@@ -3,6 +3,8 @@ import type { InvocationDto } from "../api";
 import {
   authorizesInBrowser,
   callsTo,
+  consentResult,
+  consentSearch,
   credentialDescriptions,
   filled,
   lastFailure,
@@ -93,6 +95,28 @@ describe("calls of one connector", () => {
   it("finds the newest failure", () => {
     expect(lastFailure(recent, mine)?.id).toBe("3");
     expect(lastFailure([call("1", "a")], mine)).toBeUndefined();
+  });
+});
+
+describe("consent returns", () => {
+  it.each([
+    [{ oauth: "ok" }, "ok"],
+    [{ oauth: "vendor_refused" }, "vendor_refused"],
+    // The older names, read for one more release.
+    [{ connected: "1" }, "ok"],
+    [{ connected: true }, "ok"],
+    [{ connectError: "expired" }, "expired"],
+    [{ connect_error: "unavailable" }, "unavailable"],
+    [{ connected: "1", connect_error: "vendor_refused" }, "vendor_refused"],
+    [{}, null],
+    [{ oauth: "" }, null],
+    [{ oauth: 7, connected: "no" }, null],
+  ])("%j -> %s", (search, want) => {
+    expect(consentResult(consentSearch(search))).toBe(want);
+  });
+
+  it("keeps nothing but the consent parameters", () => {
+    expect(consentSearch({ oauth: "ok", tab: "tools" })).toEqual({ oauth: "ok" });
   });
 });
 
