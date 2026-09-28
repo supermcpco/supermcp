@@ -55,7 +55,7 @@ function AuditLayout() {
         <Text>Every sign-in, change and tool call, chained so tampering shows.</Text>
       </div>
 
-      <RouteTabs size="sm" value={view} tabs={tabs} />
+      <RouteTabs nested label="Audit sections" value={view} tabs={tabs} />
 
       <TabPanel label={label} className="grid gap-8">
         <Outlet />

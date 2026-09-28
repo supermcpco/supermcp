@@ -70,7 +70,8 @@ function Dlp() {
       </div>
 
       <RouteTabs
-        size="sm"
+        nested
+        label="Data-loss sections"
         value={tab}
         tabs={[
           { value: "rules", label: "Rules", link: <Link to="/settings/dlp" search={{}} /> },

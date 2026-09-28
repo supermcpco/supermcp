@@ -1,10 +1,11 @@
 import { lazy, Suspense } from "react";
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { Tabs, Text } from "@cloudflare/kumo";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { Text } from "@cloudflare/kumo";
 import { CallsPanel } from "../components/activity-calls";
-import { defaultTab, nextSearch, parseActivitySearch, type ActivitySearch, type Tab } from "../lib/activity";
+import { defaultTab, nextSearch, parseActivitySearch, tabs, type ActivitySearch, type Tab } from "../lib/activity";
 import { useSession } from "../lib/session";
 import { Loading } from "../lib/ui";
+import { RouteTabs, TabPanel } from "../components/route-tabs";
 
 // The charts bring ECharts, most of the screen's weight, which the calls
 // tab has no use for; it is fetched when the analytics tab first opens.
@@ -44,17 +45,17 @@ function Activity() {
         Activity
       </Text>
 
-      <Tabs
-        variant="underline"
+      <RouteTabs
+        label="Activity"
         value={tab}
-        onValueChange={(v) => change({ tab: v }, false)}
-        tabs={[
-          { value: "calls", label: tabLabels.calls },
-          { value: "analytics", label: tabLabels.analytics },
-        ]}
+        tabs={tabs.map((t) => ({
+          value: t,
+          label: tabLabels[t],
+          link: <Link from={Route.fullPath} to="/activity" search={(prev) => nextSearch(prev, { tab: t })} />,
+        }))}
       />
 
-      <div role="tabpanel" aria-label={tabLabels[tab]}>
+      <TabPanel label={tabLabels[tab]}>
         {tab === "analytics" ? (
           <Suspense fallback={<Loading />}>
             <AnalyticsPanel search={search} onSearch={(next) => change(next, true)} />
@@ -62,7 +63,7 @@ function Activity() {
         ) : (
           <CallsPanel search={search} onSearch={(next) => change(next, true)} />
         )}
-      </div>
+      </TabPanel>
     </div>
   );
 }
