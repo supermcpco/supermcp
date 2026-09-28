@@ -118,8 +118,8 @@ test("a connector's help, a switched-off tool and a name too long for its card e
   const switched = page.waitForResponse(
     (r) => /\/api\/v1\/tools\/[^/]+$/.test(r.url()) && r.request().method() !== "GET",
   );
-  // The box follows what the server stored, so it is clicked, not unchecked.
-  const offered = page.getByRole("checkbox", { name: /^Offered / });
+  // The switch follows what the server stored, so it is clicked, not unchecked.
+  const offered = page.getByRole("switch", { name: /^Offered / });
   await offered.click();
   expect((await switched).ok(), "switching the tool off failed").toBeTruthy();
   await expect(offered).not.toBeChecked();

@@ -1,6 +1,6 @@
 import { useId, useState } from "react";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button, Text, Textarea } from "@cloudflare/kumo";
+import { Button, Checkbox, Text, Textarea } from "@cloudflare/kumo";
 import {
   dlpDetectorCreateMutation,
   dlpDetectorDeleteMutation,
@@ -449,10 +449,7 @@ function DetectorFields({
           pattern runs on every tool call.
         </Text>
       </div>
-      <label className="flex items-center gap-2">
-        <input type="checkbox" checked={draft.anyCase} onChange={(e) => set({ anyCase: e.currentTarget.checked })} />
-        <Text as="span">Ignore upper and lower case</Text>
-      </label>
+      <Checkbox label="Ignore upper and lower case" checked={draft.anyCase} onCheckedChange={(anyCase) => set({ anyCase })} />
       <div className="grid gap-3 md:grid-cols-2">
         <label className="grid gap-1">
           <Text as="span">Samples it must match, one per line</Text>
@@ -497,10 +494,7 @@ function DetectorFields({
           </ul>
         )}
       </section>
-      <label className="flex items-center gap-2">
-        <input type="checkbox" checked={draft.enabled} onChange={(e) => set({ enabled: e.currentTarget.checked })} />
-        <Text as="span">The detector is on</Text>
-      </label>
+      <Checkbox label="The detector is on" checked={draft.enabled} onCheckedChange={(enabled) => set({ enabled })} />
     </>
   );
 }

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button, Collapsible, Dialog, DialogRoot, DialogTitle, Text } from "@cloudflare/kumo";
+import { Button, Checkbox, Collapsible, Dialog, DialogRoot, DialogTitle, Text } from "@cloudflare/kumo";
 import {
   connectorsListOptions,
   serversCreateMutation,
@@ -150,16 +150,12 @@ function NewServerForm({ onDone }: { onDone: () => void }) {
         {connectors.isError && <Text variant="secondary">{message(connectors.error)}</Text>}
         {connectors.data?.length === 0 && <Text variant="secondary">Install a connector first.</Text>}
         {connectors.data?.map((c) => (
-          <label key={c.id} className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={picked.includes(c.id)}
-              onChange={(e) => setPicked((p) => (e.target.checked ? [...p, c.id] : p.filter((x) => x !== c.id)))}
-            />
-            <Text as="span">
-              {c.name} ({c.toolCount} tools)
-            </Text>
-          </label>
+          <Checkbox
+            key={c.id}
+            label={`${c.name} (${c.toolCount} tools)`}
+            checked={picked.includes(c.id)}
+            onCheckedChange={(on) => setPicked((p) => (on ? [...p, c.id] : p.filter((x) => x !== c.id)))}
+          />
         ))}
       </fieldset>
       {error && (

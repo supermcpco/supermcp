@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button, Text } from "@cloudflare/kumo";
+import { Button, Radio, Text } from "@cloudflare/kumo";
 import {
   auditGetPolicyOptions,
   auditGetPolicyQueryKey,
@@ -215,27 +215,24 @@ function PayloadPolicy() {
         </Text>
         <Text variant="secondary">How much of what a call sent and got back is kept with it; the call itself always is.</Text>
       </div>
-      <div className="grid gap-2">
-        {modes.map((m) => (
-          <label key={m.id} className="flex items-baseline gap-3 rounded-lg px-5 py-3 ring ring-kumo-line">
-            <input
-              type="radio"
-              name="payload-mode"
-              value={m.id}
-              checked={current === m.id}
-              disabled={!editable || save.isPending}
-              onChange={() => save.mutate({ body: { mode: m.id } })}
-            />
-            <span className="grid gap-0.5">
-              <Text as="span" bold>
-                {m.label}
-              </Text>
-              <Text as="span" variant="secondary">
-                {m.detail}
-              </Text>
-            </span>
-          </label>
-        ))}
+      {/* A form, so capped like the others; Kumo's className reaches only
+          the fieldset inside the radio group, so the cap wraps it. */}
+      <div className="max-w-3xl">
+        <Radio.Group
+          appearance="card"
+          controlPosition="start"
+          name="payload-mode"
+          value={current}
+          disabled={!editable || save.isPending}
+          onValueChange={(mode) => {
+            const picked = modes.find((m) => m.id === mode);
+            if (picked) save.mutate({ body: { mode: picked.id } });
+          }}
+        >
+          {modes.map((m) => (
+            <Radio.Item key={m.id} value={m.id} label={m.label} description={m.detail} />
+          ))}
+        </Radio.Group>
       </div>
       {error && (
         <div role="alert">

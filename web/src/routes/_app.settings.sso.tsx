@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button, Text } from "@cloudflare/kumo";
+import { Button, Checkbox, Text, Textarea } from "@cloudflare/kumo";
 import {
   createIdpMutation,
   deleteIdpMutation,
@@ -415,22 +415,16 @@ function SingleSignOn() {
         )}
 
         <div className="flex flex-wrap items-center gap-4">
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={form.jitProvisioning}
-              onChange={(e) => setForm({ ...form, jitProvisioning: e.target.checked })}
-            />
-            <Text as="span">Create an account on first sign-in</Text>
-          </label>
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={form.enabled}
-              onChange={(e) => setForm({ ...form, enabled: e.target.checked })}
-            />
-            <Text as="span">Offer it on the sign-in page</Text>
-          </label>
+          <Checkbox
+            label="Create an account on first sign-in"
+            checked={form.jitProvisioning}
+            onCheckedChange={(jitProvisioning) => setForm({ ...form, jitProvisioning })}
+          />
+          <Checkbox
+            label="Offer it on the sign-in page"
+            checked={form.enabled}
+            onCheckedChange={(enabled) => setForm({ ...form, enabled })}
+          />
         </div>
       </FormDialog>
 
@@ -567,6 +561,7 @@ function SecondFactorEditor({
  */
 function SamlSection() {
   const qc = useQueryClient();
+  const xmlLabelId = useId();
   const { can } = useSession();
   const canRestore = can("revisions:rollback");
   const [history, setHistory] = useState<string | null>(null);
@@ -757,9 +752,12 @@ function SamlSection() {
         />
 
         <label className="grid gap-1.5">
-          <Text as="span">…or paste the metadata XML</Text>
-          <textarea
-            className="min-h-32 rounded-md border border-kumo-line bg-kumo-base px-3 py-2 font-mono text-[0.85em]"
+          <Text as="span" id={xmlLabelId}>
+            …or paste the metadata XML
+          </Text>
+          <Textarea
+            aria-labelledby={xmlLabelId}
+            className="min-h-32 font-mono text-[0.85em]"
             value={form.metadataXml}
             onChange={(e) => setForm({ ...form, metadataXml: e.target.value })}
             placeholder="<EntityDescriptor …>"
@@ -813,22 +811,16 @@ function SamlSection() {
         </div>
 
         <div className="flex flex-wrap items-center gap-4">
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={form.jitProvisioning}
-              onChange={(e) => setForm({ ...form, jitProvisioning: e.target.checked })}
-            />
-            <Text as="span">Create an account on first sign-in</Text>
-          </label>
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={form.enabled}
-              onChange={(e) => setForm({ ...form, enabled: e.target.checked })}
-            />
-            <Text as="span">Offer it on the sign-in page</Text>
-          </label>
+          <Checkbox
+            label="Create an account on first sign-in"
+            checked={form.jitProvisioning}
+            onCheckedChange={(jitProvisioning) => setForm({ ...form, jitProvisioning })}
+          />
+          <Checkbox
+            label="Offer it on the sign-in page"
+            checked={form.enabled}
+            onCheckedChange={(enabled) => setForm({ ...form, enabled })}
+          />
         </div>
       </FormDialog>
 

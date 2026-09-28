@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Button, Text, Textarea } from "@cloudflare/kumo";
+import { Button, Radio, Text, Textarea } from "@cloudflare/kumo";
 import { ArrowLeft } from "@phosphor-icons/react";
 import { connectorsImportMutation, connectorsListQueryKey } from "../api/@tanstack/react-query.gen";
 import type { ErrorDetail, ImportFinding, ImportOutputBody } from "../api";
@@ -150,28 +150,30 @@ function ImportConnector() {
               </About>
             </span>
           </legend>
-          <div className="flex flex-wrap gap-x-5 gap-y-2">
+          {/* The legend above carries a help button, which Kumo's own
+              string-only legend could not hold, so the group sits inside it. */}
+          <Radio.Group
+            orientation="horizontal"
+            name="format"
+            value={format}
+            className="[&>div]:gap-x-5 [&>div]:gap-y-2"
+            onValueChange={(next) => {
+              const f = formats.find((x) => x === next);
+              if (!f) return;
+              revise(() => {
+                setFormat(f);
+                // A curl command cannot be fetched from a URL, and a
+                // GraphQL endpoint is a URL rather than a document, so
+                // the format decides where the input comes from.
+                if (f === "curl") setSource("document");
+                if (f === "graphql") setSource("url");
+              });
+            }}
+          >
             {formats.map((f) => (
-              <label key={f} className="flex items-center gap-2">
-                <input
-                  type="radio"
-                  name="format"
-                  checked={format === f}
-                  onChange={() =>
-                    revise(() => {
-                      setFormat(f);
-                      // A curl command cannot be fetched from a URL, and a
-                      // GraphQL endpoint is a URL rather than a document, so
-                      // the format decides where the input comes from.
-                      if (f === "curl") setSource("document");
-                      if (f === "graphql") setSource("url");
-                    })
-                  }
-                />
-                <Text as="span">{shapes[f].label}</Text>
-              </label>
+              <Radio.Item key={f} value={f} label={shapes[f].label} />
             ))}
-          </div>
+          </Radio.Group>
         </fieldset>
 
         {canFetch && (
@@ -181,24 +183,15 @@ function ImportConnector() {
                 Where it is
               </Text>
             </legend>
-            <label className="flex items-center gap-2">
-              <input
-                type="radio"
-                name="source"
-                checked={using === "document"}
-                onChange={() => revise(() => setSource("document"))}
-              />
-              <Text as="span">I will paste it</Text>
-            </label>
-            <label className="flex items-center gap-2">
-              <input
-                type="radio"
-                name="source"
-                checked={using === "url"}
-                onChange={() => revise(() => setSource("url"))}
-              />
-              <Text as="span">{shape.fetch}</Text>
-            </label>
+            <Radio.Group
+              name="source"
+              value={using}
+              className="gap-2"
+              onValueChange={(next) => revise(() => setSource(next === "url" ? "url" : "document"))}
+            >
+              <Radio.Item value="document" label="I will paste it" />
+              <Radio.Item value="url" label={shape.fetch} />
+            </Radio.Group>
           </fieldset>
         )}
 
