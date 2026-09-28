@@ -32,9 +32,11 @@ import { Route as AppSettingsSecurityRouteImport } from './routes/_app.settings.
 import { Route as AppSettingsServiceAccountsRouteImport } from './routes/_app.settings.service-accounts'
 import { Route as AppSettingsSsoRouteImport } from './routes/_app.settings.sso'
 import { Route as PublicInviteTokenRouteImport } from './routes/_public.invite.$token'
-import { Route as AppConnectorsIdHistoryRouteImport } from './routes/_app.connectors.$id.history'
-import { Route as AppConnectorsIdToolsIndexRouteImport } from './routes/_app.connectors.$id.tools.index'
+import { Route as AppConnectorsIdDetailRouteImport } from './routes/_app.connectors.$id._detail'
+import { Route as AppConnectorsIdDetailIndexRouteImport } from './routes/_app.connectors.$id._detail.index'
+import { Route as AppConnectorsIdDetailHistoryRouteImport } from './routes/_app.connectors.$id._detail.history'
 import { Route as AppConnectorsIdToolsNewRouteImport } from './routes/_app.connectors.$id.tools.new'
+import { Route as AppConnectorsIdDetailToolsIndexRouteImport } from './routes/_app.connectors.$id._detail.tools.index'
 import { Route as AppConnectorsIdToolsToolIdIndexRouteImport } from './routes/_app.connectors.$id.tools.$toolId.index'
 import { Route as AppConnectorsIdToolsToolIdHistoryRouteImport } from './routes/_app.connectors.$id.tools.$toolId.history'
 
@@ -152,22 +154,34 @@ const PublicInviteTokenRoute = PublicInviteTokenRouteImport.update({
   path: '/invite/$token',
   getParentRoute: () => PublicRoute,
 } as any)
-const AppConnectorsIdHistoryRoute = AppConnectorsIdHistoryRouteImport.update({
-  id: '/connectors/$id/history',
-  path: '/connectors/$id/history',
+const AppConnectorsIdDetailRoute = AppConnectorsIdDetailRouteImport.update({
+  id: '/connectors/$id/_detail',
+  path: '/connectors/$id',
   getParentRoute: () => AppRoute,
 } as any)
-const AppConnectorsIdToolsIndexRoute =
-  AppConnectorsIdToolsIndexRouteImport.update({
-    id: '/connectors/$id/tools/',
-    path: '/connectors/$id/tools/',
-    getParentRoute: () => AppRoute,
+const AppConnectorsIdDetailIndexRoute =
+  AppConnectorsIdDetailIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => AppConnectorsIdDetailRoute,
+  } as any)
+const AppConnectorsIdDetailHistoryRoute =
+  AppConnectorsIdDetailHistoryRouteImport.update({
+    id: '/history',
+    path: '/history',
+    getParentRoute: () => AppConnectorsIdDetailRoute,
   } as any)
 const AppConnectorsIdToolsNewRoute = AppConnectorsIdToolsNewRouteImport.update({
   id: '/connectors/$id/tools/new',
   path: '/connectors/$id/tools/new',
   getParentRoute: () => AppRoute,
 } as any)
+const AppConnectorsIdDetailToolsIndexRoute =
+  AppConnectorsIdDetailToolsIndexRouteImport.update({
+    id: '/tools/',
+    path: '/tools/',
+    getParentRoute: () => AppConnectorsIdDetailRoute,
+  } as any)
 const AppConnectorsIdToolsToolIdIndexRoute =
   AppConnectorsIdToolsToolIdIndexRouteImport.update({
     id: '/connectors/$id/tools/$toolId/',
@@ -203,10 +217,12 @@ export interface FileRoutesByFullPath {
   '/invite/$token': typeof PublicInviteTokenRoute
   '/catalog/': typeof AppCatalogIndexRoute
   '/connectors/': typeof AppConnectorsIndexRoute
-  '/connectors/$id/history': typeof AppConnectorsIdHistoryRoute
+  '/connectors/$id': typeof AppConnectorsIdDetailRouteWithChildren
+  '/connectors/$id/history': typeof AppConnectorsIdDetailHistoryRoute
   '/connectors/$id/tools/new': typeof AppConnectorsIdToolsNewRoute
-  '/connectors/$id/tools/': typeof AppConnectorsIdToolsIndexRoute
+  '/connectors/$id/': typeof AppConnectorsIdDetailIndexRoute
   '/connectors/$id/tools/$toolId/history': typeof AppConnectorsIdToolsToolIdHistoryRoute
+  '/connectors/$id/tools/': typeof AppConnectorsIdDetailToolsIndexRoute
   '/connectors/$id/tools/$toolId/': typeof AppConnectorsIdToolsToolIdIndexRoute
 }
 export interface FileRoutesByTo {
@@ -231,10 +247,11 @@ export interface FileRoutesByTo {
   '/invite/$token': typeof PublicInviteTokenRoute
   '/catalog': typeof AppCatalogIndexRoute
   '/connectors': typeof AppConnectorsIndexRoute
-  '/connectors/$id/history': typeof AppConnectorsIdHistoryRoute
+  '/connectors/$id/history': typeof AppConnectorsIdDetailHistoryRoute
   '/connectors/$id/tools/new': typeof AppConnectorsIdToolsNewRoute
-  '/connectors/$id/tools': typeof AppConnectorsIdToolsIndexRoute
+  '/connectors/$id': typeof AppConnectorsIdDetailIndexRoute
   '/connectors/$id/tools/$toolId/history': typeof AppConnectorsIdToolsToolIdHistoryRoute
+  '/connectors/$id/tools': typeof AppConnectorsIdDetailToolsIndexRoute
   '/connectors/$id/tools/$toolId': typeof AppConnectorsIdToolsToolIdIndexRoute
 }
 export interface FileRoutesById {
@@ -262,10 +279,12 @@ export interface FileRoutesById {
   '/_public/invite/$token': typeof PublicInviteTokenRoute
   '/_app/catalog/': typeof AppCatalogIndexRoute
   '/_app/connectors/': typeof AppConnectorsIndexRoute
-  '/_app/connectors/$id/history': typeof AppConnectorsIdHistoryRoute
+  '/_app/connectors/$id/_detail': typeof AppConnectorsIdDetailRouteWithChildren
+  '/_app/connectors/$id/_detail/history': typeof AppConnectorsIdDetailHistoryRoute
   '/_app/connectors/$id/tools/new': typeof AppConnectorsIdToolsNewRoute
-  '/_app/connectors/$id/tools/': typeof AppConnectorsIdToolsIndexRoute
+  '/_app/connectors/$id/_detail/': typeof AppConnectorsIdDetailIndexRoute
   '/_app/connectors/$id/tools/$toolId/history': typeof AppConnectorsIdToolsToolIdHistoryRoute
+  '/_app/connectors/$id/_detail/tools/': typeof AppConnectorsIdDetailToolsIndexRoute
   '/_app/connectors/$id/tools/$toolId/': typeof AppConnectorsIdToolsToolIdIndexRoute
 }
 export interface FileRouteTypes {
@@ -292,10 +311,12 @@ export interface FileRouteTypes {
     | '/invite/$token'
     | '/catalog/'
     | '/connectors/'
+    | '/connectors/$id'
     | '/connectors/$id/history'
     | '/connectors/$id/tools/new'
-    | '/connectors/$id/tools/'
+    | '/connectors/$id/'
     | '/connectors/$id/tools/$toolId/history'
+    | '/connectors/$id/tools/'
     | '/connectors/$id/tools/$toolId/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -322,8 +343,9 @@ export interface FileRouteTypes {
     | '/connectors'
     | '/connectors/$id/history'
     | '/connectors/$id/tools/new'
-    | '/connectors/$id/tools'
+    | '/connectors/$id'
     | '/connectors/$id/tools/$toolId/history'
+    | '/connectors/$id/tools'
     | '/connectors/$id/tools/$toolId'
   id:
     | '__root__'
@@ -350,10 +372,12 @@ export interface FileRouteTypes {
     | '/_public/invite/$token'
     | '/_app/catalog/'
     | '/_app/connectors/'
-    | '/_app/connectors/$id/history'
+    | '/_app/connectors/$id/_detail'
+    | '/_app/connectors/$id/_detail/history'
     | '/_app/connectors/$id/tools/new'
-    | '/_app/connectors/$id/tools/'
+    | '/_app/connectors/$id/_detail/'
     | '/_app/connectors/$id/tools/$toolId/history'
+    | '/_app/connectors/$id/_detail/tools/'
     | '/_app/connectors/$id/tools/$toolId/'
   fileRoutesById: FileRoutesById
 }
@@ -525,19 +549,26 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PublicInviteTokenRouteImport
       parentRoute: typeof PublicRoute
     }
-    '/_app/connectors/$id/history': {
-      id: '/_app/connectors/$id/history'
-      path: '/connectors/$id/history'
-      fullPath: '/connectors/$id/history'
-      preLoaderRoute: typeof AppConnectorsIdHistoryRouteImport
+    '/_app/connectors/$id/_detail': {
+      id: '/_app/connectors/$id/_detail'
+      path: '/connectors/$id'
+      fullPath: '/connectors/$id'
+      preLoaderRoute: typeof AppConnectorsIdDetailRouteImport
       parentRoute: typeof AppRoute
     }
-    '/_app/connectors/$id/tools/': {
-      id: '/_app/connectors/$id/tools/'
-      path: '/connectors/$id/tools'
-      fullPath: '/connectors/$id/tools/'
-      preLoaderRoute: typeof AppConnectorsIdToolsIndexRouteImport
-      parentRoute: typeof AppRoute
+    '/_app/connectors/$id/_detail/': {
+      id: '/_app/connectors/$id/_detail/'
+      path: '/'
+      fullPath: '/connectors/$id/'
+      preLoaderRoute: typeof AppConnectorsIdDetailIndexRouteImport
+      parentRoute: typeof AppConnectorsIdDetailRoute
+    }
+    '/_app/connectors/$id/_detail/history': {
+      id: '/_app/connectors/$id/_detail/history'
+      path: '/history'
+      fullPath: '/connectors/$id/history'
+      preLoaderRoute: typeof AppConnectorsIdDetailHistoryRouteImport
+      parentRoute: typeof AppConnectorsIdDetailRoute
     }
     '/_app/connectors/$id/tools/new': {
       id: '/_app/connectors/$id/tools/new'
@@ -545,6 +576,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/connectors/$id/tools/new'
       preLoaderRoute: typeof AppConnectorsIdToolsNewRouteImport
       parentRoute: typeof AppRoute
+    }
+    '/_app/connectors/$id/_detail/tools/': {
+      id: '/_app/connectors/$id/_detail/tools/'
+      path: '/tools'
+      fullPath: '/connectors/$id/tools/'
+      preLoaderRoute: typeof AppConnectorsIdDetailToolsIndexRouteImport
+      parentRoute: typeof AppConnectorsIdDetailRoute
     }
     '/_app/connectors/$id/tools/$toolId/': {
       id: '/_app/connectors/$id/tools/$toolId/'
@@ -562,6 +600,23 @@ declare module '@tanstack/react-router' {
     }
   }
 }
+
+interface AppConnectorsIdDetailRouteChildren {
+  AppConnectorsIdDetailHistoryRoute: typeof AppConnectorsIdDetailHistoryRoute
+  AppConnectorsIdDetailIndexRoute: typeof AppConnectorsIdDetailIndexRoute
+  AppConnectorsIdDetailToolsIndexRoute: typeof AppConnectorsIdDetailToolsIndexRoute
+}
+
+const AppConnectorsIdDetailRouteChildren: AppConnectorsIdDetailRouteChildren = {
+  AppConnectorsIdDetailHistoryRoute: AppConnectorsIdDetailHistoryRoute,
+  AppConnectorsIdDetailIndexRoute: AppConnectorsIdDetailIndexRoute,
+  AppConnectorsIdDetailToolsIndexRoute: AppConnectorsIdDetailToolsIndexRoute,
+}
+
+const AppConnectorsIdDetailRouteWithChildren =
+  AppConnectorsIdDetailRoute._addFileChildren(
+    AppConnectorsIdDetailRouteChildren,
+  )
 
 interface AppRouteChildren {
   AppAnalyticsRoute: typeof AppAnalyticsRoute
@@ -583,9 +638,8 @@ interface AppRouteChildren {
   AppSettingsSsoRoute: typeof AppSettingsSsoRoute
   AppCatalogIndexRoute: typeof AppCatalogIndexRoute
   AppConnectorsIndexRoute: typeof AppConnectorsIndexRoute
-  AppConnectorsIdHistoryRoute: typeof AppConnectorsIdHistoryRoute
+  AppConnectorsIdDetailRoute: typeof AppConnectorsIdDetailRouteWithChildren
   AppConnectorsIdToolsNewRoute: typeof AppConnectorsIdToolsNewRoute
-  AppConnectorsIdToolsIndexRoute: typeof AppConnectorsIdToolsIndexRoute
   AppConnectorsIdToolsToolIdHistoryRoute: typeof AppConnectorsIdToolsToolIdHistoryRoute
   AppConnectorsIdToolsToolIdIndexRoute: typeof AppConnectorsIdToolsToolIdIndexRoute
 }
@@ -610,9 +664,8 @@ const AppRouteChildren: AppRouteChildren = {
   AppSettingsSsoRoute: AppSettingsSsoRoute,
   AppCatalogIndexRoute: AppCatalogIndexRoute,
   AppConnectorsIndexRoute: AppConnectorsIndexRoute,
-  AppConnectorsIdHistoryRoute: AppConnectorsIdHistoryRoute,
+  AppConnectorsIdDetailRoute: AppConnectorsIdDetailRouteWithChildren,
   AppConnectorsIdToolsNewRoute: AppConnectorsIdToolsNewRoute,
-  AppConnectorsIdToolsIndexRoute: AppConnectorsIdToolsIndexRoute,
   AppConnectorsIdToolsToolIdHistoryRoute:
     AppConnectorsIdToolsToolIdHistoryRoute,
   AppConnectorsIdToolsToolIdIndexRoute: AppConnectorsIdToolsToolIdIndexRoute,

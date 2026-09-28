@@ -1,7 +1,6 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button, Text } from "@cloudflare/kumo";
-import { ArrowLeft } from "@phosphor-icons/react";
 import { connectorsGet, connectorsRevisionsList } from "../api";
 import {
   connectorsListQueryKey,
@@ -9,12 +8,12 @@ import {
   connectorsRevisionsRestoreMutation,
 } from "../api/@tanstack/react-query.gen";
 import { useSession } from "../lib/session";
-import { Loading, NotFound } from "../lib/ui";
-import { message, status } from "../lib/errors";
+import { Loading } from "../lib/ui";
+import { message } from "../lib/errors";
 import { isVersionConflict } from "../lib/tool-api";
 import { RevisionList } from "../components/revisions";
 
-export const Route = createFileRoute("/_app/connectors/$id/history")({
+export const Route = createFileRoute("/_app/connectors/$id/_detail/history")({
   component: History,
 });
 
@@ -50,25 +49,10 @@ function History() {
     restore.reset();
   };
 
-  if (status(history.error) === 404) {
-    return (
-      <NotFound heading="Connector not found" back={{ to: "/connectors" }} backLabel="Back to connectors">
-        This workspace has no connector at this address; it may have been deleted.
-      </NotFound>
-    );
-  }
-
   return (
-    <div className="grid gap-6">
-      <Link to="/connectors" className="flex items-center gap-1 text-kumo-subtle">
-        <span className="h-lh flex items-center">
-          <ArrowLeft size={14} aria-hidden />
-        </span>
-        <Text as="span">Connectors</Text>
-      </Link>
-
+    <>
       <div className="grid gap-1.5">
-        <Text as="h1" variant="heading2">
+        <Text as="h2" variant="heading3">
           History
         </Text>
         <Text>
@@ -107,6 +91,6 @@ function History() {
           empty="No changes recorded yet."
         />
       )}
-    </div>
+    </>
   );
 }
