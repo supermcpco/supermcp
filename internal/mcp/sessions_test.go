@@ -41,6 +41,13 @@ type rig struct {
 	release chan struct{}
 	holding chan struct{}
 	stopped chan error
+	// active counts the requests the server is still handling, and parked
+	// those of them held in the "hold" tool on purpose. A client has its
+	// response before the handler returns and the table marks the session
+	// idle again, so settle waits for active to come down to parked.
+	mu             sync.Mutex
+	quiet          *sync.Cond
+	active, parked int
 }
 
 // user is a caller on an API key of their own in an organisation.
@@ -70,6 +77,7 @@ func newRig(t *testing.T, mode string, opts SessionOptions) *rig {
 	r := &rig{t: t, e: New(Deps{Version: "test", Sessions: opts}), clock: &fakeClock{now: time.Unix(1_700_000_000, 0)},
 		release: make(chan struct{}), holding: make(chan struct{}, 8), stopped: make(chan error, 8)}
 	r.e.sessions.now = r.clock.Now
+	r.quiet = sync.NewCond(&r.mu)
 	r.s = fabricate(t, 3)
 	r.s.server.Sessions = mode
 	r.s.byName = map[string]visibleTool{}
@@ -89,6 +97,8 @@ func newRig(t *testing.T, mode string, opts SessionOptions) *rig {
 		})
 	r.s.mcp.AddTool(&sdk.Tool{Name: "hold", InputSchema: map[string]any{"type": "object"}},
 		func(ctx context.Context, _ *sdk.CallToolRequest) (*sdk.CallToolResult, error) {
+			r.park(1)
+			defer r.park(-1)
 			r.holding <- struct{}{}
 			select {
 			case <-r.release:
@@ -102,6 +112,15 @@ func newRig(t *testing.T, mode string, opts SessionOptions) *rig {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		// What serve does once buildSurface has succeeded: a surface of
 		// the request's own, sharing the assembled server.
+		r.mu.Lock()
+		r.active++
+		r.mu.Unlock()
+		defer func() {
+			r.mu.Lock()
+			r.active--
+			r.quiet.Broadcast()
+			r.mu.Unlock()
+		}()
 		ctx := authz.WithPrincipal(req.Context(), r.caller.Load())
 		if d := r.deadline.Load(); d > 0 {
 			var cancel context.CancelFunc
@@ -121,13 +140,43 @@ func newRig(t *testing.T, mode string, opts SessionOptions) *rig {
 	return r
 }
 
+// park counts a request held in the "hold" tool in or out of those
+// settle waits for.
+func (r *rig) park(n int) {
+	r.mu.Lock()
+	r.parked += n
+	r.quiet.Broadcast()
+	r.mu.Unlock()
+}
+
+// settle waits until every request the server is handling, but those held
+// in the "hold" tool, has returned, so that the session table has seen
+// each of them end. Without it, a test's next request can find a session
+// still busy with the last one and be refused for it.
+func (r *rig) settle() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for r.active > r.parked {
+		r.quiet.Wait()
+	}
+}
+
+// connect opens a session as the current caller and fails the test if
+// the endpoint refuses it, saying what the session table held.
 func (r *rig) connect(ctx context.Context) *sdk.ClientSession {
 	r.t.Helper()
 	cs, err := r.tryConnect(ctx)
 	if err != nil {
-		r.t.Fatalf("connect: %v", err)
+		t := r.e.sessions
+		t.mu.Lock()
+		owner := ownerOf(r.caller.Load())
+		held, sessions, reserved := t.byOwner[owner], len(t.byID), t.reserved
+		t.mu.Unlock()
+		r.t.Fatalf("connect: %v\n(session table: this caller holds %d of %d; %d sessions and %d reservations of %d)",
+			err, held, t.perCaller, sessions, reserved, t.max)
 	}
 	r.t.Cleanup(func() { _ = cs.Close() })
+	r.settle()
 	return cs
 }
 
@@ -155,6 +204,7 @@ func (r *rig) post(ctx context.Context, sessionID, body string) (int, http.Heade
 	if err != nil {
 		r.t.Fatal(err)
 	}
+	defer r.settle()
 	defer resp.Body.Close()
 	return resp.StatusCode, resp.Header
 }
@@ -544,5 +594,34 @@ func TestBoundContextReportsWhatEndedIt(t *testing.T) {
 	<-bound.Done()
 	if !errors.Is(bound.Err(), context.Canceled) {
 		t.Errorf("a request that went away ended the handler with %v, want Canceled", bound.Err())
+	}
+}
+
+// The client has a new session's id as soon as the initialise response is
+// written, which is before the handler returns and settles the place it
+// reserved. A caller that opens its next session in that moment holds one
+// session, not two, and is not refused for being at its limit.
+func TestNewSessionHoldsOnePlaceBeforeItsInitialiseReturns(t *testing.T) {
+	t.Parallel()
+	tbl := newSessionTable(SessionOptions{Max: 2, PerCaller: 2, PerOrg: 2}, nil, nil)
+	t.Cleanup(func() { tbl.close() })
+	owner := ownerOf(user("u_a", "org_a", "k_a"))
+	srv := sdk.NewServer(&sdk.Implementation{Name: "t", Version: "1"}, nil)
+
+	if err := tbl.reserve(owner, "org_a"); err != nil {
+		t.Fatalf("first reserve: %v", err)
+	}
+	tbl.add("s1", "srv", owner, "org_a", srv)
+	// The client has s1's id; the first initialise has not returned yet.
+	if err := tbl.reserve(owner, "org_a"); err != nil {
+		t.Fatalf("second reserve while the first initialise is returning: %v; the new session and its reservation were counted as two places", err)
+	}
+	tbl.add("s2", "srv", owner, "org_a", srv)
+	tbl.settle(owner, "org_a", "s1")
+	tbl.settle(owner, "org_a", "s2")
+	tbl.mu.Lock()
+	defer tbl.mu.Unlock()
+	if got := tbl.byOwner[owner]; got != 2 || tbl.byOrg["org_a"] != 2 || tbl.reserved != 0 {
+		t.Errorf("after both settled: owner holds %d, org %d, reserved %d; want 2, 2, 0", got, tbl.byOrg["org_a"], tbl.reserved)
 	}
 }

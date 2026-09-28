@@ -348,9 +348,8 @@ func (e *Endpoint) serveStateful(w http.ResponseWriter, r *http.Request, s *surf
 	// reserved, or the session marked busy, for ever.
 	defer func() { e.sessions.settle(owner, p.OrgID, created) }()
 	hook := &headerHook{ResponseWriter: w, hook: func(h http.Header, code int) {
-		if id := h.Get(sessionHeader); id != "" && code < 300 {
+		if id := h.Get(sessionHeader); id != "" && code < 300 && e.sessions.add(id, s.server.ID, owner, p.OrgID, s.mcp) {
 			created = id
-			e.sessions.add(id, s.server.ID, owner, p.OrgID, s.mcp)
 		}
 	}}
 	e.stateful.ServeHTTP(hook, r)
