@@ -6,6 +6,7 @@ import type { UsageReport } from "../api/types.gen";
 import { Chart, type ChartOption } from "./chart";
 import { EmptyState } from "./form-dialog";
 import { Described } from "./help-popover";
+import { PeriodSelect } from "./period-select";
 import {
   bucketLabel,
   defaultDimension,
@@ -17,10 +18,8 @@ import {
   errorRate,
   formatMs,
   groupName,
-  parseAnalyticsSearch,
   plural,
   rangeLabels,
-  ranges,
   usageWindow,
   type AnalyticsSearch,
   type Dimension,
@@ -88,20 +87,7 @@ export function AnalyticsPanel({
         How often tools are called, how often they fail, and how long they take.
       </Described>
 
-      <label className="grid w-fit gap-1.5">
-        <Text as="span">Period</Text>
-        <select
-          className="rounded-md border border-kumo-line bg-kumo-base px-3 py-2"
-          value={range}
-          onChange={(e) => onSearch({ range: parseAnalyticsSearch({ range: e.target.value }).range })}
-        >
-          {ranges.map((r) => (
-            <option key={r} value={r}>
-              {rangeLabels[r]}
-            </option>
-          ))}
-        </select>
-      </label>
+      <PeriodSelect value={range} onChange={(next) => next && onSearch({ range: next })} />
 
       {/* Held open while the figures load, so the empty and the filled tab start at the same height. */}
       <div className="grid min-h-48 content-start gap-6">

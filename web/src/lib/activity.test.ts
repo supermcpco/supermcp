@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { filterCalls, nextSearch, parseActivitySearch, statusLabel, widerRange } from "./activity";
+import { callsQuery, isFiltered, nextSearch, parseActivitySearch, statusLabel, widerRange } from "./activity";
 
 describe("parseActivitySearch", () => {
   it("keeps the tab, the call filters and the analytics choices", () => {
@@ -8,16 +8,24 @@ describe("parseActivitySearch", () => {
       range: "30d",
       by: "connector",
     });
-    expect(parseActivitySearch({ status: "failed", q: "echo" })).toEqual({ status: "failed", q: "echo" });
+    expect(
+      parseActivitySearch({ status: "denied", q: "echo", connector: "c1", server: "s1", period: "24h" }),
+    ).toEqual({ status: "denied", q: "echo", connector: "c1", server: "s1", period: "24h" });
+  });
+
+  it("keeps the calls' period apart from the analytics' one", () => {
+    expect(parseActivitySearch({ period: "7d", range: "30d" })).toEqual({ period: "7d", range: "30d" });
   });
 
   it("leaves the defaults out, so the screen as first opened is plain /activity", () => {
-    expect(parseActivitySearch({ tab: "calls", status: "all", q: "  " })).toEqual({});
+    expect(parseActivitySearch({ tab: "calls", status: "all", q: "  ", connector: "", period: "" })).toEqual({});
     expect(parseActivitySearch({})).toEqual({});
   });
 
   it("drops what it does not know", () => {
-    expect(parseActivitySearch({ tab: "logs", status: "ok", q: 3, range: "1y" })).toEqual({});
+    expect(parseActivitySearch({ tab: "logs", status: "ok", q: 3, range: "1y", period: "1y", server: 4 })).toEqual({});
+    // The old in-browser "failed" filter has no one outcome on the server.
+    expect(parseActivitySearch({ status: "failed" })).toEqual({});
   });
 });
 
@@ -34,36 +42,39 @@ describe("nextSearch", () => {
     expect(nextSearch({ tab: "analytics", range: "30d", by: "server" }, { tab: "calls", range: "7d", by: "tool" })).toEqual(
       {},
     );
-    expect(nextSearch({ status: "failed", q: "echo" }, { status: undefined, q: "" })).toEqual({});
+    expect(nextSearch({ status: "error", q: "echo", period: "24h" }, { status: undefined, q: "", period: undefined })).toEqual(
+      {},
+    );
   });
 });
 
-describe("filterCalls", () => {
-  const calls = [
-    { id: "1", toolName: "bundesbank_get_exchange_rates", status: "success" },
-    { id: "2", toolName: "analytics_echo", status: "denied" },
-    { id: "3", toolName: "Analytics_Card", status: "timeout" },
-    { id: "4", toolName: "analytics_echo", status: "error" },
-  ];
-  const ids = (search: Parameters<typeof filterCalls>[1]) => filterCalls(calls, search).map((c) => c.id);
+describe("callsQuery", () => {
+  const now = new Date("2026-09-28T12:00:30Z");
 
-  it("returns every call with no filter", () => {
-    expect(ids({})).toEqual(["1", "2", "3", "4"]);
+  it("asks for the plain latest calls when nothing is filtered", () => {
+    expect(callsQuery({}, 100, now)).toEqual({ limit: 100 });
+    expect(isFiltered({})).toBe(false);
+    expect(isFiltered({ q: "  " })).toBe(false);
   });
 
-  it("counts every call that did not succeed as failed", () => {
-    expect(ids({ status: "failed" })).toEqual(["2", "3", "4"]);
-    expect(ids({ status: "success" })).toEqual(["1"]);
+  it("sends each filter as the server's parameter", () => {
+    expect(callsQuery({ status: "denied", q: " echo ", connector: "c1", server: "s1" }, 100, now)).toEqual({
+      limit: 100,
+      status: "denied",
+      q: "echo",
+      connectorId: "c1",
+      serverId: "s1",
+    });
+    expect(isFiltered({ connector: "c1" })).toBe(true);
   });
 
-  it("finds a tool by any part of its name, ignoring case and surrounding space", () => {
-    expect(ids({ q: " ANALYTICS " })).toEqual(["2", "3", "4"]);
-    expect(ids({ q: "card" })).toEqual(["3"]);
-    expect(ids({ q: "nothing like it" })).toEqual([]);
-  });
-
-  it("applies both filters together", () => {
-    expect(ids({ status: "failed", q: "echo" })).toEqual(["2", "4"]);
+  it("turns a period into a window ending at the next whole minute", () => {
+    expect(callsQuery({ period: "24h" }, 100, now)).toEqual({
+      limit: 100,
+      since: "2026-09-27T12:01:00.000Z",
+      until: "2026-09-28T12:01:00.000Z",
+    });
+    expect(isFiltered({ period: "7d" })).toBe(true);
   });
 });
 

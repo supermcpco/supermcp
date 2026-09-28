@@ -1,36 +1,96 @@
-import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import { Button, Input, LinkButton, Text } from "@cloudflare/kumo";
-import { invocationsListOptions } from "../api/@tanstack/react-query.gen";
+import { invocationsList } from "../api/sdk.gen";
+import { connectorsListOptions, serversListOptions } from "../api/@tanstack/react-query.gen";
 import { EmptyState } from "./form-dialog";
 import { Described } from "./help-popover";
-import { filterCalls, statusFilterLabels, statusFilters, statusLabel, type CallsSearch } from "../lib/activity";
-import { message } from "../lib/errors";
+import { PeriodSelect } from "./period-select";
+import {
+  callsQuery,
+  isFiltered,
+  parseActivitySearch,
+  statusFilterLabels,
+  statusFilters,
+  statusLabel,
+  type CallsSearch,
+} from "../lib/activity";
+import { plural } from "../lib/analytics";
+import { useDebounced } from "../lib/debounce";
+import { message, status as httpStatus } from "../lib/errors";
 import { useSession } from "../lib/session";
 import { Badge, Loading } from "../lib/ui";
 
-/** How many of the latest calls the tab loads; the filters work over these. */
+/** How many of the latest calls the tab shows, with or without filters. */
 const shownCalls = 100;
+
+/** How often the plain list asks again, and how often a search does. */
+const latestEvery = 10_000;
+const searchEvery = 30_000;
 
 const selectClass = "rounded-md border border-kumo-line bg-kumo-base px-3 py-2";
 
 /**
  * The calls tab of the activity screen: the latest calls AI clients made
- * through this workspace. The API returns the newest calls and takes no
- * filter, so the status and name filters work over the rows loaded here.
- * They live in the address, which the screen owns.
+ * through this workspace, filtered by the server. The filters live in the
+ * address, which the screen owns.
+ *
+ * With no filter the list is the plain latest calls. Any filter makes it
+ * a search, which the server holds to the same limits as the analytics:
+ * two at once per workspace. A third is refused, and the tab says so
+ * calmly rather than as a failure.
  */
 export function CallsPanel({ search, onSearch }: { search: CallsSearch; onSearch: (change: CallsSearch) => void }) {
-  const { signedIn } = useSession();
-  const q = useQuery({
-    ...invocationsListOptions({ query: { limit: shownCalls } }),
+  const { signedIn, can } = useSession();
+  // The server may refuse the MCP server filter to a viewer whose
+  // permissions changed since the session was read; the filter is then
+  // put away for the rest of the visit.
+  const [serverRefused, setServerRefused] = useState(false);
+  const mayFilterServers = can("servers:read") && !serverRefused;
+
+  // Typing a name searches once the typing pauses, not at every key.
+  const q = useDebounced(search.q ?? "", 400);
+  const filters: CallsSearch = {
+    status: search.status,
+    q: q.trim() || undefined,
+    connector: search.connector,
+    server: mayFilterServers ? search.server : undefined,
+    period: search.period,
+  };
+  const filtered = isFiltered(filters);
+
+  const connectors = useQuery({ ...connectorsListOptions(), enabled: signedIn, retry: false });
+  const servers = useQuery({ ...serversListOptions(), enabled: signedIn && mayFilterServers, retry: false });
+
+  // The period is worked out when the request is made, so each refresh
+  // moves it forward to the present.
+  const calls = useQuery({
+    queryKey: ["activity", "calls", filters],
+    queryFn: async ({ signal }) => {
+      const query = callsQuery(filters, shownCalls, new Date());
+      try {
+        const { data } = await invocationsList({ query, signal, throwOnError: true });
+        return data ?? [];
+      } catch (e) {
+        if (httpStatus(e) === 403 && query.serverId) {
+          setServerRefused(true);
+          onSearch({ server: undefined });
+        }
+        throw e;
+      }
+    },
     enabled: signedIn,
     retry: false,
-    refetchInterval: 10_000,
+    refetchInterval: filtered ? searchEvery : latestEvery,
+    placeholderData: keepPreviousData,
   });
 
-  const calls = q.data ?? [];
-  const shown = filterCalls(calls, search);
-  const filtered = search.status !== undefined || search.q !== undefined;
+  const rows = calls.data ?? [];
+  const busy = calls.isError && httpStatus(calls.error) === 429;
+  const names = new Map((connectors.data ?? []).map((c) => [c.id, c.name]));
+  const clear = () =>
+    onSearch({ status: undefined, q: undefined, connector: undefined, server: undefined, period: undefined });
 
   return (
     <div className="grid gap-6">
@@ -40,10 +100,12 @@ export function CallsPanel({ search, onSearch }: { search: CallsSearch; onSearch
         help={
           <>
             <Text as="p">
-              The latest {shownCalls} calls, newest first. The list checks for new ones every 10 seconds.
+              The latest {shownCalls} calls that match the filters, newest first. With no filter the list checks for new
+              calls every {latestEvery / 1000} seconds; with one, every {searchEvery / 1000} seconds.
             </Text>
             <Text as="p">
-              The filters search those {shownCalls} calls only. For counts over a longer period, open the Analytics tab.
+              A filtered list is a search over every call kept, and a workspace runs two searches or analytics queries
+              at a time. For counts over a period, open the Analytics tab.
             </Text>
           </>
         }
@@ -53,9 +115,8 @@ export function CallsPanel({ search, onSearch }: { search: CallsSearch; onSearch
 
       {/* Held open while the list loads, so the empty and the filled tab start at the same height. */}
       <div className="grid min-h-48 content-start gap-4">
-        {q.isError && <Text role="alert">The calls could not be loaded: {message(q.error)}</Text>}
-        {q.isPending && <Loading />}
-        {q.data && calls.length === 0 && (
+        {calls.isPending && <Loading />}
+        {calls.data && !filtered && rows.length === 0 && (
           <EmptyState
             action={
               <LinkButton href="/servers" variant="primary">
@@ -67,7 +128,7 @@ export function CallsPanel({ search, onSearch }: { search: CallsSearch; onSearch
             Calls appear here once an AI client is connected to one of your MCP servers and uses a tool.
           </EmptyState>
         )}
-        {calls.length > 0 && (
+        {(filtered || rows.length > 0 || calls.isError) && (
           <>
             <div role="search" aria-label="Filter the calls" className="flex flex-wrap items-end gap-4">
               <label className="grid gap-1.5">
@@ -75,10 +136,7 @@ export function CallsPanel({ search, onSearch }: { search: CallsSearch; onSearch
                 <select
                   className={selectClass}
                   value={search.status ?? "all"}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    onSearch({ status: v === "success" || v === "failed" ? v : undefined });
-                  }}
+                  onChange={(e) => onSearch({ status: parseActivitySearch({ status: e.target.value }).status })}
                 >
                   {statusFilters.map((s) => (
                     <option key={s} value={s}>
@@ -88,6 +146,45 @@ export function CallsPanel({ search, onSearch }: { search: CallsSearch; onSearch
                 </select>
               </label>
               <label className="grid gap-1.5">
+                <Text as="span">Connector</Text>
+                <select
+                  className={selectClass}
+                  value={search.connector ?? ""}
+                  onChange={(e) => onSearch({ connector: e.target.value || undefined })}
+                >
+                  <option value="">All connectors</option>
+                  {(connectors.data ?? []).map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                  {search.connector && connectors.data && !names.has(search.connector) && (
+                    <option value={search.connector}>A removed connector</option>
+                  )}
+                </select>
+              </label>
+              {mayFilterServers && (
+                <label className="grid gap-1.5">
+                  <Text as="span">MCP server</Text>
+                  <select
+                    className={selectClass}
+                    value={search.server ?? ""}
+                    onChange={(e) => onSearch({ server: e.target.value || undefined })}
+                  >
+                    <option value="">All MCP servers</option>
+                    {(servers.data ?? []).map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name}
+                      </option>
+                    ))}
+                    {search.server && servers.data && !servers.data.some((s) => s.id === search.server) && (
+                      <option value={search.server}>A removed MCP server</option>
+                    )}
+                  </select>
+                </label>
+              )}
+              <PeriodSelect value={search.period} onChange={(period) => onSearch({ period })} anyLabel="Any time" />
+              <label className="grid gap-1.5">
                 <Text as="span">Tool name</Text>
                 <Input
                   type="search"
@@ -96,68 +193,81 @@ export function CallsPanel({ search, onSearch }: { search: CallsSearch; onSearch
                   placeholder="Part of a name"
                 />
               </label>
-              <Text variant="secondary" aria-live="polite">
-                {filtered ? `${shown.length} of ${calls.length} calls` : `${calls.length} calls`}
-              </Text>
+              {calls.data && (
+                <Text variant="secondary" aria-live="polite">
+                  {rows.length >= shownCalls ? `The latest ${shownCalls} calls` : plural(rows.length, "call")}
+                </Text>
+              )}
             </div>
 
-            {shown.length === 0 ? (
-              <EmptyState action={<Button onClick={() => onSearch({ status: undefined, q: undefined })}>Clear the filters</Button>}>
+            {busy ? (
+              <div role="status" className="flex flex-wrap items-center gap-3 rounded-md bg-kumo-tint px-4 py-3 ring ring-kumo-line">
+                <Text>Another search is still running, try again in a moment.</Text>
+                <Button onClick={() => void calls.refetch()}>Try again</Button>
+              </div>
+            ) : calls.isError ? (
+              <Text role="alert">The calls could not be loaded: {message(calls.error)}</Text>
+            ) : calls.data && rows.length === 0 ? (
+              <EmptyState action={<Button onClick={clear}>Clear the filters</Button>}>
                 <strong className="block font-semibold text-kumo-default">No calls match</strong>
-                None of the latest {calls.length} calls has that status and a tool name containing what was typed.
+                No call kept in this workspace matches all of the filters.
               </EmptyState>
             ) : (
-              <table className="w-full text-left">
-                <caption className="sr-only">Latest tool calls</caption>
-                <thead className="border-b border-kumo-line">
-                  <tr>
-                    <th scope="col" className="py-2 pr-4">
-                      <Text as="span" variant="secondary">
-                        Tool
-                      </Text>
-                    </th>
-                    <th scope="col" className="py-2 pr-4">
-                      <Text as="span" variant="secondary">
-                        Status
-                      </Text>
-                    </th>
-                    <th scope="col" className="py-2 pr-4">
-                      <Text as="span" variant="secondary">
-                        Duration
-                      </Text>
-                    </th>
-                    <th scope="col" className="py-2">
-                      <Text as="span" variant="secondary">
-                        When
-                      </Text>
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {shown.map((i) => (
-                    <tr key={i.id} className="border-b border-kumo-line">
-                      <th scope="row" className="py-2 pr-4 font-mono text-[0.9em] font-normal">
-                        {i.toolName}
-                      </th>
-                      <td className="py-2 pr-4">
-                        {i.status === "success" ? (
-                          <Text as="span">{statusLabel(i.status)}</Text>
-                        ) : (
-                          <Badge>{statusLabel(i.status)}</Badge>
-                        )}
-                      </td>
-                      <td className="py-2 pr-4">
-                        <Text as="span">{i.durationMs} ms</Text>
-                      </td>
-                      <td className="py-2">
-                        <Text as="span" variant="secondary">
-                          {new Date(i.createdAt).toLocaleString()}
-                        </Text>
-                      </td>
+              rows.length > 0 && (
+                <table className="w-full text-left" aria-busy={calls.isPlaceholderData}>
+                  <caption className="sr-only">Latest tool calls</caption>
+                  <thead className="border-b border-kumo-line">
+                    <tr>
+                      {["Tool", "Connector", "Status", "Duration", "When"].map((h) => (
+                        <th key={h} scope="col" className="py-2 pr-4">
+                          <Text as="span" variant="secondary">
+                            {h}
+                          </Text>
+                        </th>
+                      ))}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {rows.map((i) => (
+                      <tr key={i.id} className="border-b border-kumo-line">
+                        <th scope="row" className="py-2 pr-4 font-mono text-[0.9em] font-normal">
+                          {i.toolName}
+                        </th>
+                        <td className="py-2 pr-4">
+                          {!i.connectorId ? (
+                            <Text as="span" variant="secondary">
+                              –
+                            </Text>
+                          ) : connectors.data && !names.has(i.connectorId) ? (
+                            <Text as="span" variant="secondary">
+                              A removed connector
+                            </Text>
+                          ) : (
+                            <Link to="/connectors/$id" params={{ id: i.connectorId }} className="underline">
+                              <Text as="span">{names.get(i.connectorId) ?? "Open the connector"}</Text>
+                            </Link>
+                          )}
+                        </td>
+                        <td className="py-2 pr-4">
+                          {i.status === "success" ? (
+                            <Text as="span">{statusLabel(i.status)}</Text>
+                          ) : (
+                            <Badge>{statusLabel(i.status)}</Badge>
+                          )}
+                        </td>
+                        <td className="py-2 pr-4">
+                          <Text as="span">{i.durationMs} ms</Text>
+                        </td>
+                        <td className="py-2">
+                          <Text as="span" variant="secondary">
+                            {new Date(i.createdAt).toLocaleString()}
+                          </Text>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )
             )}
           </>
         )}
