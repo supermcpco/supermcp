@@ -263,7 +263,7 @@ test("an OAuth connector's page says whether it is authorized", async ({ page, r
   // own, and its client a service account of this workspace, so the grant
   // really happens and nothing outside is reached.
   await page.goto("/settings/service-accounts");
-  await page.getByRole("button", { name: "New service account" }).first().click();
+  await page.getByRole("button", { name: "New service account" }).click();
   const dialog = page.getByRole("dialog", { name: "New service account" });
   await dialog.getByLabel("Name").fill("Token source");
   await dialog.getByRole("button", { name: "Create account" }).click();
