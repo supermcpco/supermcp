@@ -23,11 +23,12 @@ test("an outdated catalog connector is badged, previewed and re-synced", async (
   await page.getByLabel("GHOST_ADMIN_API_URL").fill("https://ghost.example.test");
   await page.getByLabel("GHOST_ADMIN_JWT").fill("not-a-real-token");
   await page.getByRole("button", { name: "Install" }).click();
-  await expect(page).toHaveURL(/\/connectors/);
+  await expect(page).toHaveURL(/\/connectors\/[^/]+$/);
   const connectors = await (await page.request.get("/api/v1/connectors")).json();
   const connectorId = connectors[0].id as string;
-  await expect(page.getByText("Ghost", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Ghost", level: 1 })).toBeVisible();
   await expect(page.getByText("catalog update available")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Compare" })).toHaveCount(0);
 
   // Someone edits one catalog tool by hand; re-sync must leave it alone.
   await page.goto(`/connectors/${connectorId}/tools`);
@@ -49,10 +50,13 @@ test("an outdated catalog connector is badged, previewed and re-synced", async (
   await page.goto("/connectors");
   const row = page.getByRole("listitem").filter({ hasText: "Ghost" });
   await expect(row.getByText("catalog update available")).toBeVisible();
-  await row.getByRole("link", { name: "Tools" }).click();
+  await row.getByRole("link", { name: "Ghost", exact: true }).click();
 
+  // The connector's page says so, and compares before it changes anything.
+  await expect(page.getByRole("heading", { name: "Ghost", level: 1 })).toBeVisible();
+  await expect(page.getByText("catalog update available")).toBeVisible();
   await expect(page.getByText(/carries a newer version of the catalog adapter/)).toBeVisible();
-  await page.getByRole("button", { name: "Review re-sync" }).click();
+  await page.getByRole("button", { name: "Compare" }).click();
   const review = page.getByRole("region", { name: "Re-sync with the catalog" });
   await expect(review.getByRole("heading", { name: "Tools to update (1)" })).toBeVisible();
   await expect(review.getByRole("listitem").filter({ hasText: staleTool })).toContainText("changes description");
@@ -64,10 +68,12 @@ test("an outdated catalog connector is badged, previewed and re-synced", async (
   const applied = page.waitForResponse(
     (r) => r.url().endsWith(`/api/v1/connectors/${connectorId}/resync`) && r.request().method() === "POST",
   );
-  await review.getByRole("button", { name: "Apply re-sync" }).click();
+  await review.getByRole("button", { name: "Re-sync", exact: true }).click();
   expect((await applied).status()).toBe(200);
-  await expect(page.getByRole("status").getByText("Re-synced with the catalog: 1 tool updated, 1 tool left alone.")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Review re-sync" })).toHaveCount(0);
+  await expect(page.getByText("Ghost re-synced with the catalog: 1 tool updated, 1 tool left alone", { exact: true })).toBeVisible();
+  await expect(review).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Compare" })).toHaveCount(0);
+  await expect(page.getByText("catalog update available")).toHaveCount(0);
 
   // The stale tool has the catalog's text again; the edited one kept its own.
   const tools = await (await page.request.get(`/api/v1/connectors/${connectorId}/tools`)).json();
