@@ -1,5 +1,5 @@
 import { Fragment, useId, useState } from "react";
-import { Button, Select, Text } from "@cloudflare/kumo";
+import { Button, Input, Select, Text } from "@cloudflare/kumo";
 import {
   clientGroups,
   clientSnippets,
@@ -58,24 +58,28 @@ export function CopyButton({ text, what }: { text: string; what: string }) {
 export function Endpoint({ serverId, of }: { serverId: string; of?: string }) {
   const url = endpointURL(window.location.origin, serverId);
   const id = useId();
+  const labelId = useId();
   const suffix = of ? ` of ${of}` : "";
   return (
     <div className="grid gap-1.5">
-      <label htmlFor={id}>
+      {/* Names the field through aria-labelledby, which Kumo's Input looks for; htmlFor keeps a click on it focusing the field. */}
+      <label htmlFor={id} id={labelId}>
         <Text as="span" variant="secondary">
           Endpoint
         </Text>
         {suffix && <span className="sr-only">{suffix}</span>}
       </label>
+      {/* Kumo's Input and Button share one height (h-9), so the field and its Copy button line up. */}
       <div className="flex items-center gap-2">
         {/* A URL longer than the field shows whole in a tooltip. */}
         <WithTooltip tip={url} onlyWhenTruncated className="cursor-text">
-          <input
+          <Input
             id={id}
+            aria-labelledby={labelId}
             readOnly
             value={url}
             onFocus={(e) => e.currentTarget.select()}
-            className="min-w-0 flex-1 rounded-md bg-kumo-tint px-2 py-1 font-mono text-[0.9em]"
+            className="min-w-0 flex-1 font-mono text-[0.9em]"
           />
         </WithTooltip>
         <CopyButton text={url} what={`endpoint${suffix}`} />
