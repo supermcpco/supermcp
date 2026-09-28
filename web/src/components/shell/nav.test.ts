@@ -23,7 +23,7 @@ describe("visibleGroups", () => {
     const seen = labels(viewer);
     expect(seen.Build).toEqual(["Overview", "Catalog", "Connectors", "MCP servers"]);
     // A viewer may neither ask for approval nor decide one.
-    expect(seen.Operate).toEqual(["API keys", "Tool calls", "Analytics", "Status"]);
+    expect(seen.Operate).toEqual(["API keys", "Activity", "Status"]);
     expect(seen.Settings).toEqual(["Members", "Security", "Data-loss rules", "Roles"]);
   });
 

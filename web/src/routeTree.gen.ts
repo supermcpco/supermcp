@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as AppRouteImport } from './routes/_app'
 import { Route as PublicRouteImport } from './routes/_public'
 import { Route as AppIndexRouteImport } from './routes/_app.index'
+import { Route as AppActivityRouteImport } from './routes/_app.activity'
 import { Route as AppAnalyticsRouteImport } from './routes/_app.analytics'
 import { Route as AppApiKeysRouteImport } from './routes/_app.api-keys'
 import { Route as AppApprovalsRouteImport } from './routes/_app.approvals'
@@ -51,6 +52,11 @@ const PublicRoute = PublicRouteImport.update({
 const AppIndexRoute = AppIndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppActivityRoute = AppActivityRouteImport.update({
+  id: '/activity',
+  path: '/activity',
   getParentRoute: () => AppRoute,
 } as any)
 const AppAnalyticsRoute = AppAnalyticsRouteImport.update({
@@ -197,6 +203,7 @@ const AppConnectorsIdToolsToolIdHistoryRoute =
 
 export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
+  '/activity': typeof AppActivityRoute
   '/analytics': typeof AppAnalyticsRoute
   '/api-keys': typeof AppApiKeysRoute
   '/approvals': typeof AppApprovalsRoute
@@ -227,6 +234,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof AppIndexRoute
+  '/activity': typeof AppActivityRoute
   '/analytics': typeof AppAnalyticsRoute
   '/api-keys': typeof AppApiKeysRoute
   '/approvals': typeof AppApprovalsRoute
@@ -258,6 +266,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_app': typeof AppRouteWithChildren
   '/_public': typeof PublicRouteWithChildren
+  '/_app/activity': typeof AppActivityRoute
   '/_app/analytics': typeof AppAnalyticsRoute
   '/_app/api-keys': typeof AppApiKeysRoute
   '/_app/approvals': typeof AppApprovalsRoute
@@ -291,6 +300,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/activity'
     | '/analytics'
     | '/api-keys'
     | '/approvals'
@@ -321,6 +331,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/activity'
     | '/analytics'
     | '/api-keys'
     | '/approvals'
@@ -351,6 +362,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/_app'
     | '/_public'
+    | '/_app/activity'
     | '/_app/analytics'
     | '/_app/api-keys'
     | '/_app/approvals'
@@ -407,6 +419,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof AppIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/activity': {
+      id: '/_app/activity'
+      path: '/activity'
+      fullPath: '/activity'
+      preLoaderRoute: typeof AppActivityRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/analytics': {
@@ -619,6 +638,7 @@ const AppConnectorsIdDetailRouteWithChildren =
   )
 
 interface AppRouteChildren {
+  AppActivityRoute: typeof AppActivityRoute
   AppAnalyticsRoute: typeof AppAnalyticsRoute
   AppApiKeysRoute: typeof AppApiKeysRoute
   AppApprovalsRoute: typeof AppApprovalsRoute
@@ -645,6 +665,7 @@ interface AppRouteChildren {
 }
 
 const AppRouteChildren: AppRouteChildren = {
+  AppActivityRoute: AppActivityRoute,
   AppAnalyticsRoute: AppAnalyticsRoute,
   AppApiKeysRoute: AppApiKeysRoute,
   AppApprovalsRoute: AppApprovalsRoute,

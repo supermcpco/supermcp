@@ -3,7 +3,6 @@ import {
   ChartLine,
   ClipboardText,
   Key,
-  ListChecks,
   Plugs,
   Pulse,
   Robot,
@@ -58,8 +57,8 @@ export const navGroups: readonly NavGroup[] = [
     label: "Operate",
     items: [
       { to: "/api-keys", label: "API keys", icon: Key, needs: "apikeys:self:manage" },
-      { to: "/tool-calls", label: "Tool calls", icon: ListChecks, needs: "connectors:read" },
-      { to: "/analytics", label: "Analytics", icon: ChartLine, needs: "connectors:read" },
+      // Calls and analytics, as two tabs; both read with connectors:read.
+      { to: "/activity", label: "Activity", icon: ChartLine, needs: "connectors:read" },
       // Somebody who may only ask sees their own requests there; an
       // approver sees the queue.
       { to: "/approvals", label: "Approvals", icon: SealCheck, needs: ["approvals:request", "approvals:decide"] },
