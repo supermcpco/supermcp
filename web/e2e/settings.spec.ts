@@ -273,6 +273,11 @@ test("audit retention and shipping sit on their own tabs and still save", async 
   const retentionTab = page.getByRole("tab", { name: "Retention", exact: true });
   const shippingTab = page.getByRole("tab", { name: "Shipping", exact: true });
   await expect(logTab).toHaveAttribute("aria-selected", "true");
+  // The sections are a switch inside the Audit tab, named for what they
+  // divide, not a second strip of the settings screen.
+  const sections = page.getByRole("tabpanel", { name: "Audit" }).getByRole("tablist", { name: "Audit sections" });
+  await expect(sections.getByRole("tab")).toHaveText(["Log", "Retention", "Shipping"]);
+  await expect(page.getByRole("tablist", { name: "Settings" }).getByRole("tab", { name: "Log" })).toHaveCount(0);
   // The log is the chain, the filters and the table, and nothing else.
   await expect(page.getByText("The chain is intact")).toBeVisible();
   await expect(page.getByRole("searchbox", { name: "Search" })).toBeVisible();
@@ -289,6 +294,13 @@ test("audit retention and shipping sit on their own tabs and still save", async 
   await expect(panel.getByRole("heading", { name: "What tool calls record" })).toBeVisible();
   await expect(page.getByRole("searchbox", { name: "Search" })).toHaveCount(0);
   await expectAccessible(page);
+  // The same tab drawn dark: the switch's track and its chosen tab must
+  // still read against the page.
+  await page.emulateMedia({ colorScheme: "dark" });
+  await expect.poll(() => page.evaluate(() => getComputedStyle(document.documentElement).colorScheme)).toBe("dark");
+  await expectAccessible(page);
+  await page.emulateMedia({ colorScheme: "light" });
+  await expect.poll(() => page.evaluate(() => getComputedStyle(document.documentElement).colorScheme)).toBe("light");
 
   const range = await (await page.request.get("/api/v1/audit/retention")).json();
   const days = Math.min(range.maxDays, Math.max(range.minDays, range.days + 1));
