@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button, Text } from "@cloudflare/kumo";
+import { Banner, Button, Text, buttonVariants, cn } from "@cloudflare/kumo";
 import {
   inviteAcceptMutation,
   inviteLookupMutation,
@@ -14,6 +14,7 @@ import { acceptError, inviteInvalid, lookupError, passwordHint, passwordMinLengt
 import { useRefreshSession, useSession } from "../lib/session";
 import { Loading } from "../lib/ui";
 import { LabelledInput } from "../components/labelled-input";
+import { OrDivider, PublicCard, headingClass } from "../components/public-card";
 
 // Public, like /login: the person opening an invite link may have no
 // account yet. The token stays in the page URL only; the API receives it in
@@ -38,36 +39,32 @@ function Invite() {
   const { loading } = useSession();
 
   return (
-    <div className="grid gap-6">
+    <PublicCard>
       {lookup.isError ? (
         <Invalid text={lookupError(lookup.error)} />
       ) : lookup.data && !loading ? (
         <Found token={token} invite={lookup.data} />
       ) : (
         <>
-          <Text as="h1" variant="heading" size="lg">
-            Invitation
-          </Text>
+          <h1 className={headingClass}>Invitation</h1>
           <Loading />
         </>
       )}
-    </div>
+    </PublicCard>
   );
 }
 
 function Invalid({ text }: { text: string }) {
   return (
-    <div className="grid gap-1.5">
-      <Text as="h1" variant="heading" size="lg">
-        Invitation
-      </Text>
+    <div className="grid gap-3">
+      <h1 className={headingClass}>Invitation</h1>
       <div role="alert">
         <Text>{text}</Text>
       </div>
       {text === inviteInvalid && (
         <Text variant="secondary">
           Ask whoever sent it for a new link, or{" "}
-          <Link to="/login" search={{}} className="underline">
+          <Link to="/login" search={{}} className="font-medium text-kumo-link underline underline-offset-4">
             sign in
           </Link>{" "}
           if you already have an account.
@@ -96,28 +93,33 @@ function Found({ token, invite }: { token: string; invite: InviteLookupDto }) {
 
   const intro = (
     <div className="grid gap-1.5">
-      <Text as="h1" variant="heading" size="lg">
-        Join {invite.orgName}
-      </Text>
-      <Text>
+      <h1 className={headingClass}>Join {invite.orgName}</h1>
+      <Text variant="secondary">
         You are invited as {article(invite.roleName)} <strong>{invite.roleName}</strong>, for {invite.email}, until{" "}
         {new Date(invite.expiresAt).toLocaleString()}.
       </Text>
     </div>
   );
 
+  // Above the form it is about, where the eye starts on the next try.
   const alert = error && (
-    <div role="alert" className="rounded-md bg-kumo-tint px-4 py-3 ring ring-kumo-line">
-      <Text>{error.text}</Text>
-      {error.signInFirst && (
-        <Text>
-          {" "}
-          <Link to="/login" search={{ next: `/invite/${token}` }} className="underline">
-            Sign in to accept
-          </Link>
-        </Text>
-      )}
-    </div>
+    <Banner
+      role="alert"
+      variant="error"
+      description={
+        <>
+          {error.text}
+          {error.signInFirst && (
+            <>
+              {" "}
+              <Link to="/login" search={{ next: `/invite/${token}` }} className="font-medium underline underline-offset-4">
+                Sign in to accept
+              </Link>
+            </>
+          )}
+        </>
+      }
+    />
   );
 
   if (joined) {
@@ -142,7 +144,7 @@ function Found({ token, invite }: { token: string; invite: InviteLookupDto }) {
       <>
         {intro}
         {alert}
-        <Button variant="primary" disabled={accept.isPending} onClick={() => accept.mutate({ body: { token } })}>
+        <Button variant="primary" size="lg" className="w-full justify-center" disabled={accept.isPending} onClick={() => accept.mutate({ body: { token } })}>
           {accept.isPending ? "Joining…" : `Join ${invite.orgName}`}
         </Button>
       </>
@@ -153,6 +155,7 @@ function Found({ token, invite }: { token: string; invite: InviteLookupDto }) {
     return (
       <>
         {intro}
+        {alert}
         <Register
           email={invite.email}
           policy={invite.passwordPolicy}
@@ -162,7 +165,6 @@ function Found({ token, invite }: { token: string; invite: InviteLookupDto }) {
             accept.mutate({ body: { token, name: name || undefined, password } });
           }}
         />
-        {alert}
         <Providers token={token} />
       </>
     );
@@ -176,9 +178,9 @@ function Found({ token, invite }: { token: string; invite: InviteLookupDto }) {
       <Link
         to="/login"
         search={{ next: `/invite/${token}` }}
-        className="rounded-md px-4 py-2 text-center ring ring-kumo-line hover:bg-kumo-tint"
+        className={cn(buttonVariants({ variant: "primary", size: "lg" }), "w-full justify-center")}
       >
-        <Text as="span">Sign in to accept</Text>
+        Sign in to accept
       </Link>
       <Providers token={token} />
     </>
@@ -201,7 +203,7 @@ function Register({
   const [password, setPassword] = useState("");
   return (
     <form
-      className="grid gap-3"
+      className="grid gap-4"
       aria-label="Create your account"
       onSubmit={(e) => {
         e.preventDefault();
@@ -229,11 +231,11 @@ function Register({
         aria-describedby="invite-password-hint"
         onChange={(e) => setPassword(e.currentTarget.value)}
       >
-        <Text as="span" variant="secondary" id="invite-password-hint">
+        <Text as="span" variant="secondary" size="sm" id="invite-password-hint">
           {passwordHint(policy)}
         </Text>
       </LabelledInput>
-      <Button type="submit" variant="primary" disabled={pending}>
+      <Button type="submit" variant="primary" size="lg" className="mt-2 w-full justify-center" disabled={pending}>
         {pending ? "Working…" : "Create account and join"}
       </Button>
     </form>
@@ -271,20 +273,14 @@ function Providers({ token }: { token: string }) {
   const next = encodeURIComponent(`/invite/${token}`);
   return (
     <div className="grid gap-3">
-      <div className="flex items-center gap-3" aria-hidden>
-        <span className="h-px flex-1 bg-kumo-line" />
-        <Text as="span" variant="secondary">
-          or
-        </Text>
-        <span className="h-px flex-1 bg-kumo-line" />
-      </div>
+      <OrDivider />
       {list.map((p) => (
         <a
           key={p.id}
           href={`/auth/sso/${p.id}/start?next=${next}`}
-          className="rounded-md px-4 py-2 text-center ring ring-kumo-line hover:bg-kumo-tint"
+          className={cn(buttonVariants({ variant: "secondary", size: "lg" }), "w-full justify-center")}
         >
-          <Text as="span">Continue with {p.name}</Text>
+          Continue with {p.name}
         </a>
       ))}
     </div>

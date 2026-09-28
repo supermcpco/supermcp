@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { createFileRoute, useRouter, useSearch } from "@tanstack/react-router";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Banner, Button, Text } from "@cloudflare/kumo";
+import { Banner, Button, Text, buttonVariants, cn } from "@cloudflare/kumo";
 import { listSsoProvidersOptions, loginMutation, registerMutation } from "../api/@tanstack/react-query.gen";
 import { asSentence, message } from "../lib/errors";
 import { isSignedIn, sessionQuery, useRefreshSession } from "../lib/session";
 import { nextDestination } from "../lib/members";
 import { Loading } from "../lib/ui";
 import { LabelledInput } from "../components/labelled-input";
+import { OrDivider, PublicCard, headingClass, textButton } from "../components/public-card";
 
 type LoginSearch = { sso_error?: string; saml_error?: string; next?: string };
 
@@ -94,35 +95,33 @@ function Login() {
   // would only be in the way.
   if (isSignedIn(session) && !current.isError) return <Loading />;
 
+  // The way over to the other form sits under the card, as a link: the
+  // card itself holds one form and one thing to press.
+  const other = registrationOpen && (
+    <>
+      <Text as="span" variant="secondary">
+        {active === "signup" ? "Already have an account?" : "New here?"}
+      </Text>
+      <button type="button" className={textButton} onClick={() => setMode(active === "signup" ? "signin" : "signup")}>
+        {active === "signup" ? "Sign in instead" : "Create a workspace"}
+      </button>
+    </>
+  );
+
   return (
-    <div className="grid gap-6">
+    <PublicCard after={other}>
       {active === "signup" ? (
         <SignUp onDone={onDone} />
       ) : (
         <SignIn onDone={onDone} problem={providerError(search)} next={search.next} />
       )}
-
-      {registrationOpen && (
-        <div className="grid gap-3">
-          <div className="flex items-center gap-3">
-            <span className="h-px flex-1 bg-kumo-line" aria-hidden />
-            <Text as="span" variant="secondary">
-              {active === "signup" ? "Already have an account?" : "New here?"}
-            </Text>
-            <span className="h-px flex-1 bg-kumo-line" aria-hidden />
-          </div>
-          <Button variant="secondary" onClick={() => setMode(active === "signup" ? "signin" : "signup")}>
-            {active === "signup" ? "Sign in instead" : "Create a workspace"}
-          </Button>
-        </div>
-      )}
-    </div>
+    </PublicCard>
   );
 }
 
 /**
- * The server's refusal, next to the form that caused it and announced when
- * it appears. The form points at it so a screen reader moving through the
+ * The server's refusal, at the top of the form that caused it, above the
+ * fields a person will correct, and announced when it appears. The form points at it so a screen reader moving through the
  * fields hears why the last attempt failed.
  */
 function FormError({ id, text }: { id: string; text: string | null }) {
@@ -160,13 +159,15 @@ function SignIn({
       }}
     >
       <div className="grid gap-1.5">
-        <Text as="h1" variant="heading" size="lg" id={`${errorId}-title`}>
-          Sign in
-        </Text>
-        <Text variant="secondary">Use the email and password for this instance.</Text>
+        <h1 className={headingClass} id={`${errorId}-title`}>
+          Sign in to supermcp
+        </h1>
+        <Text variant="secondary">Use the email and password you have on this instance.</Text>
       </div>
 
-      <div className="grid gap-3">
+      <FormError id={errorId} text={shown} />
+
+      <div className="grid gap-4">
         <LabelledInput
           label="Email"
           type="email"
@@ -187,28 +188,22 @@ function SignIn({
         />
       </div>
 
-      <FormError id={errorId} text={shown} />
-
-      <Button type="submit" variant="primary" disabled={signIn.isPending}>
+      <Button type="submit" variant="primary" size="lg" className="w-full justify-center" disabled={signIn.isPending}>
         {signIn.isPending ? "Signing in…" : "Sign in"}
       </Button>
 
       {(providers.data?.providers?.length ?? 0) > 0 && (
         <div className="grid gap-3">
-          <div className="flex items-center gap-3" aria-hidden>
-            <span className="h-px flex-1 bg-kumo-line" />
-            <Text as="span" variant="secondary">
-              or
-            </Text>
-            <span className="h-px flex-1 bg-kumo-line" />
-          </div>
+          <OrDivider />
           {providers.data?.providers?.map((p) => (
+            // A page load, not a move inside the interface: the server
+            // sends the browser on to the provider.
             <a
               key={p.id}
               href={`/auth/sso/${p.id}/start${next ? `?next=${encodeURIComponent(next)}` : ""}`}
-              className="rounded-md px-4 py-2 text-center ring ring-kumo-line hover:bg-kumo-tint"
+              className={cn(buttonVariants({ variant: "secondary", size: "lg" }), "w-full justify-center")}
             >
-              <Text as="span">Continue with {p.name}</Text>
+              Continue with {p.name}
             </a>
           ))}
         </div>
@@ -243,13 +238,15 @@ function SignUp({ onDone }: { onDone: () => Promise<void> }) {
       }}
     >
       <div className="grid gap-1.5">
-        <Text as="h1" variant="heading" size="lg" id={`${errorId}-title`}>
+        <h1 className={headingClass} id={`${errorId}-title`}>
           Create your workspace
-        </Text>
+        </h1>
         <Text variant="secondary">The account you create here owns the new workspace.</Text>
       </div>
 
-      <div className="grid gap-3">
+      <FormError id={errorId} text={error} />
+
+      <div className="grid gap-4">
         <LabelledInput
           label="Email"
           type="email"
@@ -270,7 +267,7 @@ function SignUp({ onDone }: { onDone: () => Promise<void> }) {
           value={password}
           onChange={(e) => setPassword(e.target.value)}
         >
-          <Text as="span" variant="secondary" id={hintId}>
+          <Text as="span" variant="secondary" size="sm" id={hintId}>
             At least 12 characters, mixing letters with digits or symbols.
           </Text>
         </LabelledInput>
@@ -284,9 +281,7 @@ function SignUp({ onDone }: { onDone: () => Promise<void> }) {
         />
       </div>
 
-      <FormError id={errorId} text={error} />
-
-      <Button type="submit" variant="primary" disabled={signUp.isPending}>
+      <Button type="submit" variant="primary" size="lg" className="w-full justify-center" disabled={signUp.isPending}>
         {signUp.isPending ? "Creating…" : "Create workspace"}
       </Button>
     </form>
