@@ -9,6 +9,7 @@ import { useSession } from "../lib/session";
 import { Badge } from "../lib/ui";
 import { message } from "../lib/errors";
 import { About, HeadingWithAbout } from "../components/about";
+import { toast } from "../components/shell/toast";
 
 export const Route = createFileRoute("/_app/connectors/import")({
   component: ImportConnector,
@@ -74,9 +75,10 @@ function ImportConnector() {
     onSuccess: async (r) => {
       if (!r.connector) return;
       await qc.invalidateQueries({ queryKey: connectorsListQueryKey() });
-      // The connectors list is where someone looks for what they just
-      // made; its history is a record of a thing they have not seen yet.
-      await navigate({ to: "/connectors" });
+      toast(`${r.connector.name} imported`);
+      // The connector's own page, as after an install: it says which
+      // credentials are still needed, and leads to the tools just made.
+      await navigate({ to: "/connectors/$id", params: { id: r.connector.id } });
     },
     onError: fail,
   });
