@@ -6,7 +6,11 @@ import { routeTree } from "./routeTree.gen";
 import { client } from "./api/client.gen";
 import { createReauthGate, reauthInterceptors } from "./lib/reauth";
 import { ReauthDialog } from "./components/reauth-dialog";
+import { followColorScheme } from "./lib/color-mode";
 import "./app.css";
+
+// Light or dark as the system is set, and again whenever that changes.
+followColorScheme();
 
 // Same origin; the session cookie is HttpOnly and sent automatically.
 client.setConfig({ baseUrl: "", credentials: "same-origin" });
