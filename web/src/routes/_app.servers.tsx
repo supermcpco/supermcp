@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button, Collapsible, Dialog, DialogRoot, DialogTitle, Input, Text } from "@cloudflare/kumo";
@@ -11,10 +11,11 @@ import {
 } from "../api/@tanstack/react-query.gen";
 import type { Server } from "../api/types.gen";
 import { useSession } from "../lib/session";
-import { Badge } from "../lib/ui";
+import { Badge, Loading } from "../lib/ui";
 import { message } from "../lib/errors";
 import { toast } from "../components/shell/toast";
 import { ConnectClient, Endpoint } from "../components/connect-client";
+import { EmptyState, HeaderWithAction } from "../components/form-dialog";
 
 export const Route = createFileRoute("/_app/servers")({
   component: Servers,
@@ -23,50 +24,38 @@ export const Route = createFileRoute("/_app/servers")({
 function Servers() {
   const { signedIn, can } = useSession();
   const servers = useQuery({ ...serversListOptions(), enabled: signedIn, retry: false });
+  const list = servers.data ?? [];
   const [creating, setCreating] = useState(false);
   const mayCreate = can("servers:create");
   const newServer = mayCreate && (
     <Button variant="primary" onClick={() => setCreating(true)}>
-      New server
+      Create server
     </Button>
   );
 
   return (
     <div className="grid gap-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="grid gap-1.5">
-          <Text as="h1" variant="heading2">
-            MCP servers
-          </Text>
-          <Text>
-            Each server is one endpoint you give an AI client. It exposes the connectors you attach, and nothing else.
-          </Text>
-        </div>
-        {newServer}
-      </div>
+      <HeaderWithAction action={newServer}>
+        <Text as="h1" variant="heading2">
+          MCP servers
+        </Text>
+        <Text>Each server is one endpoint you give an AI client, offering only the connectors you attach.</Text>
+      </HeaderWithAction>
 
-      {servers.isPending && <Text>Loading…</Text>}
+      {servers.isPending && <Loading />}
       {servers.isError && (
         <div role="alert">
           <Text>{message(servers.error)}</Text>
         </div>
       )}
-      {servers.data?.length === 0 && (
-        <div className="rounded-lg px-5 py-8 text-center ring ring-kumo-line">
-          <div className="grid justify-items-center gap-3">
-            <div className="grid gap-1.5">
-              <Text as="h2" variant="heading3">
-                No MCP servers yet
-              </Text>
-              <Text variant="secondary">Create one, attach connectors to it, and give its endpoint to an AI client.</Text>
-            </div>
-            {newServer}
-          </div>
-        </div>
+      {servers.isSuccess && list.length === 0 && (
+        <EmptyState title="No MCP servers yet" action={newServer}>
+          Create one, attach connectors to it, and give its endpoint to an AI client.
+        </EmptyState>
       )}
 
       <ul className="grid gap-3">
-        {servers.data?.map((s) => (
+        {list.map((s) => (
           <li key={s.id} className="rounded-lg px-5 py-4 ring ring-kumo-line">
             <div className="grid gap-3">
               <div className="flex flex-wrap items-center gap-2">
@@ -198,6 +187,7 @@ const selectClass = "rounded-md border border-kumo-line bg-kumo-base px-3 py-2";
  */
 function Sessions({ server }: { server: Server }) {
   const qc = useQueryClient();
+  const selectId = useId();
   const [error, setError] = useState<string | null>(null);
   const update = useMutation({
     ...serversUpdateMutation(),
@@ -209,9 +199,12 @@ function Sessions({ server }: { server: Server }) {
   });
   return (
     <div className="grid gap-1.5">
-      <label className="flex flex-wrap items-center gap-2">
-        <Text as="span">Sessions</Text>
+      <div className="flex flex-wrap items-center gap-2">
+        <label htmlFor={selectId}>
+          <Text as="span">Sessions</Text>
+        </label>
         <select
+          id={selectId}
           className={selectClass}
           value={server.sessions}
           disabled={update.isPending}
@@ -225,11 +218,10 @@ function Sessions({ server }: { server: Server }) {
           <option value="stateless">Stateless: any replica answers</option>
           <option value="stateful">Stateful: can ask the client to confirm</option>
         </select>
-      </label>
+      </div>
       {server.sessions === "stateful" && (
         <Text variant="secondary">
-          Each client keeps to the replica it started on, so the load balancer needs sticky routing. Clients connected
-          when this changes have to reconnect.
+          Each client keeps to one replica, so this needs sticky routing; connected clients must reconnect.
         </Text>
       )}
       {error && (

@@ -77,10 +77,7 @@ function EditTool() {
       </div>
 
       {t?.source === "catalog" && (
-        <Text>
-          This tool came from the catalog. Once you change it, a later catalog update leaves your version alone rather
-          than overwriting it.
-        </Text>
+        <Text>From the catalog: once you change it, a catalog update leaves your version alone.</Text>
       )}
 
       {savedAt !== null && (

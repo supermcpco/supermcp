@@ -76,7 +76,7 @@ export function setupSteps(input: SetupInput, now: Date = new Date()): SetupStep
     steps.push({
       id: "server",
       title: "Create an MCP server",
-      description: "A server is the one endpoint an AI client is given. It exposes the connectors you attach.",
+      description: "A server is the one endpoint an AI client is given, offering the connectors you attach.",
       to: "/servers",
       action: "Go to MCP servers",
       done: nonEmpty(input.servers),

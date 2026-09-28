@@ -8,6 +8,7 @@ import type { ErrorDetail, ImportFinding, ImportOutputBody } from "../api";
 import { useSession } from "../lib/session";
 import { Badge } from "../lib/ui";
 import { message } from "../lib/errors";
+import { About, HeadingWithAbout } from "../components/about";
 
 export const Route = createFileRoute("/_app/connectors/import")({
   component: ImportConnector,
@@ -103,13 +104,20 @@ function ImportConnector() {
       </Link>
 
       <div className="grid gap-1.5">
-        <Text as="h1" variant="heading2">
-          Import an API description
-        </Text>
-        <Text>
-          An OpenAPI document, a Postman collection, a curl command or a GraphQL endpoint. Each request in it becomes a
-          tool a model can call. Nothing is created until you have seen the preview and asked for it.
-        </Text>
+        <HeadingWithAbout
+          heading={
+            <Text as="h1" variant="heading2">
+              Import an API description
+            </Text>
+          }
+          about={
+            <About label="About importing">
+              <p>Each request in the description becomes a tool a model can call.</p>
+              <p>Nothing is created until you have seen the preview and asked for it.</p>
+            </About>
+          }
+        />
+        <Text>Turn an OpenAPI document, Postman collection, curl command or GraphQL endpoint into a connector.</Text>
       </div>
 
       <form
@@ -123,9 +131,21 @@ function ImportConnector() {
       >
         <fieldset className="grid gap-2">
           <legend className="pb-1">
-            <Text as="span" bold>
-              What you have
-            </Text>
+            <span className="flex items-center gap-1">
+              <Text as="span" bold>
+                What you have
+              </Text>
+              <About label="About the formats">
+                <dl className="grid gap-2">
+                  {formats.map((f) => (
+                    <div key={f}>
+                      <dt className="font-medium text-kumo-default">{shapes[f].label}</dt>
+                      <dd>{shapes[f].note}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </About>
+            </span>
           </legend>
           <div className="flex flex-wrap gap-x-5 gap-y-2">
             {formats.map((f) => (
@@ -149,7 +169,6 @@ function ImportConnector() {
               </label>
             ))}
           </div>
-          <Text variant="secondary">{shape.note}</Text>
         </fieldset>
 
         {canFetch && (
@@ -213,10 +232,7 @@ function ImportConnector() {
               value={headers}
               onChange={(e) => revise(() => setHeaders(e.target.value))}
             />
-            <Text variant="secondary">
-              These are used for the one request that asks the endpoint to describe itself. They are not stored: the
-              preview will show a credential for whatever sign-in they imply, and you set its value below.
-            </Text>
+            <Text variant="secondary">Used once, to ask the endpoint for its schema, and not stored.</Text>
           </label>
         )}
 
@@ -301,10 +317,7 @@ function ImportConnector() {
                 <Text as="h3" variant="heading3">
                   Rough edges
                 </Text>
-                <Text variant="secondary">
-                  None of these stop the import. They are things a hand-written connector would have and this one will
-                  not, and you can put them right afterwards.
-                </Text>
+                <Text variant="secondary">None of these stop the import, and you can put them right afterwards.</Text>
               </div>
               <ul className="grid gap-2">
                 {result.warnings.map((w) => (
@@ -371,8 +384,8 @@ function ImportConnector() {
                   Credentials
                 </Text>
                 <Text variant="secondary">
-                  Each value is encrypted with this workspace's own key before it is stored, and is never shown again.
-                  You can leave them empty and fill them in later, but no tool will work until they are set.
+                  Stored encrypted and never shown again; you can leave them empty for now, but no tool works until
+                  they are set.
                 </Text>
               </div>
               <div className="grid gap-3 rounded-lg px-5 py-4 ring ring-kumo-line">

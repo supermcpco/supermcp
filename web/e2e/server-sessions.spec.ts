@@ -12,6 +12,8 @@ test("a server can be switched to stateful sessions and back", async ({ page, wo
   const row = page.getByRole("listitem").filter({ hasText: "Session server" });
   const sessions = row.getByLabel("Sessions");
   await expect(sessions).toHaveValue("stateless");
+  // Named by its label alone, not by the text of every option inside it.
+  await expect(row.getByRole("combobox", { name: "Sessions", exact: true })).toBeVisible();
   await expect(row.getByText(/sticky routing/)).toHaveCount(0);
 
   await sessions.selectOption("stateful");

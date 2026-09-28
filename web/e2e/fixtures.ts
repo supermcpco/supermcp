@@ -88,7 +88,7 @@ export async function createServer(page: Page, name: string, connectors: (string
   await page.goto("/servers");
   await expect(page.getByRole("heading", { name: "MCP servers", exact: true })).toBeVisible();
   // The empty screen offers the button twice, in the header and in the card.
-  await page.getByRole("button", { name: "New server" }).first().click();
+  await page.getByRole("button", { name: "Create server" }).first().click();
   const dialog = page.getByRole("dialog", { name: "New server" });
   await dialog.getByLabel("Name").fill(name);
   for (const c of connectors) await dialog.getByRole("checkbox", { name: c }).check();

@@ -99,10 +99,8 @@ function Found({ token, invite }: { token: string; invite: InviteLookupDto }) {
         Join {invite.orgName}
       </Text>
       <Text>
-        You have been invited to {invite.orgName} as {article(invite.roleName)} <strong>{invite.roleName}</strong>.
-      </Text>
-      <Text variant="secondary">
-        The invitation is for {invite.email} and works until {new Date(invite.expiresAt).toLocaleString()}.
+        You are invited as {article(invite.roleName)} <strong>{invite.roleName}</strong>, for {invite.email}, until{" "}
+        {new Date(invite.expiresAt).toLocaleString()}.
       </Text>
     </div>
   );

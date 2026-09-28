@@ -34,6 +34,7 @@ import { resyncSummary } from "../lib/resync";
 import { CredentialFields } from "../components/credential-fields";
 import { ResyncReview } from "../components/resync-review";
 import { toast } from "../components/shell/toast";
+import { About } from "../components/about";
 
 /**
  * Where a vendor's consent screen sends a person back to, by way of the
@@ -336,9 +337,7 @@ function Credentials({ connector: c }: { connector: ConnectorDto }) {
         <Text as="h2" variant="heading3" id="credentials-heading">
           Credentials
         </Text>
-        <Text variant="secondary">
-          Each value is encrypted with this workspace's own key before it is stored, and is never shown again.
-        </Text>
+        <Text variant="secondary">Each value is stored encrypted and never shown again.</Text>
       </div>
 
       {!allowed && <Text>You do not have permission to change this connector's credentials.</Text>}
@@ -367,10 +366,16 @@ function Credentials({ connector: c }: { connector: ConnectorDto }) {
 
       {consent && (
         <div className="grid gap-2 rounded-lg px-5 py-4 ring ring-kumo-line">
-          <Text>
-            This connector signs in with OAuth: someone approves access on the vendor&rsquo;s consent screen, and the
-            workspace keeps the tokens it hands back. Set the client ID and secret first.
-          </Text>
+          <div className="flex flex-wrap items-center gap-1">
+            <Text>Set the client ID and secret, then authorize on the vendor&rsquo;s consent screen.</Text>
+            <About label="About signing in with OAuth">
+              <p>
+                Someone approves access on the vendor&rsquo;s consent screen, and the workspace keeps the tokens the
+                vendor hands back, encrypted like any other credential.
+              </p>
+              <p>The vendor has to know the redirect address below before it will send anyone back here.</p>
+            </About>
+          </div>
           {redirect.data && (
             <Text variant="secondary">
               Register this redirect address with the vendor:{" "}
@@ -428,10 +433,7 @@ function DangerZone({ connector: c }: { connector: ConnectorDto }) {
         Danger zone
       </Text>
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <Text>
-          Removing the connector deletes its tools and credentials, and every MCP server stops offering them. It cannot be
-          undone.
-        </Text>
+        <Text>Removing it deletes its tools and credentials for good, and every MCP server stops offering them.</Text>
         <Button
           variant="destructive"
           onClick={() => {

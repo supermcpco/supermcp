@@ -1,8 +1,10 @@
 import { useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
-import { Input, Text } from "@cloudflare/kumo";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { Button, Input, Text } from "@cloudflare/kumo";
 import { catalogListOptions } from "../api/@tanstack/react-query.gen";
+import { message } from "../lib/errors";
+import { EmptyState } from "../components/form-dialog";
 
 export const Route = createFileRoute("/_app/catalog/")({
   component: Catalog,
@@ -11,7 +13,13 @@ export const Route = createFileRoute("/_app/catalog/")({
 function Catalog() {
   const [q, setQ] = useState("");
   const [keyless, setKeyless] = useState(false);
-  const list = useQuery(catalogListOptions({ query: { q: q || undefined, keyless: keyless || undefined } }));
+  // The last answer stays on screen while the next search is asked, so the
+  // list does not empty and refill on every keystroke.
+  const list = useQuery({
+    ...catalogListOptions({ query: { q: q || undefined, keyless: keyless || undefined } }),
+    placeholderData: keepPreviousData,
+  });
+  const adapters = list.data?.adapters ?? [];
 
   return (
     <div className="grid gap-6">
@@ -19,7 +27,7 @@ function Catalog() {
         <Text as="h1" variant="heading2">
           Catalog
         </Text>
-        <Text>Pre-built adapters. Install one to create a connector with its tools.</Text>
+        <Text>Install an adapter to create a connector with its tools.</Text>
       </div>
       <div className="flex flex-wrap items-center gap-3">
         <div className="w-72">
@@ -30,11 +38,34 @@ function Catalog() {
           <Text as="span">No credentials needed</Text>
         </label>
         <Text as="span" variant="secondary">
-          {list.data ? `${list.data.count} adapters` : list.isPending ? "Loading…" : "Failed to load"}
+          {list.data ? `${list.data.count} adapters` : list.isPending ? "Loading…" : ""}
         </Text>
       </div>
+      {list.isError && (
+        <div role="alert">
+          <Text>{message(list.error)}</Text>
+        </div>
+      )}
+      {list.isSuccess && adapters.length === 0 && (
+        <EmptyState
+          title="No adapters match"
+          action={
+            <Button
+              variant="primary"
+              onClick={() => {
+                setQ("");
+                setKeyless(false);
+              }}
+            >
+              Clear search
+            </Button>
+          }
+        >
+          Try other words, or clear the search to see every adapter.
+        </EmptyState>
+      )}
       <ul className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-        {list.data?.adapters.map((a) => (
+        {adapters.map((a) => (
           <li key={a.slug} className="rounded-lg px-5 py-4 ring ring-kumo-line hover:bg-kumo-tint">
             <Link to="/catalog/$slug" params={{ slug: a.slug }} className="grid gap-1.5">
               <div className="flex items-baseline justify-between gap-2">

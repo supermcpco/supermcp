@@ -12,6 +12,8 @@ import { Loading } from "../lib/ui";
 import { message } from "../lib/errors";
 import { isVersionConflict } from "../lib/tool-api";
 import { RevisionList } from "../components/revisions";
+import { EmptyState } from "../components/form-dialog";
+import { About, HeadingWithAbout } from "../components/about";
 
 export const Route = createFileRoute("/_app/connectors/$id/_detail/history")({
   component: History,
@@ -52,15 +54,26 @@ function History() {
   return (
     <>
       <div className="grid gap-1.5">
-        <Text as="h2" variant="heading3">
-          History
-        </Text>
-        <Text>
-          Every change to this connector, newest first. Long values — the instructions, the schema a tool expects, how
-          the connector is reached — are shown with the two versions side by side, so the line that moved is the one you
-          see. Restoring an older version records the restore as a further change, so the history of a mistake survives
-          being corrected.
-        </Text>
+        <HeadingWithAbout
+          heading={
+            <Text as="h2" variant="heading3">
+              History
+            </Text>
+          }
+          about={
+            <About label="About history">
+              <p>
+                Long values (the instructions, the schema a tool expects, how the connector is reached) are shown with
+                the two versions side by side, so the line that moved is the one you see.
+              </p>
+              <p>
+                Restoring an older version records the restore as a further change, so the history of a mistake
+                survives being corrected.
+              </p>
+            </About>
+          }
+        />
+        <Text>Every change to this connector, newest first.</Text>
       </div>
 
       {restore.error && (
@@ -80,6 +93,14 @@ function History() {
           and "no changes recorded yet" would be saying something. */}
       {history.isPending ? (
         <Loading />
+      ) : history.isError ? (
+        <div role="alert" className="rounded-md bg-kumo-tint px-4 py-3 ring ring-kumo-line">
+          <Text>{message(history.error)}</Text>
+        </div>
+      ) : history.isSuccess && (history.data.revisions ?? []).length === 0 ? (
+        <EmptyState title="No changes yet" as="h3">
+          Changes to this connector and its tools are listed here as they are made.
+        </EmptyState>
       ) : (
         <RevisionList
           revisions={history.data?.revisions ?? []}
