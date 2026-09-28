@@ -123,6 +123,7 @@ type Metrics struct {
 	upstreamDuration *prometheus.HistogramVec
 	mcpRequests      *prometheus.CounterVec
 	httpRequests     *prometheus.CounterVec
+	httpClientGone   *prometheus.CounterVec
 	surfaceBuild     prometheus.Histogram
 	breakerState     *prometheus.GaugeVec
 	auditQueueDepth  prometheus.Gauge
@@ -203,6 +204,12 @@ func NewMetrics(opts MetricsOptions) *Metrics {
 			Name:      "http_requests_total",
 			Help:      "HTTP requests by routing pattern, method and status.",
 		}, []string{"route", "method", "code"}),
+
+		httpClientGone: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: Namespace,
+			Name:      "http_client_gone_total",
+			Help:      "API requests whose caller went away before a 5xx could be sent, by routing pattern and the status they would have had. They are answered 499 and counted under that code in http_requests_total; a run of orig_status=\"500\" is errors nothing mapped.",
+		}, []string{"route", "orig_status"}),
 
 		surfaceBuild: prometheus.NewHistogram(prometheus.HistogramOpts{
 			Namespace: Namespace,
@@ -293,6 +300,7 @@ func NewMetrics(opts MetricsOptions) *Metrics {
 		m.upstreamDuration,
 		m.mcpRequests,
 		m.httpRequests,
+		m.httpClientGone,
 		m.surfaceBuild,
 		m.breakerState,
 		m.auditQueueDepth,
@@ -377,6 +385,21 @@ func (m *Metrics) ObserveHTTPRequest(route, method string, code int) {
 		return
 	}
 	m.httpRequests.WithLabelValues(labelOrUnknown(route), labelOrUnknown(method), strconv.Itoa(code)).Inc()
+}
+
+// ObserveHTTPClientGone records an API request whose caller went away
+// before a 5xx could be sent. route must be the chi routing pattern, as
+// for ObserveHTTPRequest; origStatus is the status it would have had,
+// and outside 500 to 599 is recorded as OtherLabel.
+func (m *Metrics) ObserveHTTPClientGone(route string, origStatus int) {
+	if m == nil {
+		return
+	}
+	status := OtherLabel
+	if origStatus >= 500 && origStatus <= 599 {
+		status = strconv.Itoa(origStatus)
+	}
+	m.httpClientGone.WithLabelValues(labelOrUnknown(route), status).Inc()
 }
 
 // ObserveSurfaceBuild records how long one caller's tool surface took to

@@ -7,10 +7,13 @@ import (
 	"net/http"
 
 	"github.com/danielgtaylor/huma/v2"
+	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/supermcpco/supermcp/internal/connector"
 	"github.com/supermcpco/supermcp/internal/reqid"
+	"github.com/supermcpco/supermcp/internal/telemetry"
 )
 
 // statusClientClosedRequest is the status a request gets when its caller
@@ -35,6 +38,25 @@ const statusClientClosedRequest = 499
 // neither is taken for the caller going away.
 func clientGone(ctx context.Context, err error) bool {
 	return err != nil && errors.Is(ctx.Err(), context.Canceled)
+}
+
+// cancelledQuery reports whether err is what a statement stopped by its
+// context looks like: the context's own error, or the 57014 Postgres
+// answers when pgx asks it to cancel.
+func cancelledQuery(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.Is(err, context.Canceled) || (errors.As(err, &pgErr) && pgErr.Code == pgQueryCanceled)
+}
+
+// goneErr maps a query the caller's leaving cancelled to a 503, which
+// answerClientGone answers with 499 and logs at INFO. Left unmapped it
+// would be a 500, which answerClientGone logs at WARN because a 500 can
+// be a bug. Anything else is returned as it is.
+func goneErr(ctx context.Context, err error) error {
+	if clientGone(ctx, err) && cancelledQuery(err) {
+		return huma.Error503ServiceUnavailable("the caller went away and the query was cancelled", err)
+	}
+	return err
 }
 
 // goneAwareContext is the huma.Context every operation runs with. When
@@ -68,13 +90,37 @@ func withGoneAwareContext(ctx huma.Context, next func(huma.Context)) {
 	next(&goneAwareContext{operationContext: ctx})
 }
 
+// findGoneAware finds the goneAwareContext under ctx. An operation
+// middleware or huma.WithValue wraps the context it is handed, and each
+// wrapper huma makes says what it wraps through Unwrap, as humachi.Unwrap
+// relies on.
+func findGoneAware(ctx huma.Context) (*goneAwareContext, bool) {
+	for {
+		if g, ok := ctx.(*goneAwareContext); ok {
+			return g, true
+		}
+		u, ok := ctx.(interface{ Unwrap() huma.Context })
+		if !ok {
+			return nil, false
+		}
+		ctx = u.Unwrap()
+	}
+}
+
 // answerClientGone is the first response transformer. A 5xx to a caller
-// who has gone is not a server fault: it is logged at INFO with
-// client_gone=true rather than at ERROR, and answered with
-// statusClientClosedRequest and the request id. The error's text still
-// goes to the log, redacted as hideInternalErrors does, so a real fault
-// that happened to coincide with the caller leaving is not lost.
-func answerClientGone(log *slog.Logger) huma.Transformer {
+// who has gone is answered with statusClientClosedRequest and the request
+// id, logged with client_gone=true, and counted in
+// supermcp_http_client_gone_total by route and the status it would have
+// had.
+//
+// A mapped 5xx (a 503 for a query that ran out of time, say) is what the
+// caller leaving looks like and is logged at INFO. A 500 is an error
+// nothing mapped, possibly a bug, and a caller must not be able to hide
+// one by hanging up, so it is logged at WARN. Either way the error's
+// text goes to the log, redacted as hideInternalErrors does. The original
+// status is orig_status, not status, so a search for status>=500 finds
+// server errors and not these.
+func answerClientGone(log *slog.Logger, m *telemetry.Metrics) huma.Transformer {
 	if log == nil {
 		log = slog.Default()
 	}
@@ -87,12 +133,13 @@ func answerClientGone(log *slog.Logger) huma.Transformer {
 		if !errors.As(err, &se) || se.GetStatus() < http.StatusInternalServerError {
 			return v, nil
 		}
-		gc, ok := ctx.(*goneAwareContext)
+		gc, ok := findGoneAware(ctx)
 		rctx := ctx.Context()
 		if !ok || !clientGone(rctx, err) {
 			return v, nil
 		}
 		gc.gone = true
+		orig := se.GetStatus()
 		causes := []string{}
 		var model *huma.ErrorModel
 		if errors.As(err, &model) {
@@ -102,10 +149,25 @@ func answerClientGone(log *slog.Logger) huma.Transformer {
 				}
 			}
 		}
+		// logKeyServiceErrors runs after this and no longer sees the key
+		// service's own error, so it is logged here.
+		var kse *keyServiceError
+		if errors.As(err, &kse) && kse.cause != nil {
+			causes = append(causes, connector.RedactText(kse.cause.Error()))
+		}
+		level := slog.LevelInfo
+		if orig == http.StatusInternalServerError {
+			level = slog.LevelWarn
+		}
+		route := ""
+		if rc := chi.RouteContext(rctx); rc != nil {
+			route = rc.RoutePattern()
+		}
+		m.ObserveHTTPClientGone(route, orig)
 		id := middleware.GetReqID(rctx)
-		log.InfoContext(rctx, "request abandoned by the client",
+		log.Log(rctx, level, "request abandoned by the client",
 			"req_id", id, "method", ctx.Method(), "path", loggedPath(ctx.URL().Path),
-			"client_gone", true, "status", se.GetStatus(),
+			"client_gone", true, "orig_status", orig,
 			"detail", connector.RedactText(se.Error()), "err", causes)
 		return &huma.ErrorModel{
 			Status: statusClientClosedRequest,

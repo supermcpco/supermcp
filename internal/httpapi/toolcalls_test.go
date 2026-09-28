@@ -153,36 +153,48 @@ func TestToolCallsBudget(t *testing.T) {
 	}
 }
 
-// TestToolCallsErr: our own time limit is a 503; the caller going away,
-// which cancels the query the same way, is not.
+// TestToolCallsErr: our own time limit is a 503 with a way forward. The
+// caller going away, which cancels the query the same way, is goneErr's
+// 503, which answerClientGone turns into a 499; a deadline on the whole
+// request is left as it is.
 func TestToolCallsErr(t *testing.T) {
 	t.Parallel()
 	live := context.Background()
 	gone, cancel := context.WithCancel(context.Background())
 	cancel()
+	late, cancelLate := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancelLate()
 	canceled := fmt.Errorf("list tool calls: %w", &pgconn.PgError{Code: pgQueryCanceled})
 	other := errors.New("boom")
+	const (
+		ours = "the search took too long"
+		left = "the caller went away"
+		asIs = ""
+	)
 	tests := []struct {
-		name    string
-		ctx     context.Context
-		err     error
-		want503 bool
+		name string
+		ctx  context.Context
+		err  error
+		want string // the 503's detail, or asIs for the error returned unchanged
 	}{
-		{"statement timeout", live, canceled, true},
-		{"our deadline", live, fmt.Errorf("x: %w", context.DeadlineExceeded), true},
-		{"the caller went away", gone, canceled, false},
-		{"the caller went away during our deadline", gone, context.DeadlineExceeded, false},
-		{"anything else", live, other, false},
+		{"statement timeout", live, canceled, ours},
+		{"our deadline", live, fmt.Errorf("x: %w", context.DeadlineExceeded), ours},
+		{"the caller went away", gone, canceled, left},
+		{"the caller went away, pgx's own error", gone, fmt.Errorf("x: %w", context.Canceled), left},
+		{"the caller went away during our deadline", gone, context.DeadlineExceeded, asIs},
+		{"the request's own deadline", late, canceled, asIs},
+		{"anything else", live, other, asIs},
 	}
 	for _, tt := range tests {
 		got := toolCallsErr(tt.ctx, tt.err)
-		var se huma.StatusError
-		is503 := errors.As(got, &se) && se.GetStatus() == http.StatusServiceUnavailable
-		if is503 != tt.want503 {
-			t.Errorf("%s: got %v, want 503 = %v", tt.name, got, tt.want503)
-		}
-		if !tt.want503 && !errors.Is(got, tt.err) {
-			t.Errorf("%s: %v is not the error it was given", tt.name, got)
+		var model *huma.ErrorModel
+		switch {
+		case tt.want == asIs:
+			if !errors.Is(got, tt.err) {
+				t.Errorf("%s: %v is not the error it was given", tt.name, got)
+			}
+		case !errors.As(got, &model) || model.Status != http.StatusServiceUnavailable || !strings.HasPrefix(model.Detail, tt.want):
+			t.Errorf("%s: got %v, want a 503 starting %q", tt.name, got, tt.want)
 		}
 	}
 }

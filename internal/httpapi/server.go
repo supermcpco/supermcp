@@ -138,7 +138,7 @@ func New(d Deps) (http.Handler, huma.API) {
 	}
 	// answerClientGone comes first: a failure the caller left before
 	// hearing about is neither a key service outage nor a 500 to log.
-	cfg.Transformers = append([]huma.Transformer{answerClientGone(d.Log), logKeyServiceErrors(d.Log), hideInternalErrors(d.Log)},
+	cfg.Transformers = append([]huma.Transformer{answerClientGone(d.Log, d.Metrics), logKeyServiceErrors(d.Log), hideInternalErrors(d.Log)},
 		cfg.Transformers...)
 	api := humachi.New(r, cfg)
 	// Before any route: huma gives an operation the middleware registered
