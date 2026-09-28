@@ -111,6 +111,34 @@ test("a provider's refusal is explained on the sign-in card", async ({ browser }
   await context.close();
 });
 
+test("a signed-in visit to the sign-in card goes on, to next when it is safe", async ({ page, workspace }) => {
+  await page.goto("/login");
+  await expect(page.getByRole("heading", { name: "Set up your workspace" })).toBeVisible();
+  expect(where(page)).toEqual({ path: "/", next: null });
+  await expect(page.getByRole("form", { name: "Sign in" })).toHaveCount(0);
+
+  await page.goto("/login?next=/connectors");
+  await expect(page.getByRole("heading", { name: "Connectors", exact: true })).toBeVisible();
+  expect(where(page).path).toBe("/connectors");
+
+  // Somewhere off this site is never followed.
+  await page.goto(`/login?next=${encodeURIComponent("https://evil.example/")}`);
+  await expect(page.getByRole("heading", { name: "Set up your workspace" })).toBeVisible();
+  expect(where(page).path).toBe("/");
+
+  // A page the server renders, not this interface: the OAuth consent page
+  // is fetched from the server, where moving in place would draw the
+  // interface's own "not found" there instead.
+  const consent = "/oauth/authorize?response_type=code&client_id=nobody";
+  const loaded = page.waitForRequest((r) => r.isNavigationRequest() && new URL(r.url()).pathname === "/oauth/authorize");
+  await page.goto(`/login?next=${encodeURIComponent(consent)}`);
+  const request = await loaded;
+  expect(new URL(request.url()).searchParams.get("client_id")).toBe("nobody");
+  await expect(page).toHaveURL(/\/oauth\/authorize\?/);
+  await expect(page.getByRole("heading", { name: "Sign in" })).toHaveCount(0);
+  expect(workspace.email).toBeTruthy();
+});
+
 test("signing out from inside the console lands on the sign-in card", async ({ page, workspace }) => {
   await page.goto("/connectors");
   await expect(page.getByText(workspace.org)).toBeVisible();

@@ -157,6 +157,23 @@ export function safeNext(next: string | undefined): string {
   return next;
 }
 
+/**
+ * How to go on to `next` after signing in: `href` is `safeNext`'s answer,
+ * and `load` says whether it takes a page load. A path this interface
+ * routes (`routed` says which) is moved to in place; any other, such as
+ * the OAuth consent page the server renders under /oauth/, has to be
+ * fetched from the server, or the interface would draw its own "not
+ * found" where the server's page should be.
+ */
+export function nextDestination(
+  next: string | undefined,
+  routed: (pathname: string) => boolean,
+): { href: string; load: boolean } {
+  const href = safeNext(next);
+  const pathname = href.split(/[?#]/, 1)[0] || "/";
+  return { href, load: !routed(pathname) };
+}
+
 /** Whether the signed-in person is the one the invite was sent to. */
 export function sameEmail(a: string | undefined, b: string | undefined): boolean {
   if (!a || !b) return false;
