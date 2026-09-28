@@ -237,40 +237,46 @@ func (t *sessionTable) release(owner, org string) {
 // request still in flight. It is called when the response headers carry
 // the new id, before the client can have read them, so the client's next
 // request always finds the session here. The reservation's place becomes
-// the session's.
-func (t *sessionTable) add(id, serverID, owner, org string, srv *sdk.Server) {
+// the session's there and then: the client may open its next session
+// before this initialise returns, and must find one place held, not two.
+// It reports whether the session was kept; if not, the reservation is
+// still held and settle gives it back.
+func (t *sessionTable) add(id, serverID, owner, org string, srv *sdk.Server) bool {
 	t.mu.Lock()
 	if t.closed {
 		t.mu.Unlock()
 		// Drain began while this session was being initialised. It will
 		// not be kept, so it is not counted either.
 		closeSession(&sessionEntry{id: id, srv: srv})
-		return
+		return false
 	}
 	now := t.now()
 	t.byID[id] = &sessionEntry{id: id, serverID: serverID, owner: owner, org: org, srv: srv,
 		created: now, lastSeen: now, inflight: 1}
-	// The place is the session's now, not the reservation's.
-	t.byOwner[owner]++
-	t.byOrg[org]++
+	// The place is the session's now, not the reservation's: byOwner and
+	// byOrg already count it.
+	t.reserved--
 	if t.timer == nil {
 		t.timer = time.AfterFunc(t.sweepEvery(), t.sweep)
 	}
 	n := len(t.byID)
 	t.mu.Unlock()
 	t.metrics.SetMCPSessions(n)
+	return true
 }
 
-// settle ends a reservation. id is the session it became, or empty when
-// the initialise request did not create one.
+// settle ends an initialise request. id is the session add kept for it,
+// whose place the reservation already became; empty when none was kept,
+// and the reservation's place is given back.
 func (t *sessionTable) settle(owner, org, id string) {
+	if id != "" {
+		t.end(id)
+		return
+	}
 	t.mu.Lock()
 	t.reserved--
 	t.release(owner, org)
 	t.mu.Unlock()
-	if id != "" {
-		t.end(id)
-	}
 }
 
 // begin marks a request on an existing session. It reports false for a
