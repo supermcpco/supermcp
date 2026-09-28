@@ -115,6 +115,10 @@ GROUP BY o.id
 ORDER BY o.created_at;
 ```
 
+Migration 00038 adds an index to `tool_invocations` for the tool-call
+list's server filter, as 00036 did for the connector filter; see "The
+tool-call list can be filtered" below.
+
 ### The tool-call list can be filtered
 
 `GET /api/v1/tool-calls` takes `since`, `until`, `connectorId`,
@@ -144,6 +148,17 @@ with the new index.
 - **Rollout order does not matter.** The previous release does not read
   the index, and the new one answers without it, only more slowly for a
   quiet connector.
+
+Migration 00038 adds `tool_invocations_org_server_time_idx` on
+`tool_invocations (organization_id, server_id, created_at DESC)` for the
+`serverId` filter, which had the same slow path: a quiet server's calls
+were found by reading every call the workspace made. On 300,000 calls
+that read the whole table, 30,800 pages, and 5 pages with the new index.
+The four points above hold for it as they do for 00036: it is built
+`CONCURRENTLY` and waits for older snapshots in the same way, it adds an
+index about the size of 00036's (16 MB on those 300,000 calls), a failed
+or cancelled build is redone by running `supermcp migrate` again, and the
+rollout order does not matter.
 
 The summary and a list with any filter draw on the analytics rate-limit
 budget, `SUPERMCP_RATELIMIT_ANALYTICS`, and share the usage analytics'
