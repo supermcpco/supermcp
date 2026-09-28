@@ -167,6 +167,10 @@ func (s *Service) registrationOpen(ctx context.Context) (bool, error) {
 // 00035).
 const pgRegistrationClosed = "SM001"
 
+// usersEmailIndex is the unique index that raises pgUniqueViolation for
+// an email that already has an account.
+const usersEmailIndex = "users_email_lower_idx"
+
 // Register creates a user and an organisation they own.
 func (s *Service) Register(ctx context.Context, in RegisterInput) (*User, *Org, error) {
 	in.Email = strings.TrimSpace(strings.ToLower(in.Email))
@@ -198,36 +202,28 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (*User, *Org, 
 	}
 	u := &User{ID: s.NewID(), Email: in.Email, Name: in.Name}
 	o := &Org{ID: s.NewID(), Name: in.OrgName, Slug: slugify(in.OrgName) + "-" + strings.ToLower(u.ID[len(u.ID)-6:])}
+	// One call, one transaction: the user, the organisation, the first
+	// password in the history (so it counts against the reuse policy) and
+	// the owner binding go in together or not at all (migration 00037).
 	err = s.DB.Pre(ctx, func(tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, "SELECT auth_register($1,$2,$3,$4,$5,$6,$7,$8)",
-			u.ID, u.Email, u.Name, hash, o.ID, o.Slug, o.Name, s.Cfg.OpenRegistration)
+		_, err := tx.Exec(ctx, "SELECT auth_register($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+			u.ID, u.Email, u.Name, hash, o.ID, o.Slug, o.Name, s.Cfg.OpenRegistration, s.NewID())
 		return err
 	})
 	if err != nil {
 		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == pgRegistrationClosed {
-			return nil, nil, ErrRegistrationClosed
-		}
-		if strings.Contains(err.Error(), "users_email_lower_idx") {
-			return nil, nil, ErrEmailTaken
+		if errors.As(err, &pgErr) {
+			switch {
+			case pgErr.Code == pgRegistrationClosed:
+				return nil, nil, ErrRegistrationClosed
+			case pgErr.Code == pgUniqueViolation && pgErr.ConstraintName == usersEmailIndex:
+				return nil, nil, ErrEmailTaken
+			}
 		}
 		// Includes lock_not_available (55P03) when another registration
 		// holds the lock past auth_register's lock_timeout: a failure,
 		// not a refusal.
 		return nil, nil, fmt.Errorf("register: %w", err)
-	}
-	// Count the first password against the reuse policy as well.
-	_ = s.DB.Pre(ctx, func(tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, "SELECT auth_password_record($1,$2)", u.ID, hash)
-		return err
-	})
-	// The creator owns the organisation.
-	err = s.DB.Tx(tenant.WithOrg(ctx, o.ID), func(tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, `INSERT INTO role_bindings (id, organization_id, principal_kind, principal_id, role_id, created_by) VALUES ($1,$2,'user',$3,'role_owner',$3)`, s.NewID(), o.ID, u.ID)
-		return err
-	})
-	if err != nil {
-		return nil, nil, err
 	}
 	return u, o, nil
 }
