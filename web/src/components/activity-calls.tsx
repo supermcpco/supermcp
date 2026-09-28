@@ -22,6 +22,7 @@ import { message, status as httpStatus } from "../lib/errors";
 import { useSession } from "../lib/session";
 import { Badge, Loading } from "../lib/ui";
 import { LabelledInput } from "./labelled-input";
+import { LabelledSelect } from "./select";
 
 /** How many of the latest calls the tab shows, with or without filters. */
 const shownCalls = 100;
@@ -29,8 +30,6 @@ const shownCalls = 100;
 /** How often the plain list asks again, and how often a search does. */
 const latestEvery = 10_000;
 const searchEvery = 30_000;
-
-const selectClass = "rounded-md border border-kumo-line bg-kumo-base px-3 py-2";
 
 /**
  * The calls tab of the activity screen: the latest calls AI clients made
@@ -128,57 +127,37 @@ export function CallsPanel({ search, onSearch }: { search: CallsSearch; onSearch
         {(filtered || rows.length > 0 || calls.isError) && (
           <>
             <div role="search" aria-label="Filter the calls" className="flex flex-wrap items-end gap-4">
-              <label className="grid gap-1.5">
-                <Text as="span">Status</Text>
-                <select
-                  className={selectClass}
-                  value={search.status ?? "all"}
-                  onChange={(e) => onSearch({ status: parseActivitySearch({ status: e.target.value }).status })}
-                >
-                  {statusFilters.map((s) => (
-                    <option key={s} value={s}>
-                      {statusFilterLabels[s]}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="grid gap-1.5">
-                <Text as="span">Connector</Text>
-                <select
-                  className={selectClass}
-                  value={search.connector ?? ""}
-                  onChange={(e) => onSearch({ connector: e.target.value || undefined })}
-                >
-                  <option value="">All connectors</option>
-                  {(connectors.data ?? []).map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-                  {search.connector && connectors.data && !names.has(search.connector) && (
-                    <option value={search.connector}>A removed connector</option>
-                  )}
-                </select>
-              </label>
+              <LabelledSelect
+                label="Status"
+                value={search.status ?? "all"}
+                onChange={(v) => onSearch({ status: parseActivitySearch({ status: v }).status })}
+                options={statusFilters.map((s) => ({ value: s, label: statusFilterLabels[s] }))}
+              />
+              <LabelledSelect
+                label="Connector"
+                value={search.connector ?? ""}
+                onChange={(v) => onSearch({ connector: v || undefined })}
+                options={[
+                  { value: "", label: "All connectors" },
+                  ...(connectors.data ?? []).map((c) => ({ value: c.id, label: c.name })),
+                  ...(search.connector && connectors.data && !names.has(search.connector)
+                    ? [{ value: search.connector, label: "A removed connector" }]
+                    : []),
+                ]}
+              />
               {mayFilterServers && (
-                <label className="grid gap-1.5">
-                  <Text as="span">MCP server</Text>
-                  <select
-                    className={selectClass}
-                    value={search.server ?? ""}
-                    onChange={(e) => onSearch({ server: e.target.value || undefined })}
-                  >
-                    <option value="">All MCP servers</option>
-                    {(servers.data ?? []).map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.name}
-                      </option>
-                    ))}
-                    {search.server && servers.data && !servers.data.some((s) => s.id === search.server) && (
-                      <option value={search.server}>A removed MCP server</option>
-                    )}
-                  </select>
-                </label>
+                <LabelledSelect
+                  label="MCP server"
+                  value={search.server ?? ""}
+                  onChange={(v) => onSearch({ server: v || undefined })}
+                  options={[
+                    { value: "", label: "All MCP servers" },
+                    ...(servers.data ?? []).map((s) => ({ value: s.id, label: s.name })),
+                    ...(search.server && servers.data && !servers.data.some((s) => s.id === search.server)
+                      ? [{ value: search.server, label: "A removed MCP server" }]
+                      : []),
+                  ]}
+                />
               )}
               <PeriodSelect value={search.period} onChange={(period) => onSearch({ period })} anyLabel="Any time" />
               <LabelledInput

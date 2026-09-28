@@ -34,12 +34,11 @@ import {
   sourceLabel,
 } from "../lib/members";
 import { LabelledInput } from "../components/labelled-input";
+import { LabelledSelect } from "../components/select";
 
 export const Route = createFileRoute("/_app/settings/members")({
   component: Members,
 });
-
-const selectClass = "rounded-md border border-kumo-line bg-kumo-base px-3 py-2";
 
 /** A change to one member waiting for the administrator to confirm it. */
 type Pending =
@@ -431,25 +430,22 @@ function MemberRow({
         {canManage && (
           <td className="py-2">
             <div className="flex flex-wrap items-center gap-2">
-              <select
-                aria-label={`Role for ${who}`}
-                className={selectClass}
+              <LabelledSelect
+                label={`Role for ${who}`}
+                hideLabel
+                className="contents"
                 value={pending?.kind === "role" ? pending.roleId : current}
                 disabled={m.isSelf || busy}
-                aria-describedby={note ? noteId : undefined}
-                onChange={(e) => {
-                  const roleId = e.currentTarget.value;
+                describedBy={note ? noteId : undefined}
+                onChange={(roleId) => {
                   if (roleId && roleId !== current) onAsk({ userId: m.userId, kind: "role", roleId });
                   else onCancel();
                 }}
-              >
-                {current === "" && <option value="">{orgRoles.length > 1 ? "Several roles" : "Choose a role"}</option>}
-                {roles.map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {r.name}
-                  </option>
-                ))}
-              </select>
+                options={[
+                  ...(current === "" ? [{ value: "", label: orgRoles.length > 1 ? "Several roles" : "Choose a role" }] : []),
+                  ...roles.map((r) => ({ value: r.id, label: r.name })),
+                ]}
+              />
               <Button
                 disabled={lifecycleLocked || busy}
                 aria-describedby={note ? noteId : undefined}
@@ -603,28 +599,17 @@ function InviteDialog({
         onChange={(e) => setEmail(e.currentTarget.value)}
         placeholder="ada@example.com"
       />
-      {/* Labelled by id rather than by wrapping: a wrapped control's
-          value becomes part of its name, and "Role Choose a role" helps
-          nobody. */}
-      <div className="grid gap-1.5">
-        <label htmlFor={`${ids}-role`}>
-          <Text as="span">Role</Text>
-        </label>
-        <select
-          id={`${ids}-role`}
-          className={selectClass}
-          required
-          value={roleId}
-          onChange={(e) => setRoleId(e.currentTarget.value)}
-        >
-          <option value="">{rolesLoading ? "Loading roles…" : "Choose a role"}</option>
-          {roles.map((r) => (
-            <option key={r.id} value={r.id}>
-              {r.name}
-            </option>
-          ))}
-        </select>
-      </div>
+      <LabelledSelect
+        label="Role"
+        required
+        triggerClassName="w-full"
+        value={roleId}
+        onChange={setRoleId}
+        options={[
+          { value: "", label: rolesLoading ? "Loading roles…" : "Choose a role" },
+          ...roles.map((r) => ({ value: r.id, label: r.name })),
+        ]}
+      />
       <div className="grid gap-1.5">
         <label htmlFor={`${ids}-days`} id={`${ids}-days-label`}>
           <Text as="span">Link works for (days)</Text>

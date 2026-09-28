@@ -26,6 +26,7 @@ import { ConfirmDialog } from "../components/confirm-dialog";
 import { Help, HeadingWithHelp } from "../components/help";
 import { RouteTabs, TabPanel } from "../components/route-tabs";
 import { LabelledInput } from "../components/labelled-input";
+import { LabelledSelect } from "../components/select";
 
 type Tab = "rules" | "detectors";
 
@@ -35,8 +36,6 @@ export const Route = createFileRoute("/_app/settings/dlp")({
     search.tab === "detectors" ? { tab: "detectors" } : {},
   component: Dlp,
 });
-
-const selectClass = "rounded-md border border-kumo-line bg-kumo-base px-3 py-2";
 
 function Dlp() {
   const { can } = useSession();
@@ -277,34 +276,40 @@ function RulesTab() {
           }
         >
           <LabelledInput labelClassName="grid gap-1" label="What it is for" value={name} onChange={(e) => setName(e.currentTarget.value)} required maxLength={120} />
-          <label className="grid gap-1">
-            <Text as="span">Where it applies</Text>
-            <select className={selectClass} value={connectorId} onChange={(e) => setConnectorId(e.currentTarget.value)}>
-              <option value="">Every connector</option>
-              {(connectors.data ?? []).map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-          </label>
+          <LabelledSelect
+            label="Where it applies"
+            className="grid gap-1"
+            triggerClassName="w-full"
+            value={connectorId}
+            onChange={setConnectorId}
+            options={[
+              { value: "", label: "Every connector" },
+              ...(connectors.data ?? []).map((c) => ({ value: c.id, label: c.name })),
+            ]}
+          />
           <div className="flex flex-wrap gap-3">
-            <label className="grid gap-1">
-              <Text as="span">What it reads</Text>
-              <select className={selectClass} value={scan} onChange={(e) => setScan(e.currentTarget.value as typeof scan)}>
-                <option value="both">Arguments and result</option>
-                <option value="arguments">Arguments only</option>
-                <option value="result">Result only</option>
-              </select>
-            </label>
-            <label className="grid gap-1">
-              <Text as="span">What it does</Text>
-              <select className={selectClass} value={action} onChange={(e) => setAction(e.currentTarget.value as typeof action)}>
-                <option value="mask">Mask what it finds</option>
-                <option value="refuse">Refuse the call</option>
-                <option value="allow">Record only</option>
-              </select>
-            </label>
+            <LabelledSelect
+              label="What it reads"
+              className="grid gap-1"
+              value={scan}
+              onChange={(v) => setScan(v as typeof scan)}
+              options={[
+              { value: "both", label: "Arguments and result" },
+              { value: "arguments", label: "Arguments only" },
+              { value: "result", label: "Result only" },
+            ]}
+            />
+            <LabelledSelect
+              label="What it does"
+              className="grid gap-1"
+              value={action}
+              onChange={(v) => setAction(v as typeof action)}
+              options={[
+              { value: "mask", label: "Mask what it finds" },
+              { value: "refuse", label: "Refuse the call" },
+              { value: "allow", label: "Record only" },
+            ]}
+            />
           </div>
           <DetectorChoices builtins={builtins} custom={custom} chosen={chosen} onChange={setChosen} />
           {occupying && (
@@ -441,22 +446,28 @@ function RuleEditor({
     >
       <LabelledInput labelClassName="grid gap-1" label="Rule name" value={name} onChange={(e) => setName(e.currentTarget.value)} required maxLength={120} />
       <div className="flex flex-wrap gap-3">
-        <label className="grid gap-1">
-          <Text as="span">What the rule reads</Text>
-          <select className={selectClass} value={scan} onChange={(e) => setScan(e.currentTarget.value as typeof scan)}>
-            <option value="both">Arguments and result</option>
-            <option value="arguments">Arguments only</option>
-            <option value="result">Result only</option>
-          </select>
-        </label>
-        <label className="grid gap-1">
-          <Text as="span">What the rule does</Text>
-          <select className={selectClass} value={action} onChange={(e) => setAction(e.currentTarget.value as typeof action)}>
-            <option value="mask">Mask what it finds</option>
-            <option value="refuse">Refuse the call</option>
-            <option value="allow">Record only</option>
-          </select>
-        </label>
+        <LabelledSelect
+          label="What the rule reads"
+          className="grid gap-1"
+          value={scan}
+          onChange={(v) => setScan(v as typeof scan)}
+          options={[
+            { value: "both", label: "Arguments and result" },
+            { value: "arguments", label: "Arguments only" },
+            { value: "result", label: "Result only" },
+          ]}
+        />
+        <LabelledSelect
+          label="What the rule does"
+          className="grid gap-1"
+          value={action}
+          onChange={(v) => setAction(v as typeof action)}
+          options={[
+            { value: "mask", label: "Mask what it finds" },
+            { value: "refuse", label: "Refuse the call" },
+            { value: "allow", label: "Record only" },
+          ]}
+        />
       </div>
       <DetectorChoices builtins={builtins} custom={custom} chosen={chosen} onChange={setChosen} />
       <label className="flex items-center gap-2">

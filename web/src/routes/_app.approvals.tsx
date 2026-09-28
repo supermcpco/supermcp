@@ -26,6 +26,7 @@ import { toast } from "../components/shell/toast";
 import { EmptyState, FormDialog, HeaderWithAction } from "../components/form-dialog";
 import { About, HeadingWithAbout } from "../components/about";
 import { LabelledInput } from "../components/labelled-input";
+import { LabelledSelect } from "../components/select";
 
 export const Route = createFileRoute("/_app/approvals")({
   component: Approvals,
@@ -191,8 +192,6 @@ function Approvals() {
   );
 }
 
-const selectClass = "rounded-md border border-kumo-line bg-kumo-base px-3 py-2";
-
 /** Which calls are held, and by what. Without a rule nothing is ever
  *  held, which is the first thing somebody looking at an empty queue
  *  needs to know. */
@@ -354,28 +353,28 @@ function Rules() {
           }
         >
           <LabelledInput labelClassName="grid gap-1" label="What it is for" value={name} onChange={(e) => setName(e.currentTarget.value)} required maxLength={200} />
-          <label className="grid gap-1">
-            <Text as="span">Where it applies</Text>
-            <select className={selectClass} value={scopeId} onChange={(e) => setScopeId(e.currentTarget.value)}>
-              <option value="">Every connector</option>
-              {(connectors.data ?? []).map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="grid gap-1">
-            <Text as="span">Which calls</Text>
-            <select
-              className={selectClass}
-              value={trigger}
-              onChange={(e) => setTrigger(e.currentTarget.value as typeof trigger)}
-            >
-              <option value="destructive">Anything that changes something</option>
-              <option value="tool">One tool, by name</option>
-            </select>
-          </label>
+          <LabelledSelect
+            label="Where it applies"
+            className="grid gap-1"
+            triggerClassName="w-full"
+            value={scopeId}
+            onChange={setScopeId}
+            options={[
+              { value: "", label: "Every connector" },
+              ...(connectors.data ?? []).map((c) => ({ value: c.id, label: c.name })),
+            ]}
+          />
+          <LabelledSelect
+            label="Which calls"
+            className="grid gap-1"
+            triggerClassName="w-full"
+            value={trigger}
+            onChange={(v) => setTrigger(v as typeof trigger)}
+            options={[
+              { value: "destructive", label: "Anything that changes something" },
+              { value: "tool", label: "One tool, by name" },
+            ]}
+          />
           {trigger === "tool" && (
             <LabelledInput labelClassName="grid gap-1" label="Tool name" value={toolName} onChange={(e) => setToolName(e.currentTarget.value)} required />
           )}

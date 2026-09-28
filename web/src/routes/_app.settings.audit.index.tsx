@@ -15,6 +15,7 @@ import { useDebounced } from "../lib/debounce";
 import { useSession } from "../lib/session";
 import { Badge } from "../lib/ui";
 import { LabelledInput } from "../components/labelled-input";
+import { LabelledSelect } from "../components/select";
 
 /**
  * The trail itself: whether its chain still verifies, the filters, the
@@ -81,20 +82,12 @@ function AuditLog() {
       <ChainStatus />
 
       <div className="flex flex-wrap items-end gap-3">
-        <label className="grid gap-1.5">
-          <Text as="span">Category</Text>
-          <select
-            className="rounded-md border border-kumo-line bg-kumo-base px-3 py-2"
-            value={search.category ?? ""}
-            onChange={(e) => setCategory(e.target.value)}
-          >
-            {["", ...auditCategories].map((c) => (
-              <option key={c} value={c}>
-                {c === "" ? "Everything" : c}
-              </option>
-            ))}
-          </select>
-        </label>
+        <LabelledSelect
+          label="Category"
+          value={search.category ?? ""}
+          onChange={setCategory}
+          options={["", ...auditCategories].map((c) => ({ value: c, label: c === "" ? "Everything" : c }))}
+        />
         <LabelledInput
           labelClassName="grid flex-1 gap-1.5"
           label="Actor"

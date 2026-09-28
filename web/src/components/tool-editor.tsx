@@ -43,8 +43,7 @@ import {
 import { ToolPreview } from "./tool-preview";
 import { toast } from "./shell/toast";
 import { LabelledInput } from "./labelled-input";
-
-const selectClass = "rounded-md border border-kumo-line bg-kumo-base px-3 py-2";
+import { LabelledSelect } from "./select";
 
 /**
  * Creates a tool or changes one, with the request it would make shown
@@ -438,26 +437,11 @@ function Field({
 
   let control: React.ReactNode;
   switch (f.kind) {
-    case "select": {
-      const current = getText(draft, f.path);
-      const options = f.options ?? [];
-      const all = current && !options.includes(current) ? [current, ...options] : options;
-      control = (
-        <select
-          className={selectClass}
-          value={current}
-          onChange={(e) => onDraft(setText(draft, f.path, e.target.value, f.optional ?? false))}
-          {...common}
-        >
-          {all.map((o) => (
-            <option key={o} value={o}>
-              {o === "" ? "Default" : o}
-            </option>
-          ))}
-        </select>
-      );
+    case "select":
+      // Drawn below, under a label of its own: a select is a button, and a
+      // label wrapped round a button folds its value into the name.
+      control = null;
       break;
-    }
     case "number":
       control = (
         <Input
@@ -513,12 +497,16 @@ function Field({
 
   return (
     <div className="grid gap-1.5">
-      <label className="grid gap-1.5">
-        <Text as="span" id={labelId}>
-          {f.label}
-        </Text>
-        {control}
-      </label>
+      {f.kind === "select" ? (
+        <FieldSelect draft={draft} field={f} describedBy={describedBy} onDraft={onDraft} />
+      ) : (
+        <label className="grid gap-1.5">
+          <Text as="span" id={labelId}>
+            {f.label}
+          </Text>
+          {control}
+        </label>
+      )}
       {f.hint && (
         <Text as="span" variant="secondary" id={hintId}>
           {f.hint}
@@ -551,6 +539,33 @@ function Field({
   );
 }
 
+/** A field with a fixed set of values; one the form does not know is kept and offered too. */
+function FieldSelect({
+  draft,
+  field: f,
+  describedBy,
+  onDraft,
+}: {
+  draft: ToolDraft;
+  field: FormField;
+  describedBy: string | undefined;
+  onDraft: (draft: ToolDraft) => void;
+}) {
+  const current = getText(draft, f.path);
+  const options = f.options ?? [];
+  const all = current && !options.includes(current) ? [current, ...options] : options;
+  return (
+    <LabelledSelect
+      label={f.label}
+      className="grid gap-1.5 justify-items-start"
+      value={current}
+      onChange={(v) => onDraft(setText(draft, f.path, v, f.optional ?? false))}
+      options={all.map((o) => ({ value: o, label: o === "" ? "Default" : o }))}
+      describedBy={describedBy}
+    />
+  );
+}
+
 function isStructured(v: unknown): boolean {
   return v !== undefined && v !== null && typeof v === "object";
 }
@@ -574,19 +589,18 @@ function HintSelect({
   const declassifies = hint === "destructiveHint" && value === "false" && inferred === true;
   return (
     <div className="grid gap-1.5">
-      <label className="grid gap-1.5">
-        <Text as="span">{hintLabels[hint]}</Text>
-        <select
-          className={selectClass}
-          value={value}
-          onChange={(e) => onChange(e.target.value as TriState)}
-          aria-describedby={issuesId}
-        >
-          <option value="auto">{auto}</option>
-          <option value="true">Yes</option>
-          <option value="false">No</option>
-        </select>
-      </label>
+      <LabelledSelect
+        label={hintLabels[hint]}
+        className="grid gap-1.5 justify-items-start"
+        value={value}
+        onChange={(v) => onChange(v as TriState)}
+        options={[
+          { value: "auto", label: auto },
+          { value: "true", label: "Yes" },
+          { value: "false", label: "No" },
+        ]}
+        describedBy={issuesId}
+      />
       {declassifies && (
         <Text as="span" variant="secondary">
           The operation looks destructive. Saying it is not needs permission to call destructive tools.

@@ -1,4 +1,4 @@
-import { test, expect, expectAccessible, createServer, createKey } from "./fixtures";
+import { test, expect, expectAccessible, createServer, createKey, pickOption } from "./fixtures";
 import type { APIRequestContext } from "@playwright/test";
 
 // The activity screen holds the list of calls and the analytics as two
@@ -77,7 +77,7 @@ test("the activity screen shows calls and analytics as tabs and the old addresse
   await expect(page).toHaveURL(/\/activity\?/);
   await expect(page).toHaveURL(/tab=analytics/);
   await expect(analytics).toHaveAttribute("aria-selected", "true");
-  await expect(page.getByRole("combobox", { name: "Period" })).toHaveValue("30d");
+  await expect(page.getByRole("combobox", { name: "Period" })).toHaveText("Last 30 days");
 });
 
 test("the calls tab filters on the server and keeps the filters in the address", async ({
@@ -170,22 +170,22 @@ test("the calls tab filters on the server and keeps the filters in the address",
 
   // A call refused by a data-loss rule is recorded as failed.
   let answer = listed({ status: "error" });
-  await status.selectOption({ label: "Failed" });
+  await pickOption(page, status, "Failed");
   expect((await answer).status()).toBe(200);
   await expect(page).toHaveURL(/status=error/);
   await expect(rows).toHaveCount(2);
   await expect(table.getByRole("rowheader")).toHaveText(echoTool);
   await expect(page.getByText("1 call", { exact: true })).toBeVisible();
 
-  await status.selectOption({ label: "All calls" });
+  await pickOption(page, status, "All calls");
   answer = listed({ connectorId: plzId });
-  await connector.selectOption({ label: "OpenPLZ Germany" });
+  await pickOption(page, connector, "OpenPLZ Germany");
   expect((await answer).status()).toBe(200);
   await expect(page).toHaveURL(new RegExp(`connector=${plzId}`));
   await expect(rows).toHaveCount(2);
   await expect(table.getByRole("rowheader")).toHaveText(postcodeTool);
 
-  await connector.selectOption({ label: "All connectors" });
+  await pickOption(page, connector, "All connectors");
   answer = listed({ q: "CARD" });
   await name.fill("CARD");
   expect((await answer).status()).toBe(200);
@@ -195,23 +195,23 @@ test("the calls tab filters on the server and keeps the filters in the address",
 
   // The period and the server narrow it further, and it still holds.
   answer = listed({ q: "CARD", since: /^\d{4}-/, until: /^\d{4}-/ });
-  await period.selectOption({ label: "Last 24 hours" });
+  await pickOption(page, period, "Last 24 hours");
   expect((await answer).status()).toBe(200);
   await expect(page).toHaveURL(/period=24h/);
   answer = listed({ q: "CARD", serverId });
-  await server.selectOption({ label: "Activity server" });
+  await pickOption(page, server, "Activity server");
   expect((await answer).status()).toBe(200);
   await expect(page).toHaveURL(new RegExp(`server=${serverId}`));
   await expect(rows).toHaveCount(2);
   await expect(table.getByRole("rowheader")).toHaveText(cardTool);
 
   // A reload keeps the filters, which then match nothing together.
-  await status.selectOption({ label: "Failed" });
+  await pickOption(page, status, "Failed");
   await page.reload();
   await expect(name).toHaveValue("CARD");
-  await expect(status).toHaveValue("error");
-  await expect(period).toHaveValue("24h");
-  await expect(server).toHaveValue(serverId);
+  await expect(status).toHaveText("Failed");
+  await expect(period).toHaveText("Last 24 hours");
+  await expect(server).toHaveText("Activity server");
   await expect(page.getByText("No calls match", { exact: true })).toBeVisible();
   await expectAccessible(page);
 
@@ -228,7 +228,7 @@ test("the calls tab filters on the server and keeps the filters in the address",
       }),
     { times: 1 },
   );
-  await status.selectOption({ label: "Timed out" });
+  await pickOption(page, status, "Timed out");
   const notice = page.getByRole("status").filter({ hasText: "Another search is still running, try again in a moment." });
   await expect(notice).toBeVisible();
   answer = listed({ status: "timeout" });

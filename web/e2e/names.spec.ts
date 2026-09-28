@@ -1,5 +1,5 @@
 import type { Browser, Page } from "@playwright/test";
-import { test, expect, expectAccessible, openAccountMenu, signIn } from "./fixtures";
+import { test, expect, expectAccessible, openAccountMenu, signIn, pickOption } from "./fixtures";
 
 // The server's own sentence says what a name may be; the screen only has
 // to show it where the person is looking.
@@ -30,7 +30,7 @@ async function inviteViewer(page: Page, browser: Browser, org: string) {
   await page.getByRole("button", { name: "Invite someone" }).click();
   const dialog = page.getByRole("dialog", { name: "Invite someone" });
   await dialog.getByLabel("Email", { exact: true }).fill(email);
-  await dialog.getByLabel("Role", { exact: true }).selectOption({ label: "viewer" });
+  await pickOption(page, dialog.getByLabel("Role", { exact: true }), "viewer");
   await dialog.getByRole("button", { name: "Create invitation link" }).click();
   await expect(dialog).toHaveCount(0);
   const banner = page.getByRole("alert").filter({ hasText: `Copy the invitation link for ${email} now` });

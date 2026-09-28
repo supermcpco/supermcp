@@ -1,4 +1,4 @@
-import { test, expect, expectAccessible, signUp, createServer, createKey } from "./fixtures";
+import { test, expect, expectAccessible, signUp, createServer, createKey, pickOption } from "./fixtures";
 import type { APIRequestContext, Page } from "@playwright/test";
 
 // The analytics screen counts the calls a workspace made. The calls here
@@ -140,13 +140,13 @@ test("the analytics screen counts a workspace's calls, and another workspace see
   await expect(byServer.getByRole("rowheader")).toHaveText("Analytics server");
   await expect(byServer.getByRole("cell").nth(0)).toHaveText("5");
 
-  await page.getByRole("combobox", { name: "Period" }).selectOption({ label: "Last 24 hours" });
+  await pickOption(page, "Period", "Last 24 hours");
   await expect(page).toHaveURL(/range=24h/);
   await expect(figure(page, "Calls")).toHaveText("5");
 
   // A reload lands on the same view.
   await page.reload();
-  await expect(page.getByRole("combobox", { name: "Period" })).toHaveValue("24h");
+  await expect(page.getByRole("combobox", { name: "Period" })).toHaveText("Last 24 hours");
   await expect(page.getByRole("radio", { name: "MCP server" })).toHaveAttribute("aria-checked", "true");
 
   // A second workspace, in a browser context of its own, sees none of it:
@@ -165,7 +165,7 @@ test("the analytics screen counts a workspace's calls, and another workspace see
   // An empty day offers the week, and the offer is taken up in the address.
   await other.getByRole("button", { name: "Show the last 7 days" }).click();
   await expect(other).not.toHaveURL(/range=/);
-  await expect(other.getByRole("combobox", { name: "Period" })).toHaveValue("7d");
+  await expect(other.getByRole("combobox", { name: "Period" })).toHaveText("Last 7 days");
   const theirs = await context.request.get("/api/v1/analytics/usage?by=tool");
   expect(theirs.ok(), await theirs.text()).toBeTruthy();
   const body = await theirs.json();

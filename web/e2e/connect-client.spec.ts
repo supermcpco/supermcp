@@ -23,7 +23,7 @@ test("a server shows how to connect a client and the snippet carries the endpoin
   const serverId = await createServer(page, "Connect server");
   const card = page.getByRole("listitem").filter({ hasText: "Connect server" });
   // Sessions and the endpoint stay where they were.
-  await expect(card.getByLabel("Sessions")).toHaveValue("stateless");
+  await expect(card.getByLabel("Sessions")).toHaveText("Stateless: any replica answers");
 
   await card.getByRole("button", { name: "Connect a client to Connect server" }).click();
   // Claude Code comes first, as one command to run.
@@ -89,7 +89,7 @@ test("a new key's secret is shown once in a dialog with a connection snippet", a
   await expect(page.getByText("API key Desktop key created", { exact: true })).toBeVisible();
 
   // The only server is picked, and the snippet carries the secret and its endpoint.
-  await expect(shown.getByLabel("Server", { exact: true })).toHaveValue(serverId);
+  await expect(shown.getByLabel("Server", { exact: true })).toHaveText("Keyed server");
   await expect(shown.getByLabel("Endpoint of Keyed server", { exact: true })).toHaveValue(
     new RegExp(`/mcp/${serverId}$`),
   );

@@ -1,4 +1,4 @@
-import { test, expect, expectAccessible } from "./fixtures";
+import { test, expect, expectAccessible, pickOption } from "./fixtures";
 
 // The create forms open in a dialog. What matters to the person using
 // one is that leaving it leaves nothing behind, that they land back on
@@ -56,7 +56,7 @@ test("an approval rule is added from its dialog", async ({ page, workspace }) =>
 
   await page.getByRole("button", { name: "Add rule", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "Add a rule" });
-  await dialog.getByLabel("Which calls").selectOption("tool");
+  await pickOption(page, dialog.getByLabel("Which calls"), "One tool, by name");
   await dialog.getByLabel("What it is for").fill("Hold the exchange rates");
   // A rule for one tool needs the tool's name before it can be sent.
   await expect(dialog.getByRole("button", { name: "Add rule", exact: true })).toBeDisabled();

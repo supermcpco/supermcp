@@ -1,4 +1,4 @@
-import { test, expect, expectAccessible, closeSecret, createKey, createServer, installAdapter } from "./fixtures";
+import { test, expect, expectAccessible, closeSecret, createKey, createServer, installAdapter, pickOption } from "./fixtures";
 import { sql } from "./db";
 
 // Rotating a key is done by someone with a client in production: they need
@@ -29,7 +29,7 @@ test("a key is rotated with a grace period and the old one stops after it", asyn
   await expect(page.getByLabel("Old key keeps working for")).toHaveCount(0);
 
   await page.getByRole("button", { name: "Rotate Rotating key" }).click();
-  await page.getByLabel("Old key keeps working for").selectOption({ label: "1 hour" });
+  await pickOption(page, "Old key keeps working for", "1 hour");
   await page.getByRole("button", { name: "Rotate Rotating key" }).click();
   await expect(page.getByRole("heading", { name: "API key Rotating key rotated", exact: true })).toBeVisible();
 

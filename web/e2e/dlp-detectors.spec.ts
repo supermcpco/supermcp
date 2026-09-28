@@ -1,4 +1,4 @@
-import { test, expect, expectAccessible, createServer, createKey } from "./fixtures";
+import { test, expect, expectAccessible, createServer, createKey, pickOption } from "./fixtures";
 
 // A workspace's own detector, from the screen to a real call: the pattern
 // is tried on its samples as it is typed, saved, picked by a rule beside
@@ -105,7 +105,7 @@ test("a custom detector is tried, saved, added to a rule, and refuses a call tha
   await page.getByRole("button", { name: "New rule" }).click();
   const addRule = page.getByRole("dialog", { name: "Add a rule" });
   await addRule.getByLabel("What it is for").fill("Contract ids stay inside");
-  await addRule.getByLabel("What it does").selectOption("refuse");
+  await pickOption(page, addRule.getByLabel("What it does"), "Refuse the call");
   await addRule.getByRole("checkbox", { name: /custom:contract_id/ }).check();
   await Promise.all([
     page.waitForResponse((r) => r.url().endsWith("/api/v1/dlp/policies") && r.request().method() === "POST" && r.ok()),

@@ -1,4 +1,4 @@
-import { test, expect, expectAccessible } from "./fixtures";
+import { test, expect, expectAccessible, pickOption } from "./fixtures";
 
 // A data-loss rule keeps a history like a connector does: a change made
 // on the rules screen is a version that can be put back from the same
@@ -14,7 +14,7 @@ test("a data-loss rule is changed in a dialog, and the earlier version restored 
   await page.getByRole("button", { name: "New rule" }).click();
   const addRule = page.getByRole("dialog", { name: "Add a rule" });
   await addRule.getByLabel("What it is for").fill("Customer addresses");
-  await addRule.getByLabel("What it does").selectOption("mask");
+  await pickOption(page, addRule.getByLabel("What it does"), "Mask what it finds");
   await Promise.all([
     page.waitForResponse((r) => r.url().endsWith("/api/v1/dlp/policies") && r.request().method() === "POST" && r.ok()),
     addRule.getByRole("button", { name: "Add the rule" }).click(),
@@ -30,8 +30,8 @@ test("a data-loss rule is changed in a dialog, and the earlier version restored 
   await edit.click();
   const editor = page.getByRole("dialog", { name: "Edit Customer addresses" });
   await expect(editor.getByLabel("Rule name")).toHaveValue("Customer addresses");
-  await expect(editor.getByLabel("What the rule does")).toHaveValue("mask");
-  await editor.getByLabel("What the rule does").selectOption("refuse");
+  await expect(editor.getByLabel("What the rule does")).toHaveText("Mask what it finds");
+  await pickOption(page, editor.getByLabel("What the rule does"), "Refuse the call");
   await editor.getByRole("button", { name: "Cancel" }).click();
   await expect(editor).toBeHidden();
   await expect(edit).toBeFocused();
@@ -41,9 +41,9 @@ test("a data-loss rule is changed in a dialog, and the earlier version restored 
   // its answer, so the history is not opened before the change has
   // reached the server.
   await edit.click();
-  await expect(editor.getByLabel("What the rule does")).toHaveValue("mask");
+  await expect(editor.getByLabel("What the rule does")).toHaveText("Mask what it finds");
   await expectAccessible(page);
-  await editor.getByLabel("What the rule does").selectOption("refuse");
+  await pickOption(page, editor.getByLabel("What the rule does"), "Refuse the call");
   await Promise.all([
     page.waitForResponse((r) => /\/api\/v1\/dlp\/policies\/[^/]+$/.test(r.url()) && r.request().method() === "PUT" && r.ok()),
     editor.getByRole("button", { name: "Save the rule" }).click(),

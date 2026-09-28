@@ -1,5 +1,5 @@
 import type { Browser, Page } from "@playwright/test";
-import { test, expect, expectAccessible, createKey, signIn } from "./fixtures";
+import { test, expect, expectAccessible, createKey, signIn, pickOption } from "./fixtures";
 
 // The settings screens, driven the way an administrator drives them. Each
 // assertion is about what the person sees, not about the shape of a JSON
@@ -19,9 +19,9 @@ test("the audit trail records what the administrator just did", async ({ page, w
 
   // Narrowing to a category the event is not in must hide it, or the
   // filter is decorative.
-  await page.getByLabel("Category").selectOption("auth");
+  await pickOption(page, "Category", "auth");
   await expect(page.getByText("apikey.create")).toHaveCount(0);
-  await page.getByLabel("Category").selectOption("");
+  await pickOption(page, "Category", "Everything");
   await expect(page.getByText("apikey.create")).toBeVisible();
 
   // The sign-up left events of its own, so the whole trail is more than
@@ -229,7 +229,7 @@ test("a viewer sees only the settings tabs they may read", async ({ page, browse
   await page.getByRole("button", { name: "Invite someone" }).click();
   const invite = page.getByRole("dialog", { name: "Invite someone" });
   await invite.getByLabel("Email", { exact: true }).fill(email);
-  await invite.getByLabel("Role", { exact: true }).selectOption({ label: "viewer" });
+  await pickOption(page, invite.getByLabel("Role", { exact: true }), "viewer");
   await invite.getByRole("button", { name: "Create invitation link" }).click();
   await expect(invite).toHaveCount(0);
   const banner = page.getByRole("alert").filter({ hasText: `Copy the invitation link for ${email} now` });
@@ -374,7 +374,7 @@ test("removing a provider, a rule and a service account each ask first", async (
   await page.goto("/settings/sso");
   await page.getByRole("button", { name: "New OpenID Connect provider" }).click();
   const add = page.getByRole("dialog", { name: "Add a provider" }).getByRole("form", { name: "Add a provider" });
-  await add.getByLabel("Provider").selectOption({ label: "Okta" });
+  await pickOption(page, add.getByLabel("Provider"), "Okta");
   await add.getByLabel("Name").fill("Doomed Okta");
   await add.getByLabel("Issuer URL").fill("https://doomed.okta.test/oauth2/default");
   await add.getByLabel("Client ID").fill("doomed-client");
