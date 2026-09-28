@@ -34,17 +34,49 @@ export function filled(values: Record<string, string>): Record<string, string> {
   return Object.fromEntries(Object.entries(values).filter(([, v]) => v.trim() !== ""));
 }
 
-// The part of a catalog adapter document the credential form reads. The
-// document is described by a published JSON Schema rather than the API's,
-// so it is checked here instead of trusted.
-const adapterCredentials = z.object({
-  credentials: z
-    .record(
-      z.string(),
-      z.object({ required: z.boolean().optional(), secret: z.boolean().optional(), description: z.string().optional() }),
-    )
-    .optional(),
+// A catalog adapter document is described by a published JSON Schema
+// rather than the API's, so it is checked here instead of trusted. Only
+// the parts the screens read are named; the rest is dropped.
+const adapterCredential = z.object({
+  required: z.boolean().optional(),
+  secret: z.boolean().optional(),
+  description: z.string().optional(),
 });
+
+/** The part of an adapter document the credential form reads. */
+const adapterCredentials = z.object({
+  credentials: z.record(z.string(), adapterCredential).optional(),
+});
+
+/** The part of an adapter document its catalog page shows. */
+const adapterDocument = adapterCredentials.extend({
+  metadata: z.object({
+    slug: z.string(),
+    name: z.string(),
+    description: z.string().default(""),
+    docsUrl: z.string().optional(),
+  }),
+  transport: z.object({ type: z.string() }),
+  auth: z.object({ type: z.string(), optional: z.boolean().optional() }),
+  instructions: z.string().optional(),
+  tools: z
+    .array(
+      z.object({
+        name: z.string(),
+        description: z.string().default(""),
+        annotations: z.object({ readOnlyHint: z.boolean().optional() }).optional(),
+      }),
+    )
+    .default([]),
+});
+
+export type AdapterDocument = z.infer<typeof adapterDocument>;
+
+/** An adapter document as its catalog page reads it, or null when it is not one. */
+export function parseAdapter(doc: unknown): AdapterDocument | null {
+  const parsed = adapterDocument.safeParse(doc);
+  return parsed.success ? parsed.data : null;
+}
 
 /** The adapter's description of each credential, by name. */
 export function credentialDescriptions(doc: unknown): Record<string, string> {
@@ -161,3 +193,4 @@ export function consentOutcome(code: string): string {
       return "Connecting failed. The workspace's audit log records the request.";
   }
 }
+

@@ -6,6 +6,7 @@ import {
   credentialDescriptions,
   filled,
   lastFailure,
+  parseAdapter,
   stillNeeded,
   targetHost,
 } from "./connector";
@@ -92,5 +93,37 @@ describe("calls of one connector", () => {
   it("finds the newest failure", () => {
     expect(lastFailure(recent, mine)?.id).toBe("3");
     expect(lastFailure([call("1", "a")], mine)).toBeUndefined();
+  });
+});
+
+describe("parseAdapter", () => {
+  const doc = {
+    apiVersion: "supermcp.dev/v2",
+    metadata: { slug: "bundesbank", name: "Deutsche Bundesbank", description: "Rates", docsUrl: "https://example.test", icon: "x" },
+    credentials: { API_KEY: { required: true, secret: true, description: "From the portal" } },
+    transport: { type: "http", baseUrl: "https://api.example.test" },
+    auth: { type: "apiKey", in: "header", name: "X-Key", value: "{{API_KEY}}" },
+    tools: [{ name: "get_rates", description: "Rates", annotations: { readOnlyHint: true }, request: {} }],
+  };
+
+  it("reads the parts the catalog page shows", () => {
+    const a = parseAdapter(doc);
+    expect(a?.metadata.name).toBe("Deutsche Bundesbank");
+    expect(a?.credentials?.API_KEY).toEqual({ required: true, secret: true, description: "From the portal" });
+    expect(a?.tools).toEqual([{ name: "get_rates", description: "Rates", annotations: { readOnlyHint: true } }]);
+    expect(a?.auth).toEqual({ type: "apiKey" });
+  });
+
+  it("fills in what an adapter may leave out", () => {
+    const a = parseAdapter({ ...doc, tools: [{ name: "t" }], metadata: { slug: "s", name: "n" } });
+    expect(a?.tools).toEqual([{ name: "t", description: "" }]);
+    expect(a?.metadata.description).toBe("");
+    expect(a?.metadata.docsUrl).toBeUndefined();
+  });
+
+  it("refuses something that is not an adapter", () => {
+    expect(parseAdapter(undefined)).toBeNull();
+    expect(parseAdapter({ metadata: { name: "n" } })).toBeNull();
+    expect(parseAdapter({ ...doc, tools: "none" })).toBeNull();
   });
 });
