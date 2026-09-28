@@ -42,7 +42,7 @@ type toolCallsInput struct {
 	Since       time.Time `query:"since" doc:"Only calls made at or after this time (RFC 3339)"`
 	Until       time.Time `query:"until" doc:"Only calls made before this time (RFC 3339)"`
 	ConnectorID string    `query:"connectorId" maxLength:"128" doc:"Only calls to this connector"`
-	ServerID    string    `query:"serverId" maxLength:"128" doc:"Only calls made through this MCP server"`
+	ServerID    string    `query:"serverId" maxLength:"128" doc:"Only calls made through this MCP server. Needs servers:read"`
 	Status      string    `query:"status" enum:"success,error,timeout,denied" doc:"Only calls with this outcome"`
 	Q           string    `query:"q" maxLength:"200" doc:"Only calls whose tool name contains this text, ignoring case"`
 }
@@ -55,9 +55,9 @@ type invocationDTO struct {
 	ToolName      string    `json:"toolName" doc:"The tool's name at the time of the call"`
 	ToolID        string    `json:"toolId,omitempty" doc:"The tool called; absent if the call recorded none"`
 	ConnectorID   string    `json:"connectorId,omitempty" doc:"The connector the tool belongs to"`
-	ServerID      string    `json:"serverId,omitempty" doc:"The MCP server the call came through; absent for a call through none"`
-	PrincipalKind string    `json:"principalKind" doc:"Who made the call: user, api_key, service_account or anonymous"`
-	PrincipalID   string    `json:"principalId,omitempty" doc:"The user, key or service account; absent for anonymous"`
+	ServerID      string    `json:"serverId,omitempty" doc:"The MCP server the call came through; absent for a call through none, and when the caller lacks servers:read"`
+	PrincipalKind string    `json:"principalKind" doc:"How the caller signed in: user, api_key, service_account or anonymous"`
+	PrincipalID   string    `json:"principalId,omitempty" doc:"The user id for user and for api_key (the user who owns the key), the service account id for service_account. Absent for anonymous, and when the caller lacks org:read"`
 	Status        string    `json:"status" enum:"success,error,timeout,denied"`
 	DurationMS    int       `json:"durationMs"`
 	Error         string    `json:"error,omitempty"`
@@ -90,7 +90,9 @@ func (d Deps) invocationRoutes(api huma.API) {
 	huma.Register(api, huma.Operation{OperationID: "invocations-list", Method: http.MethodGet, Path: "/api/v1/tool-calls",
 		Summary: "List recent tool calls",
 		Description: "Newest first. Every filter is optional and they combine. since and until are RFC 3339; " +
-			"a since that is not before until is refused with 422. A filtered search that runs longer than ten seconds is answered with 503.",
+			"a since that is not before until is refused with 422. serverId needs servers:read, and without it the rows carry no serverId; " +
+			"without org:read they carry no principalId. A filtered list draws on the analytics rate-limit budget and its per-workspace " +
+			"limit of two running queries (a third is refused with 429), and one that runs longer than ten seconds is answered with 503.",
 		Tags: []string{"observability"}, Security: sessionSecurity},
 		func(ctx context.Context, in *toolCallsInput) (*struct {
 			Body []invocationDTO `json:"body"`
@@ -103,12 +105,46 @@ func (d Deps) invocationRoutes(api huma.API) {
 				return nil, huma.Error422UnprocessableEntity(fmt.Sprintf("since (%s) must be before until (%s)",
 					in.Since.UTC().Format(time.RFC3339), in.Until.UTC().Format(time.RFC3339)))
 			}
-			list, err := d.listInvocations(ctx, p.OrgID, toolCallFilter{
+			// Filtering by server names a server, which the server list
+			// shows only to servers:read, as the analytics' by=server does.
+			if in.ServerID != "" {
+				if _, err := d.require(ctx, authz.ServersRead, authz.Resource{}); err != nil {
+					return nil, err
+				}
+			}
+			seeServers, err := d.allowed(ctx, authz.ServersRead)
+			if err != nil {
+				return nil, err
+			}
+			seePrincipals, err := d.allowed(ctx, authz.OrgRead)
+			if err != nil {
+				return nil, err
+			}
+			f := toolCallFilter{
 				Limit: in.Limit, Since: in.Since, Until: in.Until,
 				ConnectorID: in.ConnectorID, ServerID: in.ServerID, Status: in.Status, Q: in.Q,
-			})
+			}
+			// The unfiltered list is the newest page of an index and costs
+			// the same however large the workspace. A filtered one can walk
+			// the workspace's calls for ten seconds, so it takes a slot as
+			// the analytics do.
+			if f.filtered() {
+				if !d.analytics.acquire(p.OrgID) {
+					return nil, errAnalyticsBusy()
+				}
+				defer d.analytics.release(p.OrgID)
+			}
+			list, err := d.listInvocations(ctx, p.OrgID, f)
 			if err != nil {
 				return nil, toolCallsErr(ctx, err)
+			}
+			for i := range list {
+				if !seeServers {
+					list[i].ServerID = ""
+				}
+				if !seePrincipals {
+					list[i].PrincipalID = ""
+				}
 			}
 			return &struct {
 				Body []invocationDTO `json:"body"`
@@ -118,7 +154,7 @@ func (d Deps) invocationRoutes(api huma.API) {
 	huma.Register(api, huma.Operation{OperationID: "invocations-summary", Method: http.MethodGet, Path: "/api/v1/tool-calls/summary",
 		Summary: "Count tool calls by outcome over a window",
 		Description: "The window is at most 90 days; a wider or reversed one is refused with 422. " +
-			"It draws on the analytics rate-limit budget.",
+			"It draws on the analytics rate-limit budget and its per-workspace limit of two running queries; a third is refused with 429.",
 		Tags: []string{"observability"}, Security: sessionSecurity},
 		func(ctx context.Context, in *toolCallsSummaryInput) (*struct{ Body toolCallsSummary }, error) {
 			p, err := d.require(ctx, authz.ConnectorsRead, authz.Resource{})
@@ -129,6 +165,10 @@ func (d Deps) invocationRoutes(api huma.API) {
 			if err != nil {
 				return nil, huma.Error422UnprocessableEntity(err.Error())
 			}
+			if !d.analytics.acquire(p.OrgID) {
+				return nil, errAnalyticsBusy()
+			}
+			defer d.analytics.release(p.OrgID)
 			sum, err := d.summarizeInvocations(ctx, p.OrgID, since, until)
 			if err != nil {
 				return nil, toolCallsErr(ctx, err)
@@ -137,14 +177,34 @@ func (d Deps) invocationRoutes(api huma.API) {
 		})
 }
 
+// errAnalyticsBusy refuses a workspace's third aggregate or filtered
+// search while two are running on this replica. It is built per request
+// because huma may add to the error it is given.
+func errAnalyticsBusy() error {
+	return huma.Error429TooManyRequests("this workspace already has two searches or analytics queries running; try again when they finish")
+}
+
+// allowed reports whether the caller holds perm, without recording a
+// refusal: a missing permission here narrows the answer, it does not
+// refuse the request. An error is a decision that could not be made.
+func (d Deps) allowed(ctx context.Context, perm authz.Permission) (bool, error) {
+	err := d.Authz.Require(ctx, perm, authz.Resource{})
+	if errors.Is(err, authz.ErrDenied) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
 // toolCallsErr answers a query stopped by its own time limit with 503
-// and a way forward. Anything else is returned as it is, for a 500.
+// and a way forward. Anything else is returned as it is, for a 500. ctx
+// is the request's: when it is done, the caller went away and cancelled
+// the query, which is not a timeout of ours.
 func toolCallsErr(ctx context.Context, err error) error {
+	if ctx.Err() != nil {
+		return err
+	}
 	var pgErr *pgconn.PgError
-	timedOut := errors.As(err, &pgErr) && pgErr.Code == pgQueryCanceled
-	// Our deadline, not the caller going away.
-	timedOut = timedOut || (errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil)
-	if timedOut {
+	if (errors.As(err, &pgErr) && pgErr.Code == pgQueryCanceled) || errors.Is(err, context.DeadlineExceeded) {
 		return huma.Error503ServiceUnavailable("the search took too long; narrow it with since and until, or a connector")
 	}
 	return err

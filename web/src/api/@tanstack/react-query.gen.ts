@@ -2645,7 +2645,7 @@ export const invocationsListQueryKey = (options?: Options<InvocationsListData>) 
 /**
  * List recent tool calls
  *
- * Newest first. Every filter is optional and they combine. since and until are RFC 3339; a since that is not before until is refused with 422. A filtered search that runs longer than ten seconds is answered with 503.
+ * Newest first. Every filter is optional and they combine. since and until are RFC 3339; a since that is not before until is refused with 422. serverId needs servers:read, and without it the rows carry no serverId; without org:read they carry no principalId. A filtered list draws on the analytics rate-limit budget and its per-workspace limit of two running queries (a third is refused with 429), and one that runs longer than ten seconds is answered with 503.
  */
 export const invocationsListOptions = (options?: Options<InvocationsListData>) => queryOptions<InvocationsListResponse, InvocationsListError, InvocationsListResponse, ReturnType<typeof invocationsListQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -2665,7 +2665,7 @@ export const invocationsSummaryQueryKey = (options?: Options<InvocationsSummaryD
 /**
  * Count tool calls by outcome over a window
  *
- * The window is at most 90 days; a wider or reversed one is refused with 422. It draws on the analytics rate-limit budget.
+ * The window is at most 90 days; a wider or reversed one is refused with 422. It draws on the analytics rate-limit budget and its per-workspace limit of two running queries; a third is refused with 429.
  */
 export const invocationsSummaryOptions = (options?: Options<InvocationsSummaryData>) => queryOptions<InvocationsSummaryResponse, InvocationsSummaryError, InvocationsSummaryResponse, ReturnType<typeof invocationsSummaryQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {

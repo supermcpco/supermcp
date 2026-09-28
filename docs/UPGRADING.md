@@ -109,8 +109,12 @@ with the new index.
   the index, and the new one answers without it, only more slowly for a
   quiet connector.
 
-The summary draws on the analytics rate-limit budget,
-`SUPERMCP_RATELIMIT_ANALYTICS`, like the usage analytics.
+The summary and a list with any filter draw on the analytics rate-limit
+budget, `SUPERMCP_RATELIMIT_ANALYTICS`, and share the usage analytics'
+limit of two running queries per workspace and replica. The unfiltered
+list stays on the general API budget. A role without `servers:read` sees
+no `serverId` on the calls and cannot filter by server; one without
+`org:read` sees no `principalId`.
 
 After an OAuth2 consent, the browser now goes to
 `/connectors/{id}?oauth=ok`, or `/connectors/{id}?oauth=<reason>` on

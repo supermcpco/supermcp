@@ -1889,7 +1889,7 @@ export const rotateServiceAccountSecret = <ThrowOnError extends boolean = false>
 /**
  * List recent tool calls
  *
- * Newest first. Every filter is optional and they combine. since and until are RFC 3339; a since that is not before until is refused with 422. A filtered search that runs longer than ten seconds is answered with 503.
+ * Newest first. Every filter is optional and they combine. since and until are RFC 3339; a since that is not before until is refused with 422. serverId needs servers:read, and without it the rows carry no serverId; without org:read they carry no principalId. A filtered list draws on the analytics rate-limit budget and its per-workspace limit of two running queries (a third is refused with 429), and one that runs longer than ten seconds is answered with 503.
  */
 export const invocationsList = <ThrowOnError extends boolean = false>(options?: Options<InvocationsListData, ThrowOnError>) => (options?.client ?? client).get<InvocationsListResponses, InvocationsListErrors, ThrowOnError>({
     security: [{
@@ -1904,7 +1904,7 @@ export const invocationsList = <ThrowOnError extends boolean = false>(options?: 
 /**
  * Count tool calls by outcome over a window
  *
- * The window is at most 90 days; a wider or reversed one is refused with 422. It draws on the analytics rate-limit budget.
+ * The window is at most 90 days; a wider or reversed one is refused with 422. It draws on the analytics rate-limit budget and its per-workspace limit of two running queries; a third is refused with 429.
  */
 export const invocationsSummary = <ThrowOnError extends boolean = false>(options?: Options<InvocationsSummaryData, ThrowOnError>) => (options?.client ?? client).get<InvocationsSummaryResponses, InvocationsSummaryErrors, ThrowOnError>({
     security: [{

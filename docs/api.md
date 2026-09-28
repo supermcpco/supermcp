@@ -1099,22 +1099,36 @@ always has: the latest 50.
 | `limit` | How many calls, up to 500. Default 50. |
 | `since`, `until` | RFC 3339. Only calls made at or after `since` and before `until`. Either may be left out. |
 | `connectorId` | Only calls to this connector. |
-| `serverId` | Only calls made through this MCP server. |
+| `serverId` | Only calls made through this MCP server. Needs `servers:read`; without it the request is `403`. |
 | `status` | Only calls with this outcome: `success`, `error`, `timeout` or `denied`. |
 | `q` | Only calls whose tool name contains this text, ignoring case. `%` and `_` match themselves. |
 
 The filters combine. A `since` that is not before `until`, or an unknown
-`status`, is `422`. A filtered search that runs longer than ten seconds
-is stopped and answered with `503`; a narrower window finds what it is
-looking for sooner. A connector's calls are found through an index of
-their own, so `connectorId` is fast however quiet the connector.
+`status`, is `422`. A connector's calls are found through an index of
+their own, so `connectorId` is fast however quiet the connector; the
+other filters are not indexed.
+
+A list with any filter set costs what an analytics query can, so it is
+treated as one: it draws on the `SUPERMCP_RATELIMIT_ANALYTICS` budget,
+it takes one of the workspace's two analytics slots on the replica (a
+third search or analytics query is `429`), and one that runs longer than
+ten seconds is stopped and answered with `503`; a narrower window finds
+what it is looking for sooner. The unfiltered list does none of this and
+answers as before.
 
 Each call has `id`, `toolName` (the tool's name at the time of the call),
-`toolId`, `connectorId`, `serverId` (absent for a call that came through
-no MCP server), `principalKind` (`user`, `api_key`, `service_account` or
-`anonymous`), `principalId` (absent for `anonymous`), `status`,
-`durationMs`, `error` (when there was one) and `createdAt`. A call's
-arguments and result are never part of the list.
+`toolId`, `connectorId`, `serverId`, `principalKind`, `principalId`,
+`status`, `durationMs`, `error` (when there was one) and `createdAt`. A
+call's arguments and result are never part of the list.
+
+- `serverId` is the MCP server the call came through. It is absent for a
+  call that came through none, and for a caller without `servers:read`.
+- `principalKind` says how the caller signed in: `user`, `api_key`,
+  `service_account` or `anonymous`.
+- `principalId` is a user id for `user` and for `api_key` (the user who
+  owns the key; the key itself is not named), and the service account's
+  id for `service_account`. It is absent for `anonymous`, and for a
+  caller without `org:read`.
 
 `GET /api/v1/tool-calls/summary?since=&until=` (`connectors:read`) counts
 the calls in a window by outcome:
@@ -1129,7 +1143,8 @@ analytics. The window has the analytics' defaults and bounds: `until`
 defaults to now, `since` to seven days before `until`, and a window
 longer than 90 days, or one whose `since` is not before its `until`, is
 `422`. The summary draws on the analytics rate-limit budget
-(`SUPERMCP_RATELIMIT_ANALYTICS`).
+(`SUPERMCP_RATELIMIT_ANALYTICS`) and takes an analytics slot, as a
+filtered list does.
 
 ## Usage analytics
 
