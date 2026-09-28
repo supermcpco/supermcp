@@ -66,9 +66,10 @@ func (d Deps) budgetFor(path string) hardening.Limit {
 		return d.Budgets.DCR
 	case strings.HasPrefix(path, "/mcp/"):
 		return d.Budgets.ToolCall
-	// Each analytics request aggregates up to 90 days of calls, so it
-	// draws on a budget smaller than the rest of the API's.
-	case strings.HasPrefix(path, "/api/v1/analytics/"):
+	// Each analytics request, and the tool-call summary, aggregates up to
+	// 90 days of calls, so they draw on a budget smaller than the rest of
+	// the API's.
+	case strings.HasPrefix(path, "/api/v1/analytics/"), path == "/api/v1/tool-calls/summary":
 		return d.Budgets.Analytics
 	// The preview and the pattern test run detectors over text the caller
 	// sends, and the editor asks again as a pattern is typed.

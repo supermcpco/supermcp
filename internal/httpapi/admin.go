@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 
 	"github.com/danielgtaylor/huma/v2"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/supermcpco/supermcp/internal/audit"
@@ -507,6 +506,7 @@ type connectorDTO struct {
 	Enabled         bool                       `json:"enabled"`
 	Version         int64                      `json:"version" doc:"Send back as expectedVersion when updating"`
 	ToolCount       int                        `json:"toolCount"`
+	OAuthAuthorized bool                       `json:"oauthAuthorized" doc:"The connector signs in with OAuth2 and holds a token from it: for the authorization code grant, someone has completed the vendor's consent screen"`
 	Credentials     []connector.CredentialInfo `json:"credentials"`
 	CreatedAt       time.Time                  `json:"createdAt"`
 	UpdatedAt       time.Time                  `json:"updatedAt"`
@@ -515,7 +515,8 @@ type connectorDTO struct {
 func connectorToDTO(c *connector.Connector) connectorDTO {
 	d := connectorDTO{ID: c.ID, Name: c.Name, Instructions: c.Instructions, CatalogSlug: c.CatalogSlug,
 		CatalogHash: c.CatalogHash, ReadOnly: c.ReadOnly, Enabled: c.Enabled, Version: c.Version,
-		ToolCount: c.ToolCount, Credentials: c.Credentials, CreatedAt: c.CreatedAt, UpdatedAt: c.UpdatedAt}
+		ToolCount: c.ToolCount, Credentials: c.Credentials, CreatedAt: c.CreatedAt, UpdatedAt: c.UpdatedAt,
+		OAuthAuthorized: c.Auth.Type == adapter.AuthOAuth2 && c.TokenStored}
 	if d.Credentials == nil {
 		d.Credentials = []connector.CredentialInfo{}
 	}
@@ -816,39 +817,6 @@ type rotatedKeyDTO struct {
 	PreviousExpiresAt time.Time `json:"previousExpiresAt"`
 }
 
-// --- invocations -----------------------------------------------------------
-
-func (d Deps) invocationRoutes(api huma.API) {
-	huma.Register(api, huma.Operation{OperationID: "invocations-list", Method: http.MethodGet, Path: "/api/v1/tool-calls",
-		Summary: "List recent tool calls", Tags: []string{"observability"}, Security: sessionSecurity},
-		func(ctx context.Context, in *struct {
-			Limit int `query:"limit" default:"50" maximum:"500"`
-		}) (*struct {
-			Body []invocationDTO `json:"body"`
-		}, error) {
-			p, err := d.require(ctx, authz.ConnectorsRead, authz.Resource{})
-			if err != nil {
-				return nil, err
-			}
-			list, err := d.listInvocations(ctx, p.OrgID, in.Limit)
-			if err != nil {
-				return nil, err
-			}
-			return &struct {
-				Body []invocationDTO `json:"body"`
-			}{Body: list}, nil
-		})
-}
-
-type invocationDTO struct {
-	ID         string    `json:"id"`
-	ToolName   string    `json:"toolName"`
-	Status     string    `json:"status"`
-	DurationMS int       `json:"durationMs"`
-	Error      string    `json:"error,omitempty"`
-	CreatedAt  time.Time `json:"createdAt"`
-}
-
 // switchOrgAnswer is the audit outcome and the answer for a failed
 // organisation switch. Only a membership refusal is a 403, with a fixed
 // message; anything else is a lookup that failed, returned as it is so
@@ -966,29 +934,4 @@ func toolIssueDetails(issues []adapter.Issue) []error {
 		out = append(out, &huma.ErrorDetail{Message: i.Message, Location: loc, Value: i.Rule})
 	}
 	return out
-}
-
-// listInvocations reads the recent tool calls for an org.
-func (d Deps) listInvocations(ctx context.Context, orgID string, limit int) ([]invocationDTO, error) {
-	if limit <= 0 || limit > 500 {
-		limit = 50
-	}
-	out := []invocationDTO{}
-	err := d.DB.Tx(tenant.WithOrg(ctx, orgID), func(tx pgx.Tx) error {
-		rows, err := tx.Query(ctx, `SELECT id, tool_name, status, duration_ms, COALESCE(error,''), created_at
-			FROM tool_invocations WHERE organization_id = $1 ORDER BY created_at DESC LIMIT $2`, orgID, limit)
-		if err != nil {
-			return err
-		}
-		defer rows.Close()
-		for rows.Next() {
-			var i invocationDTO
-			if err := rows.Scan(&i.ID, &i.ToolName, &i.Status, &i.DurationMS, &i.Error, &i.CreatedAt); err != nil {
-				return err
-			}
-			out = append(out, i)
-		}
-		return rows.Err()
-	})
-	return out, err
 }

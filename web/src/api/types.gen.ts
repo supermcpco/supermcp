@@ -325,6 +325,10 @@ export type ConnectorDto = {
     id: string;
     instructions?: string;
     name: string;
+    /**
+     * The connector signs in with OAuth2 and holds a token from it: for the authorization code grant, someone has completed the vendor's consent screen
+     */
+    oauthAuthorized: boolean;
     readOnly: boolean;
     toolCount: number;
     /**
@@ -1088,11 +1092,34 @@ export type InvitesOutputBody = {
 };
 
 export type InvocationDto = {
+    /**
+     * The connector the tool belongs to
+     */
+    connectorId?: string;
     createdAt: string;
     durationMs: number;
     error?: string;
     id: string;
-    status: string;
+    /**
+     * The user, key or service account; absent for anonymous
+     */
+    principalId?: string;
+    /**
+     * Who made the call: user, api_key, service_account or anonymous
+     */
+    principalKind: string;
+    /**
+     * The MCP server the call came through; absent for a call through none
+     */
+    serverId?: string;
+    status: 'success' | 'error' | 'timeout' | 'denied';
+    /**
+     * The tool called; absent if the call recorded none
+     */
+    toolId?: string;
+    /**
+     * The tool's name at the time of the call
+     */
     toolName: string;
 };
 
@@ -1957,6 +1984,28 @@ export type ToolAnnotationsDto = {
     title?: string;
 };
 
+export type ToolCallStatusCounts = {
+    denied: number;
+    error: number;
+    success: number;
+    timeout: number;
+};
+
+export type ToolCallsSummary = {
+    /**
+     * A URL to the JSON Schema for this object.
+     */
+    readonly $schema?: string;
+    byStatus: ToolCallStatusCounts;
+    /**
+     * Calls whose status was not success: error, timeout or denied
+     */
+    failed: number;
+    since: string;
+    total: number;
+    until: string;
+};
+
 export type ToolDto = {
     /**
      * A URL to the JSON Schema for this object.
@@ -2518,6 +2567,10 @@ export type ConnectorDtoWritable = {
     id: string;
     instructions?: string;
     name: string;
+    /**
+     * The connector signs in with OAuth2 and holds a token from it: for the authorization code grant, someone has completed the vendor's consent screen
+     */
+    oauthAuthorized: boolean;
     readOnly: boolean;
     toolCount: number;
     /**
@@ -3532,6 +3585,17 @@ export type SetServiceAccountDisabledResponseWritable = {
 
 export type SwitchOrgRequestWritable = {
     organizationId: string;
+};
+
+export type ToolCallsSummaryWritable = {
+    byStatus: ToolCallStatusCounts;
+    /**
+     * Calls whose status was not success: error, timeout or denied
+     */
+    failed: number;
+    since: string;
+    total: number;
+    until: string;
 };
 
 export type ToolDtoWritable = {
@@ -7411,7 +7475,34 @@ export type InvocationsListData = {
     body?: never;
     path?: never;
     query?: {
+        /**
+         * How many calls to return, newest first
+         */
         limit?: number;
+        /**
+         * Only calls made at or after this time (RFC 3339)
+         */
+        since?: string;
+        /**
+         * Only calls made before this time (RFC 3339)
+         */
+        until?: string;
+        /**
+         * Only calls to this connector
+         */
+        connectorId?: string;
+        /**
+         * Only calls made through this MCP server
+         */
+        serverId?: string;
+        /**
+         * Only calls with this outcome
+         */
+        status?: 'success' | 'error' | 'timeout' | 'denied';
+        /**
+         * Only calls whose tool name contains this text, ignoring case
+         */
+        q?: string;
     };
     url: '/api/v1/tool-calls';
 };
@@ -7433,6 +7524,40 @@ export type InvocationsListResponses = {
 };
 
 export type InvocationsListResponse = InvocationsListResponses[keyof InvocationsListResponses];
+
+export type InvocationsSummaryData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Start of the window (RFC 3339, inclusive). Defaults to seven days before until
+         */
+        since?: string;
+        /**
+         * End of the window (RFC 3339, exclusive). Defaults to now
+         */
+        until?: string;
+    };
+    url: '/api/v1/tool-calls/summary';
+};
+
+export type InvocationsSummaryErrors = {
+    /**
+     * Error
+     */
+    default: ErrorModel;
+};
+
+export type InvocationsSummaryError = InvocationsSummaryErrors[keyof InvocationsSummaryErrors];
+
+export type InvocationsSummaryResponses = {
+    /**
+     * OK
+     */
+    200: ToolCallsSummary;
+};
+
+export type InvocationsSummaryResponse = InvocationsSummaryResponses[keyof InvocationsSummaryResponses];
 
 export type ToolsDeleteData = {
     body?: never;
