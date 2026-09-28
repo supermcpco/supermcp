@@ -7,6 +7,7 @@ import { useRefreshSession, useSession } from "../../lib/session";
 import { message } from "../../lib/errors";
 import { toast } from "./toast";
 import { RailButton } from "./rail-button";
+import { TruncatedText } from "./named-tooltip";
 
 /**
  * Who is signed in and the way out. Somebody sharing a machine needs that
@@ -36,18 +37,23 @@ export function UserMenu() {
     onError: (e) => toast(message(e), { kind: "error" }),
   });
 
+  const email = session?.user?.email ?? "";
   return (
-    <>
-      {/* The address does not fit the icon rail; the tooltip on Sign out
-          is what remains there. */}
-      <span className="truncate px-3 group-data-[state=collapsed]/sidebar:hidden" title={session?.user?.email}>
-        <Text as="span" variant="secondary">
-          {session?.user?.email}
-        </Text>
-      </span>
+    // Pinned under the scrolling navigation, with the navigation's own
+    // padding so Sign out lines up with the entries above it, expanded or
+    // as a rail. The address has no room on the rail; the tooltip on Sign
+    // out is what remains there.
+    <div className="shrink-0 border-t border-kumo-line px-[11px] py-2 transition-[padding] duration-(--sidebar-animation-duration) group-not-data-[state=collapsed]/sidebar:px-3.5">
+      <div className="px-3 pb-1 group-data-[state=collapsed]/sidebar:hidden">
+        <TruncatedText text={email}>
+          <Text as="span" variant="secondary">
+            {email}
+          </Text>
+        </TruncatedText>
+      </div>
       <Sidebar.Menu>
         <RailButton icon={SignOut} label="Sign out" onClick={() => signOut.mutate({})} disabled={signOut.isPending} />
       </Sidebar.Menu>
-    </>
+    </div>
   );
 }

@@ -1,4 +1,5 @@
-import { Sidebar, Tooltip, useSidebar, type SidebarMenuButtonProps } from "@cloudflare/kumo";
+import { Sidebar, useSidebar, type SidebarMenuButtonProps } from "@cloudflare/kumo";
+import { NamedTooltip } from "./named-tooltip";
 
 type RailButtonProps = Omit<SidebarMenuButtonProps, "tooltip" | "children"> & {
   /** What the entry says, and what its tooltip says on the icon rail. */
@@ -17,13 +18,10 @@ export function RailButton({ label, ...props }: RailButtonProps) {
   const { state, peekable } = useSidebar();
   return (
     <Sidebar.MenuItem>
-      <Tooltip
-        content={<span role="tooltip">{label}</span>}
+      <NamedTooltip
+        label={label}
         side="right"
         disabled={state !== "collapsed" || peekable}
-        // Kumo's Tooltip marks its trigger cursor-default; an entry that
-        // leads somewhere keeps the pointer.
-        className="cursor-pointer"
         render={<Sidebar.MenuButton {...props}>{label}</Sidebar.MenuButton>}
       />
     </Sidebar.MenuItem>
