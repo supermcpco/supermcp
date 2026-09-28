@@ -8,6 +8,7 @@ import { test, expect, expectAccessible } from "./fixtures";
 test("a create dialog closes on Escape without creating and returns focus", async ({ page, workspace }) => {
   expect(workspace.email).toBeTruthy();
   await page.goto("/settings/service-accounts");
+  await expect(page.getByRole("tab", { name: "Service accounts", exact: true })).toHaveAttribute("aria-selected", "true");
   await expect(page.getByText("No service accounts yet.")).toBeVisible();
 
   const opener = page.getByRole("button", { name: "New service account" }).first();

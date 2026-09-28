@@ -6,7 +6,7 @@ import { test, expect, expectAccessible } from "./fixtures";
 test("the roles screen shows who holds what", async ({ page, workspace }) => {
   expect(workspace.email).toBeTruthy();
   await page.goto("/settings/roles");
-  await expect(page.getByRole("heading", { name: /roles/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Roles", exact: true })).toBeVisible();
   // The built-in roles are always there, and the person who created the
   // workspace owns it.
   await expect(page.getByText("owner", { exact: false }).first()).toBeVisible();
@@ -98,8 +98,10 @@ test("a role is built from the permission list, with a preview of what it allows
 
   await page.getByRole("button", { name: "Create this role" }).click();
   await expect(page.getByRole("heading", { name: "Role Support engineer created", exact: true })).toBeVisible();
-  await expect(page.getByText("Support engineer", { exact: true })).toBeVisible();
-  await expect(page.getByText("People who answer customer questions")).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "Build a role" })).toHaveCount(0);
+  const row = page.getByRole("row").filter({ hasText: "Support engineer" });
+  await expect(row.getByRole("button", { name: "Support engineer", exact: true })).toBeVisible();
+  await expect(row.getByText("People who answer customer questions")).toBeVisible();
 });
 
 test("the preview says what another role the holder has already allows", async ({ page, workspace }) => {
@@ -118,6 +120,87 @@ test("the preview says what another role the holder has already allows", async (
   expect(workspace.email).toBeTruthy();
 });
 
+test("a role's permissions unfold from its row and a custom role is built from the dialog", async ({ page, workspace }) => {
+  expect(workspace.email).toBeTruthy();
+  await page.goto("/settings/roles");
+  await expect(page.getByRole("tab", { name: "Roles", exact: true })).toHaveAttribute("aria-selected", "true");
+
+  // Every role is a row: its name, whether it came with the product, how
+  // many hold it and how many things it allows.
+  const table = page.getByRole("table", { name: "Roles in this workspace" });
+  for (const column of ["Role", "Kind", "Holders", "Permissions", "Actions"]) {
+    await expect(table.getByRole("columnheader", { name: column, exact: true })).toBeVisible();
+  }
+  const viewer = table.getByRole("row").filter({ has: page.getByRole("button", { name: "viewer", exact: true }) });
+  await expect(viewer.getByRole("cell").nth(1)).toHaveText("built in");
+  const listed = await (await page.request.get("/api/v1/roles")).json();
+  const viewerRole = listed.roles.find((r: { name: string }) => r.name === "viewer");
+  await expect(viewer.getByRole("cell").nth(3)).toHaveText(String(viewerRole.permissions.length));
+  // A built-in role cannot be changed or deleted, so it offers neither.
+  await expect(viewer.getByRole("button", { name: /^Change|^Delete/ })).toHaveCount(0);
+
+  // Its permissions unfold beneath it, in words, and fold away again.
+  const unfold = viewer.getByRole("button", { name: "viewer", exact: true });
+  await expect(unfold).toHaveAttribute("aria-expanded", "false");
+  await unfold.click();
+  await expect(unfold).toHaveAttribute("aria-expanded", "true");
+  const allows = page.getByRole("region", { name: "Permissions of viewer" });
+  await expect(allows.getByRole("listitem")).toHaveCount(viewerRole.permissions.length);
+  await expect(allows.getByText("See the roles and who holds them")).toBeVisible();
+  await expectAccessible(page);
+  await unfold.click();
+  await expect(allows).toHaveCount(0);
+
+  // Who holds it is still one button away.
+  const owner = table.getByRole("row").filter({ has: page.getByRole("button", { name: "owner", exact: true }) });
+  await owner.getByRole("button", { name: "Who holds owner" }).click();
+  const holders = page.getByRole("region", { name: "Holders of owner" }).getByRole("listitem");
+  await expect(holders.filter({ hasText: workspace.email })).toHaveCount(1);
+
+  // Building a role happens in a dialog; leaving it builds nothing.
+  await page.getByRole("button", { name: "Build a role" }).click();
+  const dialog = page.getByRole("dialog", { name: "Build a role" });
+  await dialog.getByLabel("Name", { exact: true }).fill("Never built");
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Build a role" })).toBeFocused();
+  await expect(table.getByText("Never built")).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Build a role" }).click();
+  await expect(dialog.getByLabel("Name", { exact: true })).toHaveValue("");
+  await expect(dialog.getByRole("button", { name: "Create this role" })).toBeDisabled();
+  await dialog.getByLabel("Name", { exact: true }).fill("Night desk");
+  await dialog.getByLabel("See the roles and who holds them").check();
+  await dialog.getByLabel("See the available tools and what each one expects").check();
+  await dialog.getByRole("button", { name: "Create this role" }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Role Night desk created", exact: true })).toBeVisible();
+
+  const night = table.getByRole("row").filter({ has: page.getByRole("button", { name: "Night desk", exact: true }) });
+  await expect(night.getByRole("cell").nth(1)).toHaveText("custom");
+  await expect(night.getByRole("cell").nth(2)).toHaveText("0");
+  await expect(night.getByRole("cell").nth(3)).toHaveText("2");
+  await night.getByRole("button", { name: "Night desk", exact: true }).click();
+  await expect(page.getByRole("region", { name: "Permissions of Night desk" }).getByRole("listitem")).toHaveCount(2);
+
+  // A custom role is changed from its row, in the same dialog.
+  await night.getByRole("button", { name: "Change what Night desk allows" }).click();
+  const change = page.getByRole("dialog", { name: "Change what Night desk allows" });
+  await expect(change.getByLabel("Name", { exact: true })).toHaveValue("Night desk");
+  await change.getByLabel("See the roles and who holds them").uncheck();
+  await change.getByRole("button", { name: "Save what it allows" }).click();
+  await expect(page.getByRole("heading", { name: "Role Night desk saved", exact: true })).toBeVisible();
+  await expect(night.getByRole("cell").nth(3)).toHaveText("1");
+
+  // And deleted from it, once asked.
+  await night.getByRole("button", { name: "Delete Night desk" }).click();
+  const confirm = page.getByRole("dialog", { name: "Delete Night desk" });
+  await confirm.getByRole("textbox", { name: "Type Night desk to confirm deletion" }).fill("Night desk");
+  await confirm.getByRole("button", { name: "Delete role" }).click();
+  await expect(page.getByRole("heading", { name: "Role Night desk deleted", exact: true })).toBeVisible();
+  await expect(night).toHaveCount(0);
+});
+
 test("a role keeps a history that can be restored", async ({ page, workspace }) => {
   expect(workspace.email).toBeTruthy();
   await page.goto("/settings/roles");
@@ -130,18 +213,19 @@ test("a role keeps a history that can be restored", async ({ page, workspace }) 
   ]);
   expect(created.ok()).toBe(true);
   const id: string = (await created.json()).id;
-  await expect(page.getByText("Rota keeper", { exact: true })).toBeVisible();
+  const role = page.getByRole("row").filter({ hasText: "Rota keeper" });
+  await expect(role.getByRole("button", { name: "Rota keeper", exact: true })).toBeVisible();
 
-  const role = page.getByRole("listitem").filter({ hasText: "Rota keeper" }).first();
-  await role.getByRole("button", { name: "Change what it allows" }).click();
-  await page.getByLabel("See the available tools and what each one expects").check();
+  await role.getByRole("button", { name: "Change what Rota keeper allows" }).click();
+  const editor = page.getByRole("dialog", { name: "Change what Rota keeper allows" });
+  await editor.getByLabel("See the available tools and what each one expects").check();
   // The save is awaited by its own answer, matched by method and by this
   // role's address. Ticking the box also asks the server for a preview,
   // POST /api/v1/roles/preview, and a looser match took that answer for
   // the save's and opened the history before the change had landed.
   const [saved] = await Promise.all([
     page.waitForResponse((r) => r.request().method() === "PATCH" && new URL(r.url()).pathname === `/api/v1/roles/${id}`),
-    page.getByRole("button", { name: "Save what it allows" }).click(),
+    editor.getByRole("button", { name: "Save what it allows" }).click(),
   ]);
   expect(saved.ok()).toBe(true);
   expect((await saved.json()).permissions, "the save's answer carries the new permission").toHaveLength(2);
@@ -151,29 +235,29 @@ test("a role keeps a history that can be restored", async ({ page, workspace }) 
   // is not racing the panel that draws it.
   const [answer] = await Promise.all([
     page.waitForResponse((r) => new URL(r.url()).pathname === `/api/v1/roles/${id}/revisions`),
-    role.getByRole("button", { name: "History", exact: true }).click(),
+    role.getByRole("button", { name: "History of Rota keeper" }).click(),
   ]);
+  const history = page.getByRole("region", { name: "History of Rota keeper" });
   const recorded: number = (await answer.json()).revisions.length;
 
   // The history keeps a closed set of entity kinds, and a deployment
   // whose schema does not yet count a role among them records nothing
   // rather than refusing the change. There is then nothing to restore,
   // and the screen says so instead of showing an empty list.
-  const versions = page.getByText(/^Version \d+$/);
+  const versions = history.getByText(/^Version \d+$/);
   if (recorded === 0) {
-    await expect(page.getByText("Nothing has changed about this role yet.")).toBeVisible();
+    await expect(history.getByText("Nothing has changed about this role yet.")).toBeVisible();
     return;
   }
 
   await expect(versions).toHaveCount(recorded);
   expect(recorded, "creating the role and changing it are both recorded").toBe(2);
-  await expect(role.getByText("What it allows").first()).toBeVisible();
   await expectAccessible(page);
 
   // Restoring is recorded as a further change rather than a rewind, so a
   // third version appearing is what says the restore landed.
   const before = await versions.count();
-  await role.getByRole("button", { name: "Restore this version" }).last().click();
+  await history.getByRole("button", { name: "Restore this version" }).last().click();
   await expect(versions).toHaveCount(before + 1);
 });
 
@@ -185,24 +269,26 @@ test("an open history shows a change to the role as soon as it is saved", async 
   await page.getByLabel("See the roles and who holds them").check();
   await page.getByRole("button", { name: "Create this role" }).click();
 
-  const role = page.getByRole("listitem").filter({ hasText: "Shift lead" }).first();
+  const role = page.getByRole("row").filter({ hasText: "Shift lead" });
   const [first] = await Promise.all([
     page.waitForResponse((r) => /\/api\/v1\/roles\/[^/]+\/revisions$/.test(new URL(r.url()).pathname)),
-    role.getByRole("button", { name: "History", exact: true }).click(),
+    role.getByRole("button", { name: "History of Shift lead" }).click(),
   ]);
   const before: number = (await first.json()).revisions.length;
   // A deployment whose history keeps no roles has nothing to show here;
   // the first test covers what the screen says then.
   test.skip(before === 0, "this deployment's history does not keep roles");
-  const versions = role.getByText(/^Version \d+$/);
+  const versions = page.getByRole("region", { name: "History of Shift lead" }).getByText(/^Version \d+$/);
   await expect(versions).toHaveCount(before);
 
   // The history stays open while the role is changed. The list it read
   // is younger than the cache's freshness window, so only the save
   // saying so makes the panel read it again.
-  await role.getByRole("button", { name: "Change what it allows" }).click();
-  await page.getByLabel("See the available tools and what each one expects").check();
-  await page.getByRole("button", { name: "Save what it allows" }).click();
+  await role.getByRole("button", { name: "Change what Shift lead allows" }).click();
+  const editor = page.getByRole("dialog", { name: "Change what Shift lead allows" });
+  await editor.getByLabel("See the available tools and what each one expects").check();
+  await editor.getByRole("button", { name: "Save what it allows" }).click();
+  await expect(editor).toHaveCount(0);
   await expect(versions).toHaveCount(before + 1);
 });
 

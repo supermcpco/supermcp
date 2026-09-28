@@ -8,6 +8,7 @@ import { test, expect, expectAccessible } from "./fixtures";
 test("an administrator sets which answers from a provider count as a second factor", async ({ page, workspace }) => {
   expect(workspace.org).toBeTruthy();
   await page.goto("/settings/sso");
+  await expect(page.getByRole("tab", { name: "Single sign-on", exact: true })).toHaveAttribute("aria-selected", "true");
   await page.getByRole("button", { name: "New OpenID Connect provider" }).first().click();
   const add = page.getByRole("dialog", { name: "Add a provider" }).getByRole("form", { name: "Add a provider" });
   await expect(add.getByLabel("Second factor: amr values that count")).toHaveValue("mfa, otp, hwk, sc");

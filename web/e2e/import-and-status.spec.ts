@@ -131,8 +131,11 @@ test("a document with nowhere to call is stopped at the preview", async ({ page,
 test("the status screen answers what an operator asks first", async ({ page, workspace }) => {
   expect(workspace.email).toBeTruthy();
 
+  // It is the Instance tab of the settings now; the old address leads there.
   await page.goto("/status");
-  await expect(page.getByRole("heading", { name: "Status" })).toBeVisible();
+  await expect(page).toHaveURL(/\/settings\/instance$/);
+  await expect(page.getByRole("tab", { name: "Instance", exact: true })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("heading", { name: "Instance", exact: true })).toBeVisible();
 
   await expect(page.getByText(/This instance is running version/)).toBeVisible();
   await expect(page.getByText(/The database is reachable/)).toBeVisible();

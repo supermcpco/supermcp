@@ -8,6 +8,8 @@ test("a data-loss rule is changed, and the earlier version restored from its his
   expect(workspace.email).toBeTruthy();
   await page.goto("/settings/dlp");
   await expect(page.getByRole("heading", { name: "Data-loss rules" })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Data-loss rules", exact: true })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("tab", { name: "Rules", exact: true })).toHaveAttribute("aria-selected", "true");
 
   await page.getByRole("button", { name: "New rule" }).first().click();
   const addRule = page.getByRole("dialog", { name: "Add a rule" });
@@ -67,8 +69,11 @@ test("a data-loss rule is changed, and the earlier version restored from its his
   const policies = await (await page.request.get("/api/v1/dlp/policies")).json();
   expect(policies.policies.find((p: { name: string }) => p.name === "Customer addresses").action).toBe("mask");
 
-  // Deleting it says so, and the empty screen offers the way back.
+  // Deleting it asks first, says so, and the empty screen offers the way back.
   await rule.getByRole("button", { name: "Delete Customer addresses" }).click();
+  const confirm = page.getByRole("dialog", { name: "Delete Customer addresses" });
+  await confirm.getByRole("textbox", { name: "Type Customer addresses to confirm deletion" }).fill("Customer addresses");
+  await confirm.getByRole("button", { name: "Delete rule" }).click();
   await expect(page.getByRole("heading", { name: "Rule Customer addresses deleted", exact: true })).toBeVisible();
   await expect(page.getByText("No rules yet, so nothing is inspected and nothing is masked.")).toBeVisible();
 });
