@@ -327,30 +327,54 @@ func (s *Service) Get(ctx context.Context, orgID, id string) (*Connector, error)
 		if err != nil {
 			return err
 		}
-		rows, err := tx.Query(ctx, `SELECT name, secret FROM connector_credentials WHERE connector_id = $1 ORDER BY name`, id)
-		if err != nil {
-			return err
-		}
-		defer rows.Close()
-		set := map[string]bool{}
-		for rows.Next() {
-			var name string
-			var secret bool
-			if err := rows.Scan(&name, &secret); err != nil {
-				return err
-			}
-			set[name] = secret
-		}
-		for _, name := range referencedCredentials(c) {
-			_, ok := set[name]
-			c.Credentials = append(c.Credentials, CredentialInfo{Name: name, Set: ok, Secret: !ok || set[name], Required: true})
-		}
-		return rows.Err()
+		return fillCredentials(ctx, tx, []*Connector{c})
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
 	return c, err
+}
+
+// fillCredentials sets Credentials on each connector from its stored
+// credential rows, read in one statement for all of them.
+func fillCredentials(ctx context.Context, tx pgx.Tx, cs []*Connector) error {
+	if len(cs) == 0 {
+		return nil
+	}
+	ids := make([]string, len(cs))
+	for i, c := range cs {
+		ids[i] = c.ID
+	}
+	rows, err := tx.Query(ctx, `SELECT connector_id, name, secret FROM connector_credentials WHERE connector_id = ANY($1) ORDER BY connector_id, name`, ids)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	// stored maps a connector to its stored credential names and whether
+	// each is secret.
+	stored := map[string]map[string]bool{}
+	for rows.Next() {
+		var id, name string
+		var secret bool
+		if err := rows.Scan(&id, &name, &secret); err != nil {
+			return err
+		}
+		if stored[id] == nil {
+			stored[id] = map[string]bool{}
+		}
+		stored[id][name] = secret
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, c := range cs {
+		set := stored[c.ID]
+		for _, name := range referencedCredentials(c) {
+			secret, ok := set[name]
+			c.Credentials = append(c.Credentials, CredentialInfo{Name: name, Set: ok, Secret: !ok || secret, Required: true})
+		}
+	}
+	return nil
 }
 
 // referencedCredentials lists {{env.X}} names used by transport and auth.
@@ -377,7 +401,8 @@ func referencedCredentials(c *Connector) []string {
 	return out
 }
 
-// List returns the org's connectors.
+// List returns the org's connectors with credential presence, as Get
+// reports it: two statements however many connectors there are.
 func (s *Service) List(ctx context.Context, orgID string) ([]*Connector, error) {
 	var out []*Connector
 	err := s.DB.Tx(tenant.WithOrg(ctx, orgID), func(tx pgx.Tx) error {
@@ -393,7 +418,11 @@ func (s *Service) List(ctx context.Context, orgID string) ([]*Connector, error) 
 			}
 			out = append(out, c)
 		}
-		return rows.Err()
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		rows.Close()
+		return fillCredentials(ctx, tx, out)
 	})
 	if out == nil {
 		out = []*Connector{}
