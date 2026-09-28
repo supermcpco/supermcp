@@ -98,7 +98,7 @@ test("a document is previewed in full before anything is created", async ({ page
   // An import lands on the connectors list, where someone looks for the
   // thing they just made.
   await expect(page).toHaveURL(/\/connectors$/);
-  await expect(page.getByText("Allotments")).toBeVisible();
+  await expect(page.getByRole("link", { name: "Allotments" })).toBeVisible();
   await expect(page.getByText("2 tools", { exact: false })).toBeVisible();
   await expect(page.getByText("credentials missing")).toHaveCount(0);
 });
