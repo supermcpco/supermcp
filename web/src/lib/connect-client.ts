@@ -18,16 +18,43 @@ export interface SnippetTarget {
   secret?: string;
 }
 
-export type ClientId = "claude-desktop" | "cursor" | "curl";
+export type ClientId =
+  | "claude-code"
+  | "cursor"
+  | "vscode"
+  | "windsurf"
+  | "zed"
+  | "jetbrains"
+  | "codex"
+  | "gemini"
+  | "claude-desktop"
+  | "chatgpt"
+  | "curl"
+  | "generic";
+
+/** The headings the picker sorts clients under, in the order it shows them. */
+export const clientGroups = ["Coding assistants", "Desktop apps", "Other"] as const;
+export type ClientGroup = (typeof clientGroups)[number];
 
 export interface ClientSnippet {
   id: ClientId;
   /** The client, as its maker writes it. */
   label: string;
-  /** Where the text goes. */
+  group: ClientGroup;
+  /**
+   * One line on where the text goes. Paths and commands are in
+   * backticks, so the panel can set them in code type.
+   */
   where: string;
   /** One line a person needs before pasting, if any. */
   note?: string;
+  /** The maker's page on the format. */
+  docs?: string;
+  /**
+   * Set when the format was written from memory of the maker's docs and
+   * not checked against their current version: the panel says so.
+   */
+  unchecked?: boolean;
   text: string;
 }
 
@@ -119,17 +146,304 @@ export function curlSnippet(t: SnippetTarget): string {
   ].join("\n");
 }
 
-/** Every client the panel offers, in the order it shows them. */
+/**
+ * Claude Code adds the server itself: one command, the transport, the
+ * name, the URL and the header, in the order its docs give them.
+ */
+export function claudeCodeSnippet(t: SnippetTarget): string {
+  return `claude mcp add --transport http ${configName(t.name)} ${t.url} --header "Authorization: ${bearer(t)}"`;
+}
+
+/** VS Code (Copilot's agent mode) keeps servers under `servers`, each with its transport named. */
+export function vscodeSnippet(t: SnippetTarget): string {
+  return JSON.stringify(
+    {
+      servers: {
+        [configName(t.name)]: {
+          type: "http",
+          url: t.url,
+          headers: { Authorization: bearer(t) },
+        },
+      },
+    },
+    null,
+    2,
+  );
+}
+
+/** Windsurf calls the address of a remote server `serverUrl`. */
+export function windsurfSnippet(t: SnippetTarget): string {
+  return JSON.stringify(
+    {
+      mcpServers: {
+        [configName(t.name)]: {
+          serverUrl: t.url,
+          headers: { Authorization: bearer(t) },
+        },
+      },
+    },
+    null,
+    2,
+  );
+}
+
+/** Zed lists servers under `context_servers` in its settings; a remote one by URL. */
+export function zedSnippet(t: SnippetTarget): string {
+  return JSON.stringify(
+    {
+      context_servers: {
+        [configName(t.name)]: {
+          url: t.url,
+          headers: { Authorization: bearer(t) },
+        },
+      },
+    },
+    null,
+    2,
+  );
+}
+
+/**
+ * JetBrains AI Assistant takes the same mcpServers JSON Claude Desktop
+ * does. It goes through mcp-remote for the same reason: a local program
+ * is the one kind of server every version of the dialog starts.
+ */
+export function jetbrainsSnippet(t: SnippetTarget): string {
+  return claudeDesktopSnippet(t);
+}
+
+/** A TOML string: the JSON escapes of a basic string are TOML's too. */
+function tomlString(s: string): string {
+  return JSON.stringify(s);
+}
+
+/** Codex keeps servers in TOML, one table each; a remote one by URL with its headers. */
+export function codexSnippet(t: SnippetTarget): string {
+  return [
+    "# Check against the vendor's docs: http_headers is written from Codex's config reference.",
+    `[mcp_servers.${configName(t.name)}]`,
+    `url = ${tomlString(t.url)}`,
+    `http_headers = { "Authorization" = ${tomlString(bearer(t))} }`,
+  ].join("\n");
+}
+
+/** Gemini CLI tells streamable HTTP (`httpUrl`) from SSE (`url`) by the key's name. */
+export function geminiSnippet(t: SnippetTarget): string {
+  return JSON.stringify(
+    {
+      mcpServers: {
+        [configName(t.name)]: {
+          httpUrl: t.url,
+          headers: { Authorization: bearer(t) },
+        },
+      },
+    },
+    null,
+    2,
+  );
+}
+
+/**
+ * The OpenAI Responses API calls a remote MCP server as a tool of the
+ * request, and passes headers through. ChatGPT's own connectors do not
+ * take a header; the panel says what to do there instead.
+ */
+export function openaiSnippet(t: SnippetTarget): string {
+  return JSON.stringify(
+    {
+      tools: [
+        {
+          type: "mcp",
+          server_label: configName(t.name),
+          server_url: t.url,
+          headers: { Authorization: bearer(t) },
+          require_approval: "never",
+        },
+      ],
+    },
+    null,
+    2,
+  );
+}
+
+/** The shape most clients that speak streamable HTTP read, for one this panel does not name. */
+export function genericSnippet(t: SnippetTarget): string {
+  return JSON.stringify(
+    {
+      mcpServers: {
+        [configName(t.name)]: {
+          type: "http",
+          url: t.url,
+          headers: { Authorization: bearer(t) },
+        },
+      },
+    },
+    null,
+    2,
+  );
+}
+
+/** Every client the panel offers, grouped, in the order it shows them. */
 export function clientSnippets(t: SnippetTarget): ClientSnippet[] {
   return [
     {
+      id: "claude-code",
+      label: "Claude Code",
+      group: "Coding assistants",
+      where:
+        "Run in a terminal in your project. It adds the server for this project; add `--scope user` for every project, or `--scope project` to share it in `.mcp.json`.",
+      docs: "https://code.claude.com/docs/en/mcp",
+      text: claudeCodeSnippet(t),
+    },
+    {
+      id: "cursor",
+      label: "Cursor",
+      group: "Coding assistants",
+      where: "Paste into `.cursor/mcp.json` in your project, or `~/.cursor/mcp.json` for every project.",
+      docs: "https://cursor.com/docs/context/mcp",
+      text: cursorSnippet(t),
+    },
+    {
+      id: "vscode",
+      label: "VS Code (GitHub Copilot)",
+      group: "Coding assistants",
+      where:
+        "Paste into `.vscode/mcp.json` in your workspace, or into the file MCP: Open User Configuration opens, for every workspace.",
+      note: "Copilot Chat uses the server in agent mode.",
+      docs: "https://code.visualstudio.com/docs/copilot/customization/mcp-servers",
+      text: vscodeSnippet(t),
+    },
+    {
+      id: "windsurf",
+      label: "Windsurf",
+      group: "Coding assistants",
+      where: "Paste into `~/.codeium/windsurf/mcp_config.json`, then refresh the MCP servers in Cascade.",
+      docs: "https://docs.windsurf.com/windsurf/cascade/mcp",
+      text: windsurfSnippet(t),
+    },
+    {
+      id: "zed",
+      label: "Zed",
+      group: "Coding assistants",
+      where: "Add to `context_servers` in Zed's `settings.json`: `~/.config/zed/settings.json` on macOS and Linux.",
+      docs: "https://zed.dev/docs/ai/mcp",
+      unchecked: true,
+      text: zedSnippet(t),
+    },
+    {
+      id: "jetbrains",
+      label: "JetBrains AI Assistant",
+      group: "Coding assistants",
+      where:
+        "In Settings, Tools, AI Assistant, Model Context Protocol (MCP), add a server and paste this in as JSON.",
+      note: "It reaches this server through mcp-remote, which needs Node.js.",
+      docs: "https://www.jetbrains.com/help/ai-assistant/mcp.html",
+      unchecked: true,
+      text: jetbrainsSnippet(t),
+    },
+    {
+      id: "codex",
+      label: "OpenAI Codex CLI",
+      group: "Coding assistants",
+      where: "Add to `~/.codex/config.toml`; the Codex IDE extension reads the same file.",
+      docs: "https://developers.openai.com/codex/mcp",
+      unchecked: true,
+      text: codexSnippet(t),
+    },
+    {
+      id: "gemini",
+      label: "Gemini CLI",
+      group: "Coding assistants",
+      where: "Add to `~/.gemini/settings.json`, or `.gemini/settings.json` in a project.",
+      docs: "https://github.com/google-gemini/gemini-cli/blob/main/docs/tools/mcp-server.md",
+      text: geminiSnippet(t),
+    },
+    {
       id: "claude-desktop",
       label: "Claude Desktop",
-      where: "claude_desktop_config.json",
+      group: "Desktop apps",
+      where: "Paste into `claude_desktop_config.json`: Settings, Developer, Edit Config.",
       note: "Claude Desktop's config file only starts local programs, so it reaches this server through mcp-remote, which needs Node.js.",
+      docs: "https://modelcontextprotocol.io/docs/develop/connect-local-servers",
       text: claudeDesktopSnippet(t),
     },
-    { id: "cursor", label: "Cursor", where: ".cursor/mcp.json", text: cursorSnippet(t) },
-    { id: "curl", label: "curl", where: "A terminal", text: curlSnippet(t) },
+    {
+      id: "chatgpt",
+      label: "ChatGPT and the OpenAI API",
+      group: "Desktop apps",
+      where: "Send as the `tools` of an OpenAI Responses API request; the Agents SDK takes the same URL and headers.",
+      note: "ChatGPT's own connectors cannot send an API key: they sign in with OAuth or not at all. Add the endpoint there as a connector with OAuth, and ChatGPT signs in to this workspace instead.",
+      docs: "https://platform.openai.com/docs/guides/tools-connectors-mcp",
+      unchecked: true,
+      text: openaiSnippet(t),
+    },
+    {
+      id: "curl",
+      label: "curl",
+      group: "Other",
+      where: "Run in a terminal; the answer names the server and its capabilities.",
+      text: curlSnippet(t),
+    },
+    {
+      id: "generic",
+      label: "Other client (JSON)",
+      group: "Other",
+      where:
+        "For a client this list does not name: most that speak streamable HTTP read this shape, some under another key or with `url` named differently.",
+      text: genericSnippet(t),
+    },
   ];
+}
+
+/** The client picked when nothing was remembered. */
+export const defaultClient: ClientId = "claude-code";
+
+/** Where the last client picked is kept between visits. Not a secret: only which client. */
+export const clientStorageKey = "supermcp.connect-client";
+
+const clientIds: readonly string[] = [
+  "claude-code",
+  "cursor",
+  "vscode",
+  "windsurf",
+  "zed",
+  "jetbrains",
+  "codex",
+  "gemini",
+  "claude-desktop",
+  "chatgpt",
+  "curl",
+  "generic",
+] satisfies ClientId[];
+
+export function isClientId(v: unknown): v is ClientId {
+  return typeof v === "string" && clientIds.includes(v);
+}
+
+type ClientStorage = Pick<Storage, "getItem" | "setItem">;
+
+function browserStorage(): ClientStorage | undefined {
+  return typeof window === "undefined" ? undefined : window.localStorage;
+}
+
+/**
+ * The client picked last, or the default when there is none, it is one
+ * this version no longer offers, or storage cannot be read.
+ */
+export function readClient(storage: () => ClientStorage | undefined = browserStorage): ClientId {
+  try {
+    const v = storage()?.getItem(clientStorageKey);
+    return isClientId(v) ? v : defaultClient;
+  } catch {
+    return defaultClient;
+  }
+}
+
+/** Remembers the pick; a refusal to store it only costs the memory. */
+export function storeClient(id: ClientId, storage: () => ClientStorage | undefined = browserStorage): void {
+  try {
+    storage()?.setItem(clientStorageKey, id);
+  } catch {
+    // Nothing to do: the picker still works, it just forgets.
+  }
 }
