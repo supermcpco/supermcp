@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button, Input, Text } from "@cloudflare/kumo";
+import { Button, Text } from "@cloudflare/kumo";
 import { ArrowLeft } from "@phosphor-icons/react";
 import {
   catalogGetOptions,
@@ -12,6 +12,8 @@ import { useSession } from "../lib/session";
 import { message, status } from "../lib/errors";
 import { Loading, NotFound } from "../lib/ui";
 import { toast } from "../components/shell/toast";
+import { CredentialFields } from "../components/credential-fields";
+import { stillNeeded, type CredentialField } from "../lib/connector";
 
 export const Route = createFileRoute("/_app/catalog/$slug")({
   component: AdapterPage,
@@ -48,7 +50,9 @@ function AdapterPage() {
     onSuccess: async (connector) => {
       await qc.invalidateQueries({ queryKey: connectorsListQueryKey() });
       toast(`${a?.metadata.name ?? connector.name} installed`);
-      await navigate({ to: "/connectors", hash: connector.id });
+      // The connector's own page is where its credentials, status and
+      // tools are, so that is where someone who just installed it goes.
+      await navigate({ to: "/connectors/$id", params: { id: connector.id } });
     },
     onError: (e) => setError(message(e)),
   });
@@ -69,8 +73,13 @@ function AdapterPage() {
     );
   }
 
-  const creds = Object.entries(a.credentials ?? {});
-  const missing = creds.filter(([name, c]) => c.required && !values[name]?.trim()).map(([name]) => name);
+  const creds: CredentialField[] = Object.entries(a.credentials ?? {}).map(([name, c]) => ({
+    name,
+    required: c.required,
+    secret: c.secret !== false,
+    description: c.description,
+  }));
+  const missing = stillNeeded(creds, values);
   // While the session is still arriving nobody has any permission yet, and
   // a button that is dead for that first moment swallows the click of
   // anyone who arrives ready to act. The server is the authority here, so
@@ -126,29 +135,7 @@ function AdapterPage() {
               Each value is encrypted with this workspace's own key before it is stored, and is never shown again.
             </Text>
           </div>
-          <div className="grid gap-3 rounded-lg px-5 py-4 ring ring-kumo-line">
-            {creds.map(([name, c]) => (
-              <label key={name} className="grid gap-1.5">
-                <span className="font-mono text-[0.9em]">
-                  {name}
-                  {!c.required && <span className="font-sans"> (optional)</span>}
-                </span>
-                {c.description && <Text variant="secondary">{c.description}</Text>}
-                <Input
-                  type={c.secret === false ? "text" : "password"}
-                  autoComplete="off"
-                  disabled={!allowed}
-                  value={values[name] ?? ""}
-                  onChange={(e) => setValues({ ...values, [name]: e.target.value })}
-                />
-              </label>
-            ))}
-            {missing.length > 0 && (
-              <Text variant="secondary">
-                Still needed: {missing.join(", ")}.
-              </Text>
-            )}
-          </div>
+          <CredentialFields fields={creds} values={values} onChange={setValues} disabled={!allowed} />
         </section>
       )}
 

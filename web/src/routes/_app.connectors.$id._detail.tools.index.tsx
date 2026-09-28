@@ -2,23 +2,19 @@ import { useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button, Text } from "@cloudflare/kumo";
-import { ArrowLeft } from "@phosphor-icons/react";
 import type { ToolDto, ToolReferencesDto } from "../api";
 import {
-  connectorsGetOptions,
   connectorsToolsOptions,
   toolsDeleteMutation,
   toolsEnableMutation,
   toolsReferencesOptions,
 } from "../api/@tanstack/react-query.gen";
 import { useSession } from "../lib/session";
-import { Badge, Loading, NotFound } from "../lib/ui";
-import { message, status } from "../lib/errors";
+import { Badge, Loading } from "../lib/ui";
+import { message } from "../lib/errors";
 import { invalidateTool, isReferencesConflict } from "../lib/tool-api";
-import { resyncSummary } from "../lib/resync";
-import { ResyncReview } from "../components/resync-review";
 
-export const Route = createFileRoute("/_app/connectors/$id/tools/")({
+export const Route = createFileRoute("/_app/connectors/$id/_detail/tools/")({
   component: Tools,
 });
 
@@ -33,16 +29,11 @@ function Tools() {
   const { id } = Route.useParams();
   const { signedIn, can } = useSession();
   const qc = useQueryClient();
-  const connector = useQuery({ ...connectorsGetOptions({ path: { id } }), enabled: signedIn, retry: false });
   const tools = useQuery({ ...connectorsToolsOptions({ path: { id } }), enabled: signedIn, retry: false });
   const canEdit = can("tools:update");
-  // Re-syncing rewrites the connector's settings and its tools.
-  const canResync = canEdit && can("connectors:update");
 
   const [confirming, setConfirming] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [reviewing, setReviewing] = useState(false);
-  const [resynced, setResynced] = useState<string | null>(null);
 
   const enable = useMutation({
     ...toolsEnableMutation(),
@@ -53,29 +44,14 @@ function Tools() {
     onError: (e) => setError(message(e)),
   });
 
-  if (status(connector.error) === 404) {
-    return (
-      <NotFound heading="Connector not found" back={{ to: "/connectors" }} backLabel="Back to connectors">
-        This workspace has no connector at this address; it may have been deleted.
-      </NotFound>
-    );
-  }
-
   const list = tools.data ?? [];
 
   return (
-    <div className="grid gap-6">
-      <Link to="/connectors" className="flex items-center gap-1 text-kumo-subtle">
-        <span className="h-lh flex items-center">
-          <ArrowLeft size={14} aria-hidden />
-        </span>
-        <Text as="span">Connectors</Text>
-      </Link>
-
+    <>
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="grid gap-1.5">
-          <Text as="h1" variant="heading2">
-            Tools{connector.data ? ` of ${connector.data.name}` : ""}
+          <Text as="h2" variant="heading3">
+            Tools
           </Text>
           <Text>
             What a model can call through this connector. A tool that is switched off stays here but is not offered to
@@ -88,33 +64,6 @@ function Tools() {
           </Link>
         )}
       </div>
-
-      {connector.data?.catalogOutdated && !reviewing && (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-md bg-kumo-tint px-4 py-3 ring ring-kumo-line">
-          <Text>This server carries a newer version of the catalog adapter this connector was installed from.</Text>
-          {canResync && (
-            <Button
-              onClick={() => {
-                setResynced(null);
-                setReviewing(true);
-              }}
-            >
-              Review re-sync
-            </Button>
-          )}
-        </div>
-      )}
-      {reviewing && (
-        <ResyncReview
-          connectorId={id}
-          onApplied={(data) => {
-            setReviewing(false);
-            setResynced(`Re-synced with the catalog: ${resyncSummary(data.applied)}.`);
-          }}
-          onClose={() => setReviewing(false)}
-        />
-      )}
-      <div role="status">{resynced && <Text>{resynced}</Text>}</div>
 
       {error && (
         <div role="alert" className="rounded-md bg-kumo-tint px-4 py-3 ring ring-kumo-line">
@@ -196,7 +145,7 @@ function Tools() {
           ))}
         </ul>
       )}
-    </div>
+    </>
   );
 }
 

@@ -142,7 +142,7 @@ export function ResyncReview({
             })
           }
         >
-          Apply re-sync
+          Re-sync
         </Button>
         <Button onClick={onClose}>Not now</Button>
       </div>
