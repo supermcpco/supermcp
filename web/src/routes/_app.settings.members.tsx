@@ -12,11 +12,13 @@ import {
   membersListQueryKey,
   membersRemoveMutation,
   membersUpdateMutation,
+  orgUpdateMutation,
+  sessionQueryKey,
 } from "../api/@tanstack/react-query.gen";
 import type { InviteDto, MemberDto, RoleDto } from "../api/types.gen";
 import { useSession } from "../lib/session";
 import { Badge, Loading } from "../lib/ui";
-import { status } from "../lib/errors";
+import { asSentence, details, message, status } from "../lib/errors";
 import { toast } from "../components/shell/toast";
 import { EmptyState, FormDialog, HeaderWithAction } from "../components/form-dialog";
 import { Help, HeadingWithHelp } from "../components/help";
@@ -136,6 +138,8 @@ function Members() {
 
       {link && <InviteLink link={link} onDone={() => setLink(null)} />}
 
+      <Workspace />
+
       <section className="grid gap-3" aria-labelledby="members-heading">
         <Text as="h3" variant="heading" id="members-heading">
           People
@@ -212,6 +216,117 @@ function Members() {
         </>
       )}
     </div>
+  );
+}
+
+/**
+ * The workspace's name, which everybody in it sees in the sidebar, and its
+ * slug, which links and exports name it by and so never changes. Renaming
+ * needs org:update; everybody else just reads it.
+ */
+function Workspace() {
+  const { session, can } = useSession();
+  const qc = useQueryClient();
+  const org = session?.organization;
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  const rename = useMutation({
+    ...orgUpdateMutation(),
+    onSuccess: async () => {
+      toast("Workspace renamed");
+      setOpen(false);
+      setError(null);
+      // Nothing on the server caches the name; asking for the session
+      // again puts the new one in the sidebar.
+      await qc.invalidateQueries({ queryKey: sessionQueryKey() });
+    },
+    onError: (e) => {
+      const field = details(e).find((d) => d.location === "body.name")?.message;
+      setError(asSentence(field || message(e)));
+    },
+  });
+
+  if (!org) return null;
+  const canRename = can("org:update");
+
+  return (
+    <section className="grid gap-3" aria-labelledby="workspace-heading">
+      <HeaderWithAction
+        action={
+          canRename ? (
+            <Button
+              onClick={() => {
+                setName(org.name);
+                setError(null);
+                setOpen(true);
+              }}
+            >
+              Rename workspace
+            </Button>
+          ) : null
+        }
+      >
+        <Text as="h3" variant="heading" id="workspace-heading">
+          Workspace
+        </Text>
+      </HeaderWithAction>
+      <dl className="grid max-w-3xl gap-x-6 gap-y-1 rounded-lg px-5 py-4 ring ring-kumo-line sm:grid-cols-[max-content_1fr]">
+        <dt>
+          <Text as="span" variant="secondary">
+            Name
+          </Text>
+        </dt>
+        <dd>
+          <Text as="span" bold>
+            {org.name}
+          </Text>
+        </dd>
+        <dt>
+          <Text as="span" variant="secondary">
+            Slug
+          </Text>
+        </dt>
+        <dd className="grid gap-0.5">
+          <code className="font-mono text-[0.9em]">{org.slug}</code>
+          <Text as="span" variant="secondary">
+            Links and exports name the workspace by its slug, so it stays the same when the name changes.
+          </Text>
+        </dd>
+      </dl>
+      {canRename && (
+        <FormDialog
+          open={open}
+          onOpenChange={(next) => {
+            setOpen(next);
+            setError(null);
+          }}
+          size="base"
+          title="Rename workspace"
+          description="Everybody in the workspace sees the new name. The slug stays the same."
+          submitLabel={rename.isPending ? "Renaming…" : "Rename workspace"}
+          pending={rename.isPending}
+          canSubmit={name.trim() !== org.name}
+          error={error}
+          onSubmit={() => {
+            setError(null);
+            rename.mutate({ body: { name } });
+          }}
+        >
+          <LabelledInput
+            label="Name"
+            required
+            autoComplete="off"
+            value={name}
+            onChange={(e) => {
+              setName(e.currentTarget.value);
+              setError(null);
+            }}
+          />
+        </FormDialog>
+      )}
+    </section>
   );
 }
 
