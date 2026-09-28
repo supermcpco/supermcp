@@ -1,4 +1,4 @@
-import { test, expect, expectAccessible } from "./fixtures";
+import { test, expect, expectAccessible, installAdapter } from "./fixtures";
 
 // The frame every screen sits in: where the screens are listed, what a
 // person sees for an address that leads nowhere, and how the list is
@@ -148,4 +148,22 @@ test("the current screen is marked in the sidebar, the overview only on itself",
   await expect(page.getByRole("heading", { name: "Connector not found" })).toBeVisible();
   await expect(nav.getByRole("link", { name: "Connectors" })).toHaveAttribute("aria-current", "page");
   await expect(nav.getByRole("link", { name: "Overview" })).not.toHaveAttribute("aria-current", "page");
+});
+
+test("no screen uses a Kumo variant or prop that Kumo has deprecated", async ({ page, workspace }) => {
+  // Kumo says so with a console warning on every render; a screen that
+  // triggers one is using an API the next Kumo release may remove.
+  const warnings: string[] = [];
+  page.on("console", (m) => {
+    if (m.type() === "warning" || m.type() === "error") warnings.push(m.text());
+  });
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "Overview", level: 1 })).toBeVisible();
+  await expect(page.getByText(workspace.org)).toBeVisible();
+  await page.goto("/settings");
+  await expect(page.getByRole("heading", { name: "Settings", level: 1 })).toBeVisible();
+  await installAdapter(page);
+  await expect(page.getByRole("heading", { name: "Deutsche Bundesbank Statistics", level: 1 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Status", level: 2 })).toBeVisible();
+  expect(warnings.filter((w) => /deprecated/i.test(w))).toEqual([]);
 });
