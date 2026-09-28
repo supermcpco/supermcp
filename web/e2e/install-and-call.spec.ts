@@ -42,8 +42,9 @@ test("a workspace installs an adapter, exposes it and calls a tool", async ({ pa
   expect(body).toContain("bundesbank_get_exchange_rates");
 
   // The call is recorded where a person can see it.
-  await page.goto("/tool-calls");
-  await expect(page.getByRole("heading", { name: "Tool calls" })).toBeVisible();
+  await page.goto("/activity");
+  await expect(page.getByRole("heading", { name: "Activity", level: 1 })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Calls" })).toHaveAttribute("aria-selected", "true");
 });
 
 test("an API key from one workspace cannot reach another workspace's server", async ({ page, browser, workspace }) => {

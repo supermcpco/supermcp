@@ -49,9 +49,11 @@ test("the analytics screen counts a workspace's calls, and another workspace see
   // drawing empty charts. It is asked about the last 90 days here and the
   // default seven below, because the server keeps an answer for a minute
   // and the calls in between would not be in this one.
-  await page.goto("/analytics?range=90d");
-  await expect(page.getByRole("heading", { name: "Analytics" })).toBeVisible();
-  await expect(page.getByText("No tool calls in this period.", { exact: false })).toBeVisible();
+  await page.goto("/activity?tab=analytics&range=90d");
+  await expect(page.getByRole("tab", { name: "Analytics" })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByText("No calls in this period", { exact: true })).toBeVisible();
+  // Ninety days is the longest period there is, so there is none wider to offer.
+  await expect(page.getByRole("button", { name: /^Show the last/ })).toHaveCount(0);
   await expectAccessible(page);
 
   const api = page.request;
@@ -107,7 +109,7 @@ test("the analytics screen counts a workspace's calls, and another workspace see
     if (/Content Security Policy/i.test(m.text())) violations.push(m.text());
   });
 
-  await page.goto("/analytics");
+  await page.goto("/activity?tab=analytics");
   await expect(figure(page, "Calls")).toHaveText("5");
   await expect(figure(page, "Errors")).toHaveText("1 (20%)");
   await expect(page.getByRole("img", { name: /5 calls and 1 error in total/ })).toBeVisible();
@@ -158,8 +160,12 @@ test("the analytics screen counts a workspace's calls, and another workspace see
     org: `Analytics other ${stamp}`,
   });
 
-  await other.goto("/analytics?range=24h");
-  await expect(other.getByText("No tool calls in this period.", { exact: false })).toBeVisible();
+  await other.goto("/activity?tab=analytics&range=24h");
+  await expect(other.getByText("No calls in this period", { exact: true })).toBeVisible();
+  // An empty day offers the week, and the offer is taken up in the address.
+  await other.getByRole("button", { name: "Show the last 7 days" }).click();
+  await expect(other).not.toHaveURL(/range=/);
+  await expect(other.getByRole("combobox", { name: "Period" })).toHaveValue("7d");
   const theirs = await context.request.get("/api/v1/analytics/usage?by=tool");
   expect(theirs.ok(), await theirs.text()).toBeTruthy();
   const body = await theirs.json();
