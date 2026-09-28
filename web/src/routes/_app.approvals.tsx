@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button, Input, Text } from "@cloudflare/kumo";
+import { Button, DeleteResource, Input, Text } from "@cloudflare/kumo";
 import {
   approvalPoliciesCreateMutation,
   approvalPoliciesDeleteMutation,
@@ -24,6 +24,7 @@ import { message } from "../lib/errors";
 import { HistoryPanel } from "../components/revisions";
 import { toast } from "../components/shell/toast";
 import { EmptyState, FormDialog, HeaderWithAction } from "../components/form-dialog";
+import { About, HeadingWithAbout } from "../components/about";
 
 export const Route = createFileRoute("/_app/approvals")({
   component: Approvals,
@@ -84,12 +85,26 @@ function Approvals() {
   return (
     <div className="grid gap-6">
       <div className="grid gap-1.5">
-        <Text as="h1" variant="heading2">
-          Approvals
-        </Text>
+        <HeadingWithAbout
+          heading={
+            <Text as="h1" variant="heading2">
+              Approvals
+            </Text>
+          }
+          about={
+            <About label="About approvals">
+              <p>A rule decides which tool calls wait for a person. Without one, nothing is ever held.</p>
+              <p>
+                A held call is answered straight away with the identifier of the request it raised. It runs when
+                somebody approves it and the caller asks again with that identifier.
+              </p>
+              <p>Approving replays the arguments that were approved, not whatever is asked for next.</p>
+            </About>
+          }
+        />
         <Text>
           {canDecide
-            ? "Tool calls a rule has held until somebody agrees to them. Approving replays the arguments that were approved, not whatever is asked for next."
+            ? "Tool calls a rule has held until somebody agrees to them."
             : "The calls you have made that are waiting on somebody else."}
         </Text>
       </div>
@@ -105,7 +120,11 @@ function Approvals() {
           Waiting
         </Text>
         {waiting.isPending && <Loading />}
-        {!waiting.isPending && pending.length === 0 && <Text variant="secondary">Nothing is waiting.</Text>}
+        {waiting.isSuccess && pending.length === 0 && (
+          <EmptyState title="Nothing is waiting" as="h3">
+            {canDecide ? "A call a rule holds shows up here until somebody decides it." : "None of your calls is held."}
+          </EmptyState>
+        )}
         {pending.map((r) => (
           <div key={r.id} className="grid gap-3 rounded-lg px-5 py-4 ring ring-kumo-line">
             <Summary request={r} />
@@ -137,13 +156,20 @@ function Approvals() {
         ))}
       </section>
 
-      <Rules />
+      {/* Reading the rules takes the power to decide; somebody who may only
+          ask would be told there are none. */}
+      {canDecide && <Rules />}
 
       <section className="grid gap-2">
         <Text as="h2" variant="heading3">
           Decided
         </Text>
-        {history.length === 0 && <Text variant="secondary">Nothing has been decided yet.</Text>}
+        {recent.isPending && <Loading />}
+        {recent.isSuccess && history.length === 0 && (
+          <EmptyState title="Nothing decided yet" as="h3">
+            Approved, refused and withdrawn calls are listed here.
+          </EmptyState>
+        )}
         <ul className="grid gap-2">
           {history.map((r) => (
             <li key={r.id} className="rounded-lg px-5 py-4 ring ring-kumo-line">
@@ -184,6 +210,9 @@ function Rules() {
   const [toolName, setToolName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  // The rule a person asked to delete, held until they confirm it.
+  const [deleting, setDeleting] = useState<ApprovalPolicy | null>(null);
+  const [deleteError, setDeleteError] = useState<string | undefined>();
 
   const refresh = () => qc.invalidateQueries({ queryKey: approvalPoliciesListQueryKey() });
   const add = useMutation({
@@ -203,16 +232,17 @@ function Rules() {
     onSuccess: async (_, vars) => {
       const gone = rules.data?.policies?.find((r) => r.id === vars.path.id)?.name;
       toast(gone ? `Rule ${gone} deleted` : "Rule deleted");
+      setDeleting(null);
       await refresh();
     },
-    onError: (e) => toast(message(e), { kind: "error" }),
+    onError: (e) => setDeleteError(message(e)),
   });
 
   const list = rules.data?.policies ?? [];
   const names = new Map((connectors.data ?? []).map((c) => [c.id, c.name]));
   const addRule = canManage ? (
     <Button variant="primary" onClick={() => setAdding(true)}>
-      New rule
+      Add rule
     </Button>
   ) : null;
 
@@ -220,14 +250,21 @@ function Rules() {
     <section className="grid gap-3" aria-labelledby="held-heading">
       <HeaderWithAction action={addRule}>
         <Text as="h2" variant="heading3" id="held-heading">
-          What gets held
+          Rules
         </Text>
-        <Text>
-          A rule decides which calls wait for a person. Without one, nothing is ever held. A held call is answered
-          straight away with the identifier of the request it raised, and runs when somebody approves it and the caller
-          asks again with that identifier.
-        </Text>
+        <Text>A rule decides which calls wait for a person.</Text>
       </HeaderWithAction>
+      {rules.isPending && <Loading />}
+      {rules.isError && (
+        <div role="alert">
+          <Text>{message(rules.error)}</Text>
+        </div>
+      )}
+      {rules.isSuccess && list.length === 0 && (
+        <EmptyState title="No rules yet" as="h3" action={addRule}>
+          Without a rule, no call is ever held.
+        </EmptyState>
+      )}
       <ul className="grid gap-2">
         {list.map((r) => (
           <li key={r.id} className="grid gap-4 rounded-lg px-5 py-4 ring ring-kumo-line">
@@ -259,8 +296,10 @@ function Rules() {
                 {canManage && (
                   <Button
                     variant="secondary"
-                    onClick={() => remove.mutate({ path: { id: r.id } })}
-                    disabled={remove.isPending}
+                    onClick={() => {
+                      setDeleteError(undefined);
+                      setDeleting(r);
+                    }}
                     aria-label={`Delete ${r.name}`}
                   >
                     Delete
@@ -272,7 +311,20 @@ function Rules() {
           </li>
         ))}
       </ul>
-      {list.length === 0 && <EmptyState action={addRule}>No rules, so no call is ever held.</EmptyState>}
+      {canManage && (
+        <DeleteResource
+          open={deleting !== null}
+          onOpenChange={(next) => !next && !remove.isPending && setDeleting(null)}
+          resourceType="Rule"
+          resourceName={deleting?.name ?? ""}
+          deleteButtonText="Delete rule"
+          isDeleting={remove.isPending}
+          errorMessage={deleteError}
+          onDelete={() => {
+            if (deleting) remove.mutate({ path: { id: deleting.id } });
+          }}
+        />
+      )}
       {canManage && (
         <FormDialog
           open={adding}
@@ -281,7 +333,7 @@ function Rules() {
             setError(null);
           }}
           title="Add a rule"
-          submitLabel="Add the rule"
+          submitLabel="Add rule"
           pending={add.isPending}
           canSubmit={name.trim() !== "" && !(trigger === "tool" && toolName.trim() === "")}
           error={error}
@@ -450,7 +502,7 @@ function RuleHistory({
   return (
     <HistoryPanel
       label={`History of ${rule.name}`}
-      intro="Every change to this rule, newest first. Restoring an earlier version is recorded as a further change, and the next call is held, or not, by the restored rule."
+      intro="Every change to this rule, newest first; a restored version decides the next call."
       loading={revisions.isPending}
       revisions={revisions.data?.revisions ?? []}
       error={restore.error ? message(restore.error) : revisions.error ? message(revisions.error) : null}
