@@ -165,7 +165,7 @@ function RulesTab() {
         </HeaderWithAction>
         {policies.isPending && <Loading />}
         {!policies.isPending && list.length === 0 && (
-          <EmptyState action={addRule}>No rules yet, so nothing is inspected and nothing is masked.</EmptyState>
+          <EmptyState>No rules yet, so nothing is inspected and nothing is masked.</EmptyState>
         )}
         <ul className="grid gap-2">
           {list.map((p) => (

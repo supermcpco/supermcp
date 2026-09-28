@@ -150,7 +150,7 @@ function Members() {
             <Text>{status(members.error) === 501 ? notReady : memberError(members.error)}</Text>
           </div>
         )}
-        {members.isSuccess && list.length === 0 && <EmptyState action={invite}>Nobody is a member yet.</EmptyState>}
+        {members.isSuccess && list.length === 0 && <EmptyState>Nobody is a member yet.</EmptyState>}
         {list.length > 0 && (
           <div className="overflow-x-auto">
             <table className="w-full text-left">

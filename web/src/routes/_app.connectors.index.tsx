@@ -68,7 +68,7 @@ function Connectors() {
         </div>
       )}
       {q.isSuccess && list.length === 0 && (
-        <EmptyState title="No connectors yet" action={browse}>
+        <EmptyState title="No connectors yet">
           Install an adapter from the catalog, or import your own API.
         </EmptyState>
       )}

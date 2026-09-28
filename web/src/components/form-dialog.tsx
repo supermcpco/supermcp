@@ -81,8 +81,8 @@ export function FormDialog({
 
 /**
  * A screen's or a section's heading with the button that adds to it on
- * the right. The same button goes on the empty state, so the first thing
- * somebody sees on an empty screen is the way to fill it.
+ * the right. That button is the only one: the empty state under it says
+ * the list is empty and does not offer the same button again.
  */
 export function HeaderWithAction({ children, action }: { children: ReactNode; action?: ReactNode }) {
   return (
@@ -94,10 +94,16 @@ export function HeaderWithAction({ children, action }: { children: ReactNode; ac
 }
 
 /**
- * What an empty list says, and the button that starts filling it: a
- * headline, one sentence, one action. It sits where the list's first item
- * would, in the same card, so the screen does not move when the first one
- * arrives. `as` is the headline's level under the screen's own headings.
+ * What an empty list says. With a headline it is a card, sized by its
+ * two lines, where the list's first item would be, named by the headline
+ * so it is found as a region. Without one it is a single muted line, the
+ * way a short list says it has nothing.
+ *
+ * `action` is for what only the empty state can offer (clearing a search
+ * that matched nothing, a wider period), set beside the text so it adds no
+ * height; the button that fills the list stays in the header above and is
+ * never repeated here.
+ * `as` is the headline's level under the screen's own headings.
  */
 export function EmptyState({
   title,
@@ -111,20 +117,24 @@ export function EmptyState({
   action?: ReactNode;
 }) {
   const titleId = useId();
-  // A titled empty state is a region named by its headline, so the action
-  // in it is found as the one belonging to that emptiness.
+  if (!title) {
+    return (
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <Text variant="secondary">{children}</Text>
+        {action}
+      </div>
+    );
+  }
   return (
     <div
-      role={title ? "region" : undefined}
-      aria-labelledby={title ? titleId : undefined}
-      className="grid justify-items-start gap-3 rounded-lg px-5 py-4 ring ring-kumo-line"
+      role="region"
+      aria-labelledby={titleId}
+      className="flex flex-wrap items-center justify-between gap-3 rounded-lg px-5 py-4 ring ring-kumo-line"
     >
-      <div className="grid gap-1">
-        {title && (
-          <Text as={as} bold id={titleId}>
-            {title}
-          </Text>
-        )}
+      <div className="grid min-w-0 gap-1">
+        <Text as={as} bold id={titleId}>
+          {title}
+        </Text>
         <Text variant="secondary">{children}</Text>
       </div>
       {action}

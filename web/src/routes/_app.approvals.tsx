@@ -262,7 +262,7 @@ function Rules() {
         </div>
       )}
       {rules.isSuccess && list.length === 0 && (
-        <EmptyState title="No rules yet" as="h3" action={addRule}>
+        <EmptyState title="No rules yet" as="h3">
           Without a rule, no call is ever held.
         </EmptyState>
       )}

@@ -50,7 +50,7 @@ function Servers() {
         </div>
       )}
       {servers.isSuccess && list.length === 0 && (
-        <EmptyState title="No MCP servers yet" action={newServer}>
+        <EmptyState title="No MCP servers yet">
           Create one, attach connectors to it, and give its endpoint to an AI client.
         </EmptyState>
       )}

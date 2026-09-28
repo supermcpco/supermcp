@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { Button, LinkButton, Text } from "@cloudflare/kumo";
+import { Button, Text } from "@cloudflare/kumo";
 import { invocationsList } from "../api/sdk.gen";
 import { connectorsListOptions, serversListOptions } from "../api/@tanstack/react-query.gen";
 import { EmptyState } from "./form-dialog";
@@ -118,15 +118,11 @@ export function CallsPanel({ search, onSearch }: { search: CallsSearch; onSearch
       <div className="grid min-h-48 content-start gap-4">
         {calls.isPending && <Loading />}
         {calls.data && !filtered && rows.length === 0 && (
-          <EmptyState
-            action={
-              <LinkButton href="/servers" variant="primary">
-                Connect a client
-              </LinkButton>
-            }
-          >
-            <strong className="block font-semibold text-kumo-default">No calls yet</strong>
-            Calls appear here once an AI client is connected to one of your MCP servers and uses a tool.
+          <EmptyState title="No calls yet">
+            Calls appear here once an AI client is connected to one of your MCP servers and uses a tool.{" "}
+            <Link to="/servers" className="underline">
+              Connect a client
+            </Link>
           </EmptyState>
         )}
         {(filtered || rows.length > 0 || calls.isError) && (
@@ -207,8 +203,7 @@ export function CallsPanel({ search, onSearch }: { search: CallsSearch; onSearch
             ) : calls.isError ? (
               <Text role="alert">The calls could not be loaded: {message(calls.error)}</Text>
             ) : calls.data && rows.length === 0 ? (
-              <EmptyState action={<Button onClick={clear}>Clear the filters</Button>}>
-                <strong className="block font-semibold text-kumo-default">No calls match</strong>
+              <EmptyState title="No calls match" action={<Button onClick={clear}>Clear the filters</Button>}>
                 No call kept in this workspace matches all of the filters.
               </EmptyState>
             ) : (
