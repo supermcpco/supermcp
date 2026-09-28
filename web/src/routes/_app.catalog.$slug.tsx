@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button, Text } from "@cloudflare/kumo";
@@ -13,23 +13,12 @@ import { message, status } from "../lib/errors";
 import { Loading, NotFound } from "../lib/ui";
 import { toast } from "../components/shell/toast";
 import { CredentialFields } from "../components/credential-fields";
-import { stillNeeded, type CredentialField } from "../lib/connector";
+import { parseAdapter, stillNeeded, type CredentialField } from "../lib/connector";
 import { About } from "../components/about";
 
 export const Route = createFileRoute("/_app/catalog/$slug")({
   component: AdapterPage,
 });
-
-// The adapter document is served as raw JSON described by the published
-// JSON Schema; only the parts this page needs are typed here.
-interface AdapterDoc {
-  metadata: { slug: string; name: string; description: string; docsUrl: string; category: string; region: string };
-  credentials?: Record<string, { required: boolean; secret?: boolean; description?: string }>;
-  transport: { type: string; baseUrl?: string; dsn?: string };
-  auth: { type: string; optional?: boolean };
-  instructions?: string;
-  tools: { name: string; description: string; annotations?: { readOnlyHint?: boolean } }[];
-}
 
 function AdapterPage() {
   const { slug } = Route.useParams();
@@ -39,7 +28,9 @@ function AdapterPage() {
   // An unknown slug is an answer, not a hiccup: asking again would only
   // keep the page saying "Loading" while the same 404 comes back.
   const q = useQuery({ ...catalogGetOptions({ path: { slug } }), retry: (n, e) => n < 1 && status(e) !== 404 });
-  const a = q.data as unknown as AdapterDoc | undefined;
+  // Served as raw JSON described by the published adapter schema, not the
+  // API's, so it is checked before anything reads it.
+  const a = useMemo(() => (q.data === undefined ? undefined : parseAdapter(q.data)), [q.data]);
   // One value per declared credential, filled in before the adapter is
   // installed. They are sealed on the way into the database and never come
   // back out, so this form is the only place they are seen.
@@ -66,17 +57,24 @@ function AdapterPage() {
       </NotFound>
     );
   }
-  if (!a) {
+  if (q.error) {
     return (
       <div role="alert" className="rounded-md bg-kumo-tint px-4 py-3 ring ring-kumo-line">
         <Text>{message(q.error)}</Text>
       </div>
     );
   }
+  if (!a) {
+    return (
+      <div role="alert" className="rounded-md bg-kumo-tint px-4 py-3 ring ring-kumo-line">
+        <Text>This server's description of the {slug} adapter is not in a form this page can read.</Text>
+      </div>
+    );
+  }
 
   const creds: CredentialField[] = Object.entries(a.credentials ?? {}).map(([name, c]) => ({
     name,
-    required: c.required,
+    required: c.required ?? false,
     secret: c.secret !== false,
     description: c.description,
   }));
@@ -102,10 +100,15 @@ function AdapterPage() {
           <Text>{a.metadata.description}</Text>
           <Text as="span" variant="secondary">
             {a.transport.type} · {a.auth.type}
-            {a.auth.optional ? " (optional)" : ""} · {a.tools.length} tools ·{" "}
-            <a href={a.metadata.docsUrl} className="underline" target="_blank" rel="noreferrer">
-              docs
-            </a>
+            {a.auth.optional ? " (optional)" : ""} · {a.tools.length} tools
+            {a.metadata.docsUrl && (
+              <>
+                {" · "}
+                <a href={a.metadata.docsUrl} className="underline" target="_blank" rel="noreferrer">
+                  docs
+                </a>
+              </>
+            )}
           </Text>
         </div>
         <div className="flex items-center gap-1">
