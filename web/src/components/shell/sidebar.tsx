@@ -1,3 +1,4 @@
+import { useEffect, useEffectEvent } from "react";
 import { Sidebar, Text, useSidebar } from "@cloudflare/kumo";
 import { Hexagon, List } from "@phosphor-icons/react";
 import { useSession } from "../../lib/session";
@@ -17,6 +18,7 @@ export const sidebarBreakpoint = 1024;
 export function AppSidebar() {
   const { session } = useSession();
   const { isMobile } = useSidebar();
+  useSheetPutAwayAcrossBreakpoint();
   const workspace = session?.organization?.name ?? "No workspace";
   return (
     // On a narrow screen the sheet is the menu the top bar's button opens,
@@ -51,6 +53,28 @@ export function AppSidebar() {
       </Sidebar.Footer>
     </Sidebar>
   );
+}
+
+/**
+ * Puts the narrow-screen sheet away whenever the window crosses the
+ * breakpoint, either way. Kumo keeps the sheet's open state while the
+ * sidebar sits beside the content, so a sheet left open, the window
+ * widened and then narrowed again would come back by itself over the
+ * screen.
+ */
+function useSheetPutAwayAcrossBreakpoint() {
+  const { setOpenMobile } = useSidebar();
+  // Kumo's own listener on the same query runs first and re-renders at
+  // once, which hands out a new setOpenMobile; a subscription keyed on it
+  // would be removed before the event reached it. So the listener stays
+  // for the life of the sidebar and reads the current setter when called.
+  const putAway = useEffectEvent(() => setOpenMobile(false));
+  useEffect(() => {
+    const narrow = window.matchMedia(`(max-width: ${sidebarBreakpoint - 1}px)`);
+    const onCross = () => putAway();
+    narrow.addEventListener("change", onCross);
+    return () => narrow.removeEventListener("change", onCross);
+  }, []);
 }
 
 /**

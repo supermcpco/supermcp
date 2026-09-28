@@ -98,6 +98,18 @@ test("on a narrow window the navigation opens from the Menu button", async ({ pa
   await nav.getByRole("link", { name: "Catalog" }).click();
   await expect(page.getByRole("heading", { name: "Catalog", level: 1 })).toBeVisible();
   await expect(nav).toBeHidden();
+
+  // A sheet left open while the window is widened past the breakpoint is
+  // put away, so narrowing the window again does not bring it back.
+  await menu.click();
+  await expect(sheet).toBeVisible();
+  await page.setViewportSize({ width: 1280, height: 700 });
+  await expect(page.getByRole("complementary", { name: "Sidebar" })).toBeVisible();
+  await expect(menu).toHaveCount(0);
+  await page.setViewportSize({ width: 900, height: 700 });
+  await expect(menu).toHaveAttribute("aria-expanded", "false");
+  await expect(sheet).toBeHidden();
+  await expect(nav).toBeHidden();
 });
 
 test("the sidebar collapses to icons and remembers it after a reload", async ({ page, workspace }) => {
