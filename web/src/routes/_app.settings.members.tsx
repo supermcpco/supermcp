@@ -252,7 +252,9 @@ function Workspace() {
   const canRename = can("org:update");
 
   return (
-    <section className="grid gap-3" aria-labelledby="workspace-heading">
+    // Held with its card to the forms' width, so the Rename button sits by
+    // the name it changes rather than at the far edge of a wide screen.
+    <section className="grid max-w-3xl gap-3" aria-labelledby="workspace-heading">
       <HeaderWithAction
         action={
           canRename ? (
@@ -272,7 +274,7 @@ function Workspace() {
           Workspace
         </Text>
       </HeaderWithAction>
-      <dl className="grid max-w-3xl gap-x-6 gap-y-1 rounded-lg px-5 py-4 ring ring-kumo-line sm:grid-cols-[max-content_1fr]">
+      <dl className="grid gap-x-6 gap-y-1 rounded-lg px-5 py-4 ring ring-kumo-line sm:grid-cols-[max-content_1fr]">
         <dt>
           <Text as="span" variant="secondary">
             Name

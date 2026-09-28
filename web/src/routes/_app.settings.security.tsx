@@ -97,14 +97,14 @@ function Profile() {
   const changed = name.trim() !== saved.trim();
 
   return (
-    <section className="grid gap-3" aria-labelledby="profile-heading">
+    <section className="grid max-w-3xl gap-3" aria-labelledby="profile-heading">
       <div className="grid gap-1">
         <Text as="h3" variant="heading" id="profile-heading">
           Profile
         </Text>
         <Text variant="secondary">Your name is what other people in this workspace see, and what the sidebar shows.</Text>
       </div>
-      <div className="grid max-w-3xl gap-4 rounded-lg px-5 py-4 ring ring-kumo-line">
+      <div className="grid gap-4 rounded-lg px-5 py-4 ring ring-kumo-line">
         <dl className="grid gap-x-6 gap-y-1 sm:grid-cols-[max-content_1fr]">
           <dt>
             <Text as="span" variant="secondary">
@@ -134,7 +134,7 @@ function Profile() {
         >
           <div className="flex flex-wrap items-end gap-3">
             <LabelledInput
-              labelClassName="grid flex-1 gap-1.5"
+              labelClassName="grid min-w-48 max-w-sm flex-1 gap-1.5"
               label="Name"
               autoComplete="name"
               placeholder="How you want to be shown"
@@ -175,9 +175,12 @@ function Sessions() {
   });
 
   return (
-    <section className="grid gap-3">
+    // Held to the width of the forms above it: a row is a device and one line
+    // about it, with nothing to spread into columns, and at full width its
+    // Sign out button ends up a screen away from the device it signs out.
+    <section className="grid max-w-3xl gap-3" aria-labelledby="sessions-heading">
       <div className="grid gap-1">
-        <Text as="h3" variant="heading">
+        <Text as="h3" variant="heading" id="sessions-heading">
           Where you are signed in
         </Text>
         <Text variant="secondary">End a session you do not recognise, and that device has to sign in again.</Text>
@@ -255,9 +258,9 @@ function PasswordPolicy() {
   const editable = can("org:settings:manage");
 
   return (
-    <section className="grid gap-3">
+    <section className="grid max-w-3xl gap-3" aria-labelledby="password-rules-heading">
       <div className="grid gap-1">
-        <Text as="h3" variant="heading">
+        <Text as="h3" variant="heading" id="password-rules-heading">
           Password rules for this workspace
         </Text>
         <Text variant="secondary">
@@ -265,16 +268,17 @@ function PasswordPolicy() {
         </Text>
       </div>
       <form
-        className="grid max-w-3xl gap-3 rounded-lg px-5 py-4 ring ring-kumo-line"
+        className="grid gap-3 rounded-lg px-5 py-4 ring ring-kumo-line"
         onSubmit={(e) => {
           e.preventDefault();
           save.mutate({ body: form });
         }}
       >
-        <div className="flex flex-wrap gap-3">
+        <div className="flex flex-wrap items-end gap-3">
           <LabelledInput
             label="Minimum length"
             type="number"
+            className="w-24"
             min={8}
             max={256}
             disabled={!editable}
@@ -284,6 +288,7 @@ function PasswordPolicy() {
           <LabelledInput
             label="Character classes"
             type="number"
+            className="w-24"
             min={1}
             max={4}
             disabled={!editable}
@@ -293,6 +298,7 @@ function PasswordPolicy() {
           <LabelledInput
             label="Passwords remembered"
             type="number"
+            className="w-24"
             min={0}
             max={24}
             disabled={!editable}
@@ -302,23 +308,22 @@ function PasswordPolicy() {
           <LabelledInput
             label="Expires after (days)"
             type="number"
+            className="w-24"
             min={0}
             max={3650}
             disabled={!editable}
             value={form.maxAgeDays}
             onChange={(e) => setForm({ ...form, maxAgeDays: Number(e.target.value) })}
           />
+          {editable && (
+            <Button type="submit" variant="primary" disabled={save.isPending}>
+              Save rules
+            </Button>
+          )}
         </div>
         <Text variant="secondary">
           Of lower case, upper case, digits and symbols, a password must use this many. Zero days never expires.
         </Text>
-        {editable && (
-          <div>
-            <Button type="submit" variant="primary" disabled={save.isPending}>
-              Save rules
-            </Button>
-          </div>
-        )}
       </form>
       {error && (
         <div role="alert">
