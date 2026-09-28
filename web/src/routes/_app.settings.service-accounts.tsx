@@ -187,7 +187,7 @@ function ServiceAccounts() {
           </li>
         ))}
       </ul>
-      {accounts.data?.accounts?.length === 0 && <EmptyState action={newAccount}>No service accounts yet.</EmptyState>}
+      {accounts.data?.accounts?.length === 0 && <EmptyState>No service accounts yet.</EmptyState>}
 
       <ConfirmDialog
         open={asking}

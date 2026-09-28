@@ -88,7 +88,7 @@ function Tools() {
       {tools.isPending ? (
         <Loading />
       ) : tools.isSuccess && list.length === 0 ? (
-        <EmptyState title="No tools yet" as="h3" action={addTool}>
+        <EmptyState title="No tools yet" as="h3">
           This connector offers nothing a model can call yet.
         </EmptyState>
       ) : (

@@ -271,7 +271,7 @@ function SingleSignOn() {
             </li>
           ))}
         </ul>
-        {idps.data?.providers?.length === 0 && <EmptyState action={addOidc}>No providers yet.</EmptyState>}
+        {idps.data?.providers?.length === 0 && <EmptyState>No providers yet.</EmptyState>}
       </section>
 
       {edited && (
@@ -719,7 +719,7 @@ function SamlSection() {
           </li>
         ))}
       </ul>
-      {providers.data?.providers?.length === 0 && <EmptyState action={addSaml}>No SAML providers yet.</EmptyState>}
+      {providers.data?.providers?.length === 0 && <EmptyState>No SAML providers yet.</EmptyState>}
 
       <FormDialog
         open={adding}

@@ -86,7 +86,7 @@ function APIKeys() {
         </div>
       )}
       {keys.isSuccess && list.length === 0 && (
-        <EmptyState title="No API keys yet" action={createKey}>
+        <EmptyState title="No API keys yet">
           Create one for each AI client, so each can be revoked on its own.
         </EmptyState>
       )}

@@ -95,13 +95,13 @@ export function AnalyticsPanel({
         {usage.isPending && <Loading />}
         {report && report.totals.calls === 0 && (
           <EmptyState
+            title="No calls in this period"
             action={
               wider && (
                 <Button onClick={() => onSearch({ range: wider })}>Show the {rangeLabels[wider].toLowerCase()}</Button>
               )
             }
           >
-            <strong className="block font-semibold text-kumo-default">No calls in this period</strong>
             {wider
               ? "Nothing called a tool in this workspace over the period picked."
               : "Nothing called a tool in this workspace over the last 90 days, the longest period kept here."}
