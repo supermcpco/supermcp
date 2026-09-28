@@ -1,5 +1,5 @@
 import { test, expect, expectAccessible, closeSecret, createKey, createServer } from "./fixtures";
-import type { APIRequestContext } from "@playwright/test";
+import type { APIRequestContext, Page } from "@playwright/test";
 
 // The overview is what a new workspace lands on. Until the workspace can
 // serve a client it is a list of what is left to do, each step ticking
@@ -98,17 +98,16 @@ async function callTool(request: APIRequestContext, serverId: string, key: strin
   return res.text();
 }
 
-test("the overview counts the day's calls from the summary", async ({ page, request, workspace }) => {
-  expect(workspace.email).toBeTruthy();
-  const api = page.request;
+/**
+ * Installs a connector with a tool that answers without leaving the
+ * instance, and returns what a call to it needs.
+ */
+async function echoConnector(page: Page) {
   await page.goto("/catalog/bundesbank");
   await page.getByRole("button", { name: "Install" }).click();
   await expect(page).toHaveURL(/\/connectors\/[^/]+$/);
   const connectorId = new URL(page.url()).pathname.split("/").pop() as string;
-
-  // A tool that answers without leaving the instance, and a rule that
-  // refuses an email address in its arguments, so one call can fail.
-  const tool = await api.post(`/api/v1/connectors/${connectorId}/tools`, {
+  const tool = await page.request.post(`/api/v1/connectors/${connectorId}/tools`, {
     data: {
       definition: JSON.stringify({
         name: "overview_echo",
@@ -119,11 +118,20 @@ test("the overview counts the day's calls from the summary", async ({ page, requ
     },
   });
   expect(tool.ok(), await tool.text()).toBeTruthy();
-  const rule = await api.post("/api/v1/dlp/policies", {
+  return { connectorId, toolId: (await tool.json()).tool.id as string };
+}
+
+test("the overview counts the day's calls from the summary", async ({ page, request, workspace }) => {
+  expect(workspace.email).toBeTruthy();
+  const { connectorId, toolId } = await echoConnector(page);
+
+  // A rule that refuses an email address in the echo tool's arguments, so
+  // one call can fail.
+  const rule = await page.request.post("/api/v1/dlp/policies", {
     data: {
       name: "No addresses to the echo tool",
       connectorId,
-      toolId: (await tool.json()).tool.id,
+      toolId,
       scan: "arguments",
       detectors: ["email"],
       action: "refuse",
@@ -159,4 +167,25 @@ test("the overview counts the day's calls from the summary", async ({ page, requ
   await expect(page.getByRole("heading", { name: "Recent tool calls" })).toBeVisible();
   await expect(main.getByRole("cell", { name: "overview_echo" })).toHaveCount(3);
   await expectAccessible(page);
+});
+
+test("the overview's recent calls lead to their connector", async ({ page, request, workspace }) => {
+  expect(workspace.email).toBeTruthy();
+  const { connectorId } = await echoConnector(page);
+  const serverId = await createServer(page, "Recent calls server", [/Deutsche Bundesbank Statistics/]);
+  const secret = await createKey(page, "Recent calls key");
+  await closeSecret(page);
+  expect(await callTool(request, serverId, secret, "overview_echo", "one")).toContain("echo");
+
+  await page.goto("/");
+  const recent = page.getByRole("region", { name: "Recent tool calls" });
+  const row = recent.getByRole("row").filter({ has: page.getByRole("cell", { name: "overview_echo" }) });
+  await expect(row).toHaveCount(1);
+  const link = row.getByRole("link", { name: "Deutsche Bundesbank Statistics", exact: true });
+  await expect(link).toHaveAttribute("href", `/connectors/${connectorId}`);
+  await expectAccessible(page);
+
+  await link.click();
+  await expect(page).toHaveURL(new RegExp(`/connectors/${connectorId}$`));
+  await expect(page.getByRole("heading", { name: "Deutsche Bundesbank Statistics", level: 1 })).toBeVisible();
 });

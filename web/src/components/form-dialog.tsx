@@ -20,6 +20,7 @@ export function FormDialog({
   submitLabel,
   pending,
   error,
+  errorAction,
   canSubmit = true,
   onSubmit,
   size = "lg",
@@ -32,6 +33,8 @@ export function FormDialog({
   submitLabel: string;
   pending: boolean;
   error: string | null;
+  /** The way past the refusal, when there is one (reading a changed record again), shown with it. */
+  errorAction?: ReactNode;
   /** False while the form is not worth sending yet (a required choice left open). */
   canSubmit?: boolean;
   onSubmit: () => void;
@@ -59,8 +62,9 @@ export function FormDialog({
         >
           {children}
           {error && (
-            <div role="alert" className="rounded-md bg-kumo-tint px-4 py-3 ring ring-kumo-line">
+            <div role="alert" className="grid justify-items-start gap-2 rounded-md bg-kumo-tint px-4 py-3 ring ring-kumo-line">
               <Text>{error}</Text>
+              {errorAction}
             </div>
           )}
           <div className="flex flex-wrap justify-end gap-2">

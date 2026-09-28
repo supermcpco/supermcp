@@ -1,7 +1,7 @@
 import { useId, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button, Collapsible, Dialog, DialogRoot, DialogTitle, Input, Text } from "@cloudflare/kumo";
+import { Button, Collapsible, Dialog, DialogRoot, DialogTitle, Text } from "@cloudflare/kumo";
 import {
   connectorsListOptions,
   serversCreateMutation,
@@ -16,6 +16,7 @@ import { message } from "../lib/errors";
 import { toast } from "../components/shell/toast";
 import { ConnectClient, Endpoint } from "../components/connect-client";
 import { EmptyState, HeaderWithAction } from "../components/form-dialog";
+import { LabelledInput } from "../components/labelled-input";
 
 export const Route = createFileRoute("/_app/servers")({
   component: Servers,
@@ -139,10 +140,7 @@ function NewServerForm({ onDone }: { onDone: () => void }) {
         create.mutate({ body: { name, connectorIds: picked } });
       }}
     >
-      <label className="grid gap-1.5">
-        <Text as="span">Name</Text>
-        <Input required value={name} onChange={(e) => setName(e.target.value)} placeholder="Support desk" />
-      </label>
+      <LabelledInput label="Name" required value={name} onChange={(e) => setName(e.target.value)} placeholder="Support desk" />
       <fieldset className="grid gap-1.5">
         <legend>
           <Text as="span">Connectors</Text>

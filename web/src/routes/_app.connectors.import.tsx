@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Button, Input, Text, Textarea } from "@cloudflare/kumo";
+import { Button, Text, Textarea } from "@cloudflare/kumo";
 import { ArrowLeft } from "@phosphor-icons/react";
 import { connectorsImportMutation, connectorsListQueryKey } from "../api/@tanstack/react-query.gen";
 import type { ErrorDetail, ImportFinding, ImportOutputBody } from "../api";
@@ -10,6 +10,7 @@ import { Badge } from "../lib/ui";
 import { message } from "../lib/errors";
 import { About, HeadingWithAbout } from "../components/about";
 import { toast } from "../components/shell/toast";
+import { LabelledInput } from "../components/labelled-input";
 
 export const Route = createFileRoute("/_app/connectors/import")({
   component: ImportConnector,
@@ -213,15 +214,13 @@ function ImportConnector() {
             />
           </label>
         ) : (
-          <label className="grid gap-1.5">
-            <Text as="span">{shape.urlLabel}</Text>
-            <Input
-              type="url"
-              placeholder={shape.urlPlaceholder}
-              value={docUrl}
-              onChange={(e) => revise(() => setDocUrl(e.target.value))}
-            />
-          </label>
+          <LabelledInput
+            label={shape.urlLabel}
+            type="url"
+            placeholder={shape.urlPlaceholder}
+            value={docUrl}
+            onChange={(e) => revise(() => setDocUrl(e.target.value))}
+          />
         )}
 
         {format === "graphql" && (
@@ -239,31 +238,25 @@ function ImportConnector() {
         )}
 
         <div className="grid gap-3 sm:grid-cols-3">
-          <label className="grid gap-1.5">
-            <Text as="span">Connector name</Text>
-            <Input
-              placeholder={shape.namePlaceholder}
-              value={name}
-              onChange={(e) => revise(() => setName(e.target.value))}
-            />
-          </label>
-          <label className="grid gap-1.5">
-            <Text as="span">Tool name prefix</Text>
-            <Input
-              pattern="[a-z0-9]+(-[a-z0-9]+)*"
-              placeholder="Lower case, words joined by hyphens"
-              value={slug}
-              onChange={(e) => revise(() => setSlug(e.target.value))}
-            />
-          </label>
-          <label className="grid gap-1.5">
-            <Text as="span">{format === "graphql" ? "Endpoint" : "Base URL"}</Text>
-            <Input
-              placeholder={shape.serverPlaceholder}
-              value={serverUrl}
-              onChange={(e) => revise(() => setServerUrl(e.target.value))}
-            />
-          </label>
+          <LabelledInput
+            label="Connector name"
+            placeholder={shape.namePlaceholder}
+            value={name}
+            onChange={(e) => revise(() => setName(e.target.value))}
+          />
+          <LabelledInput
+            label="Tool name prefix"
+            pattern="[a-z0-9]+(-[a-z0-9]+)*"
+            placeholder="Lower case, words joined by hyphens"
+            value={slug}
+            onChange={(e) => revise(() => setSlug(e.target.value))}
+          />
+          <LabelledInput
+            label={format === "graphql" ? "Endpoint" : "Base URL"}
+            placeholder={shape.serverPlaceholder}
+            value={serverUrl}
+            onChange={(e) => revise(() => setServerUrl(e.target.value))}
+          />
         </div>
 
         <div>
@@ -392,15 +385,14 @@ function ImportConnector() {
               </div>
               <div className="grid gap-3 rounded-lg px-5 py-4 ring ring-kumo-line">
                 {needed.map((key) => (
-                  <label key={key} className="grid gap-1.5">
-                    <span className="font-mono text-[0.9em]">{key}</span>
-                    <Input
-                      type="password"
-                      autoComplete="off"
-                      value={credentials[key] ?? ""}
-                      onChange={(e) => setCredentials({ ...credentials, [key]: e.target.value })}
-                    />
-                  </label>
+                  <LabelledInput
+                    key={key}
+                    label={<span className="font-mono text-[0.9em]">{key}</span>}
+                    type="password"
+                    autoComplete="off"
+                    value={credentials[key] ?? ""}
+                    onChange={(e) => setCredentials({ ...credentials, [key]: e.target.value })}
+                  />
                 ))}
               </div>
             </section>

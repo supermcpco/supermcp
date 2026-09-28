@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Button, Input, Text } from "@cloudflare/kumo";
+import { Button, Text } from "@cloudflare/kumo";
 import { reauthenticateMutation, sessionQueryKey } from "../api/@tanstack/react-query.gen";
 import { message } from "../lib/errors";
 import { useSession } from "../lib/session";
+import { LabelledInput } from "./labelled-input";
 
 /**
  * What proving it is you again looks like for this session. A password
@@ -90,16 +91,14 @@ export function ReauthPrompt({
       }}
     >
       <Text>This action needs a sign-in from the last few minutes. Enter your password to continue.</Text>
-      <label className="grid gap-1.5">
-        <Text as="span">Password</Text>
-        <Input
-          type="password"
-          autoComplete="current-password"
-          required
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-        />
-      </label>
+      <LabelledInput
+        label="Password"
+        type="password"
+        autoComplete="current-password"
+        required
+        value={password}
+        onChange={(e) => setPassword(e.target.value)}
+      />
       {error && (
         <div role="alert">
           <Text>{error}</Text>

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button, Input, Text } from "@cloudflare/kumo";
+import { Button, Text } from "@cloudflare/kumo";
 import {
   getPasswordPolicyOptions,
   getPasswordPolicyQueryKey,
@@ -15,6 +15,7 @@ import { Badge } from "../lib/ui";
 import { message } from "../lib/errors";
 import { ChangePassword } from "../components/change-password";
 import { toast } from "../components/shell/toast";
+import { LabelledInput } from "../components/labelled-input";
 
 export const Route = createFileRoute("/_app/settings/security")({
   component: Security,
@@ -147,50 +148,42 @@ function PasswordPolicy() {
         }}
       >
         <div className="flex flex-wrap gap-3">
-          <label className="grid gap-1.5">
-            <Text as="span">Minimum length</Text>
-            <Input
-              type="number"
-              min={8}
-              max={256}
-              disabled={!editable}
-              value={form.minLength}
-              onChange={(e) => setForm({ ...form, minLength: Number(e.target.value) })}
-            />
-          </label>
-          <label className="grid gap-1.5">
-            <Text as="span">Character classes</Text>
-            <Input
-              type="number"
-              min={1}
-              max={4}
-              disabled={!editable}
-              value={form.requireClasses}
-              onChange={(e) => setForm({ ...form, requireClasses: Number(e.target.value) })}
-            />
-          </label>
-          <label className="grid gap-1.5">
-            <Text as="span">Passwords remembered</Text>
-            <Input
-              type="number"
-              min={0}
-              max={24}
-              disabled={!editable}
-              value={form.history}
-              onChange={(e) => setForm({ ...form, history: Number(e.target.value) })}
-            />
-          </label>
-          <label className="grid gap-1.5">
-            <Text as="span">Expires after (days)</Text>
-            <Input
-              type="number"
-              min={0}
-              max={3650}
-              disabled={!editable}
-              value={form.maxAgeDays}
-              onChange={(e) => setForm({ ...form, maxAgeDays: Number(e.target.value) })}
-            />
-          </label>
+          <LabelledInput
+            label="Minimum length"
+            type="number"
+            min={8}
+            max={256}
+            disabled={!editable}
+            value={form.minLength}
+            onChange={(e) => setForm({ ...form, minLength: Number(e.target.value) })}
+          />
+          <LabelledInput
+            label="Character classes"
+            type="number"
+            min={1}
+            max={4}
+            disabled={!editable}
+            value={form.requireClasses}
+            onChange={(e) => setForm({ ...form, requireClasses: Number(e.target.value) })}
+          />
+          <LabelledInput
+            label="Passwords remembered"
+            type="number"
+            min={0}
+            max={24}
+            disabled={!editable}
+            value={form.history}
+            onChange={(e) => setForm({ ...form, history: Number(e.target.value) })}
+          />
+          <LabelledInput
+            label="Expires after (days)"
+            type="number"
+            min={0}
+            max={3650}
+            disabled={!editable}
+            value={form.maxAgeDays}
+            onChange={(e) => setForm({ ...form, maxAgeDays: Number(e.target.value) })}
+          />
         </div>
         <Text variant="secondary">
           Of lower case, upper case, digits and symbols, a password must use this many. Zero days never expires.

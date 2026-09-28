@@ -1,11 +1,12 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Input, Text } from "@cloudflare/kumo";
+import { Text } from "@cloudflare/kumo";
 import { previewRole, type PermissionGroupDto, type RoleDto } from "../api";
 import { createRoleMutation, updateRoleMutation } from "../api/@tanstack/react-query.gen";
 import { message } from "../lib/errors";
 import { toast } from "./shell/toast";
 import { FormDialog } from "./form-dialog";
+import { LabelledInput } from "./labelled-input";
 
 /** Somebody the preview can be worked out for. */
 export interface Holder {
@@ -115,18 +116,13 @@ export function RoleEditor({
       onSubmit={submit}
     >
       <div className="grid gap-3 sm:grid-cols-2">
-        <label className="grid gap-1.5">
-          <Text as="span">Name</Text>
-          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Support engineer" required />
-        </label>
-        <label className="grid gap-1.5">
-          <Text as="span">Who it is for</Text>
-          <Input
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="People who answer customer questions"
-          />
-        </label>
+        <LabelledInput label="Name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Support engineer" required />
+        <LabelledInput
+          label="Who it is for"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          placeholder="People who answer customer questions"
+        />
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">

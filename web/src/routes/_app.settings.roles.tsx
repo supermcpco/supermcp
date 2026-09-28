@@ -1,7 +1,7 @@
 import { Fragment, useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button, Input, Text } from "@cloudflare/kumo";
+import { Button, Text } from "@cloudflare/kumo";
 import { CaretDown, CaretRight } from "@phosphor-icons/react";
 import {
   createRoleBindingMutation,
@@ -27,6 +27,7 @@ import { toast } from "../components/shell/toast";
 import { HeaderWithAction } from "../components/form-dialog";
 import { ConfirmDialog } from "../components/confirm-dialog";
 import { Help, HeadingWithHelp } from "../components/help";
+import { LabelledInput } from "../components/labelled-input";
 
 export const Route = createFileRoute("/_app/settings/roles")({
   component: Roles,
@@ -412,14 +413,14 @@ function Roles() {
                                       </select>
                                     </label>
                                   ) : (
-                                    <label className="grid flex-1 gap-1.5">
-                                      <Text as="span">Person</Text>
-                                      <Input
-                                        list={`people-${role.id}`}
-                                        value={principal}
-                                        onChange={(e) => setPrincipal(e.target.value)}
-                                        placeholder="Name or user id"
-                                      />
+                                    <LabelledInput
+                                      labelClassName="grid flex-1 gap-1.5"
+                                      label="Person"
+                                      list={`people-${role.id}`}
+                                      value={principal}
+                                      onChange={(e) => setPrincipal(e.target.value)}
+                                      placeholder="Name or user id"
+                                    >
                                       <datalist id={`people-${role.id}`}>
                                         {people.map((p) => (
                                           <option key={p.id} value={p.id}>
@@ -427,7 +428,7 @@ function Roles() {
                                           </option>
                                         ))}
                                       </datalist>
-                                    </label>
+                                    </LabelledInput>
                                   )}
                                   <Button type="submit" variant="primary" disabled={grant.isPending || !principal}>
                                     Give this role

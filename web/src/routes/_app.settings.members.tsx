@@ -30,6 +30,7 @@ import {
   relativeTime,
   sourceLabel,
 } from "../lib/members";
+import { LabelledInput } from "../components/labelled-input";
 
 export const Route = createFileRoute("/_app/settings/members")({
   component: Members,
@@ -475,17 +476,15 @@ function InviteDialog({
         create.mutate({ body: { email: email.trim(), roleId, expiresInDays: expiryDays(days) } });
       }}
     >
-      <label className="grid gap-1.5">
-        <Text as="span">Email</Text>
-        <Input
-          type="email"
-          required
-          autoComplete="off"
-          value={email}
-          onChange={(e) => setEmail(e.currentTarget.value)}
-          placeholder="ada@example.com"
-        />
-      </label>
+      <LabelledInput
+        label="Email"
+        type="email"
+        required
+        autoComplete="off"
+        value={email}
+        onChange={(e) => setEmail(e.currentTarget.value)}
+        placeholder="ada@example.com"
+      />
       {/* Labelled by id rather than by wrapping: a wrapped control's
           value becomes part of its name, and "Role Choose a role" helps
           nobody. */}
@@ -509,11 +508,12 @@ function InviteDialog({
         </select>
       </div>
       <div className="grid gap-1.5">
-        <label htmlFor={`${ids}-days`}>
+        <label htmlFor={`${ids}-days`} id={`${ids}-days-label`}>
           <Text as="span">Link works for (days)</Text>
         </label>
         <Input
           id={`${ids}-days`}
+          aria-labelledby={`${ids}-days-label`}
           type="number"
           min={1}
           max={maxExpiryDays}

@@ -1,7 +1,7 @@
 import { useEffect, useId, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { Input, Text } from "@cloudflare/kumo";
+import { Text } from "@cloudflare/kumo";
 import { auditListOptions, auditVerifyOptions } from "../api/@tanstack/react-query.gen";
 import {
   auditCategories,
@@ -14,6 +14,7 @@ import {
 import { useDebounced } from "../lib/debounce";
 import { useSession } from "../lib/session";
 import { Badge } from "../lib/ui";
+import { LabelledInput } from "../components/labelled-input";
 
 /**
  * The trail itself: whether its chain still verifies, the filters, the
@@ -94,26 +95,23 @@ function AuditLog() {
             ))}
           </select>
         </label>
-        <label className="grid flex-1 gap-1.5">
-          <Text as="span">Actor</Text>
-          <Input
-            value={draft.actor}
-            onChange={(e) => setDraft((d) => ({ ...d, actor: e.target.value }))}
-            placeholder="User id"
-          />
-        </label>
+        <LabelledInput
+          labelClassName="grid flex-1 gap-1.5"
+          label="Actor"
+          value={draft.actor}
+          onChange={(e) => setDraft((d) => ({ ...d, actor: e.target.value }))}
+          placeholder="User id"
+        />
         <div className="grid flex-[2] gap-1.5">
-          <label className="grid gap-1.5">
-            <Text as="span">Search</Text>
-            <Input
-              type="search"
-              value={draft.q}
-              maxLength={auditSearchMax}
-              onChange={(e) => setDraft((d) => ({ ...d, q: e.target.value }))}
-              placeholder='connector.created, "quarterly review", -denied'
-              aria-describedby={searchHint}
-            />
-          </label>
+          <LabelledInput
+            label="Search"
+            type="search"
+            value={draft.q}
+            maxLength={auditSearchMax}
+            onChange={(e) => setDraft((d) => ({ ...d, q: e.target.value }))}
+            placeholder='connector.created, "quarterly review", -denied'
+            aria-describedby={searchHint}
+          />
           <Text as="span" variant="secondary" id={searchHint}>
             Whole words, any case. An export records its search in the trail, so do not search for a secret.
           </Text>

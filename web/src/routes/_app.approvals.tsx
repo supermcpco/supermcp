@@ -25,6 +25,7 @@ import { HistoryPanel } from "../components/revisions";
 import { toast } from "../components/shell/toast";
 import { EmptyState, FormDialog, HeaderWithAction } from "../components/form-dialog";
 import { About, HeadingWithAbout } from "../components/about";
+import { LabelledInput } from "../components/labelled-input";
 
 export const Route = createFileRoute("/_app/approvals")({
   component: Approvals,
@@ -352,10 +353,7 @@ function Rules() {
             })
           }
         >
-          <label className="grid gap-1">
-            <Text as="span">What it is for</Text>
-            <Input value={name} onChange={(e) => setName(e.currentTarget.value)} required maxLength={200} />
-          </label>
+          <LabelledInput labelClassName="grid gap-1" label="What it is for" value={name} onChange={(e) => setName(e.currentTarget.value)} required maxLength={200} />
           <label className="grid gap-1">
             <Text as="span">Where it applies</Text>
             <select className={selectClass} value={scopeId} onChange={(e) => setScopeId(e.currentTarget.value)}>
@@ -379,10 +377,7 @@ function Rules() {
             </select>
           </label>
           {trigger === "tool" && (
-            <label className="grid gap-1">
-              <Text as="span">Tool name</Text>
-              <Input value={toolName} onChange={(e) => setToolName(e.currentTarget.value)} required />
-            </label>
+            <LabelledInput labelClassName="grid gap-1" label="Tool name" value={toolName} onChange={(e) => setToolName(e.currentTarget.value)} required />
           )}
         </FormDialog>
       )}
