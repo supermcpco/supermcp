@@ -181,3 +181,50 @@ test("a tab left open is sent to sign in when it is looked at again after signin
   expect(where(page)).toEqual({ path: "/login", next: "/connectors" });
   await expect(page.getByRole("navigation", { name: "Primary" })).toHaveCount(0);
 });
+
+/** Whether anything on the page is wider than the window. */
+function overflows(page: Page) {
+  return page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
+}
+
+test("the sign-in card lays out for phone and desktop", async ({ browser }) => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const page = await context.newPage();
+  const about = page.getByRole("region", { name: "About supermcp" });
+
+  // A phone: one column, the name above the card, nothing to scroll sideways.
+  await page.goto("/login");
+  const signIn = page.getByRole("form", { name: "Sign in" });
+  await expect(signIn).toBeVisible();
+  await expect(page.getByText("supermcp", { exact: true }).filter({ visible: true })).toHaveCount(1);
+  await expect(about).toBeHidden();
+  expect(await overflows(page)).toBe(false);
+  await page.getByRole("button", { name: "Create a workspace" }).click();
+  await expect(page.getByRole("form", { name: "Create your workspace" })).toBeVisible();
+  expect(await overflows(page)).toBe(false);
+
+  // A desktop: what the product does on the left, the card on the right.
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.getByRole("button", { name: "Sign in instead" }).click();
+  await expect(about).toBeVisible();
+  await expect(about).toContainText("Turn the systems you already run into tools for Claude, ChatGPT and Copilot.");
+  const panel = await about.boundingBox();
+  const card = await signIn.boundingBox();
+  expect(panel && card && panel.x + panel.width <= card.x).toBe(true);
+  expect(await overflows(page)).toBe(false);
+
+  // Both forms read and contrast properly in either scheme.
+  for (const colorScheme of ["light", "dark"] as const) {
+    await page.emulateMedia({ colorScheme });
+    await expect
+      .poll(() => page.evaluate(() => getComputedStyle(document.documentElement).colorScheme))
+      .toBe(colorScheme);
+    await expect(page.getByRole("form", { name: "Sign in" })).toBeVisible();
+    await expectAccessible(page);
+    await page.getByRole("button", { name: "Create a workspace" }).click();
+    await expect(page.getByRole("form", { name: "Create your workspace" })).toBeVisible();
+    await expectAccessible(page);
+    await page.getByRole("button", { name: "Sign in instead" }).click();
+  }
+  await context.close();
+});
