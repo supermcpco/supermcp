@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useMutation, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { Button, Text } from "@cloudflare/kumo";
 import { changePasswordMutation } from "../api/@tanstack/react-query.gen";
@@ -25,6 +25,7 @@ export function ChangePassword({
   const [next, setNext] = useState("");
   const [error, setError] = useState<string | null>(null);
   const qc = useQueryClient();
+  const headingId = useId();
 
   const change = useMutation({
     ...changePasswordMutation(),
@@ -40,22 +41,23 @@ export function ChangePassword({
   });
 
   return (
-    <section className="grid gap-3">
+    // Held to the width the other forms are, wherever it is shown.
+    <section className="grid max-w-3xl gap-3" aria-labelledby={headingId}>
       <div className="grid gap-1">
-        <Text as={level} variant="heading">
+        <Text as={level} variant="heading" id={headingId}>
           Change your password
         </Text>
         <Text variant="secondary">{intro}</Text>
       </div>
       <form
-        className="flex max-w-3xl flex-wrap items-end gap-3 rounded-lg px-5 py-4 ring ring-kumo-line"
+        className="flex flex-wrap items-end gap-3 rounded-lg px-5 py-4 ring ring-kumo-line"
         onSubmit={(e) => {
           e.preventDefault();
           change.mutate({ body: { currentPassword: current, newPassword: next } });
         }}
       >
         <LabelledInput
-          labelClassName="grid flex-1 gap-1.5"
+          labelClassName="grid min-w-48 max-w-sm flex-1 gap-1.5"
           label="Current password"
           type="password"
           autoComplete="current-password"
@@ -63,7 +65,7 @@ export function ChangePassword({
           onChange={(e) => setCurrent(e.target.value)}
         />
         <LabelledInput
-          labelClassName="grid flex-1 gap-1.5"
+          labelClassName="grid min-w-48 max-w-sm flex-1 gap-1.5"
           label="New password"
           required
           type="password"
