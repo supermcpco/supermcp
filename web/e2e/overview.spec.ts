@@ -52,7 +52,7 @@ test("a fresh workspace sees the setup checklist and each step completes as it i
   expect(await states()).toEqual(["Done", "Done", "Done", "To do"]);
   const endpoint = step("Connect a client").getByLabel("Endpoint of Checklist server", { exact: true });
   await expect(endpoint).toHaveValue(new RegExp(`/mcp/${serverId}$`));
-  await expect(step("Connect a client").getByRole("region", { name: "Claude Desktop config" })).toContainText(
+  await expect(step("Connect a client").getByRole("region", { name: "Claude Code config" })).toContainText(
     `/mcp/${serverId}`,
   );
   await expectAccessible(page);
