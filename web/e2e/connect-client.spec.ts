@@ -93,6 +93,12 @@ test("a new key's secret is shown once in a dialog with a connection snippet", a
   await expect(shown.getByLabel("Endpoint of Keyed server", { exact: true })).toHaveValue(
     new RegExp(`/mcp/${serverId}$`),
   );
+  // The field and its Copy button stand the same height, side by side.
+  const field = await shown.getByLabel("Endpoint of Keyed server", { exact: true }).boundingBox();
+  const copy = await shown.getByRole("button", { name: "Copy endpoint of Keyed server" }).boundingBox();
+  expect(field, "the endpoint field has no box").not.toBeNull();
+  expect(copy, "the endpoint's Copy button has no box").not.toBeNull();
+  expect(Math.abs((field?.height ?? 0) - (copy?.height ?? 0))).toBeLessThanOrEqual(1);
   // Claude Code, the default, carries the secret in its command.
   const code = shown.getByRole("region", { name: "Claude Code config" });
   await expect(code).toContainText(`/mcp/${serverId} --header "Authorization: Bearer ${secret}"`);
