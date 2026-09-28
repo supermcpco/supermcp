@@ -67,15 +67,6 @@ function Overview() {
           Overview
         </Text>
         <Text>Turn the systems you already run into tools for Claude, ChatGPT and Copilot.</Text>
-        {catalog.data && (
-          <Text variant="secondary">
-            The{" "}
-            <Link to="/catalog" className="underline">
-              catalog
-            </Link>{" "}
-            has {total} adapters, {keyless} of them needing no credentials.
-          </Text>
-        )}
       </div>
 
       {failed.map((q, i) => (
@@ -97,7 +88,11 @@ function Overview() {
             calls={callList}
           />
         ) : (
-          <Checklist steps={steps} firstServer={serverList?.[0]} />
+          <Checklist
+            steps={steps}
+            firstServer={serverList?.[0]}
+            catalog={catalog.data ? { total, keyless } : undefined}
+          />
         )}
       </div>
     </div>
@@ -108,7 +103,16 @@ function answered<T>(data: T[] | null | undefined): T[] | undefined {
   return data === null ? [] : data;
 }
 
-function Checklist({ steps, firstServer }: { steps: SetupStep[]; firstServer?: Server }) {
+function Checklist({
+  steps,
+  firstServer,
+  catalog,
+}: {
+  steps: SetupStep[];
+  firstServer?: Server;
+  /** How many adapters the catalog offers, said beside the step that opens it. */
+  catalog?: { total: number; keyless: number };
+}) {
   const doneCount = steps.filter((s) => s.done === true).length;
   const current = steps.find((s) => s.done !== true);
   return (
@@ -118,7 +122,7 @@ function Checklist({ steps, firstServer }: { steps: SetupStep[]; firstServer?: S
           <span id="setup-heading">Set up your workspace</span>
         </Text>
         <Text variant="secondary">
-          {doneCount} of {steps.length} steps done. Each one ticks as soon as it is done.
+          {doneCount} of {steps.length} steps done.
         </Text>
       </div>
       <ol className="grid gap-3">
@@ -143,6 +147,12 @@ function Checklist({ steps, firstServer }: { steps: SetupStep[]; firstServer?: S
                     <Link to={s.to} className="underline">
                       {s.action}
                     </Link>
+                    {s.id === "connector" && catalog && (
+                      <Text as="span" variant="secondary">
+                        {" "}
+                        · {catalog.total} adapters, {catalog.keyless} needing no credentials
+                      </Text>
+                    )}
                   </Text>
                 )}
                 {s === current && s.id === "client" && firstServer && (

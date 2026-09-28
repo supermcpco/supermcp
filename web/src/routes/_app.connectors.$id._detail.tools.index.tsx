@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button, Text } from "@cloudflare/kumo";
+import { Button, LinkButton, Text } from "@cloudflare/kumo";
 import type { ToolDto, ToolReferencesDto } from "../api";
 import {
   connectorsToolsOptions,
@@ -13,6 +13,8 @@ import { useSession } from "../lib/session";
 import { Badge, Loading } from "../lib/ui";
 import { message } from "../lib/errors";
 import { invalidateTool, isReferencesConflict } from "../lib/tool-api";
+import { EmptyState, HeaderWithAction } from "../components/form-dialog";
+import { About, HeadingWithAbout } from "../components/about";
 
 export const Route = createFileRoute("/_app/connectors/$id/_detail/tools/")({
   component: Tools,
@@ -46,24 +48,30 @@ function Tools() {
 
   const list = tools.data ?? [];
 
+  const addTool = canEdit && (
+    <LinkButton href={`/connectors/${id}/tools/new`} variant="primary">
+      Add tool
+    </LinkButton>
+  );
+
   return (
     <>
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="grid gap-1.5">
-          <Text as="h2" variant="heading3">
-            Tools
-          </Text>
-          <Text>
-            What a model can call through this connector. A tool that is switched off stays here but is not offered to
-            clients. Only tools made here can be deleted; one from the catalog or an import can be switched off instead.
-          </Text>
-        </div>
-        {canEdit && (
-          <Link to="/connectors/$id/tools/new" params={{ id }}>
-            <Button variant="primary">New tool</Button>
-          </Link>
-        )}
-      </div>
+      <HeaderWithAction action={addTool}>
+        <HeadingWithAbout
+          heading={
+            <Text as="h2" variant="heading3">
+              Tools
+            </Text>
+          }
+          about={
+            <About label="About tools">
+              <p>A tool that is switched off stays here but is not offered to clients.</p>
+              <p>Only tools made here can be deleted; one from the catalog or an import can be switched off instead.</p>
+            </About>
+          }
+        />
+        <Text>What a model can call through this connector.</Text>
+      </HeaderWithAction>
 
       {error && (
         <div role="alert" className="rounded-md bg-kumo-tint px-4 py-3 ring ring-kumo-line">
@@ -78,8 +86,10 @@ function Tools() {
 
       {tools.isPending ? (
         <Loading />
-      ) : list.length === 0 ? (
-        <Text variant="secondary">This connector has no tools yet.</Text>
+      ) : tools.isSuccess && list.length === 0 ? (
+        <EmptyState title="No tools yet" as="h3" action={addTool}>
+          This connector offers nothing a model can call yet.
+        </EmptyState>
       ) : (
         <ul className="grid gap-3">
           {list.map((t) => (

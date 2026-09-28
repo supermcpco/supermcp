@@ -14,6 +14,7 @@ import { Loading, NotFound } from "../lib/ui";
 import { toast } from "../components/shell/toast";
 import { CredentialFields } from "../components/credential-fields";
 import { stillNeeded, type CredentialField } from "../lib/connector";
+import { About } from "../components/about";
 
 export const Route = createFileRoute("/_app/catalog/$slug")({
   component: AdapterPage,
@@ -107,16 +108,23 @@ function AdapterPage() {
             </a>
           </Text>
         </div>
-        <Button
-          variant="primary"
-          disabled={!allowed || install.isPending || missing.length > 0}
-          onClick={() => {
-            setError(null);
-            install.mutate({ body: { slug, credentials: values } });
-          }}
-        >
-          {install.isPending ? "Installing…" : "Install"}
-        </Button>
+        <div className="flex items-center gap-1">
+          <About label="About adding this adapter">
+            <p>Installing creates a connector in this workspace with the tools listed below.</p>
+            {creds.length > 0 && <p>The credentials you enter are stored encrypted and never shown again.</p>}
+            <p>Then attach the connector to an MCP server, so an AI client can call its tools.</p>
+          </About>
+          <Button
+            variant="primary"
+            disabled={!allowed || install.isPending || missing.length > 0}
+            onClick={() => {
+              setError(null);
+              install.mutate({ body: { slug, credentials: values } });
+            }}
+          >
+            {install.isPending ? "Installing…" : "Install"}
+          </Button>
+        </div>
       </div>
 
       {error && (
@@ -131,9 +139,7 @@ function AdapterPage() {
             <Text as="h2" variant="heading3">
               Credentials
             </Text>
-            <Text variant="secondary">
-              Each value is encrypted with this workspace's own key before it is stored, and is never shown again.
-            </Text>
+            <Text variant="secondary">Each value is stored encrypted and never shown again.</Text>
           </div>
           <CredentialFields fields={creds} values={values} onChange={setValues} disabled={!allowed} />
         </section>

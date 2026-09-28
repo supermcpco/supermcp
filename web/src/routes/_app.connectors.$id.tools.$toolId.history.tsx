@@ -12,6 +12,7 @@ import { useSession } from "../lib/session";
 import { Loading, NotFound } from "../lib/ui";
 import { message, status } from "../lib/errors";
 import { RevisionList } from "../components/revisions";
+import { About, HeadingWithAbout } from "../components/about";
 import { blockingPolicies, invalidateTool, isReferencesConflict, type BlockingPolicy } from "../lib/tool-api";
 
 export const Route = createFileRoute("/_app/connectors/$id/tools/$toolId/history")({
@@ -69,13 +70,20 @@ function ToolHistory() {
       </Link>
 
       <div className="grid gap-1.5">
-        <Text as="h1" variant="heading2">
-          History
-        </Text>
-        <Text>
-          Every change to this tool, newest first: its name, its definition and whether it is offered. Restoring an
-          older version records the restore as a further change, and is checked the same way an edit is.
-        </Text>
+        <HeadingWithAbout
+          heading={
+            <Text as="h1" variant="heading2">
+              History
+            </Text>
+          }
+          about={
+            <About label="About history">
+              <p>A change is to the tool&rsquo;s name, its definition, or whether it is offered.</p>
+              <p>Restoring an older version records the restore as a further change, and is checked the same way an edit is.</p>
+            </About>
+          }
+        />
+        <Text>Every change to this tool, newest first.</Text>
       </div>
 
       {restore.error && (

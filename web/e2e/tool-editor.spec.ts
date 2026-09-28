@@ -75,7 +75,7 @@ test("a custom tool is built with a live preview, edited as JSON and deleted", a
   const connectorId = await installBundesbank(page);
 
   await page.goto(`/connectors/${connectorId}/tools`);
-  await page.getByRole("link", { name: "New tool" }).click();
+  await page.getByRole("link", { name: "Add tool" }).click();
   await expect(page.getByRole("heading", { name: "New tool" })).toBeVisible();
 
   await page.getByRole("textbox", { name: "Name", exact: true }).fill(customTool);

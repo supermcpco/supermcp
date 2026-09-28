@@ -12,10 +12,11 @@ import {
 } from "../api/@tanstack/react-query.gen";
 import type { ApiKeyDto, KeysCreateResponse, RotatedKeyDto } from "../api/types.gen";
 import { useSession } from "../lib/session";
-import { Badge } from "../lib/ui";
+import { Badge, Loading } from "../lib/ui";
 import { message } from "../lib/errors";
 import { toast } from "../components/shell/toast";
 import { CopyButton, ConnectClient } from "../components/connect-client";
+import { EmptyState, HeaderWithAction } from "../components/form-dialog";
 import { canRotate, defaultGraceSeconds, graceChoices, stopsWorking } from "../lib/key-rotation";
 
 export const Route = createFileRoute("/_app/api-keys")({
@@ -42,6 +43,7 @@ function APIKeys() {
   const { signedIn } = useSession();
   const qc = useQueryClient();
   const keys = useQuery({ ...keysListOptions(), enabled: signedIn, retry: false });
+  const list = keys.data ?? [];
   const [creating, setCreating] = useState(false);
   const [issued, setIssued] = useState<Issued | null>(null);
   const [rotating, setRotating] = useState<string | null>(null);
@@ -59,38 +61,27 @@ function APIKeys() {
 
   return (
     <div className="grid gap-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="grid gap-1.5">
-          <Text as="h1" variant="heading2">
-            API keys
-          </Text>
-          <Text>A key authenticates an AI client to your MCP servers. The secret is shown once, when you create it.</Text>
-        </div>
-        {createKey}
-      </div>
+      <HeaderWithAction action={createKey}>
+        <Text as="h1" variant="heading2">
+          API keys
+        </Text>
+        <Text>A key lets an AI client reach your MCP servers; its secret is shown once, when you create it.</Text>
+      </HeaderWithAction>
 
-      {keys.isPending && <Text>Loading…</Text>}
+      {keys.isPending && <Loading />}
       {keys.isError && (
         <div role="alert">
           <Text>{message(keys.error)}</Text>
         </div>
       )}
-      {keys.data?.length === 0 && (
-        <div className="rounded-lg px-5 py-8 text-center ring ring-kumo-line">
-          <div className="grid justify-items-center gap-3">
-            <div className="grid gap-1.5">
-              <Text as="h2" variant="heading3">
-                No API keys yet
-              </Text>
-              <Text variant="secondary">Create one for each AI client, so each can be revoked on its own.</Text>
-            </div>
-            {createKey}
-          </div>
-        </div>
+      {keys.isSuccess && list.length === 0 && (
+        <EmptyState title="No API keys yet" action={createKey}>
+          Create one for each AI client, so each can be revoked on its own.
+        </EmptyState>
       )}
 
       <ul className="grid gap-2">
-        {keys.data?.map((k) => (
+        {list.map((k) => (
           <li key={k.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg px-5 py-4 ring ring-kumo-line">
             <div className="grid gap-1">
               <div className="flex items-center gap-2">
@@ -178,6 +169,7 @@ function CreateKeyForm({ onCancel, onCreated }: { onCancel: () => void; onCreate
   const [name, setName] = useState("");
   const [purpose, setPurpose] = useState<keyof typeof purposes>("client");
   const [error, setError] = useState<string | null>(null);
+  const purposeId = useId();
 
   const create = useMutation({
     ...keysCreateMutation(),
@@ -204,9 +196,12 @@ function CreateKeyForm({ onCancel, onCreated }: { onCancel: () => void; onCreate
         <Text as="span">Name</Text>
         <Input required value={name} onChange={(e) => setName(e.target.value)} placeholder="Claude Desktop" />
       </label>
-      <label className="grid gap-1.5">
-        <Text as="span">For</Text>
+      <div className="grid gap-1.5">
+        <label htmlFor={purposeId}>
+          <Text as="span">For</Text>
+        </label>
         <select
+          id={purposeId}
           className={selectClass}
           value={purpose}
           onChange={(e) => setPurpose(e.currentTarget.value as keyof typeof purposes)}
@@ -214,7 +209,7 @@ function CreateKeyForm({ onCancel, onCreated }: { onCancel: () => void; onCreate
           <option value="client">An AI client</option>
           <option value="scim">SCIM provisioning</option>
         </select>
-      </label>
+      </div>
       {error && (
         <div role="alert">
           <Text>{error}</Text>
@@ -353,6 +348,7 @@ function ConfirmRotate({
 }) {
   const qc = useQueryClient();
   const [grace, setGrace] = useState<number>(defaultGraceSeconds);
+  const graceId = useId();
   const [error, setError] = useState<string | null>(null);
   const rotate = useMutation({
     ...keysRotateMutation(),
@@ -373,19 +369,26 @@ function ConfirmRotate({
       }}
     >
       <Text>
-        A new key with the same name and access replaces this one. Clients using the old key need the new secret before
-        the old key stops working.
+        A new key with the same name and access replaces this one; give clients the new secret before the old one stops
+        working.
       </Text>
-      <label className="grid gap-1.5">
-        <Text as="span">Old key keeps working for</Text>
-        <select className={selectClass} value={grace} onChange={(e) => setGrace(Number(e.currentTarget.value))}>
+      <div className="grid gap-1.5">
+        <label htmlFor={graceId}>
+          <Text as="span">Old key keeps working for</Text>
+        </label>
+        <select
+          id={graceId}
+          className={selectClass}
+          value={grace}
+          onChange={(e) => setGrace(Number(e.currentTarget.value))}
+        >
           {graceChoices.map((c) => (
             <option key={c.seconds} value={c.seconds}>
               {c.label}
             </option>
           ))}
         </select>
-      </label>
+      </div>
       <div className="flex gap-2">
         <Button type="submit" variant="primary" disabled={rotate.isPending}>
           Rotate {apiKey.name}

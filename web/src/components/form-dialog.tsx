@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useId, type ReactNode } from "react";
 import { Button, Dialog, DialogClose, DialogDescription, DialogRoot, DialogTitle, Text } from "@cloudflare/kumo";
 
 /**
@@ -89,11 +89,40 @@ export function HeaderWithAction({ children, action }: { children: ReactNode; ac
   );
 }
 
-/** What an empty list says, and the button that starts filling it. */
-export function EmptyState({ children, action }: { children: ReactNode; action?: ReactNode }) {
+/**
+ * What an empty list says, and the button that starts filling it: a
+ * headline, one sentence, one action. It sits where the list's first item
+ * would, in the same card, so the screen does not move when the first one
+ * arrives. `as` is the headline's level under the screen's own headings.
+ */
+export function EmptyState({
+  title,
+  as = "h2",
+  children,
+  action,
+}: {
+  title?: string;
+  as?: "h2" | "h3";
+  children: ReactNode;
+  action?: ReactNode;
+}) {
+  const titleId = useId();
+  // A titled empty state is a region named by its headline, so the action
+  // in it is found as the one belonging to that emptiness.
   return (
-    <div className="grid justify-items-start gap-3 rounded-lg px-5 py-4 ring ring-kumo-line">
-      <Text variant="secondary">{children}</Text>
+    <div
+      role={title ? "region" : undefined}
+      aria-labelledby={title ? titleId : undefined}
+      className="grid justify-items-start gap-3 rounded-lg px-5 py-4 ring ring-kumo-line"
+    >
+      <div className="grid gap-1">
+        {title && (
+          <Text as={as} bold id={titleId}>
+            {title}
+          </Text>
+        )}
+        <Text variant="secondary">{children}</Text>
+      </div>
       {action}
     </div>
   );
