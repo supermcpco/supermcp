@@ -6,6 +6,7 @@ import { CanvasRenderer } from "echarts/renderers";
 import type { ComposeOption } from "echarts/core";
 import type { BarSeriesOption, LineSeriesOption } from "echarts/charts";
 import type { GridComponentOption, LegendComponentOption, TooltipComponentOption } from "echarts/components";
+import { useColorScheme } from "../lib/color-mode";
 
 // Only the parts of ECharts the screens use, so the rest stays out of the
 // bundle. Registering is idempotent, so a second import of this module
@@ -40,14 +41,40 @@ export function Chart({ option, label, className }: { option: ChartOption; label
     };
   }, []);
 
+  // The canvas cannot read the theme's CSS variables, so it takes the
+  // colours the page has already resolved for this element's Kumo tokens:
+  // text, lines, and the surface a tooltip sits on. ECharts' own defaults
+  // are for a white page, and in the dark scheme would draw white grid
+  // lines and a white tooltip under light text. It is drawn again when
+  // the scheme changes.
+  const scheme = useColorScheme();
   useEffect(() => {
     const c = chart.current;
     if (!c || !el.current) return;
-    // The canvas cannot read the theme's CSS variables, so it takes the
-    // text colour the page has already resolved.
-    const color = getComputedStyle(el.current).color;
-    c.setOption({ textStyle: { color }, ...option }, { notMerge: true });
-  }, [option]);
+    const style = getComputedStyle(el.current);
+    const text = style.color;
+    const line = style.borderTopColor;
+    const axis = {
+      axisLine: { lineStyle: { color: line } },
+      axisTick: { lineStyle: { color: line } },
+      axisLabel: { color: text },
+      splitLine: { lineStyle: { color: line } },
+    };
+    c.setOption({ textStyle: { color: text }, ...option }, { notMerge: true });
+    c.setOption({
+      ...(option.legend ? { legend: { textStyle: { color: text } } } : {}),
+      ...(option.tooltip ? { tooltip: { backgroundColor: style.backgroundColor, borderColor: line, textStyle: { color: text } } } : {}),
+      ...(option.xAxis ? { xAxis: axis } : {}),
+      ...(option.yAxis ? { yAxis: axis } : {}),
+    });
+  }, [option, scheme]);
 
-  return <div ref={el} role="img" aria-label={label} className={className ?? "h-64 w-full"} />;
+  return (
+    <div
+      ref={el}
+      role="img"
+      aria-label={label}
+      className={`${className ?? "h-64 w-full"} border-kumo-line bg-kumo-base text-kumo-subtle`}
+    />
+  );
 }

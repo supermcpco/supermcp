@@ -7,3 +7,11 @@ body,
 #root {
   height: 100%;
 }
+
+/* Until main.tsx has set data-mode, follow the system anyway, so a dark
+   system does not see the page flash light while the script loads. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-mode]) {
+    color-scheme: dark;
+  }
+}
