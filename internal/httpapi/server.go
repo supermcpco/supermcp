@@ -136,8 +136,14 @@ func New(d Deps) (http.Handler, huma.API) {
 		"session": {Type: "apiKey", In: "cookie", Name: SessionCookie},
 		"apiKey":  {Type: "apiKey", In: "header", Name: "X-API-Key"},
 	}
-	cfg.Transformers = append([]huma.Transformer{logKeyServiceErrors(d.Log), hideInternalErrors(d.Log)}, cfg.Transformers...)
+	// answerClientGone comes first: a failure the caller left before
+	// hearing about is neither a key service outage nor a 500 to log.
+	cfg.Transformers = append([]huma.Transformer{answerClientGone(d.Log), logKeyServiceErrors(d.Log), hideInternalErrors(d.Log)},
+		cfg.Transformers...)
 	api := humachi.New(r, cfg)
+	// Before any route: huma gives an operation the middleware registered
+	// when it is.
+	api.UseMiddleware(withGoneAwareContext)
 
 	registerCatalog(api, d.Catalog)
 	d.registerRoutes(api)

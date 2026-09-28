@@ -236,6 +236,11 @@ func (d Deps) auditRoutes(api huma.API) {
 						truncated("the export ran out of time; narrow it with a time range or more specific search words")
 						return
 					}
+					if clientGone(hc.Context(), err) {
+						// Nobody is reading: the export ends with the
+						// connection, and that is not a failure to log.
+						return
+					}
 					if err != nil {
 						// The status line has gone, so the reader learns it
 						// from the last line, as for the other early stops.
