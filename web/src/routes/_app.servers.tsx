@@ -191,8 +191,9 @@ function Sessions({ server }: { server: Server }) {
   const [error, setError] = useState<string | null>(null);
   const update = useMutation({
     ...serversUpdateMutation(),
-    onSuccess: async () => {
+    onSuccess: async (updated) => {
       setError(null);
+      toast(`${updated.name} now uses ${updated.sessions} sessions`);
       await qc.invalidateQueries({ queryKey: serversListQueryKey() });
     },
     onError: (e) => setError(message(e)),

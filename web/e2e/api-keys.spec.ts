@@ -31,6 +31,7 @@ test("a key is rotated with a grace period and the old one stops after it", asyn
   await page.getByRole("button", { name: "Rotate Rotating key" }).click();
   await page.getByLabel("Old key keeps working for").selectOption({ label: "1 hour" });
   await page.getByRole("button", { name: "Rotate Rotating key" }).click();
+  await expect(page.getByRole("heading", { name: "API key Rotating key rotated", exact: true })).toBeVisible();
 
   // The new secret, shown once, in the dialog a new key's secret is shown
   // in, with when the old one stops.
@@ -60,4 +61,46 @@ test("a key is rotated with a grace period and the old one stops after it", asyn
   await page.goto("/settings/audit");
   await expect(page.getByText("apikey.rotate")).toBeVisible();
   await expect(page.getByText(newSecret)).toHaveCount(0);
+});
+
+test("revoking a key asks first, says so, and the key stops working", async ({ page, request, workspace }) => {
+  expect(workspace.email).toBeTruthy();
+
+  await installAdapter(page);
+  const serverId = await createServer(page, "Revocation server", [/Deutsche Bundesbank Statistics/]);
+  const listTools = (key: string) =>
+    request.post(`/mcp/${serverId}`, {
+      headers: { "X-API-Key": key, Accept: "application/json, text/event-stream" },
+      data: { jsonrpc: "2.0", id: 1, method: "tools/list" },
+    });
+
+  const secret = await createKey(page, "Leaving key");
+  await closeSecret(page);
+  expect((await listTools(secret)).ok(), "the new key was refused").toBeTruthy();
+  const row = page.getByRole("listitem").filter({ hasText: "Leaving key" });
+
+  // Asking first, and changing one's mind revokes nothing.
+  await page.getByRole("button", { name: "Revoke Leaving key", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Revoke Leaving key?" });
+  await expect(dialog).toBeVisible();
+  // Revoking is not deleting: no name to type before the button works.
+  await expect(dialog.getByRole("textbox")).toHaveCount(0);
+  await expect(dialog.getByRole("button", { name: "Revoke", exact: true })).toBeEnabled();
+  await expectAccessible(page);
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(dialog).toBeHidden();
+  await expect(row.getByText("revoked", { exact: true })).toHaveCount(0);
+  expect((await listTools(secret)).ok(), "cancelling revoked the key").toBeTruthy();
+
+  await page.getByRole("button", { name: "Revoke Leaving key", exact: true }).click();
+  const revoked = page.waitForResponse(
+    (r) => /\/api\/v1\/api-keys\/[^/]+$/.test(r.url()) && r.request().method() === "DELETE",
+  );
+  await dialog.getByRole("button", { name: "Revoke", exact: true }).click();
+  expect((await revoked).status()).toBeLessThan(300);
+  await expect(dialog).toBeHidden();
+  await expect(page.getByRole("heading", { name: "API key Leaving key revoked", exact: true })).toBeVisible();
+  await expect(row.getByText("revoked", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Revoke Leaving key", exact: true })).toHaveCount(0);
+  expect((await listTools(secret)).status()).toBe(401);
 });
