@@ -873,6 +873,9 @@ func humaErr(err error) error {
 	if herr := toolConflict(err); herr != nil {
 		return herr
 	}
+	if errors.Is(err, identity.ErrInvalidName) {
+		return huma.Error422UnprocessableEntity(err.Error(), &huma.ErrorDetail{Location: "body.name", Message: err.Error()})
+	}
 	if herr := memberErr(err); herr != nil {
 		return herr
 	}
