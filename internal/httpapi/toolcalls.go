@@ -197,8 +197,10 @@ func (d Deps) allowed(ctx context.Context, perm authz.Permission) (bool, error) 
 
 // toolCallsErr answers a query stopped by its own time limit with 503
 // and a way forward. Anything else is returned as it is, for a 500. ctx
-// is the request's: when it is done, the caller went away and cancelled
-// the query, which is not a timeout of ours.
+// is the request's: when it is done, the query was stopped by the caller
+// going away (clientGone, which answerClientGone answers) or by the
+// router's limit on the whole request, and neither is this query's
+// time limit.
 func toolCallsErr(ctx context.Context, err error) error {
 	if ctx.Err() != nil {
 		return err
