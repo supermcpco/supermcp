@@ -166,7 +166,7 @@ func TestABlockedAdvisoryLockHoldsASnapshot(t *testing.T) {
 	defer tick.Stop()
 	for {
 		var waiting bool
-		err := observer.QueryRow(ctx, `SELECT wait_event = 'advisory', backend_xmin IS NOT NULL
+		err := observer.QueryRow(ctx, `SELECT wait_event IS NOT DISTINCT FROM 'advisory', backend_xmin IS NOT NULL
 			FROM pg_stat_activity WHERE pid = $1`, waiterPID).Scan(&waiting, &holdsSnapshot)
 		if err != nil {
 			t.Fatal(err)
