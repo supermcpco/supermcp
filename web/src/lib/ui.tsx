@@ -1,12 +1,26 @@
 import { Link, type RegisteredRouter, type ValidateLinkOptions } from "@tanstack/react-router";
 import { Text } from "@cloudflare/kumo";
+import { WithTooltip } from "../components/tooltip";
 
-/** A small state marker: revoked, disabled, off. */
-export function Badge({ children }: { children: React.ReactNode }) {
+const badgeClass = "rounded-full bg-kumo-tint px-2 py-0.5 text-[12px] text-kumo-subtle ring ring-kumo-line";
+
+/**
+ * A small state marker: revoked, disabled, off. `why` is the sentence a
+ * word or two cannot say. A pointer finds it in a tooltip; a screen
+ * reader hears it with the badge. A badge is no control, so it takes no
+ * focus; the page the badge leads to says the same in its own words.
+ * Positioned, so it sits above a card whose link is stretched over it.
+ */
+export function Badge({ children, why }: { children: React.ReactNode; why?: string }) {
+  if (!why) return <span className={badgeClass}>{children}</span>;
   return (
-    <span className="rounded-full bg-kumo-tint px-2 py-0.5 text-[12px] text-kumo-subtle ring ring-kumo-line">
-      {children}
-    </span>
+    <>
+      <WithTooltip tip={why} repeats className="cursor-help">
+        <span className={`relative ${badgeClass}`}>{children}</span>
+      </WithTooltip>
+      {/* Beside the badge, not in it, so the badge's own text stays its word. */}
+      <span className="sr-only">{why}</span>
+    </>
   );
 }
 

@@ -20,6 +20,7 @@ import { status } from "../lib/errors";
 import { toast } from "../components/shell/toast";
 import { EmptyState, FormDialog, HeaderWithAction } from "../components/form-dialog";
 import { Help, HeadingWithHelp } from "../components/help";
+import { WithTooltip } from "../components/tooltip";
 import {
   defaultExpiryDays,
   expiryDays,
@@ -537,16 +538,18 @@ function InviteLink({ link, onDone }: { link: { url: string; email: string }; on
       <Text variant="secondary">This link is shown once. Send it to the person yourself; no email is sent.</Text>
       <code className="overflow-x-auto rounded-md bg-kumo-tint px-2 py-1 font-mono text-[0.9em]">{link.url}</code>
       <div className="flex items-center gap-2">
-        <Button
-          onClick={() =>
-            void navigator.clipboard.writeText(link.url).then(
-              () => setCopied(true),
-              () => setCopied(false),
-            )
-          }
-        >
-          Copy
-        </Button>
+        <WithTooltip tip="Copy the invitation link to the clipboard">
+          <Button
+            onClick={() =>
+              void navigator.clipboard.writeText(link.url).then(
+                () => setCopied(true),
+                () => setCopied(false),
+              )
+            }
+          >
+            Copy
+          </Button>
+        </WithTooltip>
         <Button onClick={onDone}>Done</Button>
         <span aria-live="polite">
           <Text as="span" variant="secondary">

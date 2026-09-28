@@ -1,30 +1,34 @@
 import { useId, useState } from "react";
 import { Button, Text } from "@cloudflare/kumo";
 import { clientSnippets, endpointURL, type ClientId } from "../lib/connect-client";
+import { WithTooltip } from "./tooltip";
 
 const selectClass = "rounded-md border border-kumo-line bg-kumo-base px-3 py-2";
 
 /**
  * Copies `text` and says so. `what` finishes the button's name for
- * somebody who cannot see what it sits next to: "Copy endpoint".
+ * somebody who cannot see what it sits next to: "Copy endpoint". The
+ * tooltip says the same in a sentence for whoever sees only "Copy".
  */
 export function CopyButton({ text, what }: { text: string; what: string }) {
   const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
   return (
-    <Button
-      onClick={() => {
-        navigator.clipboard.writeText(text).then(
-          () => {
-            setState("copied");
-            window.setTimeout(() => setState("idle"), 1500);
-          },
-          () => setState("failed"),
-        );
-      }}
-    >
-      {state === "copied" ? "Copied" : state === "failed" ? "Copy failed, select the text instead" : "Copy"}
-      <span className="sr-only"> {what}</span>
-    </Button>
+    <WithTooltip tip={`Copy the ${what} to the clipboard`}>
+      <Button
+        onClick={() => {
+          navigator.clipboard.writeText(text).then(
+            () => {
+              setState("copied");
+              window.setTimeout(() => setState("idle"), 1500);
+            },
+            () => setState("failed"),
+          );
+        }}
+      >
+        {state === "copied" ? "Copied" : state === "failed" ? "Copy failed, select the text instead" : "Copy"}
+        <span className="sr-only"> {what}</span>
+      </Button>
+    </WithTooltip>
   );
 }
 
@@ -45,13 +49,16 @@ export function Endpoint({ serverId, of }: { serverId: string; of?: string }) {
         {suffix && <span className="sr-only">{suffix}</span>}
       </label>
       <div className="flex items-center gap-2">
-        <input
-          id={id}
-          readOnly
-          value={url}
-          onFocus={(e) => e.currentTarget.select()}
-          className="min-w-0 flex-1 rounded-md bg-kumo-tint px-2 py-1 font-mono text-[0.9em]"
-        />
+        {/* A URL longer than the field shows whole in a tooltip. */}
+        <WithTooltip tip={url} onlyWhenTruncated className="cursor-text">
+          <input
+            id={id}
+            readOnly
+            value={url}
+            onFocus={(e) => e.currentTarget.select()}
+            className="min-w-0 flex-1 rounded-md bg-kumo-tint px-2 py-1 font-mono text-[0.9em]"
+          />
+        </WithTooltip>
         <CopyButton text={url} what={`endpoint${suffix}`} />
       </div>
     </div>

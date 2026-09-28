@@ -209,3 +209,14 @@ export function consentSearch(search: Record<string, unknown>): ConsentSearch {
 export function consentResult(search: ConsentSearch): string | null {
   return search.oauth ?? null;
 }
+
+/**
+ * The sentences behind the badges on connectors and their tools, shown
+ * in a tooltip where the badge has room for a word or two.
+ */
+export const badgeWhy = {
+  catalogOutdated: "A newer version of the catalog adapter is available; compare the two on the connector's page.",
+  credentialsMissing: "Some credentials this connector needs are not stored yet; add them on its page.",
+  edited: "Someone changed this tool's definition by hand; a catalog re-sync leaves it alone.",
+  off: "Switched off: the tool stays here but is not offered to clients.",
+} as const;

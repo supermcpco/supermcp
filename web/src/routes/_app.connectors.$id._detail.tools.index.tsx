@@ -10,6 +10,7 @@ import {
   toolsReferencesOptions,
 } from "../api/@tanstack/react-query.gen";
 import { useSession } from "../lib/session";
+import { badgeWhy } from "../lib/connector";
 import { Badge, Loading } from "../lib/ui";
 import { message } from "../lib/errors";
 import { invalidateTool, isReferencesConflict } from "../lib/tool-api";
@@ -99,10 +100,10 @@ function Tools() {
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-mono text-[0.95em] break-all">{t.name}</span>
                     <Badge>{sourceLabel[t.source]}</Badge>
-                    {t.edited && <Badge>edited</Badge>}
+                    {t.edited && <Badge why={badgeWhy.edited}>edited</Badge>}
                     {t.annotations.destructiveHint && <Badge>destructive</Badge>}
                     {t.annotations.readOnlyHint && <Badge>reads only</Badge>}
-                    {!t.enabled && <Badge>off</Badge>}
+                    {!t.enabled && <Badge why={badgeWhy.off}>off</Badge>}
                   </div>
                   {t.description && (
                     <Text as="span" variant="secondary">
