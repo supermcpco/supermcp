@@ -33,6 +33,12 @@ test("the overview, the sidebar either way and the settings tabs are dark", asyn
   await page.getByRole("button", { name: "Collapse sidebar" }).click();
   await expect(page.getByRole("complementary", { name: "Sidebar" })).toHaveAttribute("data-state", "collapsed");
   await expectAccessible(page);
+  // The footer on a short window, with a tooltip out over the page.
+  await page.setViewportSize({ width: 1440, height: 600 });
+  await page.getByRole("button", { name: "Sign out" }).hover();
+  await expect(page.getByRole("tooltip", { name: "Sign out" })).toBeVisible();
+  await expectAccessible(page);
+  await page.setViewportSize({ width: 1280, height: 720 });
   await page.getByRole("button", { name: "Expand sidebar" }).click();
   await expect(page.getByRole("complementary", { name: "Sidebar" })).toHaveAttribute("data-state", "expanded");
 

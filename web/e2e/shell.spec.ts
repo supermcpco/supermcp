@@ -1,5 +1,5 @@
 import { test as anonymous } from "@playwright/test";
-import { test, expect, expectAccessible, installAdapter } from "./fixtures";
+import { test, expect, expectAccessible, installAdapter, signUp } from "./fixtures";
 
 // The frame every screen sits in: where the screens are listed, what a
 // person sees for an address that leads nowhere, and how the list is
@@ -43,6 +43,44 @@ test("the sign-out button stays in view on a short window", async ({ page, works
   await expect(page.getByRole("button", { name: "Sign out" })).toBeInViewport();
 });
 
+test("the sidebar footer keeps the email, sign out and the toggle in view at a short window, expanded and collapsed", async ({
+  page,
+  workspace,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 600 });
+  const sidebar = page.getByRole("complementary", { name: "Sidebar" });
+  const nav = page.getByRole("navigation", { name: "Primary" });
+  const email = sidebar.getByText(workspace.email);
+  const signOut = sidebar.getByRole("button", { name: "Sign out" });
+  await expect(email).toBeInViewport();
+  await expect(signOut).toBeInViewport();
+  await expect(sidebar.getByRole("button", { name: "Collapse sidebar" })).toBeInViewport();
+  // Sign out is an entry like the screens above it, and starts where they do.
+  const lineUp = async () => {
+    const entry = await nav.getByRole("link", { name: "Settings", exact: true }).boundingBox();
+    const out = await signOut.boundingBox();
+    expect(out?.x).toBe(entry?.x);
+  };
+  await lineUp();
+
+  await sidebar.getByRole("button", { name: "Collapse sidebar" }).click();
+  await expect(sidebar).toHaveAttribute("data-state", "collapsed");
+  await expect.poll(async () => (await sidebar.boundingBox())?.width).toBeLessThan(80);
+  // The address has no room on the rail; the way out and the way back do.
+  await expect(email).toBeHidden();
+  await expect(signOut).toBeInViewport();
+  await expect(sidebar.getByRole("button", { name: "Expand sidebar" })).toBeInViewport();
+  await lineUp();
+});
+
+anonymous("a workspace name too long for the sidebar is shown whole in a tooltip", async ({ page }) => {
+  const unique = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+  const org = `Northwind Traders International Holdings ${unique}`;
+  await signUp(page, { email: `long-name-${unique}@example.test`, password: "Correct Horse Battery 9", org });
+  await page.getByRole("complementary", { name: "Sidebar" }).getByText(org).hover();
+  await expect(page.getByRole("tooltip", { name: org })).toBeVisible();
+});
+
 test("an unknown adapter says so and leads back to the catalog", async ({ page, workspace }) => {
   await page.goto("/catalog/no-such-adapter");
   await expect(page.getByRole("heading", { name: "Adapter not found" })).toBeVisible();
@@ -70,6 +108,9 @@ test("on a narrow window the navigation opens from the Menu button", async ({ pa
   await expect(page.getByRole("complementary", { name: "Sidebar" })).toHaveCount(0);
   await expect(sheet).toBeHidden();
   await expect(nav).toBeHidden();
+  // The button is only an icon; its name is in a tooltip as well.
+  await menu.hover();
+  await expect(page.getByRole("tooltip", { name: "Menu" })).toBeVisible();
 
   await menu.click();
   await expect(menu).toHaveAttribute("aria-expanded", "true");
@@ -139,6 +180,18 @@ test("the sidebar collapses to icons and remembers it after a reload", async ({ 
   await expectAccessible(page);
   await page.getByRole("button", { name: "Sign out" }).hover();
   await expect(page.getByRole("tooltip", { name: "Sign out" })).toBeVisible();
+  // The toggle is only an icon either way, so it names itself too.
+  await expand.hover();
+  await expect(page.getByRole("tooltip", { name: "Expand sidebar" })).toBeVisible();
+  // Somebody on a keyboard gets the same names, one Tab at a time.
+  await page.mouse.move(700, 400);
+  await nav.getByRole("link", { name: "Settings", exact: true }).focus();
+  await page.keyboard.press("Tab");
+  await expect(page.getByRole("button", { name: "Sign out" })).toBeFocused();
+  await expect(page.getByRole("tooltip", { name: "Sign out" })).toBeVisible();
+  await page.keyboard.press("Tab");
+  await expect(expand).toBeFocused();
+  await expect(page.getByRole("tooltip", { name: "Expand sidebar" })).toBeVisible();
 
   await page.reload();
   await expect(page.getByRole("heading", { name: "Connectors", level: 1 })).toBeVisible();

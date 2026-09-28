@@ -3,6 +3,7 @@ import { Sidebar, Text, useSidebar } from "@cloudflare/kumo";
 import { Hexagon, List } from "@phosphor-icons/react";
 import { useSession } from "../../lib/session";
 import { NavGroups } from "./nav-groups";
+import { NamedTooltip, TruncatedText } from "./named-tooltip";
 import { UserMenu } from "./user-menu";
 
 /** The width below which the sidebar is a sheet (Tailwind's lg). */
@@ -13,11 +14,12 @@ export const sidebarBreakpoint = 1024;
  * 1024px up it sits beside the content and collapses to a rail of icons;
  * below that Kumo renders it as a sheet that the top bar's Menu button
  * opens. The navigation scrolls on a short window while the person's own
- * block stays pinned underneath it, so signing out never scrolls away.
+ * block and the toggle stay pinned underneath it, so signing out never
+ * scrolls away.
  */
 export function AppSidebar() {
   const { session } = useSession();
-  const { isMobile } = useSidebar();
+  const { isMobile, state } = useSidebar();
   useSheetPutAwayAcrossBreakpoint();
   const workspace = session?.organization?.name ?? "No workspace";
   return (
@@ -32,11 +34,11 @@ export function AppSidebar() {
           <Text as="span" bold>
             supermcp
           </Text>
-          <span className="truncate" title={workspace}>
+          <TruncatedText text={workspace} disabled={state === "collapsed"}>
             <Text as="span" variant="secondary">
               {workspace}
             </Text>
-          </span>
+          </TruncatedText>
         </span>
         {isMobile && <Sidebar.Close />}
       </Sidebar.Header>
@@ -47,12 +49,26 @@ export function AppSidebar() {
       <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-[11px] py-3 transition-[padding] duration-(--sidebar-animation-duration) group-not-data-[state=collapsed]/sidebar:px-3.5">
         <NavGroups />
       </div>
-      <Sidebar.Footer className="h-auto flex-col items-stretch gap-1 py-2">
-        <UserMenu />
-        {!isMobile && <Sidebar.Trigger />}
-      </Sidebar.Footer>
+      <UserMenu />
+      {/* Kumo's footer as Kumo lays it out: one row, the toggle alone in
+          it, in line with the icons above whether expanded or a rail. The
+          sheet on a narrow screen has no use for the toggle, so no row. */}
+      {!isMobile && (
+        <Sidebar.Footer>
+          <SidebarToggle />
+        </Sidebar.Footer>
+      )}
     </Sidebar>
   );
+}
+
+/**
+ * Kumo's collapse and expand button, which is only an icon, named in a
+ * tooltip as well as to a screen reader.
+ */
+function SidebarToggle() {
+  const { open } = useSidebar();
+  return <NamedTooltip label={open ? "Collapse sidebar" : "Expand sidebar"} side="right" render={<Sidebar.Trigger />} />;
 }
 
 /**
@@ -87,9 +103,15 @@ export function TopBar() {
   if (!isMobile) return null;
   return (
     <header className="flex shrink-0 items-center gap-2 border-b border-kumo-line px-3 py-2">
-      <Sidebar.Trigger aria-label="Menu" aria-expanded={openMobile}>
-        <List size={20} aria-hidden />
-      </Sidebar.Trigger>
+      <NamedTooltip
+        label="Menu"
+        side="bottom"
+        render={
+          <Sidebar.Trigger aria-label="Menu" aria-expanded={openMobile}>
+            <List size={20} aria-hidden />
+          </Sidebar.Trigger>
+        }
+      />
       <Text as="span" variant="heading">
         supermcp
       </Text>
