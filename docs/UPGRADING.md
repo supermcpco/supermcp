@@ -66,6 +66,13 @@ Migration 00034 adds one `site_settings` row, `compliance.digest_key`,
 and needs nothing from you: the compliance reports key every digest they
 print with it, so a password's digest can no longer be looked up from a
 word list. Digests in reports made before and after the upgrade differ.
+Migration 00035 adds functions and needs nothing from you: a second
+`auth_register` that decides whether registration is open under a lock,
+so two sign-ups arriving together can no longer both claim an unclaimed
+instance, and `auth_users_exist`, which the sign-in screen's session
+check now asks instead of counting every account. The previous
+`auth_register` stays for pods of the previous release during the
+rollout; those pods keep the old race until they are replaced.
 
 ### OpenID Connect sign-ins count a second factor only by a rule
 

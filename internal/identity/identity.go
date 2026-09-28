@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/supermcpco/supermcp/internal/authz"
 	"github.com/supermcpco/supermcp/internal/tenant"
@@ -152,14 +153,19 @@ func (s *Service) registrationOpen(ctx context.Context) (bool, error) {
 	if s.Cfg.OpenRegistration {
 		return true, nil
 	}
-	var count int64
+	var exists bool
 	if err := s.DB.Pre(ctx, func(tx pgx.Tx) error {
-		return tx.QueryRow(ctx, "SELECT auth_user_count()").Scan(&count)
+		return tx.QueryRow(ctx, "SELECT auth_users_exist()").Scan(&exists)
 	}); err != nil {
-		return false, fmt.Errorf("count users: %w", err)
+		return false, fmt.Errorf("look for users: %w", err)
 	}
-	return count == 0, nil
+	return !exists, nil
 }
+
+// pgRegistrationClosed is the SQLSTATE auth_register raises when it finds
+// an account already exists and open registration is off (migration
+// 00035).
+const pgRegistrationClosed = "SM001"
 
 // Register creates a user and an organisation they own.
 func (s *Service) Register(ctx context.Context, in RegisterInput) (*User, *Org, error) {
@@ -170,6 +176,9 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (*User, *Org, 
 	if err := CheckPolicy(in.Password, DefaultPolicy); err != nil {
 		return nil, nil, err
 	}
+	// The fast path: refuse without hashing when registration is plainly
+	// closed. auth_register decides again under a lock, because two
+	// sign-ups on an unclaimed instance both get past this.
 	open, err := s.registrationOpen(ctx)
 	if err != nil {
 		return nil, nil, err
@@ -190,10 +199,15 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (*User, *Org, 
 	u := &User{ID: s.NewID(), Email: in.Email, Name: in.Name}
 	o := &Org{ID: s.NewID(), Name: in.OrgName, Slug: slugify(in.OrgName) + "-" + strings.ToLower(u.ID[len(u.ID)-6:])}
 	err = s.DB.Pre(ctx, func(tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, "SELECT auth_register($1,$2,$3,$4,$5,$6,$7)", u.ID, u.Email, u.Name, hash, o.ID, o.Slug, o.Name)
+		_, err := tx.Exec(ctx, "SELECT auth_register($1,$2,$3,$4,$5,$6,$7,$8)",
+			u.ID, u.Email, u.Name, hash, o.ID, o.Slug, o.Name, s.Cfg.OpenRegistration)
 		return err
 	})
 	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == pgRegistrationClosed {
+			return nil, nil, ErrRegistrationClosed
+		}
 		if strings.Contains(err.Error(), "users_email_lower_idx") {
 			return nil, nil, ErrEmailTaken
 		}
