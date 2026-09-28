@@ -48,6 +48,52 @@ type rig struct {
 	mu             sync.Mutex
 	quiet          *sync.Cond
 	active, parked int
+	// gate, when set, holds the next initialise request once its response
+	// is out, before the handler returns; see holdNextInitialise.
+	gate atomic.Pointer[initGate]
+}
+
+// initGate holds one initialise handler after its response is written.
+type initGate struct {
+	written, release chan struct{}
+	once             sync.Once
+}
+
+func (g *initGate) open() { g.once.Do(func() { close(g.release) }) }
+
+// gatedWriter holds the handler at the first flush that follows a written
+// response: the client has its answer, and the endpoint has not returned.
+type gatedWriter struct {
+	http.ResponseWriter
+	gate  *initGate
+	wrote bool
+	held  bool
+}
+
+func (w *gatedWriter) Write(b []byte) (int, error) {
+	w.wrote = true
+	return w.ResponseWriter.Write(b)
+}
+
+func (w *gatedWriter) Flush() {
+	_ = http.NewResponseController(w.ResponseWriter).Flush()
+	if w.wrote && !w.held {
+		w.held = true
+		close(w.gate.written)
+		<-w.gate.release
+	}
+}
+
+func (w *gatedWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
+// holdNextInitialise holds the next initialise handler once its response
+// is on its way to the client, until release is called. held is closed
+// once the handler is being held.
+func (r *rig) holdNextInitialise() (held <-chan struct{}, release func()) {
+	g := &initGate{written: make(chan struct{}), release: make(chan struct{})}
+	r.gate.Store(g)
+	r.t.Cleanup(g.open)
+	return g.written, g.open
 }
 
 // user is a caller on an API key of their own in an organisation.
@@ -121,6 +167,13 @@ func newRig(t *testing.T, mode string, opts SessionOptions) *rig {
 			r.quiet.Broadcast()
 			r.mu.Unlock()
 		}()
+		// The client asks server/discover before it initialises, so the
+		// gate waits for the request that is an initialise.
+		if init, _ := isInitialize(req); init && req.Header.Get(sessionHeader) == "" {
+			if g := r.gate.Swap(nil); g != nil {
+				w = &gatedWriter{ResponseWriter: w, gate: g}
+			}
+		}
 		ctx := authz.WithPrincipal(req.Context(), r.caller.Load())
 		if d := r.deadline.Load(); d > 0 {
 			var cancel context.CancelFunc
@@ -153,13 +206,29 @@ func (r *rig) park(n int) {
 // in the "hold" tool, has returned, so that the session table has seen
 // each of them end. Without it, a test's next request can find a session
 // still busy with the last one and be refused for it.
+// A handler that never returns fails the test after settleTimeout rather
+// than hanging the package.
 func (r *rig) settle() {
+	r.t.Helper()
+	timedOut := false
+	timer := time.AfterFunc(settleTimeout, func() {
+		r.mu.Lock()
+		timedOut = true
+		r.quiet.Broadcast()
+		r.mu.Unlock()
+	})
+	defer timer.Stop()
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for r.active > r.parked {
+		if timedOut {
+			r.t.Fatalf("settle: %d requests still being handled after %s, %d of them held in the hold tool", r.active, settleTimeout, r.parked)
+		}
 		r.quiet.Wait()
 	}
 }
+
+const settleTimeout = 10 * time.Second
 
 // connect opens a session as the current caller and fails the test if
 // the endpoint refuses it, saying what the session table held.
@@ -623,5 +692,65 @@ func TestNewSessionHoldsOnePlaceBeforeItsInitialiseReturns(t *testing.T) {
 	defer tbl.mu.Unlock()
 	if got := tbl.byOwner[owner]; got != 2 || tbl.byOrg["org_a"] != 2 || tbl.reserved != 0 {
 		t.Errorf("after both settled: owner holds %d, org %d, reserved %d; want 2, 2, 0", got, tbl.byOrg["org_a"], tbl.reserved)
+	}
+}
+
+// Reservations taken before a drain are given back by settle when add
+// refuses the session the drain arrived in the middle of.
+func TestReservationBeforeADrainIsGivenBack(t *testing.T) {
+	t.Parallel()
+	tbl := newSessionTable(SessionOptions{Max: 2, PerCaller: 2, PerOrg: 2}, nil, nil)
+	owner := ownerOf(user("u_a", "org_a", "k_a"))
+	srv := sdk.NewServer(&sdk.Implementation{Name: "t", Version: "1"}, nil)
+
+	if err := tbl.reserve(owner, "org_a"); err != nil {
+		t.Fatalf("reserve: %v", err)
+	}
+	tbl.close()
+	if tbl.add("s1", "srv", owner, "org_a", srv) {
+		t.Errorf("add after close kept the session, want it refused")
+	}
+	tbl.settle(owner, "org_a", "")
+	tbl.mu.Lock()
+	defer tbl.mu.Unlock()
+	if tbl.reserved != 0 || len(tbl.byOwner) != 0 || len(tbl.byOrg) != 0 || len(tbl.byID) != 0 {
+		t.Errorf("after settle: reserved %d, byOwner %v, byOrg %v, %d sessions; want all empty", tbl.reserved, tbl.byOwner, tbl.byOrg, len(tbl.byID))
+	}
+}
+
+// Through the endpoint: a caller whose first initialise has answered but
+// not yet returned opens its second session at a limit of two.
+func TestCallerOpensItsNextSessionBeforeTheLastInitialiseReturns(t *testing.T) {
+	t.Parallel()
+	r := newRig(t, mcpserver.SessionsStateful, SessionOptions{Max: 100, PerCaller: 2, PerOrg: 100})
+	ctx, cancel := context.WithTimeout(context.Background(), settleTimeout)
+	defer cancel()
+	held, release := r.holdNextInitialise()
+	// Deferred, not a cleanup: closing the sessions below waits for the
+	// held handler, so it has to be let go first however the test ends.
+	defer release()
+
+	first, err := r.tryConnect(ctx)
+	if err != nil {
+		t.Fatalf("first connect: %v", err)
+	}
+	t.Cleanup(func() { _ = first.Close() })
+	select {
+	case <-held:
+	default:
+		t.Fatal("the first initialise returned without being held; the test proves nothing")
+	}
+	// No settle: the first initialise handler is still held.
+	second, err := r.tryConnect(ctx)
+	if err != nil {
+		t.Fatalf("second connect while the first initialise is still returning: %v", err)
+	}
+	t.Cleanup(func() { _ = second.Close() })
+	release()
+	r.settle()
+	for name, cs := range map[string]*sdk.ClientSession{"first": first, "second": second} {
+		if code, _ := r.post(ctx, cs.ID(), toolsList); code != http.StatusOK {
+			t.Errorf("the %s session = %d, want 200", name, code)
+		}
 	}
 }
