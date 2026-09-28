@@ -1,3 +1,4 @@
+import { test as anonymous } from "@playwright/test";
 import { test, expect, expectAccessible, installAdapter } from "./fixtures";
 
 // The frame every screen sits in: where the screens are listed, what a
@@ -183,7 +184,29 @@ test("no screen uses a Kumo variant or prop that Kumo has deprecated", async ({ 
   await installAdapter(page);
   await expect(page.getByRole("heading", { name: "Deutsche Bundesbank Statistics", level: 1 })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Status", level: 2 })).toBeVisible();
-  expect(warnings.filter((w) => /deprecated/i.test(w))).toEqual([]);
+  expect(warnings.filter((w) => /deprecated/i.test(w) || w.startsWith("[Kumo Input]"))).toEqual([]);
+});
+
+anonymous("the sign-in card names its inputs the way Kumo checks for", async ({ page }) => {
+  // Kumo cannot see a <label> wrapped around its input, and warns on every
+  // render unless the input is named through a prop it reads. The names
+  // stay what the visible labels say.
+  const warnings: string[] = [];
+  page.on("console", (m) => {
+    if (m.type() === "warning" || m.type() === "error") warnings.push(m.text());
+  });
+  await page.goto("/login");
+  const signIn = page.getByRole("form", { name: "Sign in" });
+  await expect(signIn.getByRole("textbox", { name: "Email", exact: true })).toBeVisible();
+  await expect(signIn.getByLabel("Password", { exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: "Create a workspace" }).click();
+  const signUp = page.getByRole("form", { name: "Create your workspace" });
+  await expect(signUp.getByRole("textbox", { name: "Email", exact: true })).toBeVisible();
+  await expect(signUp.getByLabel("Password", { exact: true })).toBeVisible();
+  await expect(signUp.getByRole("textbox", { name: "Workspace name", exact: true })).toBeVisible();
+  await expectAccessible(page);
+  expect(warnings.filter((w) => w.startsWith("[Kumo Input]"))).toEqual([]);
 });
 
 test("a confirmation is announced as a status, not a dialog", async ({ page, workspace }) => {

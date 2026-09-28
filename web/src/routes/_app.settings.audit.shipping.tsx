@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button, Input, Text } from "@cloudflare/kumo";
+import { Button, Text } from "@cloudflare/kumo";
 import {
   auditExportersCreateMutation,
   auditExportersDeleteMutation,
@@ -14,6 +14,7 @@ import { message } from "../lib/errors";
 import { toast } from "../components/shell/toast";
 import { Help, HeadingWithHelp } from "../components/help";
 import { ConfirmAction } from "../components/confirm-dialog";
+import { LabelledInput } from "../components/labelled-input";
 
 /** Where a copy of the trail is delivered as it is written. */
 export const Route = createFileRoute("/_app/settings/audit/shipping")({
@@ -149,14 +150,8 @@ function Destinations() {
             add.mutate({ body: { url, secret, enabled: true } });
           }}
         >
-          <label className="grid gap-1">
-            <Text as="span">Destination</Text>
-            <Input value={url} onChange={(e) => setUrl(e.currentTarget.value)} placeholder="https://siem.example/ingest" required />
-          </label>
-          <label className="grid gap-1">
-            <Text as="span">Signing secret (never shown again)</Text>
-            <Input value={secret} onChange={(e) => setSecret(e.currentTarget.value)} minLength={16} required type="password" />
-          </label>
+          <LabelledInput labelClassName="grid gap-1" label="Destination" value={url} onChange={(e) => setUrl(e.currentTarget.value)} placeholder="https://siem.example/ingest" required />
+          <LabelledInput labelClassName="grid gap-1" label="Signing secret (never shown again)" value={secret} onChange={(e) => setSecret(e.currentTarget.value)} minLength={16} required type="password" />
           <Button type="submit" disabled={add.isPending}>
             Ship the trail here
           </Button>

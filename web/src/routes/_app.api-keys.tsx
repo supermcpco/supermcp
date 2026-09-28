@@ -1,7 +1,7 @@
 import { useId, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button, Dialog, DialogRoot, DialogTitle, Input, Text } from "@cloudflare/kumo";
+import { Button, Dialog, DialogRoot, DialogTitle, Text } from "@cloudflare/kumo";
 import {
   keysCreateMutation,
   keysListOptions,
@@ -19,6 +19,7 @@ import { CopyButton, ConnectClient } from "../components/connect-client";
 import { EmptyState, HeaderWithAction } from "../components/form-dialog";
 import { ConfirmAction } from "../components/confirm-dialog";
 import { canRotate, defaultGraceSeconds, graceChoices, stopsWorking } from "../lib/key-rotation";
+import { LabelledInput } from "../components/labelled-input";
 
 export const Route = createFileRoute("/_app/api-keys")({
   component: APIKeys,
@@ -219,10 +220,7 @@ function CreateKeyForm({ onCancel, onCreated }: { onCancel: () => void; onCreate
         create.mutate({ body: scopes ? { name, scopes: [...scopes] } : { name } });
       }}
     >
-      <label className="grid gap-1.5">
-        <Text as="span">Name</Text>
-        <Input required value={name} onChange={(e) => setName(e.target.value)} placeholder="Claude Desktop" />
-      </label>
+      <LabelledInput label="Name" required value={name} onChange={(e) => setName(e.target.value)} placeholder="Claude Desktop" />
       <div className="grid gap-1.5">
         <label htmlFor={purposeId}>
           <Text as="span">For</Text>

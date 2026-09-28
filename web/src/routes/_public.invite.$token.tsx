@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button, Input, Text } from "@cloudflare/kumo";
+import { Button, Text } from "@cloudflare/kumo";
 import {
   inviteAcceptMutation,
   inviteLookupMutation,
@@ -13,6 +13,7 @@ import type { InviteLookupDto, PasswordPolicy } from "../api/types.gen";
 import { acceptError, inviteInvalid, lookupError, passwordHint, passwordMinLength, sameEmail } from "../lib/members";
 import { useRefreshSession, useSession } from "../lib/session";
 import { Loading } from "../lib/ui";
+import { LabelledInput } from "../components/labelled-input";
 
 // Public, like /login: the person opening an invite link may have no
 // account yet. The token stays in the page URL only; the API receives it in
@@ -210,29 +211,28 @@ function Register({
       <Text as="h2" variant="heading">
         Create your account
       </Text>
-      <label className="grid gap-1.5">
-        <Text as="span">Email</Text>
-        <Input type="email" autoComplete="username" value={email} readOnly />
-      </label>
-      <label className="grid gap-1.5">
-        <Text as="span">Name</Text>
-        <Input autoComplete="name" maxLength={200} value={name} onChange={(e) => setName(e.currentTarget.value)} />
-      </label>
-      <label className="grid gap-1.5">
-        <Text as="span">Password</Text>
-        <Input
-          type="password"
-          autoComplete="new-password"
-          required
-          minLength={passwordMinLength(policy)}
-          value={password}
-          aria-describedby="invite-password-hint"
-          onChange={(e) => setPassword(e.currentTarget.value)}
-        />
+      <LabelledInput label="Email" type="email" autoComplete="username" value={email} readOnly />
+      <LabelledInput
+        label="Name"
+        autoComplete="name"
+        maxLength={200}
+        value={name}
+        onChange={(e) => setName(e.currentTarget.value)}
+      />
+      <LabelledInput
+        label="Password"
+        type="password"
+        autoComplete="new-password"
+        required
+        minLength={passwordMinLength(policy)}
+        value={password}
+        aria-describedby="invite-password-hint"
+        onChange={(e) => setPassword(e.currentTarget.value)}
+      >
         <Text as="span" variant="secondary" id="invite-password-hint">
           {passwordHint(policy)}
         </Text>
-      </label>
+      </LabelledInput>
       <Button type="submit" variant="primary" disabled={pending}>
         {pending ? "Working…" : "Create account and join"}
       </Button>

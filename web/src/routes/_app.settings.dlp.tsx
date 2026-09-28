@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button, Input, Text } from "@cloudflare/kumo";
+import { Button, Text } from "@cloudflare/kumo";
 import {
   connectorsListOptions,
   dlpDetectorsOptions,
@@ -25,6 +25,7 @@ import { EmptyState, FormDialog, HeaderWithAction } from "../components/form-dia
 import { ConfirmDialog } from "../components/confirm-dialog";
 import { Help, HeadingWithHelp } from "../components/help";
 import { RouteTabs, TabPanel } from "../components/route-tabs";
+import { LabelledInput } from "../components/labelled-input";
 
 type Tab = "rules" | "detectors";
 
@@ -106,7 +107,11 @@ function RulesTab() {
   const [action, setAction] = useState<"allow" | "mask" | "refuse">("mask");
   const [chosen, setChosen] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [editing, setEditing] = useState<string | null>(null);
+  // The rule being edited, kept while its dialog closes. Each opening
+  // counts, so the dialog starts from the rule as it is now.
+  const [edited, setEdited] = useState<ScanPolicy | null>(null);
+  const [editOpen, setEditOpen] = useState(false);
+  const [editRound, setEditRound] = useState(0);
   const [history, setHistory] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   // The rule whose deletion is being asked about; kept while the dialog closes.
@@ -180,9 +185,17 @@ function RulesTab() {
                   </Text>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  {canManage && editing !== p.id && (
-                    <Button variant="secondary" onClick={() => setEditing(p.id)} aria-label={`Change ${p.name}`}>
-                      Change
+                  {canManage && (
+                    <Button
+                      variant="secondary"
+                      onClick={() => {
+                        setEdited(p);
+                        setEditRound((n) => n + 1);
+                        setEditOpen(true);
+                      }}
+                      aria-label={`Edit ${p.name}`}
+                    >
+                      Edit
                     </Button>
                   )}
                   <Button
@@ -208,24 +221,27 @@ function RulesTab() {
                   )}
                 </div>
               </div>
-              {canManage && editing === p.id && (
-                <RuleEditor
-                  policy={p}
-                  builtins={builtins}
-                  custom={custom}
-                  onDone={async () => {
-                    setEditing(null);
-                    await refresh();
-                    await qc.invalidateQueries({ queryKey: dlpPoliciesRevisionsListQueryKey({ path: { id: p.id } }) });
-                  }}
-                  onCancel={() => setEditing(null)}
-                />
-              )}
               {history === p.id && <RuleHistory policy={p} canRestore={canRestore} onRestored={refresh} />}
             </li>
           ))}
         </ul>
       </section>
+
+      {canManage && edited && (
+        <RuleEditor
+          key={editRound}
+          open={editOpen}
+          onOpenChange={setEditOpen}
+          policy={edited}
+          builtins={builtins}
+          custom={custom}
+          onSaved={async () => {
+            setEditOpen(false);
+            await refresh();
+            await qc.invalidateQueries({ queryKey: dlpPoliciesRevisionsListQueryKey({ path: { id: edited.id } }) });
+          }}
+        />
+      )}
 
       {canManage && (
         <ConfirmDialog
@@ -259,10 +275,7 @@ function RulesTab() {
             })
           }
         >
-          <label className="grid gap-1">
-            <Text as="span">What it is for</Text>
-            <Input value={name} onChange={(e) => setName(e.currentTarget.value)} required maxLength={120} />
-          </label>
+          <LabelledInput labelClassName="grid gap-1" label="What it is for" value={name} onChange={(e) => setName(e.currentTarget.value)} required maxLength={120} />
           <label className="grid gap-1">
             <Text as="span">Where it applies</Text>
             <select className={selectClass} value={connectorId} onChange={(e) => setConnectorId(e.currentTarget.value)}>
@@ -364,22 +377,25 @@ function DetectorChoices({
 }
 
 /**
- * Changes one rule in place. The scope stays as it is; what is offered
- * here is what a rule is most often changed for: its name, what it reads,
- * what it does, which detectors it runs and whether it is on.
+ * Changes one rule, in a dialog opened from its row. The scope stays as
+ * it is; what is offered here is what a rule is most often changed for:
+ * its name, what it reads, what it does, which detectors it runs and
+ * whether it is on.
  */
 function RuleEditor({
+  open,
+  onOpenChange,
   policy,
   builtins,
   custom,
-  onDone,
-  onCancel,
+  onSaved,
 }: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   policy: ScanPolicy;
   builtins: DetectorInfo[];
   custom: CustomDetectorDto[];
-  onDone: () => Promise<void>;
-  onCancel: () => void;
+  onSaved: () => Promise<void>;
 }) {
   const [name, setName] = useState(policy.name);
   const [chosen, setChosen] = useState<string[]>(policy.detectors ?? []);
@@ -390,16 +406,21 @@ function RuleEditor({
     ...dlpPolicyUpdateMutation(),
     onSuccess: async (_, vars) => {
       toast(`Rule ${vars.body.name} saved`);
-      await onDone();
+      await onSaved();
     },
   });
 
   return (
-    <form
-      className="grid gap-3 border-t border-kumo-line pt-4"
-      aria-label={`Change ${policy.name}`}
-      onSubmit={(e) => {
-        e.preventDefault();
+    <FormDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title={`Edit ${policy.name}`}
+      submitLabel="Save the rule"
+      pending={save.isPending}
+      canSubmit={name.trim() !== ""}
+      error={save.error ? message(save.error) : null}
+      size="xl"
+      onSubmit={() =>
         // A PUT replaces the rule, so what this form does not show (the
         // scope and the scan limit) is sent back as it was read.
         save.mutate({
@@ -414,18 +435,10 @@ function RuleEditor({
             enabled,
             maxBytes: policy.maxBytes || undefined,
           },
-        });
-      }}
+        })
+      }
     >
-      {save.error && (
-        <div role="alert">
-          <Text>{message(save.error)}</Text>
-        </div>
-      )}
-      <label className="grid gap-1">
-        <Text as="span">Rule name</Text>
-        <Input value={name} onChange={(e) => setName(e.currentTarget.value)} required maxLength={120} />
-      </label>
+      <LabelledInput labelClassName="grid gap-1" label="Rule name" value={name} onChange={(e) => setName(e.currentTarget.value)} required maxLength={120} />
       <div className="flex flex-wrap gap-3">
         <label className="grid gap-1">
           <Text as="span">What the rule reads</Text>
@@ -449,13 +462,7 @@ function RuleEditor({
         <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.currentTarget.checked)} />
         <Text as="span">The rule is on</Text>
       </label>
-      <div className="flex flex-wrap gap-2">
-        <Button type="submit" variant="primary" disabled={save.isPending || name.trim() === ""}>
-          Save the rule
-        </Button>
-        <Button onClick={onCancel}>Cancel</Button>
-      </div>
-    </form>
+    </FormDialog>
   );
 }
 

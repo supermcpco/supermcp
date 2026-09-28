@@ -11,13 +11,14 @@ import {
   serversListOptions,
 } from "../api/@tanstack/react-query.gen";
 import { invocationsSummary } from "../api/sdk.gen";
-import type { InvocationDto, Server, ToolCallsSummary } from "../api/types.gen";
+import type { ConnectorDto, InvocationDto, Server, ToolCallsSummary } from "../api/types.gen";
 import { usageWindow } from "../lib/analytics";
 import { useSession } from "../lib/session";
 import { Badge } from "../lib/ui";
 import { message } from "../lib/errors";
 import { isSetUp, isUndecided, setupSteps, type SetupStep } from "../lib/setup";
 import { ConnectClient, Endpoint } from "../components/connect-client";
+import { CallConnector } from "../components/activity-calls";
 
 export const Route = createFileRoute("/_app/")({
   component: Overview,
@@ -102,7 +103,7 @@ function Overview() {
           </Text>
         ) : setUp ? (
           <Dashboard
-            connectors={connectorList?.length}
+            connectors={connectorList}
             servers={serverList}
             calls={callList}
             day={summary.data}
@@ -197,7 +198,8 @@ function Dashboard({
   day,
   dayError,
 }: {
-  connectors: number | undefined;
+  /** Undefined when the viewer may not read them, or before they arrive. */
+  connectors: ConnectorDto[] | undefined;
   servers: Server[] | undefined;
   calls: InvocationDto[] | undefined;
   /** The last 24 hours' calls by outcome, from the server. */
@@ -206,10 +208,11 @@ function Dashboard({
   dayError: string | undefined;
 }) {
   const recent = calls?.slice(0, recentLimit) ?? [];
+  const names = connectors && new Map(connectors.map((c) => [c.id, c.name]));
   return (
     <div className="grid gap-6">
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {connectors !== undefined && <Stat label="Connectors" value={String(connectors)} />}
+        {connectors !== undefined && <Stat label="Connectors" value={String(connectors.length)} />}
         {servers && <Stat label="MCP servers" value={String(servers.length)} />}
         {day && <Stat label="Calls in the last 24 hours" value={day.total.toLocaleString()} />}
         {day && <Stat label="Failures in the last 24 hours" value={day.failed.toLocaleString()} />}
@@ -244,6 +247,11 @@ function Dashboard({
                     </th>
                     <th className="py-2">
                       <Text as="span" variant="secondary">
+                        Connector
+                      </Text>
+                    </th>
+                    <th className="py-2">
+                      <Text as="span" variant="secondary">
                         Status
                       </Text>
                     </th>
@@ -263,6 +271,9 @@ function Dashboard({
                   {recent.map((c) => (
                     <tr key={c.id} className="border-b border-kumo-line">
                       <td className="py-2 font-mono text-[0.9em] break-all">{c.toolName}</td>
+                      <td className="py-2">
+                        <CallConnector connectorId={c.connectorId} names={names} />
+                      </td>
                       <td className="py-2">
                         {c.status === "success" ? <Text as="span">ok</Text> : <Badge>{c.status}</Badge>}
                       </td>

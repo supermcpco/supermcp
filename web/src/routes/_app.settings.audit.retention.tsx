@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button, Input, Text } from "@cloudflare/kumo";
+import { Button, Text } from "@cloudflare/kumo";
 import {
   auditGetPolicyOptions,
   auditGetPolicyQueryKey,
@@ -16,6 +16,7 @@ import { useSession } from "../lib/session";
 import { message } from "../lib/errors";
 import { toast } from "../components/shell/toast";
 import { Help, HeadingWithHelp } from "../components/help";
+import { LabelledInput } from "../components/labelled-input";
 
 /**
  * What the trail keeps and for how long: the days an event keeps its
@@ -92,22 +93,21 @@ function Retention() {
           if (valid) save.mutate({ body: { days } });
         }}
       >
-        <label className="grid gap-1">
-          <Text as="span">Days</Text>
-          <Input
-            type="number"
-            inputMode="numeric"
-            min={r.minDays}
-            max={r.maxDays}
-            step={1}
-            value={value}
-            onChange={(e) => setDraft(e.currentTarget.value)}
-            disabled={!editable || save.isPending}
-            aria-describedby="retention-range"
-            aria-invalid={!valid}
-            required
-          />
-        </label>
+        <LabelledInput
+          labelClassName="grid gap-1"
+          label="Days"
+          type="number"
+          inputMode="numeric"
+          min={r.minDays}
+          max={r.maxDays}
+          step={1}
+          value={value}
+          onChange={(e) => setDraft(e.currentTarget.value)}
+          disabled={!editable || save.isPending}
+          aria-describedby="retention-range"
+          aria-invalid={!valid}
+          required
+        />
         {editable && (
           <Button type="submit" disabled={!valid || draft === null || save.isPending}>
             Save
@@ -165,14 +165,8 @@ function LegalHold() {
         <Text variant="secondary">Keeps everything from a date onwards, whatever retention says, until it is released.</Text>
       </div>
       <div className="flex flex-wrap items-end gap-2">
-        <label className="grid gap-1">
-          <Text as="span">From</Text>
-          <Input type="date" value={from} onChange={(e) => setFrom(e.currentTarget.value)} />
-        </label>
-        <label className="grid gap-1">
-          <Text as="span">Why</Text>
-          <Input value={reason} onChange={(e) => setReason(e.currentTarget.value)} placeholder="Recorded with the hold" />
-        </label>
+        <LabelledInput labelClassName="grid gap-1" label="From" type="date" value={from} onChange={(e) => setFrom(e.currentTarget.value)} />
+        <LabelledInput labelClassName="grid gap-1" label="Why" value={reason} onChange={(e) => setReason(e.currentTarget.value)} placeholder="Recorded with the hold" />
         <Button onClick={() => place.mutate({ body })} disabled={!from || place.isPending}>
           Hold
         </Button>

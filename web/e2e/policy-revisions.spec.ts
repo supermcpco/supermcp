@@ -4,7 +4,7 @@ import { test, expect, expectAccessible } from "./fixtures";
 // on the rules screen is a version that can be put back from the same
 // screen.
 
-test("a data-loss rule is changed, and the earlier version restored from its history", async ({ page, workspace }) => {
+test("a data-loss rule is changed in a dialog, and the earlier version restored from its history", async ({ page, workspace }) => {
   expect(workspace.email).toBeTruthy();
   await page.goto("/settings/dlp");
   await expect(page.getByRole("heading", { name: "Data-loss rules" })).toBeVisible();
@@ -24,14 +24,32 @@ test("a data-loss rule is changed, and the earlier version restored from its his
   const rule = page.getByRole("listitem").filter({ hasText: "Customer addresses" }).first();
   await expect(rule.getByText("mask", { exact: true })).toBeVisible();
 
-  // Change what it does. The save is awaited by its answer, so the
-  // history is not opened before the change has reached the server.
-  await rule.getByRole("button", { name: "Change Customer addresses" }).click();
-  await rule.getByLabel("What the rule does").selectOption("refuse");
+  // Change what it does, in a dialog opened from the rule's row. Leaving
+  // it with Cancel changes nothing and puts focus back on the button.
+  const edit = rule.getByRole("button", { name: "Edit Customer addresses" });
+  await edit.click();
+  const editor = page.getByRole("dialog", { name: "Edit Customer addresses" });
+  await expect(editor.getByLabel("Rule name")).toHaveValue("Customer addresses");
+  await expect(editor.getByLabel("What the rule does")).toHaveValue("mask");
+  await editor.getByLabel("What the rule does").selectOption("refuse");
+  await editor.getByRole("button", { name: "Cancel" }).click();
+  await expect(editor).toBeHidden();
+  await expect(edit).toBeFocused();
+  await expect(rule.getByText("mask", { exact: true })).toBeVisible();
+
+  // Opened again, it starts from the rule as it is. The save is awaited by
+  // its answer, so the history is not opened before the change has
+  // reached the server.
+  await edit.click();
+  await expect(editor.getByLabel("What the rule does")).toHaveValue("mask");
+  await expectAccessible(page);
+  await editor.getByLabel("What the rule does").selectOption("refuse");
   await Promise.all([
     page.waitForResponse((r) => /\/api\/v1\/dlp\/policies\/[^/]+$/.test(r.url()) && r.request().method() === "PUT" && r.ok()),
-    rule.getByRole("button", { name: "Save the rule" }).click(),
+    editor.getByRole("button", { name: "Save the rule" }).click(),
   ]);
+  await expect(editor).toBeHidden();
+  await expect(edit).toBeFocused();
   await expect(rule.getByText("refuse", { exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Rule Customer addresses saved", exact: true })).toBeVisible();
 

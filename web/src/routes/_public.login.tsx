@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { createFileRoute, useRouter, useSearch } from "@tanstack/react-router";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Banner, Button, Input, Text } from "@cloudflare/kumo";
+import { Banner, Button, Text } from "@cloudflare/kumo";
 import { listSsoProvidersOptions, loginMutation, registerMutation } from "../api/@tanstack/react-query.gen";
 import { asSentence, message } from "../lib/errors";
 import { isSignedIn, sessionQuery, useRefreshSession } from "../lib/session";
 import { nextDestination } from "../lib/members";
 import { Loading } from "../lib/ui";
+import { LabelledInput } from "../components/labelled-input";
 
 type LoginSearch = { sso_error?: string; saml_error?: string; next?: string };
 
@@ -166,28 +167,24 @@ function SignIn({
       </div>
 
       <div className="grid gap-3">
-        <label className="grid gap-1.5">
-          <Text as="span">Email</Text>
-          <Input
-            type="email"
-            name="username"
-            autoComplete="username"
-            required
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-          />
-        </label>
-        <label className="grid gap-1.5">
-          <Text as="span">Password</Text>
-          <Input
-            type="password"
-            name="current-password"
-            autoComplete="current-password"
-            required
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
-        </label>
+        <LabelledInput
+          label="Email"
+          type="email"
+          name="username"
+          autoComplete="username"
+          required
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+        />
+        <LabelledInput
+          label="Password"
+          type="password"
+          name="current-password"
+          autoComplete="current-password"
+          required
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+        />
       </div>
 
       <FormError id={errorId} text={shown} />
@@ -253,43 +250,38 @@ function SignUp({ onDone }: { onDone: () => Promise<void> }) {
       </div>
 
       <div className="grid gap-3">
-        <label className="grid gap-1.5">
-          <Text as="span">Email</Text>
-          <Input
-            type="email"
-            name="new-username"
-            autoComplete="username"
-            required
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-          />
-        </label>
-        <label className="grid gap-1.5">
-          <Text as="span">Password</Text>
-          <Input
-            type="password"
-            name="new-password"
-            autoComplete="new-password"
-            required
-            minLength={12}
-            aria-describedby={hintId}
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
+        <LabelledInput
+          label="Email"
+          type="email"
+          name="new-username"
+          autoComplete="username"
+          required
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+        />
+        <LabelledInput
+          label="Password"
+          type="password"
+          name="new-password"
+          autoComplete="new-password"
+          required
+          minLength={12}
+          aria-describedby={hintId}
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+        >
           <Text as="span" variant="secondary" id={hintId}>
             At least 12 characters, mixing letters with digits or symbols.
           </Text>
-        </label>
-        <label className="grid gap-1.5">
-          <Text as="span">Workspace name</Text>
-          <Input
-            name="organization"
-            autoComplete="organization"
-            value={orgName}
-            onChange={(e) => setOrgName(e.target.value)}
-            placeholder="Acme"
-          />
-        </label>
+        </LabelledInput>
+        <LabelledInput
+          label="Workspace name"
+          name="organization"
+          autoComplete="organization"
+          value={orgName}
+          onChange={(e) => setOrgName(e.target.value)}
+          placeholder="Acme"
+        />
       </div>
 
       <FormError id={errorId} text={error} />

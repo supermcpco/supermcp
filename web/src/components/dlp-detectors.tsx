@@ -1,6 +1,6 @@
 import { useId, useState } from "react";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button, Input, Text, Textarea } from "@cloudflare/kumo";
+import { Button, Text, Textarea } from "@cloudflare/kumo";
 import {
   dlpDetectorCreateMutation,
   dlpDetectorDeleteMutation,
@@ -23,7 +23,9 @@ import { Badge, Loading } from "../lib/ui";
 import { HistoryPanel } from "./revisions";
 import { toast } from "./shell/toast";
 import { ConfirmDialog } from "./confirm-dialog";
+import { FormDialog } from "./form-dialog";
 import { Help, HeadingWithHelp } from "./help";
+import { LabelledInput } from "./labelled-input";
 
 /** How long typing must pause before the pattern is tried again. */
 const testTypingMs = 300;
@@ -38,7 +40,11 @@ const codeClass = "overflow-x-auto rounded-md bg-kumo-tint px-2 py-1 font-mono t
 export function DetectorsPanel({ canManage, canRestore }: { canManage: boolean; canRestore: boolean }) {
   const qc = useQueryClient();
   const detectors = useQuery({ ...dlpDetectorsOptions(), retry: false });
-  const [editing, setEditing] = useState<string | null>(null);
+  // The detector being edited, kept while its dialog closes. Each opening
+  // counts, so the dialog starts from the detector as it is now.
+  const [edited, setEdited] = useState<CustomDetectorDto | null>(null);
+  const [editOpen, setEditOpen] = useState(false);
+  const [editRound, setEditRound] = useState(0);
   const [history, setHistory] = useState<string | null>(null);
 
   // A delete can take a detector out of rules, so both lists are read again.
@@ -108,9 +114,17 @@ export function DetectorsPanel({ canManage, canRestore }: { canManage: boolean; 
                   </Text>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  {canManage && editing !== d.id && (
-                    <Button variant="secondary" onClick={() => setEditing(d.id)} aria-label={`Change ${d.name}`}>
-                      Change
+                  {canManage && (
+                    <Button
+                      variant="secondary"
+                      onClick={() => {
+                        setEdited(d);
+                        setEditRound((n) => n + 1);
+                        setEditOpen(true);
+                      }}
+                      aria-label={`Edit ${d.name}`}
+                    >
+                      Edit
                     </Button>
                   )}
                   <Button
@@ -124,18 +138,6 @@ export function DetectorsPanel({ canManage, canRestore }: { canManage: boolean; 
                 </div>
               </div>
               {canManage && <DeleteDetector detector={d} onDeleted={refresh} />}
-              {canManage && editing === d.id && (
-                <EditDetector
-                  id={d.id}
-                  onDone={async () => {
-                    setEditing(null);
-                    await refresh();
-                    await qc.invalidateQueries({ queryKey: dlpDetectorGetQueryKey({ path: { id: d.id } }) });
-                    await qc.invalidateQueries({ queryKey: dlpDetectorsRevisionsListQueryKey({ path: { id: d.id } }) });
-                  }}
-                  onCancel={() => setEditing(null)}
-                />
-              )}
               {history === d.id && <DetectorHistory detector={d} canRestore={canRestore} onRestored={refresh} />}
             </li>
           ))}
@@ -147,28 +149,91 @@ export function DetectorsPanel({ canManage, canRestore }: { canManage: boolean; 
           <Text as="h3" variant="heading">
             Add a detector
           </Text>
-          <DetectorForm onDone={refresh} />
+          <AddDetector onDone={refresh} />
         </section>
+      )}
+
+      {canManage && edited && (
+        <EditDetector
+          key={editRound}
+          open={editOpen}
+          onOpenChange={setEditOpen}
+          listed={edited}
+          onSaved={async () => {
+            setEditOpen(false);
+            await refresh();
+            await qc.invalidateQueries({ queryKey: dlpDetectorGetQueryKey({ path: { id: edited.id } }) });
+            await qc.invalidateQueries({ queryKey: dlpDetectorsRevisionsListQueryKey({ path: { id: edited.id } }) });
+          }}
+        />
       )}
     </div>
   );
 }
 
 /**
- * The editor for one stored detector. The list carries no samples, so the
- * detector is read on its own first; the form opens on what came back.
+ * The editor for one stored detector, in a dialog opened from its row.
+ * The list carries no samples, so the detector is read on its own first;
+ * the fields fill with what came back, and are filled afresh whenever a
+ * newer version is read (after "Reload the detector").
  */
-function EditDetector({ id, onDone, onCancel }: { id: string; onDone: () => Promise<void>; onCancel: () => void }) {
-  const one = useQuery({ ...dlpDetectorGetOptions({ path: { id } }), retry: false });
-  if (one.error) {
-    return (
-      <div role="alert">
-        <Text>{message(one.error)}</Text>
-      </div>
-    );
+function EditDetector({
+  listed,
+  open,
+  onOpenChange,
+  onSaved,
+}: {
+  listed: CustomDetectorDto;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSaved: () => Promise<void>;
+}) {
+  const qc = useQueryClient();
+  const key = { path: { id: listed.id } };
+  const one = useQuery({ ...dlpDetectorGetOptions(key), retry: false });
+  const [draft, setDraft] = useState<Draft | null>(null);
+  const [readVersion, setReadVersion] = useState<number | null>(null);
+  if (one.data && one.data.version !== readVersion) {
+    setReadVersion(one.data.version);
+    setDraft(draftOf(one.data));
   }
-  if (!one.data) return <Loading />;
-  return <DetectorForm key={one.data.version} detector={one.data} onDone={onDone} onCancel={onCancel} />;
+  const update = useMutation({
+    ...dlpDetectorUpdateMutation(),
+    onSuccess: async () => {
+      toast(`Detector ${listed.name} saved`);
+      await onSaved();
+    },
+  });
+  const reload = async () => {
+    update.reset();
+    await qc.invalidateQueries({ queryKey: dlpDetectorGetQueryKey(key) });
+  };
+
+  return (
+    <FormDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title={`Edit ${listed.name}`}
+      submitLabel="Save the detector"
+      pending={update.isPending}
+      canSubmit={draft !== null && readVersion !== null && draft.pattern.length >= 3}
+      error={update.error ? message(update.error) : one.error ? message(one.error) : null}
+      errorAction={
+        update.error && isStale(update.error) ? (
+          <Button variant="secondary" onClick={reload}>
+            Reload the detector
+          </Button>
+        ) : undefined
+      }
+      size="xl"
+      onSubmit={() => {
+        if (!draft || readVersion === null) return;
+        update.mutate({ path: { id: listed.id }, body: { ...bodyOf(draft), expectedVersion: readVersion } });
+      }}
+    >
+      {draft && one.data ? <DetectorFields draft={draft} onChange={setDraft} detector={one.data} /> : !one.error && <Loading />}
+    </FormDialog>
+  );
 }
 
 /**
@@ -241,135 +306,151 @@ function DeleteDetector({ detector, onDeleted }: { detector: CustomDetectorDto; 
   );
 }
 
-/**
- * Adds a detector, or changes one. The pattern is tried against the
- * samples as it is typed, by the same rules a save applies, and the
- * outcome is shown per sample; only offsets come back from the server.
- */
-function DetectorForm({
-  detector,
-  onDone,
-  onCancel,
-}: {
-  detector?: CustomDetectorDto;
-  onDone: () => Promise<void>;
-  onCancel?: () => void;
-}) {
-  const [name, setName] = useState(detector?.name ?? "");
-  const [description, setDescription] = useState(detector?.description ?? "");
-  const [pattern, setPattern] = useState(detector?.pattern ?? "");
-  const [anyCase, setAnyCase] = useState(detector?.flags === "i");
-  const [mustMatchText, setMustMatchText] = useState(formatSamples(detector?.mustMatch));
-  const [mustNotMatchText, setMustNotMatchText] = useState(formatSamples(detector?.mustNotMatch));
-  const [enabled, setEnabled] = useState(detector?.enabled ?? true);
+/** What the detector form holds while it is being filled in. */
+interface Draft {
+  name: string;
+  description: string;
+  pattern: string;
+  anyCase: boolean;
+  mustMatchText: string;
+  mustNotMatchText: string;
+  enabled: boolean;
+}
 
-  const reset = () => {
-    setName("");
-    setDescription("");
-    setPattern("");
-    setAnyCase(false);
-    setMustMatchText("");
-    setMustNotMatchText("");
-    setEnabled(true);
+function draftOf(detector?: CustomDetectorDto): Draft {
+  return {
+    name: detector?.name ?? "",
+    description: detector?.description ?? "",
+    pattern: detector?.pattern ?? "",
+    anyCase: detector?.flags === "i",
+    mustMatchText: formatSamples(detector?.mustMatch),
+    mustNotMatchText: formatSamples(detector?.mustNotMatch),
+    enabled: detector?.enabled ?? true,
   };
+}
+
+/** What a save sends, the name aside: it is given once, when the detector is added. */
+function bodyOf(d: Draft) {
+  return {
+    description: d.description,
+    pattern: d.pattern,
+    flags: d.anyCase ? ("i" as const) : ("" as const),
+    mustMatch: parseSamples(d.mustMatchText),
+    mustNotMatch: parseSamples(d.mustNotMatchText),
+    enabled: d.enabled,
+  };
+}
+
+/** Adds a detector, from the form under the list. */
+function AddDetector({ onDone }: { onDone: () => Promise<void> }) {
+  const [draft, setDraft] = useState<Draft>(() => draftOf());
   const create = useMutation({
     ...dlpDetectorCreateMutation(),
     onSuccess: async (_, vars) => {
       toast(`Detector ${vars.body.name} added`);
-      reset();
+      setDraft(draftOf());
       await onDone();
     },
   });
-  const update = useMutation({
-    ...dlpDetectorUpdateMutation(),
-    onSuccess: async (_, vars) => {
-      toast(`Detector ${vars.body.name} saved`);
-      await onDone();
-    },
-  });
-  const save = detector ? update : create;
-
-  const flags = anyCase ? ("i" as const) : ("" as const);
-  const mustMatch = parseSamples(mustMatchText);
-  const mustNotMatch = parseSamples(mustNotMatchText);
-  const tried = useTryPattern(pattern, flags, mustMatch, mustNotMatch);
-  const label = detector ? detector.name : "the new detector";
-  // Two forms can be open at once, the new one and an edit, so the help
-  // text each points at needs an id of its own.
-  const helpId = useId();
 
   return (
     <form
-      className={detector ? "grid gap-3 border-t border-kumo-line pt-4" : "grid gap-3"}
-      aria-label={detector ? `Change ${detector.name}` : "Add a detector"}
+      className="grid gap-3"
+      aria-label="Add a detector"
       onSubmit={(e) => {
         e.preventDefault();
-        const body = { description, pattern, flags, mustMatch, mustNotMatch, enabled };
-        if (detector) {
-          update.mutate({ path: { id: detector.id }, body: { ...body, expectedVersion: detector.version } });
-        } else {
-          create.mutate({ body: { ...body, name } });
-        }
+        create.mutate({ body: { ...bodyOf(draft), name: draft.name } });
       }}
     >
-      {save.error && (
-        <div role="alert" className="grid gap-2">
-          <Text>{message(save.error)}</Text>
-          {detector && isStale(save.error) && (
-            <div>
-              <Button variant="secondary" onClick={onDone}>
-                Reload the detector
-              </Button>
-            </div>
-          )}
+      {create.error && (
+        <div role="alert">
+          <Text>{message(create.error)}</Text>
         </div>
       )}
+      <DetectorFields draft={draft} onChange={setDraft} />
+      <div className="flex flex-wrap gap-2">
+        <Button
+          type="submit"
+          variant="primary"
+          disabled={create.isPending || draft.pattern.length < 3 || draft.name.trim() === ""}
+        >
+          Add the detector
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+/**
+ * The fields of a detector, for adding one or changing one. The pattern is
+ * tried against the samples as it is typed, by the same rules a save
+ * applies, and the outcome is shown per sample; only offsets come back
+ * from the server.
+ */
+function DetectorFields({
+  draft,
+  onChange,
+  detector,
+}: {
+  draft: Draft;
+  onChange: (next: Draft) => void;
+  /** The stored detector being changed; absent for a new one. */
+  detector?: CustomDetectorDto;
+}) {
+  const set = (change: Partial<Draft>) => onChange({ ...draft, ...change });
+  const flags = draft.anyCase ? ("i" as const) : ("" as const);
+  const mustMatch = parseSamples(draft.mustMatchText);
+  const mustNotMatch = parseSamples(draft.mustNotMatchText);
+  const tried = useTryPattern(draft.pattern, flags, mustMatch, mustNotMatch);
+  const label = detector ? detector.name : "the new detector";
+  // The add form and an edit dialog can be on the page at once, so the
+  // help text each points at needs an id of its own.
+  const ids = useId();
+
+  return (
+    <>
       {detector ? (
         <Text variant="secondary">
           Rules name this detector <code className={codeClass}>{detector.detector}</code>. Its name cannot change.
         </Text>
       ) : (
         <div className="grid gap-1">
-          <label className="grid gap-1">
-            <Text as="span">Detector name</Text>
-            <Input
-              value={name}
-              onChange={(e) => setName(e.currentTarget.value)}
-              required
-              maxLength={63}
-              aria-describedby="detector-name-help"
-            />
-          </label>
-          <Text as="span" variant="secondary" id="detector-name-help">
-            Lower-case letters, digits, - and _. Rules name it custom:{name || "<name>"}, and it cannot change later.
+          <LabelledInput
+            labelClassName="grid gap-1"
+            label="Detector name"
+            value={draft.name}
+            onChange={(e) => set({ name: e.currentTarget.value })}
+            required
+            maxLength={63}
+            aria-describedby={`${ids}-name-help`}
+          />
+          <Text as="span" variant="secondary" id={`${ids}-name-help`}>
+            Lower-case letters, digits, - and _. Rules name it custom:{draft.name || "<name>"}, and it cannot change
+            later.
           </Text>
         </div>
       )}
-      <label className="grid gap-1">
-        <Text as="span">Description</Text>
-        <Input value={description} onChange={(e) => setDescription(e.currentTarget.value)} maxLength={500} />
-      </label>
+      <LabelledInput labelClassName="grid gap-1" label="Description" value={draft.description} onChange={(e) => set({ description: e.currentTarget.value })} maxLength={500} />
       <div className="grid gap-1">
-        <label className="grid gap-1">
-          <Text as="span">Pattern</Text>
-          <Input
-            value={pattern}
-            onChange={(e) => setPattern(e.currentTarget.value)}
-            required
-            maxLength={512}
-            className="font-mono"
-            spellCheck={false}
-            aria-describedby={helpId}
-          />
-        </label>
-        <Text as="span" variant="secondary" id={helpId}>
+        <LabelledInput
+          labelClassName="grid gap-1"
+          label="Pattern"
+          value={draft.pattern}
+          onChange={(e) => set({ pattern: e.currentTarget.value })}
+          required
+          maxLength={512}
+          className="font-mono"
+          spellCheck={false}
+          aria-describedby={`${ids}-pattern-help`}
+        />
+        <Text as="span" variant="secondary" id={`${ids}-pattern-help`}>
           An RE2 regular expression of 3 to 512 bytes that cannot match an empty string, such as {"\\bCN-\\d{6}\\b"}.
           Lookarounds and backreferences are not available, and very large repetition counts are refused because the
           pattern runs on every tool call.
         </Text>
       </div>
       <label className="flex items-center gap-2">
-        <input type="checkbox" checked={anyCase} onChange={(e) => setAnyCase(e.currentTarget.checked)} />
+        <input type="checkbox" checked={draft.anyCase} onChange={(e) => set({ anyCase: e.currentTarget.checked })} />
         <Text as="span">Ignore upper and lower case</Text>
       </label>
       <div className="grid gap-3 md:grid-cols-2">
@@ -377,8 +458,8 @@ function DetectorForm({
           <Text as="span">Samples it must match, one per line</Text>
           <Textarea
             rows={4}
-            value={mustMatchText}
-            onChange={(e) => setMustMatchText(e.currentTarget.value)}
+            value={draft.mustMatchText}
+            onChange={(e) => set({ mustMatchText: e.currentTarget.value })}
             className="font-mono"
             spellCheck={false}
           />
@@ -387,8 +468,8 @@ function DetectorForm({
           <Text as="span">Samples it must not match, one per line</Text>
           <Textarea
             rows={4}
-            value={mustNotMatchText}
-            onChange={(e) => setMustNotMatchText(e.currentTarget.value)}
+            value={draft.mustNotMatchText}
+            onChange={(e) => set({ mustNotMatchText: e.currentTarget.value })}
             className="font-mono"
             spellCheck={false}
           />
@@ -417,20 +498,10 @@ function DetectorForm({
         )}
       </section>
       <label className="flex items-center gap-2">
-        <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.currentTarget.checked)} />
+        <input type="checkbox" checked={draft.enabled} onChange={(e) => set({ enabled: e.currentTarget.checked })} />
         <Text as="span">The detector is on</Text>
       </label>
-      <div className="flex flex-wrap gap-2">
-        <Button
-          type="submit"
-          variant="primary"
-          disabled={save.isPending || pattern.length < 3 || (!detector && name.trim() === "")}
-        >
-          {detector ? "Save the detector" : "Add the detector"}
-        </Button>
-        {onCancel && <Button onClick={onCancel}>Cancel</Button>}
-      </div>
-    </form>
+    </>
   );
 }
 

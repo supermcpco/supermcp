@@ -42,6 +42,7 @@ import {
 } from "../lib/tool-api";
 import { ToolPreview } from "./tool-preview";
 import { toast } from "./shell/toast";
+import { LabelledInput } from "./labelled-input";
 
 const selectClass = "rounded-md border border-kumo-line bg-kumo-base px-3 py-2";
 
@@ -331,13 +332,11 @@ export function ToolEditor({
                   Left to work out, a hint follows from the operation: a GET only reads, a DELETE can destroy data.
                   Setting one overrides that.
                 </Text>
-                <label className="grid gap-1.5">
-                  <Text as="span">Title shown to people</Text>
-                  <Input
-                    value={getText(draft, ["annotations", "title"])}
-                    onChange={(e) => change(setText(draft, ["annotations", "title"], e.target.value))}
-                  />
-                </label>
+                <LabelledInput
+                  label="Title shown to people"
+                  value={getText(draft, ["annotations", "title"])}
+                  onChange={(e) => change(setText(draft, ["annotations", "title"], e.target.value))}
+                />
                 <div className="grid gap-3 sm:grid-cols-2">
                   {hints.map((h) => (
                     <HintSelect
@@ -430,6 +429,7 @@ function Field({
   onText: (text: string, error: string | null) => void;
 }) {
   const id = `tool-field-${f.key.replace(/\./g, "-")}`;
+  const labelId = `${id}-label`;
   const hintId = f.hint ? `${id}-hint` : undefined;
   const issuesId = issues.length > 0 || parseError ? `${id}-issues` : undefined;
   const describedBy = [hintId, issuesId].filter(Boolean).join(" ") || undefined;
@@ -461,6 +461,7 @@ function Field({
     case "number":
       control = (
         <Input
+          aria-labelledby={labelId}
           inputMode="numeric"
           value={getText(draft, f.path)}
           onChange={(e) => onDraft(setNumber(draft, f.path, e.target.value))}
@@ -501,6 +502,7 @@ function Field({
     default:
       control = (
         <Input
+          aria-labelledby={labelId}
           className={f.key === "name" || f.key.startsWith("operation.") || f.key.startsWith("response.") ? "font-mono" : undefined}
           value={getText(draft, f.path)}
           onChange={(e) => onDraft(setText(draft, f.path, e.target.value, f.optional ?? false))}
@@ -512,7 +514,9 @@ function Field({
   return (
     <div className="grid gap-1.5">
       <label className="grid gap-1.5">
-        <Text as="span">{f.label}</Text>
+        <Text as="span" id={labelId}>
+          {f.label}
+        </Text>
         {control}
       </label>
       {f.hint && (

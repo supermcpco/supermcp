@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { Button, Input, LinkButton, Text } from "@cloudflare/kumo";
+import { Button, LinkButton, Text } from "@cloudflare/kumo";
 import { invocationsList } from "../api/sdk.gen";
 import { connectorsListOptions, serversListOptions } from "../api/@tanstack/react-query.gen";
 import { EmptyState } from "./form-dialog";
@@ -21,6 +21,7 @@ import { useDebounced } from "../lib/debounce";
 import { message, status as httpStatus } from "../lib/errors";
 import { useSession } from "../lib/session";
 import { Badge, Loading } from "../lib/ui";
+import { LabelledInput } from "./labelled-input";
 
 /** How many of the latest calls the tab shows, with or without filters. */
 const shownCalls = 100;
@@ -184,15 +185,13 @@ export function CallsPanel({ search, onSearch }: { search: CallsSearch; onSearch
                 </label>
               )}
               <PeriodSelect value={search.period} onChange={(period) => onSearch({ period })} anyLabel="Any time" />
-              <label className="grid gap-1.5">
-                <Text as="span">Tool name</Text>
-                <Input
-                  type="search"
-                  value={search.q ?? ""}
-                  onChange={(e) => onSearch({ q: e.target.value })}
-                  placeholder="Part of a name"
-                />
-              </label>
+              <LabelledInput
+                label="Tool name"
+                type="search"
+                value={search.q ?? ""}
+                onChange={(e) => onSearch({ q: e.target.value })}
+                placeholder="Part of a name"
+              />
               {calls.data && (
                 <Text variant="secondary" aria-live="polite">
                   {rows.length >= shownCalls ? `The latest ${shownCalls} calls` : plural(rows.length, "call")}
@@ -234,19 +233,7 @@ export function CallsPanel({ search, onSearch }: { search: CallsSearch; onSearch
                           {i.toolName}
                         </th>
                         <td className="py-2 pr-4">
-                          {!i.connectorId ? (
-                            <Text as="span" variant="secondary">
-                              –
-                            </Text>
-                          ) : connectors.data && !names.has(i.connectorId) ? (
-                            <Text as="span" variant="secondary">
-                              A removed connector
-                            </Text>
-                          ) : (
-                            <Link to="/connectors/$id" params={{ id: i.connectorId }} className="underline">
-                              <Text as="span">{names.get(i.connectorId) ?? "Open the connector"}</Text>
-                            </Link>
-                          )}
+                          <CallConnector connectorId={i.connectorId} names={connectors.data ? names : undefined} />
                         </td>
                         <td className="py-2 pr-4">
                           {i.status === "success" ? (
@@ -273,5 +260,35 @@ export function CallsPanel({ search, onSearch }: { search: CallsSearch; onSearch
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * Which connector a call went to, as a link to it. A call that reached no
+ * connector says so with a dash, and one whose connector has since been
+ * removed says that rather than offering a link that leads nowhere.
+ * `names` is undefined while the connectors are still being read; the
+ * link is offered meanwhile, since most calls go to a connector that is
+ * still there.
+ */
+export function CallConnector({ connectorId, names }: { connectorId?: string; names: Map<string, string> | undefined }) {
+  if (!connectorId) {
+    return (
+      <Text as="span" variant="secondary">
+        –
+      </Text>
+    );
+  }
+  if (names && !names.has(connectorId)) {
+    return (
+      <Text as="span" variant="secondary">
+        A removed connector
+      </Text>
+    );
+  }
+  return (
+    <Link to="/connectors/$id" params={{ id: connectorId }} className="underline">
+      <Text as="span">{names?.get(connectorId) ?? "Open the connector"}</Text>
+    </Link>
   );
 }

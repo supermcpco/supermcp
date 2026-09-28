@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button, Input, Text } from "@cloudflare/kumo";
+import { Button, Text } from "@cloudflare/kumo";
 import {
   createServiceAccountMutation,
   deleteServiceAccountMutation,
@@ -16,6 +16,7 @@ import { message } from "../lib/errors";
 import { toast } from "../components/shell/toast";
 import { EmptyState, FormDialog, HeaderWithAction } from "../components/form-dialog";
 import { ConfirmDialog } from "../components/confirm-dialog";
+import { LabelledInput } from "../components/labelled-input";
 
 export const Route = createFileRoute("/_app/settings/service-accounts")({
   component: ServiceAccounts,
@@ -139,10 +140,7 @@ function ServiceAccounts() {
         error={error}
         onSubmit={() => create.mutate({ body: { name } })}
       >
-        <label className="grid gap-1.5">
-          <Text as="span">Name</Text>
-          <Input required value={name} onChange={(e) => setName(e.target.value)} placeholder="Nightly export" />
-        </label>
+        <LabelledInput label="Name" required value={name} onChange={(e) => setName(e.target.value)} placeholder="Nightly export" />
       </FormDialog>
 
       <ul className="grid gap-2">

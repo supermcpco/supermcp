@@ -63,16 +63,42 @@ test("a custom detector is tried, saved, added to a rule, and refuses a call tha
   await expect(detector.getByText("custom:contract_id", { exact: true })).toBeVisible();
   await expectAccessible(page);
 
-  // The list does not carry the samples; the editor reads them on its own.
+  // The list does not carry the samples; the editor, a dialog opened from
+  // the detector's row, reads them on its own.
   await expect(detector.getByText("2 samples it must match, 2 it must not")).toBeVisible();
-  await detector.getByRole("button", { name: "Change contract_id" }).click();
-  const editor = page.getByRole("form", { name: "Change contract_id" });
+  const edit = detector.getByRole("button", { name: "Edit contract_id" });
+  await edit.click();
+  const editor = page.getByRole("dialog", { name: "Edit contract_id" });
   await expect(editor.getByLabel("Samples it must match, one per line")).toHaveValue(`${contractId}\nsee ${contractId}.`);
-  await editor.getByRole("button", { name: "Cancel" }).click();
+  await expectAccessible(page);
 
-  // Its history already holds the version just saved.
+  // A refusal is said in the dialog, which stays open to put it right.
+  await editor.getByLabel("Samples it must not match, one per line").fill(`CN-12345\n${contractId}`);
+  const [refusedEdit] = await Promise.all([
+    page.waitForResponse((r) => /\/api\/v1\/dlp\/detectors\/[^/]+$/.test(r.url()) && r.request().method() === "PATCH"),
+    editor.getByRole("button", { name: "Save the detector" }).click(),
+  ]);
+  expect(refusedEdit.status()).toBe(422);
+  await expect(editor.getByRole("alert")).toContainText("sample 2 of mustNotMatch matches the pattern");
+
+  // Put right, it saves, closes, and hands focus back to its button.
+  await editor.getByLabel("Samples it must not match, one per line").fill("CN-12345\nXCN-1234567");
+  await editor.getByLabel("Description").fill("Contract ids, from any year");
+  await Promise.all([
+    page.waitForResponse(
+      (r) => /\/api\/v1\/dlp\/detectors\/[^/]+$/.test(r.url()) && r.request().method() === "PATCH" && r.ok(),
+    ),
+    editor.getByRole("button", { name: "Save the detector" }).click(),
+  ]);
+  await expect(editor).toBeHidden();
+  await expect(page.getByRole("heading", { name: "Detector contract_id saved", exact: true })).toBeVisible();
+  await expect(edit).toBeFocused();
+  await expect(detector.getByText("Contract ids, from any year", { exact: true })).toBeVisible();
+
+  // Its history holds the version it was added as and the one just saved.
   await detector.getByRole("button", { name: "History of contract_id" }).click();
-  await expect(page.getByRole("region", { name: "History of contract_id" }).getByText("Version 1")).toBeVisible();
+  const detectorHistory = page.getByRole("region", { name: "History of contract_id" });
+  await expect(detectorHistory.getByText(/^Version \d+$/)).toHaveCount(2);
 
   // A rule picks it beside the built-ins.
   await page.getByRole("tab", { name: "Rules", exact: true }).click();

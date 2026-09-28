@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { useMutation, useQueryClient, type QueryClient } from "@tanstack/react-query";
-import { Button, Input, Text } from "@cloudflare/kumo";
+import { Button, Text } from "@cloudflare/kumo";
 import { changePasswordMutation } from "../api/@tanstack/react-query.gen";
 import { message } from "../lib/errors";
 import { toast } from "./shell/toast";
+import { LabelledInput } from "./labelled-input";
 
 /**
  * Changing your own password. The security screen shows it, and so does
@@ -53,25 +54,23 @@ export function ChangePassword({
           change.mutate({ body: { currentPassword: current, newPassword: next } });
         }}
       >
-        <label className="grid flex-1 gap-1.5">
-          <Text as="span">Current password</Text>
-          <Input
-            type="password"
-            autoComplete="current-password"
-            value={current}
-            onChange={(e) => setCurrent(e.target.value)}
-          />
-        </label>
-        <label className="grid flex-1 gap-1.5">
-          <Text as="span">New password</Text>
-          <Input
-            required
-            type="password"
-            autoComplete="new-password"
-            value={next}
-            onChange={(e) => setNext(e.target.value)}
-          />
-        </label>
+        <LabelledInput
+          labelClassName="grid flex-1 gap-1.5"
+          label="Current password"
+          type="password"
+          autoComplete="current-password"
+          value={current}
+          onChange={(e) => setCurrent(e.target.value)}
+        />
+        <LabelledInput
+          labelClassName="grid flex-1 gap-1.5"
+          label="New password"
+          required
+          type="password"
+          autoComplete="new-password"
+          value={next}
+          onChange={(e) => setNext(e.target.value)}
+        />
         <Button type="submit" variant="primary" disabled={change.isPending || !next}>
           Change password
         </Button>

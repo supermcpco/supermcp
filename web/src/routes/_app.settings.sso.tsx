@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button, Input, Text } from "@cloudflare/kumo";
+import { Button, Text } from "@cloudflare/kumo";
 import {
   createIdpMutation,
   deleteIdpMutation,
@@ -26,6 +26,7 @@ import { toast } from "../components/shell/toast";
 import { EmptyState, FormDialog, HeaderWithAction } from "../components/form-dialog";
 import { ConfirmDialog } from "../components/confirm-dialog";
 import { Help, HeadingWithHelp } from "../components/help";
+import { LabelledInput } from "../components/labelled-input";
 
 export const Route = createFileRoute("/_app/settings/sso")({
   component: SingleSignOn,
@@ -132,7 +133,12 @@ function SingleSignOn() {
   const [error, setError] = useState<string | null>(null);
   const [probe, setProbe] = useState<string | null>(null);
   const [history, setHistory] = useState<string | null>(null);
-  const [editing, setEditing] = useState<string | null>(null);
+  // The provider whose second-factor rule is being edited, kept while its
+  // dialog closes. Each opening counts, so the dialog starts from the rule
+  // as it is now.
+  const [edited, setEdited] = useState<IdpDto | null>(null);
+  const [editOpen, setEditOpen] = useState(false);
+  const [editRound, setEditRound] = useState(0);
   const [adding, setAdding] = useState(false);
   // The provider whose removal is being asked about; kept while the dialog closes.
   const [removing, setRemoving] = useState<IdpDto | null>(null);
@@ -231,11 +237,14 @@ function SingleSignOn() {
                 <div className="flex flex-wrap gap-2">
                   {p.protocol === "oidc" && (
                     <Button
-                      onClick={() => setEditing((current) => (current === p.id ? null : p.id))}
-                      aria-expanded={editing === p.id}
-                      aria-label={`${editing === p.id ? "Stop editing" : "Edit"} the second-factor rule of ${p.name}`}
+                      onClick={() => {
+                        setEdited(p);
+                        setEditRound((n) => n + 1);
+                        setEditOpen(true);
+                      }}
+                      aria-label={`Edit the second-factor rule of ${p.name}`}
                     >
-                      {editing === p.id ? "Cancel" : "Second factor"}
+                      Edit
                     </Button>
                   )}
                   <Button
@@ -258,13 +267,22 @@ function SingleSignOn() {
                   </Button>
                 </div>
               </div>
-              {editing === p.id && <SecondFactorEditor provider={p} onDone={() => setEditing(null)} />}
               {history === p.id && <ProviderHistory id={p.id} name={p.name} canRestore={canRestore} />}
             </li>
           ))}
         </ul>
         {idps.data?.providers?.length === 0 && <EmptyState action={addOidc}>No providers yet.</EmptyState>}
       </section>
+
+      {edited && (
+        <SecondFactorEditor
+          key={editRound}
+          open={editOpen}
+          onOpenChange={setEditOpen}
+          provider={edited}
+          onSaved={() => setEditOpen(false)}
+        />
+      )}
 
       <ConfirmDialog
         open={asking}
@@ -328,25 +346,23 @@ function SingleSignOn() {
               ))}
             </select>
           </label>
-          <label className="grid flex-1 gap-1.5">
-            <Text as="span">Name</Text>
-            <Input
-              value={form.name}
-              onChange={(e) => setForm({ ...form, name: e.target.value })}
-              placeholder="Company sign-in"
-            />
-          </label>
+          <LabelledInput
+            labelClassName="grid flex-1 gap-1.5"
+            label="Name"
+            value={form.name}
+            onChange={(e) => setForm({ ...form, name: e.target.value })}
+            placeholder="Company sign-in"
+          />
         </div>
 
         {needsIssuer && (
-          <label className="grid gap-1.5">
-            <Text as="span">Issuer URL</Text>
-            <Input
-              required
-              value={form.issuer}
-              onChange={(e) => setForm({ ...form, issuer: e.target.value })}
-              placeholder="https://login.microsoftonline.com/<tenant>/v2.0"
-            />
+          <LabelledInput
+            label="Issuer URL"
+            required
+            value={form.issuer}
+            onChange={(e) => setForm({ ...form, issuer: e.target.value })}
+            placeholder="https://login.microsoftonline.com/<tenant>/v2.0"
+          >
             <div className="flex items-center gap-3">
               <Button
                 type="button"
@@ -357,41 +373,35 @@ function SingleSignOn() {
               </Button>
               {probe && <Text variant="secondary">{probe}</Text>}
             </div>
-          </label>
+          </LabelledInput>
         )}
 
         <div className="flex flex-wrap gap-3">
-          <label className="grid flex-1 gap-1.5">
-            <Text as="span">Client ID</Text>
-            <Input required value={form.clientId} onChange={(e) => setForm({ ...form, clientId: e.target.value })} />
-          </label>
-          <label className="grid flex-1 gap-1.5">
-            <Text as="span">Client secret</Text>
-            <Input
-              type="password"
-              value={form.clientSecret}
-              onChange={(e) => setForm({ ...form, clientSecret: e.target.value })}
-            />
-          </label>
+          <LabelledInput labelClassName="grid flex-1 gap-1.5" label="Client ID" required value={form.clientId} onChange={(e) => setForm({ ...form, clientId: e.target.value })} />
+          <LabelledInput
+            labelClassName="grid flex-1 gap-1.5"
+            label="Client secret"
+            type="password"
+            value={form.clientSecret}
+            onChange={(e) => setForm({ ...form, clientSecret: e.target.value })}
+          />
         </div>
 
         <div className="flex flex-wrap gap-3">
-          <label className="grid flex-1 gap-1.5">
-            <Text as="span">Allowed email domains</Text>
-            <Input
-              value={form.allowedDomains}
-              onChange={(e) => setForm({ ...form, allowedDomains: e.target.value })}
-              placeholder="example.com, example.co.uk"
-            />
-          </label>
-          <label className="grid flex-1 gap-1.5">
-            <Text as="span">Groups claim</Text>
-            <Input
-              value={form.groupsClaim}
-              onChange={(e) => setForm({ ...form, groupsClaim: e.target.value })}
-              placeholder="groups"
-            />
-          </label>
+          <LabelledInput
+            labelClassName="grid flex-1 gap-1.5"
+            label="Allowed email domains"
+            value={form.allowedDomains}
+            onChange={(e) => setForm({ ...form, allowedDomains: e.target.value })}
+            placeholder="example.com, example.co.uk"
+          />
+          <LabelledInput
+            labelClassName="grid flex-1 gap-1.5"
+            label="Groups claim"
+            value={form.groupsClaim}
+            onChange={(e) => setForm({ ...form, groupsClaim: e.target.value })}
+            placeholder="groups"
+          />
         </div>
         <div className="flex items-center gap-1">
           <Text variant="secondary">Leave the domains empty to accept anyone the provider admits.</Text>
@@ -494,14 +504,8 @@ function SecondFactorFields({
   return (
     <div className="grid gap-1.5">
       <div className="flex flex-wrap gap-3">
-        <label className="grid flex-1 gap-1.5">
-          <Text as="span">Second factor: amr values that count</Text>
-          <Input value={amr} onChange={(e) => onChange(e.target.value, acr)} placeholder={defaultAmr} />
-        </label>
-        <label className="grid flex-1 gap-1.5">
-          <Text as="span">Second factor: acr values that count</Text>
-          <Input value={acr} onChange={(e) => onChange(amr, e.target.value)} placeholder="phr" />
-        </label>
+        <LabelledInput labelClassName="grid flex-1 gap-1.5" label="Second factor: amr values that count" value={amr} onChange={(e) => onChange(e.target.value, acr)} placeholder={defaultAmr} />
+        <LabelledInput labelClassName="grid flex-1 gap-1.5" label="Second factor: acr values that count" value={acr} onChange={(e) => onChange(amr, e.target.value)} placeholder="phr" />
       </div>
       <Text variant="secondary">
         A sign-in has a second factor when the provider's signed ID token names one of these amr values, or its acr is
@@ -517,7 +521,17 @@ function SecondFactorFields({
  * nothing else: a copy of the whole provider sent back from the list read
  * earlier would undo whatever an administrator changed since.
  */
-function SecondFactorEditor({ provider: p, onDone }: { provider: IdpDto; onDone: () => void }) {
+function SecondFactorEditor({
+  open,
+  onOpenChange,
+  provider: p,
+  onSaved,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  provider: IdpDto;
+  onSaved: () => void;
+}) {
   const qc = useQueryClient();
   const [amr, setAmr] = useState((p.mfa.amr ?? []).join(", "));
   const [acr, setAcr] = useState((p.mfa.acr ?? []).join(", "));
@@ -526,17 +540,19 @@ function SecondFactorEditor({ provider: p, onDone }: { provider: IdpDto; onDone:
     onSuccess: async () => {
       toast(`Second-factor rule of ${p.name} saved`);
       await qc.invalidateQueries({ queryKey: listIdpsQueryKey() });
-      onDone();
+      onSaved();
     },
   });
   return (
-    <form
-      className="grid gap-3"
-      aria-label={`Second-factor rule of ${p.name}`}
-      onSubmit={(e) => {
-        e.preventDefault();
-        save.mutate({ path: { id: p.id }, body: { amr: list(amr), acr: list(acr) } });
-      }}
+    <FormDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title={`Edit the second-factor rule of ${p.name}`}
+      description="It applies from the next sign-in."
+      submitLabel="Save second-factor rule"
+      pending={save.isPending}
+      error={save.error ? message(save.error) : null}
+      onSubmit={() => save.mutate({ path: { id: p.id }, body: { amr: list(amr), acr: list(acr) } })}
     >
       <SecondFactorFields
         amr={amr}
@@ -546,18 +562,7 @@ function SecondFactorEditor({ provider: p, onDone }: { provider: IdpDto; onDone:
           setAcr(c);
         }}
       />
-      <div className="flex items-center gap-3">
-        <Button type="submit" variant="primary" disabled={save.isPending}>
-          Save second-factor rule
-        </Button>
-        <Text variant="secondary">It applies from the next sign-in.</Text>
-      </div>
-      {save.error && (
-        <div role="alert">
-          <Text>{message(save.error)}</Text>
-        </div>
-      )}
-    </form>
+    </FormDialog>
   );
 }
 
@@ -744,23 +749,19 @@ function SamlSection() {
           })
         }
       >
-        <label className="grid gap-1.5">
-          <Text as="span">Name</Text>
-          <Input
-            value={form.name}
-            onChange={(e) => setForm({ ...form, name: e.target.value })}
-            placeholder="Company SAML"
-          />
-        </label>
+        <LabelledInput
+          label="Name"
+          value={form.name}
+          onChange={(e) => setForm({ ...form, name: e.target.value })}
+          placeholder="Company SAML"
+        />
 
-        <label className="grid gap-1.5">
-          <Text as="span">Identity provider metadata URL</Text>
-          <Input
-            value={form.metadataUrl}
-            onChange={(e) => setForm({ ...form, metadataUrl: e.target.value })}
-            placeholder="https://login.example.com/app/exk1234/sso/saml/metadata"
-          />
-        </label>
+        <LabelledInput
+          label="Identity provider metadata URL"
+          value={form.metadataUrl}
+          onChange={(e) => setForm({ ...form, metadataUrl: e.target.value })}
+          placeholder="https://login.example.com/app/exk1234/sso/saml/metadata"
+        />
 
         <label className="grid gap-1.5">
           <Text as="span">…or paste the metadata XML</Text>
@@ -788,30 +789,27 @@ function SamlSection() {
         </div>
 
         <div className="flex flex-wrap gap-3">
-          <label className="grid flex-1 gap-1.5">
-            <Text as="span">Allowed email domains</Text>
-            <Input
-              value={form.allowedDomains}
-              onChange={(e) => setForm({ ...form, allowedDomains: e.target.value })}
-              placeholder="example.com, example.co.uk"
-            />
-          </label>
-          <label className="grid flex-1 gap-1.5">
-            <Text as="span">Email attribute</Text>
-            <Input
-              value={form.emailAttribute}
-              onChange={(e) => setForm({ ...form, emailAttribute: e.target.value })}
-              placeholder="leave empty to try the usual names"
-            />
-          </label>
-          <label className="grid flex-1 gap-1.5">
-            <Text as="span">Groups attribute</Text>
-            <Input
-              value={form.groupsAttribute}
-              onChange={(e) => setForm({ ...form, groupsAttribute: e.target.value })}
-              placeholder="groups"
-            />
-          </label>
+          <LabelledInput
+            labelClassName="grid flex-1 gap-1.5"
+            label="Allowed email domains"
+            value={form.allowedDomains}
+            onChange={(e) => setForm({ ...form, allowedDomains: e.target.value })}
+            placeholder="example.com, example.co.uk"
+          />
+          <LabelledInput
+            labelClassName="grid flex-1 gap-1.5"
+            label="Email attribute"
+            value={form.emailAttribute}
+            onChange={(e) => setForm({ ...form, emailAttribute: e.target.value })}
+            placeholder="leave empty to try the usual names"
+          />
+          <LabelledInput
+            labelClassName="grid flex-1 gap-1.5"
+            label="Groups attribute"
+            value={form.groupsAttribute}
+            onChange={(e) => setForm({ ...form, groupsAttribute: e.target.value })}
+            placeholder="groups"
+          />
         </div>
         <div className="flex items-center gap-1">
           <Text variant="secondary">Leave the attributes empty to read the usual names.</Text>
