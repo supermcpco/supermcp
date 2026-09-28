@@ -54,9 +54,12 @@ type rig struct {
 }
 
 // initGate holds one initialise handler after its response is written.
+// parked is closed by the handler itself, once its answer is flushed and
+// just before it waits on release, so a test that has received from
+// parked knows the handler has not returned and will not until released.
 type initGate struct {
-	written, release chan struct{}
-	once             sync.Once
+	parked, release chan struct{}
+	once            sync.Once
 }
 
 func (g *initGate) open() { g.once.Do(func() { close(g.release) }) }
@@ -79,21 +82,37 @@ func (w *gatedWriter) Flush() {
 	_ = http.NewResponseController(w.ResponseWriter).Flush()
 	if w.wrote && !w.held {
 		w.held = true
-		close(w.gate.written)
+		close(w.gate.parked)
 		<-w.gate.release
 	}
 }
 
 func (w *gatedWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
-// holdNextInitialise holds the next initialise handler once its response
-// is on its way to the client, until release is called. held is closed
-// once the handler is being held.
-func (r *rig) holdNextInitialise() (held <-chan struct{}, release func()) {
-	g := &initGate{written: make(chan struct{}), release: make(chan struct{})}
+// holdNextInitialise arms the rig to hold the next initialise handler
+// once its response is flushed to the client, until release is called.
+// Call it before connecting. The client can have its answer a moment
+// before the handler reaches the hold, so a test waits with awaitParked
+// rather than looking once.
+func (r *rig) holdNextInitialise() (g *initGate, release func()) {
+	g = &initGate{parked: make(chan struct{}), release: make(chan struct{})}
 	r.gate.Store(g)
 	r.t.Cleanup(g.open)
-	return g.written, g.open
+	return g, g.open
+}
+
+// awaitParked waits for the handler g holds to be parked, and fails the
+// test if it is not within settleTimeout: the hold never engaged, and
+// anything the test did next would prove nothing.
+func (r *rig) awaitParked(g *initGate) {
+	r.t.Helper()
+	timer := time.NewTimer(settleTimeout)
+	defer timer.Stop()
+	select {
+	case <-g.parked:
+	case <-timer.C:
+		r.t.Fatalf("the initialise handler was not held within %s; the hold never engaged", settleTimeout)
+	}
 }
 
 // user is a caller on an API key of their own in an organisation.
@@ -725,7 +744,7 @@ func TestCallerOpensItsNextSessionBeforeTheLastInitialiseReturns(t *testing.T) {
 	r := newRig(t, mcpserver.SessionsStateful, SessionOptions{Max: 100, PerCaller: 2, PerOrg: 100})
 	ctx, cancel := context.WithTimeout(context.Background(), settleTimeout)
 	defer cancel()
-	held, release := r.holdNextInitialise()
+	gate, release := r.holdNextInitialise()
 	// Deferred, not a cleanup: closing the sessions below waits for the
 	// held handler, so it has to be let go first however the test ends.
 	defer release()
@@ -735,12 +754,9 @@ func TestCallerOpensItsNextSessionBeforeTheLastInitialiseReturns(t *testing.T) {
 		t.Fatalf("first connect: %v", err)
 	}
 	t.Cleanup(func() { _ = first.Close() })
-	select {
-	case <-held:
-	default:
-		t.Fatal("the first initialise returned without being held; the test proves nothing")
-	}
-	// No settle: the first initialise handler is still held.
+	// The server side reports the first initialise handler parked: it has
+	// answered and cannot return until released. No settle.
+	r.awaitParked(gate)
 	second, err := r.tryConnect(ctx)
 	if err != nil {
 		t.Fatalf("second connect while the first initialise is still returning: %v", err)
