@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button, DeleteResource, Text } from "@cloudflare/kumo";
@@ -23,34 +23,29 @@ import {
   authorizesInBrowser,
   callsTo,
   connectorCredentialFields,
-  consentOutcome,
+  consentResult,
+  consentSearch,
   credentialDescriptions,
   filled,
   lastFailure,
   stillNeeded,
   targetHost,
+  type ConsentSearch,
 } from "../lib/connector";
 import { resyncSummary } from "../lib/resync";
 import { CredentialFields } from "../components/credential-fields";
 import { ResyncReview } from "../components/resync-review";
 import { toast } from "../components/shell/toast";
 import { About } from "../components/about";
+import { ConsentReturn } from "../components/consent-return";
 
 /**
- * Where a vendor's consent screen sends a person back to, by way of the
- * connectors list: whether the connection was made, or the server's code
- * for why it was not.
+ * Where a vendor's consent screen sends a person back to: `oauth` is "ok"
+ * or the server's code for why the connection was not made. The older
+ * names are read until the release after this one.
  */
-interface OverviewSearch {
-  connected?: boolean;
-  connectError?: string;
-}
-
 export const Route = createFileRoute("/_app/connectors/$id/_detail/")({
-  validateSearch: (search: Record<string, unknown>): OverviewSearch => ({
-    ...(search.connected === true || search.connected === "1" || search.connected === 1 ? { connected: true } : {}),
-    ...(typeof search.connectError === "string" ? { connectError: search.connectError } : {}),
-  }),
+  validateSearch: (search: Record<string, unknown>): ConsentSearch => consentSearch(search),
   component: Overview,
 });
 
@@ -69,7 +64,7 @@ function Overview() {
 
   return (
     <>
-      <ConsentReturn />
+      <ConsentNotice id={c.id} />
       {c.catalogOutdated && <CatalogNotice connector={c} />}
       <Status connector={c} />
       <Credentials connector={c} />
@@ -79,23 +74,14 @@ function Overview() {
 }
 
 /** What the vendor's consent screen came back with, if it just did. */
-function ConsentReturn() {
+function ConsentNotice({ id }: { id: string }) {
   const search = Route.useSearch();
-  if (search.connected) {
-    return (
-      <div role="status" className="rounded-md bg-kumo-tint px-4 py-3 ring ring-kumo-line">
-        <Text>Connected. The vendor approved access, and the workspace now holds the tokens.</Text>
-      </div>
-    );
-  }
-  if (search.connectError) {
-    return (
-      <div role="alert" className="rounded-md bg-kumo-tint px-4 py-3 ring ring-kumo-line">
-        <Text>{consentOutcome(search.connectError)}</Text>
-      </div>
-    );
-  }
-  return null;
+  const navigate = useNavigate();
+  const clear = useCallback(
+    () => void navigate({ to: "/connectors/$id", params: { id }, search: {}, replace: true }),
+    [navigate, id],
+  );
+  return <ConsentReturn result={consentResult(search)} onRead={clear} />;
 }
 
 /**
