@@ -32,6 +32,7 @@ function SettingsLayout() {
       </div>
 
       <RouteTabs
+        label="Settings"
         value={shown}
         tabs={tabs.map((t) => ({ value: t.to, label: t.label, link: <Link to={t.to} /> }))}
       />

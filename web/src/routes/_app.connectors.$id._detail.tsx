@@ -13,6 +13,7 @@ import { useSession } from "../lib/session";
 import { Badge, Loading, NotFound } from "../lib/ui";
 import { message, status } from "../lib/errors";
 import { toast } from "../components/shell/toast";
+import { RouteTabs, TabPanel } from "../components/route-tabs";
 
 /**
  * One connector: its name and state above, and three tabs below it. The
@@ -24,9 +25,9 @@ export const Route = createFileRoute("/_app/connectors/$id/_detail")({
   component: ConnectorLayout,
 });
 
-const tabClass = "rounded-md px-3 py-1.5 aria-selected:bg-kumo-tint aria-selected:font-semibold";
-
 type Tab = "overview" | "tools" | "history";
+
+const tabLabels: Record<Tab, string> = { overview: "Overview", tools: "Tools", history: "History" };
 
 function ConnectorLayout() {
   const { id } = Route.useParams();
@@ -66,46 +67,19 @@ function ConnectorLayout() {
         <Header id={id} />
       )}
 
-      <div role="tablist" aria-label="Connector" className="flex gap-2 border-b border-kumo-line pb-2">
-        <Link
-          to="/connectors/$id"
-          params={{ id }}
-          role="tab"
-          id="connector-tab-overview"
-          aria-selected={tab === "overview"}
-          aria-controls="connector-panel"
-          className={tabClass}
-          activeOptions={{ exact: true }}
-        >
-          Overview
-        </Link>
-        <Link
-          to="/connectors/$id/tools"
-          params={{ id }}
-          role="tab"
-          id="connector-tab-tools"
-          aria-selected={tab === "tools"}
-          aria-controls="connector-panel"
-          className={tabClass}
-        >
-          Tools
-        </Link>
-        <Link
-          to="/connectors/$id/history"
-          params={{ id }}
-          role="tab"
-          id="connector-tab-history"
-          aria-selected={tab === "history"}
-          aria-controls="connector-panel"
-          className={tabClass}
-        >
-          History
-        </Link>
-      </div>
+      <RouteTabs
+        label="Connector"
+        value={tab}
+        tabs={[
+          { value: "overview", label: "Overview", link: <Link to="/connectors/$id" params={{ id }} /> },
+          { value: "tools", label: "Tools", link: <Link to="/connectors/$id/tools" params={{ id }} /> },
+          { value: "history", label: "History", link: <Link to="/connectors/$id/history" params={{ id }} /> },
+        ]}
+      />
 
-      <div role="tabpanel" id="connector-panel" aria-labelledby={`connector-tab-${tab}`} className="grid gap-6">
+      <TabPanel label={tabLabels[tab]}>
         <Outlet />
-      </div>
+      </TabPanel>
     </div>
   );
 }
