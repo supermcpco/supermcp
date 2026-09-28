@@ -243,11 +243,15 @@ func (s *Service) createUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	orgID := orgOf(r)
-	name := in.UserName
-	if in.Name != nil && in.Name.Formatted != "" {
-		name = in.Name.Formatted
-	} else if in.Name != nil {
-		name = strings.TrimSpace(in.Name.GivenName + " " + in.Name.FamilyName)
+	name, ok := displayName(in)
+	if !ok {
+		writeScimErr(w, http.StatusBadRequest, "invalidValue", identity.ErrInvalidName.Error())
+		return
+	}
+	if name == "" {
+		// userName is usually the address; as a stand-in it is dropped
+		// rather than refused when it cannot be a name.
+		name = identity.ProviderName(in.UserName)
 	}
 	userID := s.NewID()
 	var created string
@@ -270,6 +274,21 @@ func (s *Service) createUser(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, s.userFrom(*rec))
 }
 
+// displayName is the name a User resource carries: name.formatted, or
+// the given and family names. ok is false when there is one and
+// identity.CleanName refuses it; an absent name is "" and ok.
+func displayName(in User) (string, bool) {
+	if in.Name == nil {
+		return "", true
+	}
+	raw := firstNonEmpty(in.Name.Formatted, strings.TrimSpace(in.Name.GivenName+" "+in.Name.FamilyName))
+	if strings.TrimSpace(raw) == "" {
+		return "", true
+	}
+	clean, err := identity.CleanName(raw)
+	return clean, err == nil
+}
+
 func (s *Service) replaceUser(w http.ResponseWriter, r *http.Request) {
 	var in User
 	if err := decode(r, &in); err != nil {
@@ -278,6 +297,11 @@ func (s *Service) replaceUser(w http.ResponseWriter, r *http.Request) {
 	}
 	id := chi.URLParam(r, "id")
 	orgID := orgOf(r)
+	display, ok := displayName(in)
+	if !ok {
+		writeScimErr(w, http.StatusBadRequest, "invalidValue", identity.ErrInvalidName.Error())
+		return
+	}
 	if _, err := s.loadUser(r.Context(), orgID, id); err != nil {
 		s.lookupErr(w, r, err)
 		return
@@ -292,12 +316,9 @@ func (s *Service) replaceUser(w http.ResponseWriter, r *http.Request) {
 			WHERE organization_id = $1 AND user_id = $2`, orgID, id, firstNonEmpty(in.UserName, firstEmail(in)), in.ExternalID); err != nil {
 			return err
 		}
-		if in.Name != nil {
-			display := firstNonEmpty(in.Name.Formatted, strings.TrimSpace(in.Name.GivenName+" "+in.Name.FamilyName))
-			if display != "" {
-				if _, err := tx.Exec(ctx, `UPDATE users SET name = $2, updated_at = now() WHERE id = $1`, id, display); err != nil {
-					return err
-				}
+		if display != "" {
+			if _, err := tx.Exec(ctx, `UPDATE users SET name = $2, updated_at = now() WHERE id = $1`, id, display); err != nil {
+				return err
 			}
 		}
 		return nil

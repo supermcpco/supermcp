@@ -190,14 +190,21 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (*User, *Org, 
 	if !open {
 		return nil, nil, ErrRegistrationClosed
 	}
+	if in.Name, err = cleanField("name", in.Name); err != nil {
+		return nil, nil, err
+	}
+	if in.OrgName, err = cleanField("orgName", in.OrgName); err != nil {
+		return nil, nil, err
+	}
 	hash, err := HashPassword(in.Password)
 	if err != nil {
 		return nil, nil, err
 	}
 	if in.OrgName == "" {
-		in.OrgName = in.Name + "'s workspace"
-		if in.Name == "" {
-			in.OrgName = "Workspace"
+		// A name at the limit leaves no room for the suffix.
+		in.OrgName = "Workspace"
+		if named, err := CleanName(in.Name + "'s workspace"); in.Name != "" && err == nil {
+			in.OrgName = named
 		}
 	}
 	u := &User{ID: s.NewID(), Email: in.Email, Name: in.Name}

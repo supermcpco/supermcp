@@ -874,7 +874,15 @@ func humaErr(err error) error {
 		return herr
 	}
 	if errors.Is(err, identity.ErrInvalidName) {
-		return huma.Error422UnprocessableEntity(err.Error(), &huma.ErrorDetail{Location: "body.name", Message: err.Error()})
+		loc := "body.name"
+		var field *identity.InvalidNameError
+		if errors.As(err, &field) {
+			loc = "body." + field.Field
+		}
+		return huma.Error422UnprocessableEntity(err.Error(), &huma.ErrorDetail{Location: loc, Message: err.Error()})
+	}
+	if errors.Is(err, identity.ErrNameManaged) {
+		return huma.Error409Conflict(err.Error(), &huma.ErrorDetail{Location: "body.name", Message: err.Error(), Value: conflictScimManaged})
 	}
 	if herr := memberErr(err); herr != nil {
 		return herr
