@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button, Input, Text } from "@cloudflare/kumo";
+import { Button, Collapsible, Dialog, DialogRoot, DialogTitle, Input, Text } from "@cloudflare/kumo";
 import {
   connectorsListOptions,
   serversCreateMutation,
@@ -14,87 +14,61 @@ import { useSession } from "../lib/session";
 import { Badge } from "../lib/ui";
 import { message } from "../lib/errors";
 import { toast } from "../components/shell/toast";
+import { ConnectClient, Endpoint } from "../components/connect-client";
 
 export const Route = createFileRoute("/_app/servers")({
   component: Servers,
 });
 
 function Servers() {
-  const { signedIn } = useSession();
-  const qc = useQueryClient();
+  const { signedIn, can } = useSession();
   const servers = useQuery({ ...serversListOptions(), enabled: signedIn, retry: false });
-  const connectors = useQuery({ ...connectorsListOptions(), enabled: signedIn, retry: false });
-  const [name, setName] = useState("");
-  const [picked, setPicked] = useState<string[]>([]);
-  const [error, setError] = useState<string | null>(null);
-
-  const create = useMutation({
-    ...serversCreateMutation(),
-    onSuccess: async (server) => {
-      toast(`MCP server ${server.name} created`);
-      setName("");
-      setPicked([]);
-      setError(null);
-      await qc.invalidateQueries({ queryKey: serversListQueryKey() });
-    },
-    onError: (e) => setError(message(e)),
-  });
+  const [creating, setCreating] = useState(false);
+  const mayCreate = can("servers:create");
+  const newServer = mayCreate && (
+    <Button variant="primary" onClick={() => setCreating(true)}>
+      New server
+    </Button>
+  );
 
   return (
     <div className="grid gap-6">
-      <div className="grid gap-1.5">
-        <Text as="h1" variant="heading2">
-          MCP servers
-        </Text>
-        <Text>Each server is one endpoint you give an AI client. It exposes the connectors you attach, and nothing else.</Text>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="grid gap-1.5">
+          <Text as="h1" variant="heading2">
+            MCP servers
+          </Text>
+          <Text>
+            Each server is one endpoint you give an AI client. It exposes the connectors you attach, and nothing else.
+          </Text>
+        </div>
+        {newServer}
       </div>
 
-      <form
-        className="grid max-w-3xl gap-3 rounded-lg px-5 py-4 ring ring-kumo-line"
-        onSubmit={(e) => {
-          e.preventDefault();
-          create.mutate({ body: { name, connectorIds: picked } });
-        }}
-      >
-        <Text as="h2" variant="heading3">
-          New server
-        </Text>
-        <label className="grid gap-1.5">
-          <Text as="span">Name</Text>
-          <Input required value={name} onChange={(e) => setName(e.target.value)} placeholder="Support desk" />
-        </label>
-        <fieldset className="grid gap-1.5">
-          <legend>
-            <Text as="span">Connectors</Text>
-          </legend>
-          {connectors.data?.length === 0 && <Text variant="secondary">Install a connector first.</Text>}
-          {connectors.data?.map((c) => (
-            <label key={c.id} className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={picked.includes(c.id)}
-                onChange={(e) => setPicked((p) => (e.target.checked ? [...p, c.id] : p.filter((x) => x !== c.id)))}
-              />
-              <Text as="span">
-                {c.name} ({c.toolCount} tools)
+      {servers.isPending && <Text>Loading…</Text>}
+      {servers.isError && (
+        <div role="alert">
+          <Text>{message(servers.error)}</Text>
+        </div>
+      )}
+      {servers.data?.length === 0 && (
+        <div className="rounded-lg px-5 py-8 text-center ring ring-kumo-line">
+          <div className="grid justify-items-center gap-3">
+            <div className="grid gap-1.5">
+              <Text as="h2" variant="heading3">
+                No MCP servers yet
               </Text>
-            </label>
-          ))}
-        </fieldset>
-        {error && (
-          <div role="alert">
-            <Text>{error}</Text>
+              <Text variant="secondary">Create one, attach connectors to it, and give its endpoint to an AI client.</Text>
+            </div>
+            {newServer}
           </div>
-        )}
-        <Button type="submit" variant="primary" disabled={create.isPending || !name}>
-          {create.isPending ? "Creating…" : "Create server"}
-        </Button>
-      </form>
+        </div>
+      )}
 
       <ul className="grid gap-3">
         {servers.data?.map((s) => (
           <li key={s.id} className="rounded-lg px-5 py-4 ring ring-kumo-line">
-            <div className="grid gap-2">
+            <div className="grid gap-3">
               <div className="flex flex-wrap items-center gap-2">
                 <Text as="span" bold>
                   {s.name}
@@ -104,13 +78,114 @@ function Servers() {
                   {s.connectorIds.length === 1 ? "1 connector" : `${s.connectorIds.length} connectors`}
                 </Text>
               </div>
-              <Endpoint id={s.id} />
+              <Endpoint serverId={s.id} of={s.name} />
               <Sessions server={s} />
+              <ConnectPanel server={s} />
             </div>
           </li>
         ))}
       </ul>
+
+      {mayCreate && <NewServerDialog open={creating} onClose={() => setCreating(false)} />}
     </div>
+  );
+}
+
+/** The snippets for one server, folded away until asked for. */
+function ConnectPanel({ server }: { server: Server }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Collapsible.Root open={open} onOpenChange={setOpen}>
+      <Collapsible.Trigger render={<Button />}>
+        {open ? "Hide connection details" : "Connect a client"}
+        <span className="sr-only"> to {server.name}</span>
+      </Collapsible.Trigger>
+      <Collapsible.Panel className="mt-3 border-t border-kumo-line pt-3">
+        <ConnectClient server={server} />
+      </Collapsible.Panel>
+    </Collapsible.Root>
+  );
+}
+
+/**
+ * The form for a new server, in a dialog so the list keeps the screen.
+ * Mounted per opening, so a name typed and abandoned is not there next time.
+ */
+function NewServerDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  return (
+    <DialogRoot open={open} onOpenChange={(next) => !next && onClose()}>
+      {open && (
+        <Dialog size="lg" className="grid gap-4 p-6">
+          <DialogTitle className="text-lg font-semibold">New server</DialogTitle>
+          <NewServerForm onDone={onClose} />
+        </Dialog>
+      )}
+    </DialogRoot>
+  );
+}
+
+function NewServerForm({ onDone }: { onDone: () => void }) {
+  const qc = useQueryClient();
+  const connectors = useQuery({ ...connectorsListOptions(), retry: false });
+  const [name, setName] = useState("");
+  const [picked, setPicked] = useState<string[]>([]);
+  const [error, setError] = useState<string | null>(null);
+
+  const create = useMutation({
+    ...serversCreateMutation(),
+    onSuccess: async (server) => {
+      toast(`MCP server ${server.name} created`);
+      await qc.invalidateQueries({ queryKey: serversListQueryKey() });
+      onDone();
+    },
+    onError: (e) => setError(message(e)),
+  });
+
+  return (
+    <form
+      className="grid gap-3"
+      onSubmit={(e) => {
+        e.preventDefault();
+        setError(null);
+        create.mutate({ body: { name, connectorIds: picked } });
+      }}
+    >
+      <label className="grid gap-1.5">
+        <Text as="span">Name</Text>
+        <Input required value={name} onChange={(e) => setName(e.target.value)} placeholder="Support desk" />
+      </label>
+      <fieldset className="grid gap-1.5">
+        <legend>
+          <Text as="span">Connectors</Text>
+        </legend>
+        {connectors.isPending && <Text variant="secondary">Loading…</Text>}
+        {connectors.isError && <Text variant="secondary">{message(connectors.error)}</Text>}
+        {connectors.data?.length === 0 && <Text variant="secondary">Install a connector first.</Text>}
+        {connectors.data?.map((c) => (
+          <label key={c.id} className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={picked.includes(c.id)}
+              onChange={(e) => setPicked((p) => (e.target.checked ? [...p, c.id] : p.filter((x) => x !== c.id)))}
+            />
+            <Text as="span">
+              {c.name} ({c.toolCount} tools)
+            </Text>
+          </label>
+        ))}
+      </fieldset>
+      {error && (
+        <div role="alert">
+          <Text>{error}</Text>
+        </div>
+      )}
+      <div className="flex justify-end gap-2">
+        <Button onClick={onDone}>Cancel</Button>
+        <Button type="submit" variant="primary" disabled={create.isPending || !name}>
+          {create.isPending ? "Creating…" : "Create server"}
+        </Button>
+      </div>
+    </form>
   );
 }
 
@@ -162,26 +237,6 @@ function Sessions({ server }: { server: Server }) {
           <Text>{error}</Text>
         </div>
       )}
-    </div>
-  );
-}
-
-/** The URL to paste into an AI client, with the copy button next to it. */
-function Endpoint({ id }: { id: string }) {
-  const url = `${window.location.origin}/mcp/${id}`;
-  const [copied, setCopied] = useState(false);
-  return (
-    <div className="flex items-center gap-2">
-      <code className="flex-1 overflow-x-auto rounded-md bg-kumo-tint px-2 py-1 font-mono text-[0.9em]">{url}</code>
-      <Button
-        onClick={() => {
-          void navigator.clipboard.writeText(url);
-          setCopied(true);
-          window.setTimeout(() => setCopied(false), 1500);
-        }}
-      >
-        {copied ? "Copied" : "Copy"}
-      </Button>
     </div>
   );
 }

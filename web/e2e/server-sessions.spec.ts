@@ -1,4 +1,4 @@
-import { test, expect, expectAccessible } from "./fixtures";
+import { test, expect, expectAccessible, createServer } from "./fixtures";
 
 // Whether a server keeps a session per client is set from the server
 // list. What a session does is covered by the Go tests; what matters here
@@ -8,9 +8,7 @@ import { test, expect, expectAccessible } from "./fixtures";
 test("a server can be switched to stateful sessions and back", async ({ page, workspace }) => {
   expect(workspace.email).toBeTruthy();
 
-  await page.goto("/servers");
-  await page.getByLabel("Name").fill("Session server");
-  await page.getByRole("button", { name: "Create server" }).click();
+  const serverId = await createServer(page, "Session server");
   const row = page.getByRole("listitem").filter({ hasText: "Session server" });
   const sessions = row.getByLabel("Sessions");
   await expect(sessions).toHaveValue("stateless");
@@ -25,8 +23,6 @@ test("a server can be switched to stateful sessions and back", async ({ page, wo
   await expect(page.getByRole("listitem").filter({ hasText: "Session server" }).getByLabel("Sessions")).toHaveValue(
     "stateful",
   );
-  const endpoint = await row.locator("code", { hasText: "/mcp/" }).innerText();
-  const serverId = endpoint.trim().split("/mcp/")[1];
   const stored = await (await page.request.get(`/api/v1/servers/${serverId}`)).json();
   expect(stored.sessions).toBe("stateful");
 

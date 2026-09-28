@@ -1,4 +1,4 @@
-import { test, expect, expectAccessible } from "./fixtures";
+import { test, expect, expectAccessible, createServer, createKey } from "./fixtures";
 
 // A workspace's own detector, from the screen to a real call: the pattern
 // is tried on its samples as it is typed, saved, picked by a rule beside
@@ -19,16 +19,8 @@ test("a custom detector is tried, saved, added to a rule, and refuses a call tha
   await page.goto("/catalog/bundesbank");
   await page.getByRole("button", { name: "Install" }).click();
   await expect(page).toHaveURL(/\/connectors/);
-  await page.goto("/servers");
-  await page.getByLabel("Name").fill("Detector server");
-  await page.getByRole("checkbox", { name: /Deutsche Bundesbank Statistics/ }).check();
-  await page.getByRole("button", { name: "Create server" }).click();
-  const endpoint = await page.locator("code", { hasText: "/mcp/" }).first().innerText();
-  const serverId = endpoint.trim().split("/mcp/")[1];
-  await page.goto("/api-keys");
-  await page.getByLabel("Name").fill("Detector key");
-  await page.getByRole("button", { name: "Create key" }).click();
-  const secret = (await page.locator("code").first().innerText()).trim();
+  const serverId = await createServer(page, "Detector server", [/Deutsche Bundesbank Statistics/]);
+  const secret = await createKey(page, "Detector key");
 
   // The detector, on its own tab.
   await page.goto("/settings/dlp");

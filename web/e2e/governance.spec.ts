@@ -1,4 +1,4 @@
-import { test, expect, expectAccessible } from "./fixtures";
+import { test, expect, expectAccessible, createServer, createKey } from "./fixtures";
 
 // What a workspace does about the calls it does not trust: inspect what
 // they carry, and hold the ones that need a person. Both gates sit on the
@@ -17,17 +17,9 @@ test("a rule inspects what a tool call carries, and an approval holds one until 
   await page.getByRole("button", { name: "Install" }).click();
   await expect(page).toHaveURL(/\/connectors/);
 
-  await page.goto("/servers");
-  await page.getByLabel("Name").fill("Governed server");
-  await page.getByRole("checkbox", { name: /Deutsche Bundesbank Statistics/ }).check();
-  await page.getByRole("button", { name: "Create server" }).click();
-  const endpoint = await page.locator("code", { hasText: "/mcp/" }).first().innerText();
-  const serverId = endpoint.trim().split("/mcp/")[1];
+  const serverId = await createServer(page, "Governed server", [/Deutsche Bundesbank Statistics/]);
 
-  await page.goto("/api-keys");
-  await page.getByLabel("Name").fill("Governed key");
-  await page.getByRole("button", { name: "Create key" }).click();
-  const secret = (await page.locator("code").first().innerText()).trim();
+  const secret = await createKey(page, "Governed key");
 
   // The data-loss rule, added the way an administrator adds it.
   await page.goto("/settings/dlp");

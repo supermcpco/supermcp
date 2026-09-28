@@ -1,4 +1,4 @@
-import { test, expect, expectAccessible } from "./fixtures";
+import { test, expect, expectAccessible, closeSecret, createKey, createServer, installAdapter } from "./fixtures";
 import { sql } from "./db";
 
 // Rotating a key is done by someone with a client in production: they need
@@ -9,29 +9,17 @@ test("a key is rotated with a grace period and the old one stops after it", asyn
   expect(workspace.email).toBeTruthy();
 
   // A server to present the keys to. A keyless adapter, so no credentials.
-  await page.goto("/catalog");
-  await page.getByRole("link", { name: /Deutsche Bundesbank Statistics/ }).click();
-  await page.getByRole("button", { name: "Install" }).click();
-  await expect(page).toHaveURL(/\/connectors/);
-  await page.goto("/servers");
-  await page.getByLabel("Name").fill("Rotation server");
-  await page.getByRole("checkbox", { name: /Deutsche Bundesbank Statistics/ }).check();
-  await page.getByRole("button", { name: "Create server" }).click();
-  const endpoint = await page.locator("code", { hasText: "/mcp/" }).first().innerText();
-  const serverId = endpoint.trim().split("/mcp/")[1];
+  await installAdapter(page);
+  const serverId = await createServer(page, "Rotation server", [/Deutsche Bundesbank Statistics/]);
   const listTools = (key: string) =>
     request.post(`/mcp/${serverId}`, {
       headers: { "X-API-Key": key, Accept: "application/json, text/event-stream" },
       data: { jsonrpc: "2.0", id: 1, method: "tools/list" },
     });
 
-  await page.goto("/api-keys");
-  await page.getByLabel("Name").fill("Rotating key");
-  await page.getByRole("button", { name: "Create key" }).click();
-  await expect(page.getByRole("heading", { name: /copy this key now/i })).toBeVisible();
-  const oldSecret = (await page.locator("code").first().innerText()).trim();
+  const oldSecret = await createKey(page, "Rotating key");
   const oldPrefix = oldSecret.slice(4, 16);
-  await page.getByRole("button", { name: "Done" }).click();
+  await closeSecret(page);
 
   // Asking first, and cancelling leaves everything as it was.
   await page.getByRole("button", { name: "Rotate Rotating key" }).click();
@@ -44,13 +32,13 @@ test("a key is rotated with a grace period and the old one stops after it", asyn
   await page.getByLabel("Old key keeps working for").selectOption({ label: "1 hour" });
   await page.getByRole("button", { name: "Rotate Rotating key" }).click();
 
-  // The new secret, shown once, where a new key's secret is shown, with
-  // when the old one stops.
-  const shown = page.getByRole("alert").filter({ hasText: /copy this key now/i });
+  // The new secret, shown once, in the dialog a new key's secret is shown
+  // in, with when the old one stops.
+  const shown = page.getByRole("dialog", { name: "Copy this key now" });
   await expect(shown).toBeVisible();
   await expect(shown).toContainText(`smk_${oldPrefix}`);
   await expect(shown).toContainText(/stops working at/i);
-  const newSecret = (await shown.locator("code").first().innerText()).trim();
+  const newSecret = await shown.getByLabel("Secret", { exact: true }).inputValue();
   expect(newSecret).toMatch(/^smk_/);
   expect(newSecret).not.toBe(oldSecret);
 

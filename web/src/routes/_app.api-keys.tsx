@@ -1,19 +1,21 @@
-import { useState } from "react";
-import { createFileRoute } from "@tanstack/react-router";
+import { useId, useState } from "react";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button, Input, Text } from "@cloudflare/kumo";
+import { Button, Dialog, DialogRoot, DialogTitle, Input, Text } from "@cloudflare/kumo";
 import {
   keysCreateMutation,
   keysListOptions,
   keysListQueryKey,
   keysRevokeMutation,
   keysRotateMutation,
+  serversListOptions,
 } from "../api/@tanstack/react-query.gen";
-import type { ApiKeyDto, RotatedKeyDto } from "../api/types.gen";
+import type { ApiKeyDto, KeysCreateResponse, RotatedKeyDto } from "../api/types.gen";
 import { useSession } from "../lib/session";
 import { Badge } from "../lib/ui";
 import { message } from "../lib/errors";
 import { toast } from "../components/shell/toast";
+import { CopyButton, ConnectClient } from "../components/connect-client";
 import { canRotate, defaultGraceSeconds, graceChoices, stopsWorking } from "../lib/key-rotation";
 
 export const Route = createFileRoute("/_app/api-keys")({
@@ -29,102 +31,61 @@ const purposes = {
   scim: ["scim:write"],
 } as const;
 
+/** A secret on show: the key it opens, and what it replaced if it was a rotation. */
+interface Issued {
+  secret: string;
+  key: ApiKeyDto;
+  replaced?: { prefix: string; expiresAt: string };
+}
+
 function APIKeys() {
   const { signedIn } = useSession();
   const qc = useQueryClient();
   const keys = useQuery({ ...keysListOptions(), enabled: signedIn, retry: false });
-  const [name, setName] = useState("");
-  const [purpose, setPurpose] = useState<keyof typeof purposes>("client");
-  const [secret, setSecret] = useState<string | null>(null);
-  // Set when the secret on show replaced a key: which one, and when it stops.
-  const [replaced, setReplaced] = useState<{ prefix: string; expiresAt: string } | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [issued, setIssued] = useState<Issued | null>(null);
   const [rotating, setRotating] = useState<string | null>(null);
 
-  const create = useMutation({
-    ...keysCreateMutation(),
-    onSuccess: async (res, vars) => {
-      // The name only: the secret is shown once, below, and nowhere else.
-      toast(`API key ${vars.body.name} created`);
-      setSecret(res.secret);
-      setReplaced(null);
-      setName("");
-      setError(null);
-      await qc.invalidateQueries({ queryKey: keysListQueryKey() });
-    },
-    onError: (e) => setError(message(e)),
-  });
   const revoke = useMutation({
     ...keysRevokeMutation(),
     onSuccess: () => qc.invalidateQueries({ queryKey: keysListQueryKey() }),
   });
 
+  const createKey = (
+    <Button variant="primary" onClick={() => setCreating(true)}>
+      Create key
+    </Button>
+  );
+
   return (
     <div className="grid gap-6">
-      <div className="grid gap-1.5">
-        <Text as="h1" variant="heading2">
-          API keys
-        </Text>
-        <Text>A key authenticates an AI client to your MCP servers. The secret is shown once, when you create it.</Text>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="grid gap-1.5">
+          <Text as="h1" variant="heading2">
+            API keys
+          </Text>
+          <Text>A key authenticates an AI client to your MCP servers. The secret is shown once, when you create it.</Text>
+        </div>
+        {createKey}
       </div>
 
-      {secret && (
-        <div className="grid gap-1.5 rounded-lg px-5 py-4 ring ring-kumo-line" role="alert">
-          <Text as="h2" variant="heading3">
-            Copy this key now
-          </Text>
-          <Text variant="secondary">It is not stored and cannot be shown again.</Text>
-          <code className="overflow-x-auto rounded-md bg-kumo-tint px-2 py-1 font-mono text-[0.9em]">{secret}</code>
-          {replaced && (
-            <Text>
-              This replaces <span className="font-mono text-[0.9em]">smk_{replaced.prefix}…</span>.{" "}
-              {stopsWorking(replaced.expiresAt)}
-            </Text>
-          )}
-          <div className="flex gap-2">
-            <Button onClick={() => void navigator.clipboard.writeText(secret)}>Copy</Button>
-            <Button
-              onClick={() => {
-                setSecret(null);
-                setReplaced(null);
-              }}
-            >
-              Done
-            </Button>
-          </div>
+      {keys.isPending && <Text>Loading…</Text>}
+      {keys.isError && (
+        <div role="alert">
+          <Text>{message(keys.error)}</Text>
         </div>
       )}
-
-      <form
-        className="flex max-w-3xl flex-wrap items-end gap-3 rounded-lg px-5 py-4 ring ring-kumo-line"
-        onSubmit={(e) => {
-          e.preventDefault();
-          const scopes = purposes[purpose];
-          create.mutate({ body: scopes ? { name, scopes: [...scopes] } : { name } });
-        }}
-      >
-        <label className="grid flex-1 gap-1.5">
-          <Text as="span">Name</Text>
-          <Input required value={name} onChange={(e) => setName(e.target.value)} placeholder="Claude Desktop" />
-        </label>
-        <label className="grid gap-1.5">
-          <Text as="span">For</Text>
-          <select
-            className={selectClass}
-            value={purpose}
-            onChange={(e) => setPurpose(e.currentTarget.value as keyof typeof purposes)}
-          >
-            <option value="client">An AI client</option>
-            <option value="scim">SCIM provisioning</option>
-          </select>
-        </label>
-        <Button type="submit" variant="primary" disabled={create.isPending || !name}>
-          Create key
-        </Button>
-      </form>
-      {error && (
-        <div role="alert">
-          <Text>{error}</Text>
+      {keys.data?.length === 0 && (
+        <div className="rounded-lg px-5 py-8 text-center ring ring-kumo-line">
+          <div className="grid justify-items-center gap-3">
+            <div className="grid gap-1.5">
+              <Text as="h2" variant="heading3">
+                No API keys yet
+              </Text>
+              <Text variant="secondary">Create one for each AI client, so each can be revoked on its own.</Text>
+            </div>
+            {createKey}
+          </div>
         </div>
       )}
 
@@ -160,8 +121,11 @@ function APIKeys() {
               <ConfirmRotate
                 apiKey={k}
                 onRotated={(res) => {
-                  setSecret(res.secret);
-                  setReplaced({ prefix: k.prefix, expiresAt: res.previousExpiresAt });
+                  setIssued({
+                    secret: res.secret,
+                    key: res.key,
+                    replaced: { prefix: k.prefix, expiresAt: res.previousExpiresAt },
+                  });
                   setRotating(null);
                 }}
                 onCancel={() => setRotating(null)}
@@ -170,6 +134,205 @@ function APIKeys() {
           </li>
         ))}
       </ul>
+
+      <CreateKeyDialog
+        open={creating}
+        onClose={() => setCreating(false)}
+        onCreated={(res) => {
+          setCreating(false);
+          setIssued({ secret: res.secret, key: res.key });
+        }}
+      />
+      <SecretDialog issued={issued} onDone={() => setIssued(null)} />
+    </div>
+  );
+}
+
+/**
+ * The form for a new key, in a dialog so the list keeps the screen.
+ * Mounted per opening, so a name typed and abandoned is not there next time.
+ */
+function CreateKeyDialog({
+  open,
+  onClose,
+  onCreated,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onCreated: (res: KeysCreateResponse) => void;
+}) {
+  return (
+    <DialogRoot open={open} onOpenChange={(next) => !next && onClose()}>
+      {open && (
+        <Dialog className="grid gap-4 p-6">
+          <DialogTitle className="text-lg font-semibold">New API key</DialogTitle>
+          <CreateKeyForm onCancel={onClose} onCreated={onCreated} />
+        </Dialog>
+      )}
+    </DialogRoot>
+  );
+}
+
+function CreateKeyForm({ onCancel, onCreated }: { onCancel: () => void; onCreated: (res: KeysCreateResponse) => void }) {
+  const qc = useQueryClient();
+  const [name, setName] = useState("");
+  const [purpose, setPurpose] = useState<keyof typeof purposes>("client");
+  const [error, setError] = useState<string | null>(null);
+
+  const create = useMutation({
+    ...keysCreateMutation(),
+    onSuccess: async (res, vars) => {
+      // The name only: the secret is shown once, in its own dialog, and nowhere else.
+      toast(`API key ${vars.body.name} created`);
+      onCreated(res);
+      await qc.invalidateQueries({ queryKey: keysListQueryKey() });
+    },
+    onError: (e) => setError(message(e)),
+  });
+
+  return (
+    <form
+      className="grid gap-3"
+      onSubmit={(e) => {
+        e.preventDefault();
+        setError(null);
+        const scopes = purposes[purpose];
+        create.mutate({ body: scopes ? { name, scopes: [...scopes] } : { name } });
+      }}
+    >
+      <label className="grid gap-1.5">
+        <Text as="span">Name</Text>
+        <Input required value={name} onChange={(e) => setName(e.target.value)} placeholder="Claude Desktop" />
+      </label>
+      <label className="grid gap-1.5">
+        <Text as="span">For</Text>
+        <select
+          className={selectClass}
+          value={purpose}
+          onChange={(e) => setPurpose(e.currentTarget.value as keyof typeof purposes)}
+        >
+          <option value="client">An AI client</option>
+          <option value="scim">SCIM provisioning</option>
+        </select>
+      </label>
+      {error && (
+        <div role="alert">
+          <Text>{error}</Text>
+        </div>
+      )}
+      <div className="flex justify-end gap-2">
+        <Button onClick={onCancel}>Cancel</Button>
+        <Button type="submit" variant="primary" disabled={create.isPending || !name}>
+          {create.isPending ? "Creating…" : "Create key"}
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+/**
+ * The one moment a secret is on screen. It closes only on Done, never on
+ * a stray click outside or Escape, because closing it is the last chance
+ * to copy; after that the secret is dropped from memory with the dialog.
+ */
+function SecretDialog({ issued, onDone }: { issued: Issued | null; onDone: () => void }) {
+  return (
+    <DialogRoot open={issued !== null} disablePointerDismissal onOpenChange={() => {}}>
+      {issued && (
+        <Dialog size="xl" className="grid max-h-[90vh] gap-4 overflow-y-auto p-6">
+          <DialogTitle className="text-lg font-semibold">Copy this key now</DialogTitle>
+          <SecretBody issued={issued} />
+          <div className="flex justify-end">
+            <Button variant="primary" onClick={onDone}>
+              Done
+            </Button>
+          </div>
+        </Dialog>
+      )}
+    </DialogRoot>
+  );
+}
+
+function SecretBody({ issued }: { issued: Issued }) {
+  const { can } = useSession();
+  const { secret, key, replaced } = issued;
+  // A provisioning key reaches SCIM, not MCP servers: no client to connect.
+  const forClients = !key.scopes.includes("scim:write");
+  const mayListServers = can("servers:read");
+  const servers = useQuery({ ...serversListOptions(), enabled: forClients && mayListServers, retry: false });
+  const [picked, setPicked] = useState<string | null>(null);
+  const secretId = useId();
+  const serverSelectId = useId();
+  const list = servers.data ?? [];
+  // A key bound to one server can only reach that one; otherwise the first.
+  const serverId = picked ?? key.serverId ?? list[0]?.id;
+  const server = list.find((s) => s.id === serverId);
+
+  return (
+    <div className="grid gap-4">
+      <div className="grid gap-1.5">
+        <Text variant="secondary">
+          {key.name}: it is not stored and cannot be shown again.
+        </Text>
+        <label htmlFor={secretId}>
+          <Text as="span">Secret</Text>
+        </label>
+        <div className="flex items-center gap-2">
+          <input
+            id={secretId}
+            readOnly
+            value={secret}
+            onFocus={(e) => e.currentTarget.select()}
+            className="min-w-0 flex-1 rounded-md bg-kumo-tint px-2 py-1 font-mono text-[0.9em]"
+          />
+          <CopyButton text={secret} what="secret" />
+        </div>
+        {replaced && (
+          <Text>
+            This replaces <span className="font-mono text-[0.9em]">smk_{replaced.prefix}…</span>.{" "}
+            {stopsWorking(replaced.expiresAt)}
+          </Text>
+        )}
+      </div>
+
+      {forClients && mayListServers && (
+        <div className="grid gap-3 border-t border-kumo-line pt-4">
+          <Text as="h3" variant="heading3">
+            Connect a client
+          </Text>
+          {servers.isPending && <Text variant="secondary">Loading…</Text>}
+          {servers.isError && <Text variant="secondary">{message(servers.error)}</Text>}
+          {servers.data?.length === 0 && (
+            <Text>
+              There is no MCP server to connect to yet.{" "}
+              <Link to="/servers" className="underline">
+                Create one on MCP servers
+              </Link>
+              , then use this key with it.
+            </Text>
+          )}
+          {list.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2">
+              <label htmlFor={serverSelectId}>
+                <Text as="span">Server</Text>
+              </label>
+              <select
+                id={serverSelectId}
+                className={selectClass}
+                value={serverId}
+                onChange={(e) => setPicked(e.currentTarget.value)}
+              >
+                {list.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+          {server && <ConnectClient key={server.id} server={server} secret={secret} showEndpoint />}
+        </div>
+      )}
     </div>
   );
 }
@@ -177,7 +340,7 @@ function APIKeys() {
 /**
  * Asks how long the old key should keep working before it is replaced.
  * The replacement's secret is handed back to the screen, which shows it
- * once in the same place a new key's secret appears.
+ * once in the same dialog a new key's secret appears in.
  */
 function ConfirmRotate({
   apiKey,

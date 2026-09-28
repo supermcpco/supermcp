@@ -1,4 +1,4 @@
-import { test, expect, expectAccessible, signIn } from "./fixtures";
+import { test, expect, expectAccessible, createKey, signIn } from "./fixtures";
 
 // The settings screens, driven the way an administrator drives them. Each
 // assertion is about what the person sees, not about the shape of a JSON
@@ -6,10 +6,7 @@ import { test, expect, expectAccessible, signIn } from "./fixtures";
 // showed it was unreachable.
 
 test("the audit trail records what the administrator just did", async ({ page, workspace }) => {
-  await page.goto("/api-keys");
-  await page.getByLabel("Name").fill("Audited key");
-  await page.getByRole("button", { name: "Create key" }).click();
-  await expect(page.getByRole("heading", { name: /copy this key now/i })).toBeVisible();
+  await createKey(page, "Audited key");
 
   await page.goto("/settings/audit");
   await expect(page.getByRole("heading", { name: "Audit trail" })).toBeVisible();

@@ -1,4 +1,4 @@
-import { test, expect, expectAccessible, signUp } from "./fixtures";
+import { test, expect, expectAccessible, signUp, createServer, createKey } from "./fixtures";
 import type { APIRequestContext, Page } from "@playwright/test";
 
 // The analytics screen counts the calls a workspace made. The calls here
@@ -87,17 +87,9 @@ test("the analytics screen counts a workspace's calls, and another workspace see
   });
   expect(rule.ok(), await rule.text()).toBeTruthy();
 
-  await page.goto("/servers");
-  await page.getByLabel("Name").fill("Analytics server");
-  await page.getByRole("checkbox", { name: /Deutsche Bundesbank Statistics/ }).check();
-  await page.getByRole("button", { name: "Create server" }).click();
-  const endpoint = await page.locator("code", { hasText: "/mcp/" }).first().innerText();
-  const serverId = endpoint.trim().split("/mcp/")[1];
+  const serverId = await createServer(page, "Analytics server", [/Deutsche Bundesbank Statistics/]);
 
-  await page.goto("/api-keys");
-  await page.getByLabel("Name").fill("Analytics key");
-  await page.getByRole("button", { name: "Create key" }).click();
-  const secret = (await page.locator("code").first().innerText()).trim();
+  const secret = await createKey(page, "Analytics key");
 
   // Four calls to the echo tool, one of them refused, and one to the card.
   for (const note of ["one", "two", "three"]) {
