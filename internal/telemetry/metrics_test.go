@@ -26,6 +26,7 @@ func TestInstrumentNamesAndLabels(t *testing.T) {
 	m.ObserveUpstream("http", 80*time.Millisecond)
 	m.ObserveMCPRequest("tools/call", http.MethodPost, http.StatusOK)
 	m.ObserveHTTPRequest("/api/v1/connectors/{id}", http.MethodGet, http.StatusOK)
+	m.ObserveHTTPClientGone("/api/v1/tool-calls", http.StatusServiceUnavailable)
 	m.ObserveSurfaceBuild(3 * time.Millisecond)
 	m.SetBreakerState("conn_1", telemetry.BreakerOpen)
 	m.SetAuditQueueDepth(7)
@@ -45,6 +46,7 @@ func TestInstrumentNamesAndLabels(t *testing.T) {
 		{name: "upstream duration", metric: "supermcp_upstream_duration_seconds", wantLabels: []string{"connector_type"}},
 		{name: "mcp requests", metric: "supermcp_mcp_requests_total", wantLabels: []string{"code", "endpoint", "method"}},
 		{name: "http requests", metric: "supermcp_http_requests_total", wantLabels: []string{"code", "method", "route"}},
+		{name: "http client gone", metric: "supermcp_http_client_gone_total", wantLabels: []string{"orig_status", "route"}},
 		{name: "surface build", metric: "supermcp_surface_build_seconds", wantLabels: []string{}},
 		{name: "breaker state", metric: "supermcp_breaker_state", wantLabels: []string{"connector"}},
 		{name: "audit queue depth", metric: "supermcp_audit_queue_depth", wantLabels: []string{}},
@@ -270,6 +272,7 @@ func TestNilMetricsRecordsNothing(t *testing.T) {
 	m.ObserveUpstream("http", time.Second)
 	m.ObserveMCPRequest("tools/call", http.MethodPost, http.StatusOK)
 	m.ObserveHTTPRequest("/x", http.MethodGet, http.StatusOK)
+	m.ObserveHTTPClientGone("/x", http.StatusInternalServerError)
 	m.ObserveSurfaceBuild(time.Second)
 	m.SetBreakerState("c", telemetry.BreakerOpen)
 	m.SetAuditQueueDepth(1)

@@ -131,7 +131,7 @@ func (d Deps) analyticsRoutes(api huma.API) {
 			defer d.analytics.release(p.OrgID)
 			rep, err := usage(ctx, d.DB, p.OrgID, w, by, limit)
 			if err != nil {
-				return nil, err
+				return nil, goneErr(ctx, err)
 			}
 			d.analytics.put(key, rep)
 			return &usageOutput{Body: rep}, nil

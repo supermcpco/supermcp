@@ -142,7 +142,7 @@ func (d Deps) auditRoutes(api huma.API) {
 				return nil, errAuditTimeout
 			}
 			if err != nil {
-				return nil, err
+				return nil, goneErr(ctx, err)
 			}
 			out := &auditListOutput{}
 			out.Body.Events = events

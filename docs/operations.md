@@ -688,6 +688,19 @@ the underlying error in `err` (`request panicked`, `scim request failed`,
 `mcp request failed` and `oauth request failed` for the other paths).
 A `/readyz` that answers 503 logs `not ready: …` with the cause.
 
+**Requests answered 499.** The caller went away (a browser navigating
+off a page, say) before the API could answer, and the request failed
+because its work was cancelled. It is not a server error: it is logged
+once as `request abandoned by the client` with `client_gone=true`, the
+request id and `orig_status`, the status it would have had, and it is
+counted in `supermcp_http_client_gone_total` by route and `orig_status`
+rather than as a 5xx. A mapped status such as a 503 for a query that ran
+out of time is logged at INFO. An `orig_status` of 500 is logged at WARN:
+nothing mapped that error, so it can be a real fault that happened to
+coincide with the caller leaving. A steady rate of
+`supermcp_http_client_gone_total{orig_status="500"}` on one route is
+worth reading the `err` of those lines for.
+
 **Single sign-on stops working.** The provider's signing keys rotate, and
 they are cached for ten minutes. If a sign-in fails immediately after a
 rotation at the provider, the next attempt usually succeeds. If it does
