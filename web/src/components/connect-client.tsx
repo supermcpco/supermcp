@@ -1,9 +1,28 @@
-import { useId, useState } from "react";
-import { Button, Text } from "@cloudflare/kumo";
-import { clientSnippets, endpointURL, type ClientId } from "../lib/connect-client";
+import { Fragment, useId, useState } from "react";
+import { Button, Select, Text } from "@cloudflare/kumo";
+import {
+  clientGroups,
+  clientSnippets,
+  endpointURL,
+  isClientId,
+  readClient,
+  storeClient,
+  type ClientId,
+} from "../lib/connect-client";
 import { WithTooltip } from "./tooltip";
 
-const selectClass = "rounded-md border border-kumo-line bg-kumo-base px-3 py-2";
+/** A line with `backticked` paths and commands set in code type. */
+function WithCode({ text }: { text: string }) {
+  return text.split("`").map((part, i) =>
+    i % 2 === 1 ? (
+      <span key={i} className="font-mono text-[0.9em]">
+        {part}
+      </span>
+    ) : (
+      <Fragment key={i}>{part}</Fragment>
+    ),
+  );
+}
 
 /**
  * Copies `text` and says so. `what` finishes the button's name for
@@ -85,8 +104,9 @@ export function ConnectClient({
   secret?: string;
   showEndpoint?: boolean;
 }) {
-  const [client, setClient] = useState<ClientId>("claude-desktop");
-  const clientId = useId();
+  // The last client picked, on this browser; the key dialog and the
+  // server cards share it, so a person picks their client once.
+  const [client, setClient] = useState<ClientId>(() => readClient());
   const url = endpointURL(window.location.origin, server.id);
   const snippets = clientSnippets({ url, name: server.slug || server.name, secret });
   const shown = snippets.find((s) => s.id === client) ?? snippets[0];
@@ -94,33 +114,51 @@ export function ConnectClient({
   return (
     <div className="grid gap-3">
       {showEndpoint && <Endpoint serverId={server.id} of={server.name} />}
-      {/* Labelled by id, not by wrapping: a wrapping label would fold the options into the name. */}
-      <div className="flex flex-wrap items-center gap-2">
-        <label htmlFor={clientId}>
-          <Text as="span">Client</Text>
-        </label>
-        <select
-          id={clientId}
-          className={selectClass}
-          value={client}
-          onChange={(e) => setClient(e.currentTarget.value as ClientId)}
+      <div className="w-fit min-w-64">
+        <Select<ClientId>
+          label="Client"
+          value={shown.id}
+          items={snippets.map((s) => ({ value: s.id, label: s.label }))}
+          onValueChange={(v) => {
+            if (!isClientId(v)) return;
+            setClient(v);
+            storeClient(v);
+          }}
         >
-          {snippets.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.label}
-            </option>
+          {clientGroups.map((group, i) => (
+            <Fragment key={group}>
+              {i > 0 && <Select.Separator />}
+              <Select.Group>
+                <Select.GroupLabel>{group}</Select.GroupLabel>
+                {snippets
+                  .filter((s) => s.group === group)
+                  .map((s) => (
+                    <Select.Option key={s.id} value={s.id}>
+                      {s.label}
+                    </Select.Option>
+                  ))}
+              </Select.Group>
+            </Fragment>
           ))}
-        </select>
+        </Select>
       </div>
       <section aria-label={`${shown.label} config`} className="grid gap-1.5">
         <Text variant="secondary">
-          Paste into <span className="font-mono text-[0.9em]">{shown.where}</span>
-          {shown.id === "curl" ? "; the answer names the server and its capabilities." : "."}
+          <WithCode text={shown.where} />
         </Text>
         {shown.note && <Text variant="secondary">{shown.note}</Text>}
         {!secret && (
           <Text variant="secondary">
             Replace <span className="font-mono text-[0.9em]">&lt;your API key&gt;</span> with a key from API keys.
+          </Text>
+        )}
+        {shown.docs && (
+          <Text variant="secondary">
+            {shown.unchecked ? "Check this against the vendor's docs: the " : "The format is from the "}
+            <a href={shown.docs} className="underline" target="_blank" rel="noreferrer">
+              {shown.label} documentation
+            </a>
+            .
           </Text>
         )}
         {/* Wrapped, not scrolled: a scrolling block would need its own tab stop. */}
