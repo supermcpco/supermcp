@@ -108,7 +108,7 @@ function ImportConnector() {
       <div className="grid gap-1.5">
         <HeadingWithAbout
           heading={
-            <Text as="h1" variant="heading2">
+            <Text as="h1" variant="heading" size="lg">
               Import an API description
             </Text>
           }
@@ -294,7 +294,7 @@ function ImportConnector() {
       {result?.preview && (
         <section className="grid gap-6" aria-labelledby="preview-heading">
           <div className="grid gap-1.5">
-            <Text as="h2" variant="heading3" id="preview-heading">
+            <Text as="h2" variant="heading" id="preview-heading">
               What this would create
             </Text>
             <Text variant="secondary">Nothing here exists yet. Read it, then import.</Text>
@@ -316,7 +316,7 @@ function ImportConnector() {
           {result.warnings && result.warnings.length > 0 && (
             <section className="grid gap-2">
               <div className="grid gap-0.5">
-                <Text as="h3" variant="heading3">
+                <Text as="h3" variant="heading">
                   Rough edges
                 </Text>
                 <Text variant="secondary">None of these stop the import, and you can put them right afterwards.</Text>
@@ -332,7 +332,7 @@ function ImportConnector() {
           )}
 
           <section className="grid gap-2">
-            <Text as="h3" variant="heading3">
+            <Text as="h3" variant="heading">
               Tools
             </Text>
             <table className="w-full text-left">
@@ -382,7 +382,7 @@ function ImportConnector() {
           {needed.length > 0 && (
             <section className="grid gap-3">
               <div className="grid gap-1">
-                <Text as="h3" variant="heading3">
+                <Text as="h3" variant="heading">
                   Credentials
                 </Text>
                 <Text variant="secondary">
@@ -588,7 +588,7 @@ function Findings({ findings }: { findings: ImportFinding[] }) {
       {present.map((g) => (
         <section key={g.level} className="grid gap-2">
           <div className="grid gap-0.5">
-            <Text as="h3" variant="heading3">
+            <Text as="h3" variant="heading">
               {g.heading}
             </Text>
             <Text variant="secondary">{g.note}</Text>

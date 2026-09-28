@@ -63,7 +63,7 @@ function Overview() {
   return (
     <div className="grid gap-6">
       <div className="grid gap-1.5">
-        <Text as="h1" variant="heading2">
+        <Text as="h1" variant="heading" size="lg">
           Overview
         </Text>
         <Text>Turn the systems you already run into tools for Claude, ChatGPT and Copilot.</Text>
@@ -118,7 +118,7 @@ function Checklist({
   return (
     <section aria-labelledby="setup-heading" className="grid max-w-3xl gap-4">
       <div className="grid gap-1">
-        <Text as="h2" variant="heading3">
+        <Text as="h2" variant="heading">
           <span id="setup-heading">Set up your workspace</span>
         </Text>
         <Text variant="secondary">
@@ -193,7 +193,7 @@ function Dashboard({
         {calls && (
           <section aria-labelledby="recent-heading" className="grid content-start gap-3">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <Text as="h2" variant="heading3">
+              <Text as="h2" variant="heading">
                 <span id="recent-heading">Recent tool calls</span>
               </Text>
               <Link to="/tool-calls" className="underline">
@@ -254,7 +254,7 @@ function Dashboard({
         {servers && (
           <section aria-labelledby="servers-heading" className="grid content-start gap-3">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <Text as="h2" variant="heading3">
+              <Text as="h2" variant="heading">
                 <span id="servers-heading">MCP servers</span>
               </Text>
               <Link to="/servers" className="underline">
@@ -288,7 +288,7 @@ function Stat({ label, value }: { label: string; value: string }) {
         <Text as="span" variant="secondary">
           {label}
         </Text>
-        <Text as="span" variant="heading2">
+        <Text as="span" variant="heading" size="lg">
           {value}
         </Text>
       </div>

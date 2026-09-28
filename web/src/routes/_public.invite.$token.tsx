@@ -44,7 +44,7 @@ function Invite() {
         <Found token={token} invite={lookup.data} />
       ) : (
         <>
-          <Text as="h1" variant="heading2">
+          <Text as="h1" variant="heading" size="lg">
             Invitation
           </Text>
           <Loading />
@@ -57,7 +57,7 @@ function Invite() {
 function Invalid({ text }: { text: string }) {
   return (
     <div className="grid gap-1.5">
-      <Text as="h1" variant="heading2">
+      <Text as="h1" variant="heading" size="lg">
         Invitation
       </Text>
       <div role="alert">
@@ -95,7 +95,7 @@ function Found({ token, invite }: { token: string; invite: InviteLookupDto }) {
 
   const intro = (
     <div className="grid gap-1.5">
-      <Text as="h1" variant="heading2">
+      <Text as="h1" variant="heading" size="lg">
         Join {invite.orgName}
       </Text>
       <Text>
@@ -207,7 +207,7 @@ function Register({
         onSubmit(name.trim(), password);
       }}
     >
-      <Text as="h2" variant="heading3">
+      <Text as="h2" variant="heading">
         Create your account
       </Text>
       <label className="grid gap-1.5">

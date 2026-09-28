@@ -55,7 +55,7 @@ export function ResyncReview({
   const plan = preview.data;
   return (
     <section aria-labelledby="resync-heading" className="grid gap-4 rounded-lg px-5 py-4 ring ring-kumo-line">
-      <Text as="h2" variant="heading3" id="resync-heading">
+      <Text as="h2" variant="heading" id="resync-heading">
         Re-sync with the catalog
       </Text>
       <Text>

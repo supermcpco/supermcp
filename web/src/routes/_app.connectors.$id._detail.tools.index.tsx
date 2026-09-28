@@ -59,7 +59,7 @@ function Tools() {
       <HeaderWithAction action={addTool}>
         <HeadingWithAbout
           heading={
-            <Text as="h2" variant="heading3">
+            <Text as="h2" variant="heading">
               Tools
             </Text>
           }

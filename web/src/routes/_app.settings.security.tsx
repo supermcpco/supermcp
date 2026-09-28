@@ -24,7 +24,7 @@ function Security() {
   return (
     <div className="grid gap-8">
       <div className="grid gap-1.5">
-        <Text as="h2" variant="heading3">
+        <Text as="h2" variant="heading">
           Security
         </Text>
         <Text>Your password, the devices you are signed in on, and the rules this workspace sets for everyone.</Text>
@@ -52,7 +52,7 @@ function Sessions() {
   return (
     <section className="grid gap-3">
       <div className="grid gap-1">
-        <Text as="h3" variant="heading3">
+        <Text as="h3" variant="heading">
           Where you are signed in
         </Text>
         <Text variant="secondary">End a session you do not recognise, and that device has to sign in again.</Text>
@@ -132,7 +132,7 @@ function PasswordPolicy() {
   return (
     <section className="grid gap-3">
       <div className="grid gap-1">
-        <Text as="h3" variant="heading3">
+        <Text as="h3" variant="heading">
           Password rules for this workspace
         </Text>
         <Text variant="secondary">

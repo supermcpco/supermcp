@@ -72,7 +72,7 @@ function ToolHistory() {
       <div className="grid gap-1.5">
         <HeadingWithAbout
           heading={
-            <Text as="h1" variant="heading2">
+            <Text as="h1" variant="heading" size="lg">
               History
             </Text>
           }

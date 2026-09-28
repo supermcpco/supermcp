@@ -24,7 +24,7 @@ function Catalog() {
   return (
     <div className="grid gap-6">
       <div className="grid gap-1.5">
-        <Text as="h1" variant="heading2">
+        <Text as="h1" variant="heading" size="lg">
           Catalog
         </Text>
         <Text>Install an adapter to create a connector with its tools.</Text>

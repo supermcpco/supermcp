@@ -29,7 +29,7 @@ function Reauth() {
 
   return (
     <div className="grid max-w-md gap-4">
-      <Text as="h1" variant="heading2">
+      <Text as="h1" variant="heading" size="lg">
         Confirm it is you
       </Text>
       {problem && (

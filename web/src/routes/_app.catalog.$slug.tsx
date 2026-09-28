@@ -94,7 +94,7 @@ function AdapterPage() {
       </Link>
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="grid gap-1.5">
-          <Text as="h1" variant="heading2">
+          <Text as="h1" variant="heading" size="lg">
             {a.metadata.name}
           </Text>
           <Text>{a.metadata.description}</Text>
@@ -139,7 +139,7 @@ function AdapterPage() {
       {creds.length > 0 && (
         <section className="grid gap-3">
           <div className="grid gap-1">
-            <Text as="h2" variant="heading3">
+            <Text as="h2" variant="heading">
               Credentials
             </Text>
             <Text variant="secondary">Each value is stored encrypted and never shown again.</Text>
@@ -149,7 +149,7 @@ function AdapterPage() {
       )}
 
       <section className="grid gap-1.5">
-        <Text as="h2" variant="heading3">
+        <Text as="h2" variant="heading">
           Tools
         </Text>
         <ul className="grid gap-2">
@@ -168,7 +168,7 @@ function AdapterPage() {
 
       {a.instructions && (
         <section className="grid gap-1.5">
-          <Text as="h2" variant="heading3">
+          <Text as="h2" variant="heading">
             Instructions for the model
           </Text>
           <pre className="whitespace-pre-wrap rounded-lg bg-kumo-tint px-5 py-4 font-mono text-[12px]">{a.instructions}</pre>

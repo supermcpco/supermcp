@@ -25,7 +25,7 @@ function SettingsLayout() {
   return (
     <div className="grid gap-6">
       <div className="grid gap-1.5">
-        <Text as="h1" variant="heading2">
+        <Text as="h1" variant="heading" size="lg">
           Settings
         </Text>
         <Text>Who is in this workspace, what they may do, and how it is kept safe.</Text>

@@ -78,7 +78,7 @@ function PasswordAgeGate({ children }: { children: React.ReactNode }) {
   return (
     <div className="grid max-w-2xl gap-6">
       <div className="grid gap-1.5">
-        <Text as="h1" variant="heading2">
+        <Text as="h1" variant="heading" size="lg">
           Your password has expired
         </Text>
         <Text>This workspace requires passwords to be changed regularly. Choose a new one to carry on.</Text>

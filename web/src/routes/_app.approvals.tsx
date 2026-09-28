@@ -87,7 +87,7 @@ function Approvals() {
       <div className="grid gap-1.5">
         <HeadingWithAbout
           heading={
-            <Text as="h1" variant="heading2">
+            <Text as="h1" variant="heading" size="lg">
               Approvals
             </Text>
           }
@@ -116,7 +116,7 @@ function Approvals() {
       )}
 
       <section className="grid gap-2">
-        <Text as="h2" variant="heading3">
+        <Text as="h2" variant="heading">
           Waiting
         </Text>
         {waiting.isPending && <Loading />}
@@ -161,7 +161,7 @@ function Approvals() {
       {canDecide && <Rules />}
 
       <section className="grid gap-2">
-        <Text as="h2" variant="heading3">
+        <Text as="h2" variant="heading">
           Decided
         </Text>
         {recent.isPending && <Loading />}
@@ -249,7 +249,7 @@ function Rules() {
   return (
     <section className="grid gap-3" aria-labelledby="held-heading">
       <HeaderWithAction action={addRule}>
-        <Text as="h2" variant="heading3" id="held-heading">
+        <Text as="h2" variant="heading" id="held-heading">
           Rules
         </Text>
         <Text>A rule decides which calls wait for a person.</Text>

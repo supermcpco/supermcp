@@ -67,7 +67,7 @@ function Retention() {
       <div className="grid gap-1.5">
         <HeadingWithHelp
           heading={
-            <Text as="h3" variant="heading3">
+            <Text as="h3" variant="heading">
               How long it is kept
             </Text>
           }
@@ -159,7 +159,7 @@ function LegalHold() {
   return (
     <section className="grid gap-3">
       <div className="grid gap-1.5">
-        <Text as="h3" variant="heading3">
+        <Text as="h3" variant="heading">
           Hold against deletion
         </Text>
         <Text variant="secondary">Keeps everything from a date onwards, whatever retention says, until it is released.</Text>
@@ -216,7 +216,7 @@ function PayloadPolicy() {
   return (
     <section className="grid gap-3">
       <div className="grid gap-1">
-        <Text as="h3" variant="heading3">
+        <Text as="h3" variant="heading">
           What tool calls record
         </Text>
         <Text variant="secondary">How much of what a call sent and got back is kept with it; the call itself always is.</Text>

@@ -43,7 +43,7 @@ export function NotFound<TRouter extends RegisteredRouter, TOptions>(props: NotF
 export function NotFound({ heading, children, back, backLabel }: NotFoundProps) {
   return (
     <div className="grid gap-1.5">
-      <Text as="h1" variant="heading2">
+      <Text as="h1" variant="heading" size="lg">
         {heading}
       </Text>
       <Text>{children}</Text>

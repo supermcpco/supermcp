@@ -41,7 +41,7 @@ export function ChangePassword({
   return (
     <section className="grid gap-3">
       <div className="grid gap-1">
-        <Text as={level} variant="heading3">
+        <Text as={level} variant="heading">
           Change your password
         </Text>
         <Text variant="secondary">{intro}</Text>

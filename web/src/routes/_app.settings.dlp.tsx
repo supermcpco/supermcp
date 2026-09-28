@@ -48,7 +48,7 @@ function Dlp() {
       <div className="grid gap-1.5">
         <HeadingWithHelp
           heading={
-            <Text as="h2" variant="heading3">
+            <Text as="h2" variant="heading">
               Data-loss rules
             </Text>
           }
@@ -153,7 +153,7 @@ function RulesTab() {
     <>
       <section className="grid gap-2" aria-labelledby="dlp-rules-heading">
         <HeaderWithAction action={addRule}>
-          <Text as="h3" variant="heading3" id="dlp-rules-heading">
+          <Text as="h3" variant="heading" id="dlp-rules-heading">
             Rules
           </Text>
         </HeaderWithAction>

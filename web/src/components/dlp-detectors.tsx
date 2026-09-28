@@ -59,7 +59,7 @@ export function DetectorsPanel({ canManage, canRestore }: { canManage: boolean; 
       <section className="grid gap-2">
         <HeadingWithHelp
           heading={
-            <Text as="h3" variant="heading3">
+            <Text as="h3" variant="heading">
               Detectors
             </Text>
           }
@@ -144,7 +144,7 @@ export function DetectorsPanel({ canManage, canRestore }: { canManage: boolean; 
 
       {canManage && (
         <section className="grid gap-3">
-          <Text as="h3" variant="heading3">
+          <Text as="h3" variant="heading">
             Add a detector
           </Text>
           <DetectorForm onDone={refresh} />
