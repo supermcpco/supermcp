@@ -30,7 +30,7 @@ test("the sidebar lists the screens under Build, Operate and Settings", async ({
   await expect(menu.getByRole("menuitem", { name: "Sign out" })).toBeVisible();
   await expectAccessible(page);
   await menu.getByRole("menuitem", { name: "Account settings" }).click();
-  await expect(page.getByRole("heading", { name: "Security", level: 2 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Account", level: 2 })).toBeVisible();
   await expect(menu).toHaveCount(0);
 
   // Importing is something done to connectors, so it lives on their screen.

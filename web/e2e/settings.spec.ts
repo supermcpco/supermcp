@@ -52,7 +52,7 @@ test("the audit trail records what the administrator just did", async ({ page, w
 
 test("the workspace's password rules are enforced on a real change", async ({ page, workspace }) => {
   await page.goto("/settings/security");
-  await expect(page.getByRole("heading", { name: "Security" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Account", exact: true })).toBeVisible();
   await expectAccessible(page);
 
   await page.getByLabel("Minimum length").fill("16");
@@ -151,7 +151,7 @@ test("signing out ends the session", async ({ page, workspace }) => {
 const oldAddresses: [string, string][] = [
   ["/settings/members", "Members"],
   ["/settings/roles", "Roles"],
-  ["/settings/security", "Security"],
+  ["/settings/security", "Account"],
   ["/settings/audit", "Audit"],
   ["/settings/dlp", "Data-loss rules"],
   ["/settings/sso", "Single sign-on"],
@@ -249,7 +249,7 @@ test("a viewer sees only the settings tabs they may read", async ({ page, browse
   await nav.getByRole("link", { name: "Settings", exact: true }).click();
   await expect(viewer.page).toHaveURL(/\/settings\/members$/);
   const tabs = viewer.page.getByRole("tab");
-  await expect(tabs).toHaveText(["Members", "Roles", "Security", "Data-loss rules", "Instance"]);
+  await expect(tabs).toHaveText(["Members", "Roles", "Account", "Data-loss rules", "Instance"]);
   for (const hidden of ["Audit", "Single sign-on", "Service accounts"]) {
     await expect(settingsTab(viewer.page, hidden)).toHaveCount(0);
   }
