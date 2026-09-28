@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { countLabel, isLive, isSetUp, isUndecided, setupSteps, summarizeLastDay, type SetupInput } from "./setup";
+import { isLive, isSetUp, isUndecided, setupSteps, type SetupInput } from "./setup";
 
 const now = new Date("2026-09-28T12:00:00Z");
 const known = <T,>(data: T) => ({ readable: true, data });
@@ -77,33 +77,5 @@ describe("isLive", () => {
     expect(isLive({ expiresAt: "2026-09-29T00:00:00Z" }, now)).toBe(true);
     expect(isLive({ expiresAt: "2026-09-28T00:00:00Z" }, now)).toBe(false);
     expect(isLive({ revokedAt: "2026-09-28T00:00:00Z" }, now)).toBe(false);
-  });
-});
-
-describe("summarizeLastDay", () => {
-  const at = (hoursAgo: number, status = "success") => ({
-    createdAt: new Date(now.getTime() - hoursAgo * 3600_000).toISOString(),
-    status,
-  });
-
-  it("counts calls and failures inside the day only", () => {
-    const s = summarizeLastDay([at(1), at(2, "error"), at(3, "timeout"), at(30, "error")], 500, now);
-    expect(s).toEqual({ calls: 3, failures: 2, atLeast: false });
-  });
-
-  it("says there may be more when a full list is all inside the day", () => {
-    expect(summarizeLastDay([at(1), at(2)], 2, now).atLeast).toBe(true);
-    expect(summarizeLastDay([at(1), at(25)], 2, now).atLeast).toBe(false);
-  });
-
-  it("is empty for no calls", () => {
-    expect(summarizeLastDay([], 500, now)).toEqual({ calls: 0, failures: 0, atLeast: false });
-  });
-});
-
-describe("countLabel", () => {
-  it("adds a plus when the count is a floor", () => {
-    expect(countLabel(500, true)).toBe("500+");
-    expect(countLabel(3, false)).toBe("3");
   });
 });

@@ -1,4 +1,5 @@
 import { test, expect, expectAccessible, closeSecret, createKey, createServer } from "./fixtures";
+import type { APIRequestContext } from "@playwright/test";
 
 // The overview is what a new workspace lands on. Until the workspace can
 // serve a client it is a list of what is left to do, each step ticking
@@ -85,5 +86,77 @@ test("a fresh workspace sees the setup checklist and each step completes as it i
     new RegExp(`/mcp/${serverId}$`),
   );
   await expect(page.getByRole("button", { name: "Copy endpoint of Checklist server" })).toBeVisible();
+  await expectAccessible(page);
+});
+
+async function callTool(request: APIRequestContext, serverId: string, key: string, name: string, note: string) {
+  const res = await request.post(`/mcp/${serverId}`, {
+    headers: { "X-API-Key": key, Accept: "application/json, text/event-stream" },
+    data: { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: { note } } },
+  });
+  expect(res.ok(), `tools/call ${name}: ${res.status()} ${await res.text()}`).toBeTruthy();
+  return res.text();
+}
+
+test("the overview counts the day's calls from the summary", async ({ page, request, workspace }) => {
+  expect(workspace.email).toBeTruthy();
+  const api = page.request;
+  await page.goto("/catalog/bundesbank");
+  await page.getByRole("button", { name: "Install" }).click();
+  await expect(page).toHaveURL(/\/connectors\/[^/]+$/);
+  const connectorId = new URL(page.url()).pathname.split("/").pop() as string;
+
+  // A tool that answers without leaving the instance, and a rule that
+  // refuses an email address in its arguments, so one call can fail.
+  const tool = await api.post(`/api/v1/connectors/${connectorId}/tools`, {
+    data: {
+      definition: JSON.stringify({
+        name: "overview_echo",
+        description: "Answers with a fixed text, so the browser suite can make calls that never leave the instance.",
+        input: { type: "object", properties: { note: { type: "string", description: "Anything at all" } } },
+        operation: { kind: "static", value: "echo" },
+      }),
+    },
+  });
+  expect(tool.ok(), await tool.text()).toBeTruthy();
+  const rule = await api.post("/api/v1/dlp/policies", {
+    data: {
+      name: "No addresses to the echo tool",
+      connectorId,
+      toolId: (await tool.json()).tool.id,
+      scan: "arguments",
+      detectors: ["email"],
+      action: "refuse",
+      enabled: true,
+    },
+  });
+  expect(rule.ok(), await rule.text()).toBeTruthy();
+
+  const serverId = await createServer(page, "Overview server", [/Deutsche Bundesbank Statistics/]);
+  const secret = await createKey(page, "Overview key");
+  await closeSecret(page);
+
+  expect(await callTool(request, serverId, secret, "overview_echo", "one")).toContain("echo");
+  expect(await callTool(request, serverId, secret, "overview_echo", "two")).toContain("echo");
+  expect(await callTool(request, serverId, secret, "overview_echo", "to someone@example.com")).toMatch(/refused/i);
+
+  // The tiles are the server's count of the day, not a count of rows.
+  const summary = page.waitForResponse(
+    (r) => new URL(r.url()).pathname === "/api/v1/tool-calls/summary" && r.request().method() === "GET",
+  );
+  await page.goto("/");
+  const answer = await summary;
+  expect(answer.status()).toBe(200);
+  const since = new URL(answer.url()).searchParams.get("since");
+  const until = new URL(answer.url()).searchParams.get("until");
+  expect(since && until && Date.parse(until) - Date.parse(since)).toBe(24 * 60 * 60 * 1000);
+
+  const main = page.getByRole("main");
+  await expect(main.getByRole("group", { name: "Calls in the last 24 hours" })).toHaveText(/^Calls in the last 24 hours3$/);
+  await expect(main.getByRole("group", { name: "Failures in the last 24 hours" })).toHaveText(
+    /^Failures in the last 24 hours1$/,
+  );
+  await expect(page.getByRole("heading", { name: "Recent tool calls" })).toBeVisible();
+  await expect(main.getByRole("cell", { name: "overview_echo" })).toHaveCount(3);
   await expectAccessible(page);
 });

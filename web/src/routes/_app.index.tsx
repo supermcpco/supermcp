@@ -1,3 +1,4 @@
+import { useId } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { Text } from "@cloudflare/kumo";
@@ -9,20 +10,22 @@ import {
   keysListOptions,
   serversListOptions,
 } from "../api/@tanstack/react-query.gen";
-import type { InvocationDto, Server } from "../api/types.gen";
+import { invocationsSummary } from "../api/sdk.gen";
+import type { InvocationDto, Server, ToolCallsSummary } from "../api/types.gen";
+import { usageWindow } from "../lib/analytics";
 import { useSession } from "../lib/session";
 import { Badge } from "../lib/ui";
 import { message } from "../lib/errors";
-import { countLabel, isSetUp, isUndecided, setupSteps, summarizeLastDay, type SetupStep } from "../lib/setup";
+import { isSetUp, isUndecided, setupSteps, type SetupStep } from "../lib/setup";
 import { ConnectClient, Endpoint } from "../components/connect-client";
 
 export const Route = createFileRoute("/_app/")({
   component: Overview,
 });
 
-// As many calls as the server hands back at once: the day's counts are
-// taken from these, so the more the better.
-const callLimit = 500;
+// The recent calls the dashboard lists. The day's counts come from the
+// server's summary, not from these.
+const recentLimit = 10;
 
 function Overview() {
   const { signedIn, can } = useSession();
@@ -38,7 +41,7 @@ function Overview() {
   const servers = useQuery({ ...serversListOptions(), enabled: signedIn && may.servers, retry: false });
   const keys = useQuery({ ...keysListOptions(), enabled: signedIn && may.keys, retry: false });
   const calls = useQuery({
-    ...invocationsListOptions({ query: { limit: callLimit } }),
+    ...invocationsListOptions({ query: { limit: recentLimit } }),
     enabled: signedIn && may.calls,
     retry: false,
     refetchInterval: 10_000,
@@ -56,6 +59,22 @@ function Overview() {
   });
   const failed = [connectors, servers, keys, calls].filter((q) => q.isError);
   const loading = isUndecided(steps) && failed.length === 0;
+  const setUp = !loading && isSetUp(steps);
+
+  // The day's counts, asked for once the dashboard is what the page shows.
+  // The window is worked out when the request is made, so each refresh
+  // moves it forward to the present.
+  const summary = useQuery({
+    queryKey: ["overview", "summary", "24h"],
+    queryFn: async ({ signal }) => {
+      const { from, to } = usageWindow("24h", new Date());
+      const { data } = await invocationsSummary({ query: { since: from, until: to }, signal, throwOnError: true });
+      return data;
+    },
+    enabled: signedIn && may.calls && setUp,
+    retry: false,
+    refetchInterval: 30_000,
+  });
 
   const total = catalog.data?.count ?? 0;
   const keyless = catalog.data?.adapters.filter((a) => a.keyless).length ?? 0;
@@ -81,11 +100,13 @@ function Overview() {
           <Text variant="secondary" aria-busy="true">
             Loading…
           </Text>
-        ) : isSetUp(steps) ? (
+        ) : setUp ? (
           <Dashboard
             connectors={connectorList?.length}
             servers={serverList}
             calls={callList}
+            day={summary.data}
+            dayError={summary.isError ? message(summary.error) : undefined}
           />
         ) : (
           <Checklist
@@ -173,21 +194,31 @@ function Dashboard({
   connectors,
   servers,
   calls,
+  day,
+  dayError,
 }: {
   connectors: number | undefined;
   servers: Server[] | undefined;
   calls: InvocationDto[] | undefined;
+  /** The last 24 hours' calls by outcome, from the server. */
+  day: ToolCallsSummary | undefined;
+  /** Why the day's counts could not be read, when they could not. */
+  dayError: string | undefined;
 }) {
-  const day = calls ? summarizeLastDay(calls, callLimit) : undefined;
-  const recent = calls?.slice(0, 10) ?? [];
+  const recent = calls?.slice(0, recentLimit) ?? [];
   return (
     <div className="grid gap-6">
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {connectors !== undefined && <Stat label="Connectors" value={String(connectors)} />}
         {servers && <Stat label="MCP servers" value={String(servers.length)} />}
-        {day && <Stat label="Calls in the last 24 hours" value={countLabel(day.calls, day.atLeast)} />}
-        {day && <Stat label="Failures in the last 24 hours" value={countLabel(day.failures, day.atLeast)} />}
+        {day && <Stat label="Calls in the last 24 hours" value={day.total.toLocaleString()} />}
+        {day && <Stat label="Failures in the last 24 hours" value={day.failed.toLocaleString()} />}
       </div>
+      {dayError && (
+        <Text role="status" variant="secondary">
+          The last 24 hours&rsquo; counts could not be read just now: {dayError}
+        </Text>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-2">
         {calls && (
@@ -282,10 +313,12 @@ function Dashboard({
 }
 
 function Stat({ label, value }: { label: string; value: string }) {
+  const id = useId();
+  // A group named by its label, so the figure can be found by what it is.
   return (
-    <div className="rounded-lg px-5 py-4 ring ring-kumo-line">
+    <div role="group" aria-labelledby={id} className="rounded-lg px-5 py-4 ring ring-kumo-line">
       <div className="grid gap-1">
-        <Text as="span" variant="secondary">
+        <Text as="span" variant="secondary" id={id}>
           {label}
         </Text>
         <Text as="span" variant="heading" size="lg">
