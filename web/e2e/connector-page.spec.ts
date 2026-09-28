@@ -102,9 +102,9 @@ test("a connector's credentials can be set from its page and the still-needed li
   await expect(page.getByRole("region", { name: "What this would create" })).toBeVisible();
   // The credential is left empty on purpose.
   await page.getByRole("button", { name: "Import connector" }).click();
-  await expect(page).toHaveURL(/\/connectors$/);
-
-  await page.getByRole("link", { name: "Allotments", exact: true }).click();
+  // An import lands on the new connector's page, as an install does.
+  await expect(page).toHaveURL(/\/connectors\/[^/]+$/);
+  await expect(page.getByRole("heading", { name: "Allotments imported", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Allotments", level: 1 })).toBeVisible();
   await expect(page.getByText("Imported", { exact: true })).toBeVisible();
   const status = page.getByRole("region", { name: "Status" });

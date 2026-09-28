@@ -93,11 +93,25 @@ test("a document is previewed in full before anything is created", async ({ page
 
   // The credential the document implies is collected on this same screen.
   await page.getByLabel("API_KEY").fill("not-a-real-key");
-  await page.getByRole("button", { name: "Import connector" }).click();
 
-  // An import lands on the connectors list, where someone looks for the
-  // thing they just made.
-  await expect(page).toHaveURL(/\/connectors$/);
+  // An import lands on the new connector's own page, as an install does,
+  // and says so.
+  const imported = page.waitForResponse(
+    (r) => r.url().includes("/api/v1/connectors/import") && r.request().method() === "POST",
+  );
+  await page.getByRole("button", { name: "Import connector" }).click();
+  const res = await imported;
+  expect(res.status()).toBe(200);
+  const id = ((await res.json()) as { connector: { id: string } }).connector.id;
+  await expect(page).toHaveURL(new RegExp(`/connectors/${id}$`));
+  await expect(page.getByRole("heading", { name: "Allotments imported", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Allotments", level: 1 })).toBeVisible();
+  const status = page.getByRole("region", { name: "Status" });
+  await expect(status.getByText("2 offered")).toBeVisible();
+  await expect(status.getByText("All set: API_KEY.")).toBeVisible();
+
+  // And the list has it, with nothing missing.
+  await page.getByRole("link", { name: "Connectors", exact: true }).first().click();
   await expect(page.getByRole("link", { name: "Allotments" })).toBeVisible();
   await expect(page.getByText("2 tools", { exact: false })).toBeVisible();
   await expect(page.getByText("credentials missing")).toHaveCount(0);
