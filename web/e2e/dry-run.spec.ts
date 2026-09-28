@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures";
+import { test, expect, createServer, createKey } from "./fixtures";
 
 // What would this actually send? The question a person asks before they
 // trust a tool with a real argument, and the fastest way to find a mapping
@@ -41,17 +41,9 @@ test("a tool call can be rendered without being sent", async ({ page, request, w
   }
 
   // And the same thing over MCP, which is where a model asks for it.
-  await page.goto("/servers");
-  await page.getByLabel("Name").fill("Preview server");
-  await page.getByRole("checkbox", { name: /Deutsche Bundesbank Statistics/ }).check();
-  await page.getByRole("button", { name: "Create server" }).click();
-  const endpoint = await page.locator("code", { hasText: "/mcp/" }).first().innerText();
-  const serverId = endpoint.trim().split("/mcp/")[1];
+  const serverId = await createServer(page, "Preview server", [/Deutsche Bundesbank Statistics/]);
 
-  await page.goto("/api-keys");
-  await page.getByLabel("Name").fill("Preview key");
-  await page.getByRole("button", { name: "Create key" }).click();
-  const secret = (await page.locator("code").first().innerText()).trim();
+  const secret = await createKey(page, "Preview key");
 
   const called = await request.post(`/mcp/${serverId}`, {
     headers: { "X-API-Key": secret, Accept: "application/json, text/event-stream" },

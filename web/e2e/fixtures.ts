@@ -61,3 +61,55 @@ export async function expectAccessible(page: Page) {
     "the page has accessibility faults that would stop someone using it",
   ).toEqual([]);
 }
+
+/** Installs a keyless adapter from its catalog page, the way a person does. */
+export async function installAdapter(page: Page, slug = "bundesbank") {
+  await page.goto(`/catalog/${slug}`);
+  await page.getByRole("button", { name: "Install" }).click();
+  await expect(page).toHaveURL(/\/connectors/);
+}
+
+/**
+ * Creates an MCP server through the "New server" dialog, attaching the
+ * connectors named, and returns its id, read from the endpoint it shows.
+ */
+export async function createServer(page: Page, name: string, connectors: (string | RegExp)[] = []): Promise<string> {
+  await page.goto("/servers");
+  await expect(page.getByRole("heading", { name: "MCP servers", exact: true })).toBeVisible();
+  // The empty screen offers the button twice, in the header and in the card.
+  await page.getByRole("button", { name: "New server" }).first().click();
+  const dialog = page.getByRole("dialog", { name: "New server" });
+  await dialog.getByLabel("Name").fill(name);
+  for (const c of connectors) await dialog.getByRole("checkbox", { name: c }).check();
+  await dialog.getByRole("button", { name: "Create server" }).click();
+  await expect(dialog).toBeHidden();
+  const endpoint = await page.getByLabel(`Endpoint of ${name}`, { exact: true }).inputValue();
+  expect(endpoint).toContain("/mcp/");
+  return endpoint.trim().split("/mcp/")[1];
+}
+
+/**
+ * Creates an API key through the "Create key" dialog and returns its
+ * secret, read from the dialog that shows it once. That dialog is left
+ * open; `closeSecret` puts it away.
+ */
+export async function createKey(page: Page, name: string): Promise<string> {
+  await page.goto("/api-keys");
+  await expect(page.getByRole("heading", { name: "API keys", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Create key" }).first().click();
+  const form = page.getByRole("dialog", { name: "New API key" });
+  await form.getByLabel("Name").fill(name);
+  await form.getByRole("button", { name: "Create key" }).click();
+  const shown = page.getByRole("dialog", { name: "Copy this key now" });
+  await expect(shown).toBeVisible();
+  const secret = await shown.getByLabel("Secret", { exact: true }).inputValue();
+  expect(secret).toMatch(/^smk_/);
+  return secret;
+}
+
+/** Closes the dialog a secret is shown in, the only way it closes. */
+export async function closeSecret(page: Page) {
+  const shown = page.getByRole("dialog", { name: "Copy this key now" });
+  await shown.getByRole("button", { name: "Done" }).click();
+  await expect(shown).toBeHidden();
+}
