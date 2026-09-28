@@ -74,6 +74,52 @@ check now asks instead of counting every account. The previous
 `auth_register` stays for pods of the previous release during the
 rollout; those pods keep the old race until they are replaced.
 
+Migration 00036 adds an index to `tool_invocations` for the tool-call
+list's connector filter; see "The tool-call list can be filtered" below.
+The OAuth2 consent callback now lands on the connector's own page; see the
+same section.
+
+### The tool-call list can be filtered
+
+`GET /api/v1/tool-calls` takes `since`, `until`, `connectorId`,
+`serverId`, `status` and `q`, each call names its tool, connector, server
+and caller, and `GET /api/v1/tool-calls/summary` counts a window's calls
+by outcome (docs/api.md, "Tool calls"). Without parameters the list
+answers as before.
+
+Migration 00036 adds `tool_invocations_org_connector_time_idx` on
+`tool_invocations (organization_id, connector_id, created_at DESC)`. The
+existing index finds a quiet connector's calls only by reading every call
+the workspace made since; on 300,000 calls that was 2.5 s, and under 2 ms
+with the new index.
+
+- **Nothing is locked.** The index is built `CONCURRENTLY`, so tool calls
+  keep being recorded. As with migration 00025, the build waits for every
+  transaction in the database that holds an older snapshot: check
+  `pg_stat_activity` for long-running ones first (the query is under
+  "Usage analytics read an index of their own"), and allow the migrate
+  Job, `helm upgrade --timeout` and any `statement_timeout` or
+  `lock_timeout` on the maintenance role for a read of the whole table.
+- **Every tool call writes one more index entry,** two ids and a
+  timestamp. The table's disk use grows by roughly a third of the
+  existing `(organization_id, created_at)` index.
+- **If the migration fails or is cancelled**, run `supermcp migrate`
+  again: it drops the invalid index left behind and builds it anew.
+- **Rollout order does not matter.** The previous release does not read
+  the index, and the new one answers without it, only more slowly for a
+  quiet connector.
+
+The summary draws on the analytics rate-limit budget,
+`SUPERMCP_RATELIMIT_ANALYTICS`, like the usage analytics.
+
+After an OAuth2 consent, the browser now goes to
+`/connectors/{id}?oauth=ok`, or `/connectors/{id}?oauth=<reason>` on
+failure, instead of `/connectors?connector={id}&connected=1` and
+`/connectors?connector={id}&connect_error=<reason>`. The reasons are
+unchanged. Nothing needs registering again with the vendor: the redirect
+URI is the same. A tool of your own that followed the old addresses
+should read `oauth` instead.
+
 ### OpenID Connect sign-ins count a second factor only by a rule
 
 A sign-in through an OpenID Connect provider used to be recorded as

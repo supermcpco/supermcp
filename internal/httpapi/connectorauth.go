@@ -186,7 +186,7 @@ func (d Deps) connectorAuthCallback(flow *upstreamauth.AuthCode, w http.Response
 		Outcome: audit.Success, TargetKind: "connector", TargetID: consent.ConnectorID,
 		Meta: map[string]any{"scopes": params.Scopes, "started_by": consent.ActorID}})
 	//nolint:gosec // the destination is built below from a connector id, not from the request
-	http.Redirect(w, r, connectorPage(consent.ConnectorID, "connected", "1"), http.StatusFound)
+	http.Redirect(w, r, connectorPage(consent.ConnectorID, consentOK), http.StatusFound)
 }
 
 // storeConnectorGrant puts what the vendor issued where the rest of the
@@ -226,19 +226,7 @@ func (d Deps) storeConnectorGrant(ctx context.Context, orgID, connectorID string
 func (d Deps) connectorAuthFailed(ctx context.Context, w http.ResponseWriter, r *http.Request, orgID, connectorID string, err error) {
 	id := middleware.GetReqID(ctx)
 	d.Log.Warn("connector consent failed", "err", err, "connector", connectorID, "path", r.URL.Path, "req_id", id)
-	reason := "connect_failed"
-	switch {
-	case errors.Is(err, upstreamauth.ErrConsentInvalid):
-		reason = "expired"
-	case errors.Is(err, upstreamauth.ErrNoRefreshToken):
-		reason = "no_refresh_token"
-	case errors.Is(err, upstreamauth.ErrVendorRejected):
-		reason = "vendor_refused"
-	case errors.Is(err, upstreamauth.ErrNotAuthCode):
-		reason = "not_supported"
-	case errors.Is(err, connector.ErrNotFound):
-		reason = "unavailable"
-	}
+	reason := consentReason(err)
 	recorded := reason
 	if reason == "connect_failed" {
 		recorded = reqid.Message(id)
@@ -247,18 +235,42 @@ func (d Deps) connectorAuthFailed(ctx context.Context, w http.ResponseWriter, r 
 		Outcome: audit.Failure, TargetKind: "connector", TargetID: connectorID,
 		Meta: map[string]any{"reason": recorded, "requestId": id}})
 	//nolint:gosec // a local path with a fixed set of reasons
-	http.Redirect(w, r, connectorPage(connectorID, "connect_error", reason), http.StatusFound)
+	http.Redirect(w, r, connectorPage(connectorID, reason), http.StatusFound)
 }
 
-// connectorPage is where an administrator resumes. The path is built
-// here and never taken from the request, so there is nothing to point
-// somewhere else.
-func connectorPage(connectorID, key, value string) string {
-	q := url.Values{key: {value}}
-	if connectorID != "" {
-		q.Set("connector", connectorID)
+// consentOK is the outcome of a consent that worked; the others are the
+// reasons consentReason gives.
+const consentOK = "ok"
+
+// consentReason is the one word the page is told about a failed consent.
+// The set is fixed: the page has a sentence for each.
+func consentReason(err error) string {
+	switch {
+	case errors.Is(err, upstreamauth.ErrConsentInvalid):
+		return "expired"
+	case errors.Is(err, upstreamauth.ErrNoRefreshToken):
+		return "no_refresh_token"
+	case errors.Is(err, upstreamauth.ErrVendorRejected):
+		return "vendor_refused"
+	case errors.Is(err, upstreamauth.ErrNotAuthCode):
+		return "not_supported"
+	case errors.Is(err, connector.ErrNotFound):
+		return "unavailable"
 	}
-	return "/connectors?" + q.Encode()
+	return "connect_failed"
+}
+
+// connectorPage is where an administrator resumes: the connector's own
+// page, with the outcome in oauth, or the connector list when the consent
+// could not say which connector it was for. The path is built here and
+// never taken from the request, so there is nothing to point somewhere
+// else; the id is escaped all the same.
+func connectorPage(connectorID, outcome string) string {
+	q := url.Values{"oauth": {outcome}}.Encode()
+	if connectorID == "" {
+		return "/connectors?" + q
+	}
+	return "/connectors/" + url.PathEscape(connectorID) + "?" + q
 }
 
 // envPlaceholder returns the credential name a "{{env.NAME}}" string

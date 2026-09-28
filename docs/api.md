@@ -789,6 +789,35 @@ code to match on. The message is written for people and may change.
 | `not_deletable` | The tool is not `custom`. Disable it instead. |
 | `references_unacknowledged` | Approval policies refer to the tool. The response lists them, one further entry each at `references.approvalPolicies`, with the policy's name as `message` and its id as `value`. A rename lists the policies that match by name; a delete lists all of them. Send `acknowledgeReferences` to go ahead. |
 
+## Connecting a connector with OAuth2
+
+A connector whose auth block uses the OAuth2 authorization code grant
+needs someone to approve access at the vendor once.
+`POST /api/v1/connectors/{id}/oauth/authorize` (`connectors:auth:update`, and a
+recent sign-in) answers with the vendor's `authorizationUrl` to open;
+`GET /api/v1/connectors/oauth/redirect-uri` is the one address to
+register with the vendor, shared by every connector.
+
+After the vendor's consent screen the browser comes back to that address
+and is sent on to the connector's page:
+
+- `/connectors/{id}?oauth=ok` when the connector is connected;
+- `/connectors/{id}?oauth=<reason>` when it is not, where the reason is
+  `vendor_refused`, `no_refresh_token`, `not_supported`, `unavailable`
+  or `connect_failed`;
+- `/connectors?oauth=expired` when the link had expired or was already
+  used, and so names no connector.
+
+Before this release the same outcomes went to
+`/connectors?connector={id}&connected=1` and
+`/connectors?connector={id}&connect_error=<reason>`.
+
+A connector in `GET /api/v1/connectors` and `GET /api/v1/connectors/{id}`
+has `oauthAuthorized`: true when its auth is OAuth2 and it holds a token
+from it. For the authorization code grant that means the consent has been
+completed; for the client credentials grant, that a token has been
+obtained. It is false for every other kind of auth.
+
 ## Connectors and servers: concurrent edits
 
 Connectors and MCP servers carry a `version`, as tools do. These writes
@@ -1058,6 +1087,49 @@ A `days` below `minDays` or above `maxDays` is `422`, with the bound in
 `audit.retention.set` with the window before and after, and a refused
 one as the same action with outcome `failure`. The hourly sweep reads
 the new value on its next run.
+
+## Tool calls
+
+`GET /api/v1/tool-calls` (`connectors:read`) lists the current
+workspace's tool calls, newest first. Without parameters it answers as it
+always has: the latest 50.
+
+| Parameter | Means |
+|---|---|
+| `limit` | How many calls, up to 500. Default 50. |
+| `since`, `until` | RFC 3339. Only calls made at or after `since` and before `until`. Either may be left out. |
+| `connectorId` | Only calls to this connector. |
+| `serverId` | Only calls made through this MCP server. |
+| `status` | Only calls with this outcome: `success`, `error`, `timeout` or `denied`. |
+| `q` | Only calls whose tool name contains this text, ignoring case. `%` and `_` match themselves. |
+
+The filters combine. A `since` that is not before `until`, or an unknown
+`status`, is `422`. A filtered search that runs longer than ten seconds
+is stopped and answered with `503`; a narrower window finds what it is
+looking for sooner. A connector's calls are found through an index of
+their own, so `connectorId` is fast however quiet the connector.
+
+Each call has `id`, `toolName` (the tool's name at the time of the call),
+`toolId`, `connectorId`, `serverId` (absent for a call that came through
+no MCP server), `principalKind` (`user`, `api_key`, `service_account` or
+`anonymous`), `principalId` (absent for `anonymous`), `status`,
+`durationMs`, `error` (when there was one) and `createdAt`. A call's
+arguments and result are never part of the list.
+
+`GET /api/v1/tool-calls/summary?since=&until=` (`connectors:read`) counts
+the calls in a window by outcome:
+
+```json
+{ "since": "...", "until": "...", "total": 120, "failed": 7,
+  "byStatus": { "success": 113, "error": 4, "timeout": 2, "denied": 1 } }
+```
+
+`failed` is every call whose status was not `success`, as in the usage
+analytics. The window has the analytics' defaults and bounds: `until`
+defaults to now, `since` to seven days before `until`, and a window
+longer than 90 days, or one whose `since` is not before its `until`, is
+`422`. The summary draws on the analytics rate-limit budget
+(`SUPERMCP_RATELIMIT_ANALYTICS`).
 
 ## Usage analytics
 

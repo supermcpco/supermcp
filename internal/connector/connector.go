@@ -45,6 +45,11 @@ type Connector struct {
 	Credentials  []CredentialInfo  `json:"credentials"`
 	CreatedAt    time.Time         `json:"createdAt"`
 	UpdatedAt    time.Time         `json:"updatedAt"`
+	// TokenStored says an upstream token row exists for the connector: an
+	// OAuth2 access token, from a consent or a grant it ran on its own.
+	// It is read with the connector, in the same statement, and kept out
+	// of the JSON so revisions do not record a token coming and going.
+	TokenStored bool `json:"-"`
 }
 
 // CredentialInfo says which credentials exist, never their values.
@@ -294,13 +299,14 @@ func (s *Service) SetCredentials(ctx context.Context, orgID, id string, creds ma
 }
 
 const selectConnector = `SELECT c.id, c.organization_id, c.name, c.transport, c.auth, c.instructions, COALESCE(c.catalog_slug,''), COALESCE(c.catalog_hash,''),
-	c.read_only, c.enabled, c.version, c.created_at, c.updated_at, (SELECT count(*) FROM tools t WHERE t.connector_id = c.id AND t.enabled)
+	c.read_only, c.enabled, c.version, c.created_at, c.updated_at, (SELECT count(*) FROM tools t WHERE t.connector_id = c.id AND t.enabled),
+	EXISTS (SELECT 1 FROM connector_tokens k WHERE k.connector_id = c.id)
 	FROM connectors c`
 
 func scanConnector(row pgx.Row) (*Connector, error) {
 	var c Connector
 	var tr, au []byte
-	if err := row.Scan(&c.ID, &c.OrgID, &c.Name, &tr, &au, &c.Instructions, &c.CatalogSlug, &c.CatalogHash, &c.ReadOnly, &c.Enabled, &c.Version, &c.CreatedAt, &c.UpdatedAt, &c.ToolCount); err != nil {
+	if err := row.Scan(&c.ID, &c.OrgID, &c.Name, &tr, &au, &c.Instructions, &c.CatalogSlug, &c.CatalogHash, &c.ReadOnly, &c.Enabled, &c.Version, &c.CreatedAt, &c.UpdatedAt, &c.ToolCount, &c.TokenStored); err != nil {
 		return nil, err
 	}
 	if err := json.Unmarshal(tr, &c.Transport); err != nil {
