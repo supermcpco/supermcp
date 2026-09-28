@@ -1,5 +1,5 @@
 import type { Browser, Page } from "@playwright/test";
-import { test, expect, expectAccessible, signUp } from "./fixtures";
+import { test, expect, expectAccessible, signUp, pickOption } from "./fixtures";
 
 // Members and invitations, end to end: an owner invites somebody by link,
 // that person joins from a browser that has never seen the workspace, and
@@ -17,7 +17,7 @@ async function invite(page: Page, email: string, role: string): Promise<string> 
   await page.goto("/settings/members");
   const dialog = await openInvite(page);
   await dialog.getByLabel("Email", { exact: true }).fill(email);
-  await dialog.getByLabel("Role", { exact: true }).selectOption({ label: role });
+  await pickOption(page, dialog.getByLabel("Role", { exact: true }), role);
   await dialog.getByLabel("Link works for (days)").fill("3");
   await dialog.getByRole("button", { name: "Create invitation link" }).click();
   // The link is shown on the screen once the dialog has closed.
@@ -87,7 +87,7 @@ test("an owner invites someone who joins from the link, then changes, deactivate
     await page.getByRole("button", { name: "Done" }).click();
     const dialog = await openInvite(page);
     await dialog.getByLabel("Email", { exact: true }).fill(email);
-    await dialog.getByLabel("Role", { exact: true }).selectOption({ label: "viewer" });
+    await pickOption(page, dialog.getByLabel("Role", { exact: true }), "viewer");
     await dialog.getByRole("button", { name: "Create invitation link" }).click();
     // Refused inside the dialog, which stays open with what was typed.
     await expect(dialog.getByRole("alert").filter({ hasText: /already open/ })).toBeVisible();
@@ -125,7 +125,7 @@ test("an owner invites someone who joins from the link, then changes, deactivate
   });
 
   await test.step("the owner changes their role", async () => {
-    await page.getByLabel(`Role for ${invitee.name}`).selectOption({ label: "editor" });
+    await pickOption(page, `Role for ${invitee.name}`, "editor");
     await page.getByRole("button", { name: `Change ${invitee.name}'s role` }).click();
     await expect(page.getByRole("heading", { name: `${invitee.name} now holds editor`, exact: true })).toBeVisible();
     const roles = memberRow(page, email).getByRole("list", { name: `Roles of ${invitee.name}` });

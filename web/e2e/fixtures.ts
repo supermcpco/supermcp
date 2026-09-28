@@ -1,4 +1,4 @@
-import { test as base, expect, type Page } from "@playwright/test";
+import { test as base, expect, type Locator, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 
 // A workspace per test file, created through the real sign-up form. The
@@ -88,6 +88,23 @@ export async function expectAccessible(page: Page) {
     serious.map((v) => `${v.id}: ${v.help} (${v.nodes.length} places, e.g. ${v.nodes[0]?.target.join(" ")})`),
     "the page has accessibility faults that would stop someone using it",
   ).toEqual([]);
+}
+
+/**
+ * Picks `option` in a Kumo select the way a person does: opens it, then
+ * clicks the option by its words. `select` is the select's label, or the
+ * select itself when it has to be found inside a dialog or a row. The
+ * list is drawn at the foot of the page, not inside the select, so it is
+ * looked for on the page. Waits for the list to close and the select to
+ * show the choice.
+ */
+export async function pickOption(page: Page, select: string | Locator, option: string) {
+  const box = typeof select === "string" ? page.getByRole("combobox", { name: select, exact: true }) : select;
+  await box.click();
+  const list = page.getByRole("listbox");
+  await list.getByRole("option", { name: option, exact: true }).click();
+  await expect(list).toBeHidden();
+  await expect(box).toHaveText(option);
 }
 
 /** Installs a keyless adapter from its catalog page, the way a person does. */

@@ -114,7 +114,10 @@ test("the preview says what another role the holder has already allows", async (
   // would allow they can already do. Saying so is the difference between
   // a permission list and an answer.
   const preview = page.getByRole("region", { name: "What somebody holding this role could do" });
-  await preview.getByLabel("Work it out for").selectOption({ index: 1 });
+  // The first choice is "Somebody with no other role"; the next is the owner.
+  await preview.getByLabel("Work it out for").click();
+  await page.getByRole("listbox").getByRole("option").nth(1).click();
+  await expect(page.getByRole("listbox")).toBeHidden();
   await expect(preview.getByText(/already holds/)).toBeVisible();
   await expect(preview.getByText(/Also from|Only from/).first()).toBeVisible();
   expect(workspace.email).toBeTruthy();

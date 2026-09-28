@@ -1,4 +1,4 @@
-import { useId, useState } from "react";
+import { useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button, Collapsible, Dialog, DialogRoot, DialogTitle, Text } from "@cloudflare/kumo";
@@ -17,6 +17,7 @@ import { toast } from "../components/shell/toast";
 import { ConnectClient, Endpoint } from "../components/connect-client";
 import { EmptyState, HeaderWithAction } from "../components/form-dialog";
 import { LabelledInput } from "../components/labelled-input";
+import { LabelledSelect } from "../components/select";
 
 export const Route = createFileRoute("/_app/servers")({
   component: Servers,
@@ -176,8 +177,6 @@ function NewServerForm({ onDone }: { onDone: () => void }) {
   );
 }
 
-const selectClass = "rounded-md border border-kumo-line bg-kumo-base px-3 py-2";
-
 /**
  * Whether the endpoint keeps a session per client. Stateful is what lets
  * the server ask the client to confirm a call held for approval; it keeps
@@ -185,7 +184,6 @@ const selectClass = "rounded-md border border-kumo-line bg-kumo-base px-3 py-2";
  */
 function Sessions({ server }: { server: Server }) {
   const qc = useQueryClient();
-  const selectId = useId();
   const [error, setError] = useState<string | null>(null);
   const update = useMutation({
     ...serversUpdateMutation(),
@@ -198,26 +196,22 @@ function Sessions({ server }: { server: Server }) {
   });
   return (
     <div className="grid gap-1.5">
-      <div className="flex flex-wrap items-center gap-2">
-        <label htmlFor={selectId}>
-          <Text as="span">Sessions</Text>
-        </label>
-        <select
-          id={selectId}
-          className={selectClass}
-          value={server.sessions}
-          disabled={update.isPending}
-          onChange={(e) =>
-            update.mutate({
-              path: { id: server.id },
-              body: { sessions: e.currentTarget.value as Server["sessions"], expectedVersion: server.version },
-            })
-          }
-        >
-          <option value="stateless">Stateless: any replica answers</option>
-          <option value="stateful">Stateful: can ask the client to confirm</option>
-        </select>
-      </div>
+      <LabelledSelect
+        label="Sessions"
+        className="flex flex-wrap items-center gap-2"
+        value={server.sessions}
+        disabled={update.isPending}
+        onChange={(v) =>
+          update.mutate({
+            path: { id: server.id },
+            body: { sessions: v as Server["sessions"], expectedVersion: server.version },
+          })
+        }
+        options={[
+          { value: "stateless", label: "Stateless: any replica answers" },
+          { value: "stateful", label: "Stateful: can ask the client to confirm" },
+        ]}
+      />
       {server.sessions === "stateful" && (
         <Text variant="secondary">
           Each client keeps to one replica, so this needs sticky routing; connected clients must reconnect.

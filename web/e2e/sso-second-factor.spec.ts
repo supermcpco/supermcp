@@ -1,4 +1,4 @@
-import { test, expect, expectAccessible } from "./fixtures";
+import { test, expect, expectAccessible, pickOption } from "./fixtures";
 
 // An OpenID Connect provider's second-factor rule: what its ID token has to
 // say for a sign-in to count as having a second factor. No provider is
@@ -13,7 +13,7 @@ test("an administrator sets which answers from a provider count as a second fact
   const add = page.getByRole("dialog", { name: "Add a provider" }).getByRole("form", { name: "Add a provider" });
   await expect(add.getByLabel("Second factor: amr values that count")).toHaveValue("mfa, otp, hwk, sc");
 
-  await add.getByLabel("Provider").selectOption({ label: "Okta" });
+  await pickOption(page, add.getByLabel("Provider"), "Okta");
   await add.getByLabel("Name").fill("Company Okta");
   await add.getByLabel("Issuer URL").fill("https://example.okta.test/oauth2/default");
   await add.getByLabel("Client ID").fill("okta-client");

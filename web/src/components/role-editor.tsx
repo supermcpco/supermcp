@@ -7,6 +7,7 @@ import { message } from "../lib/errors";
 import { toast } from "./shell/toast";
 import { FormDialog } from "./form-dialog";
 import { LabelledInput } from "./labelled-input";
+import { LabelledSelect } from "./select";
 
 /** Somebody the preview can be worked out for. */
 export interface Holder {
@@ -14,8 +15,6 @@ export interface Holder {
   id: string;
   display: string;
 }
-
-const selectClass = "rounded-md border border-kumo-line bg-kumo-base px-3 py-2";
 
 /**
  * Builds a role out of the things this workspace can allow, and says what
@@ -200,17 +199,15 @@ function Preview({
         What they could do
       </Text>
 
-      <label className="grid gap-1.5">
-        <Text as="span">Work it out for</Text>
-        <select className={selectClass} value={holder} onChange={(e) => onHolder(e.target.value)}>
-          <option value="">Somebody with no other role</option>
-          {holders.map((h) => (
-            <option key={`${h.kind}:${h.id}`} value={`${h.kind}:${h.id}`}>
-              {h.display}
-            </option>
-          ))}
-        </select>
-      </label>
+      <LabelledSelect
+        label="Work it out for"
+        value={holder}
+        onChange={onHolder}
+        options={[
+          { value: "", label: "Somebody with no other role" },
+          ...holders.map((h) => ({ value: `${h.kind}:${h.id}`, label: h.display })),
+        ]}
+      />
 
       {nothingPicked && <Text variant="secondary">Tick something on the left and the answer appears here.</Text>}
       {error && (

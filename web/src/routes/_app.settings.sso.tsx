@@ -27,6 +27,7 @@ import { EmptyState, FormDialog, HeaderWithAction } from "../components/form-dia
 import { ConfirmDialog } from "../components/confirm-dialog";
 import { Help, HeadingWithHelp } from "../components/help";
 import { LabelledInput } from "../components/labelled-input";
+import { LabelledSelect } from "../components/select";
 
 export const Route = createFileRoute("/_app/settings/sso")({
   component: SingleSignOn,
@@ -332,20 +333,12 @@ function SingleSignOn() {
         }
       >
         <div className="flex flex-wrap gap-3">
-          <label className="grid gap-1.5">
-            <Text as="span">Provider</Text>
-            <select
-              className="rounded-md border border-kumo-line bg-kumo-base px-3 py-2"
-              value={form.preset}
-              onChange={(e) => setForm({ ...form, preset: e.target.value })}
-            >
-              {presets.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.label}
-                </option>
-              ))}
-            </select>
-          </label>
+          <LabelledSelect
+            label="Provider"
+            value={form.preset}
+            onChange={(preset) => setForm({ ...form, preset })}
+            options={presets.map((p) => ({ value: p.id, label: p.label }))}
+          />
           <LabelledInput
             labelClassName="grid flex-1 gap-1.5"
             label="Name"

@@ -20,12 +20,11 @@ import { EmptyState, HeaderWithAction } from "../components/form-dialog";
 import { ConfirmAction } from "../components/confirm-dialog";
 import { canRotate, defaultGraceSeconds, graceChoices, stopsWorking } from "../lib/key-rotation";
 import { LabelledInput } from "../components/labelled-input";
+import { LabelledSelect } from "../components/select";
 
 export const Route = createFileRoute("/_app/api-keys")({
   component: APIKeys,
 });
-
-const selectClass = "rounded-md border border-kumo-line bg-kumo-base px-3 py-2";
 
 // What a key is for decides its scopes. A client key gets the server's
 // defaults; a provisioning key reaches the SCIM endpoints and nothing else.
@@ -197,7 +196,6 @@ function CreateKeyForm({ onCancel, onCreated }: { onCancel: () => void; onCreate
   const [name, setName] = useState("");
   const [purpose, setPurpose] = useState<keyof typeof purposes>("client");
   const [error, setError] = useState<string | null>(null);
-  const purposeId = useId();
 
   const create = useMutation({
     ...keysCreateMutation(),
@@ -221,20 +219,16 @@ function CreateKeyForm({ onCancel, onCreated }: { onCancel: () => void; onCreate
       }}
     >
       <LabelledInput label="Name" required value={name} onChange={(e) => setName(e.target.value)} placeholder="Claude Desktop" />
-      <div className="grid gap-1.5">
-        <label htmlFor={purposeId}>
-          <Text as="span">For</Text>
-        </label>
-        <select
-          id={purposeId}
-          className={selectClass}
-          value={purpose}
-          onChange={(e) => setPurpose(e.currentTarget.value as keyof typeof purposes)}
-        >
-          <option value="client">An AI client</option>
-          <option value="scim">SCIM provisioning</option>
-        </select>
-      </div>
+      <LabelledSelect
+        label="For"
+        triggerClassName="w-full"
+        value={purpose}
+        onChange={(v) => setPurpose(v as keyof typeof purposes)}
+        options={[
+          { value: "client", label: "An AI client" },
+          { value: "scim", label: "SCIM provisioning" },
+        ]}
+      />
       {error && (
         <div role="alert">
           <Text>{error}</Text>
@@ -282,7 +276,6 @@ function SecretBody({ issued }: { issued: Issued }) {
   const servers = useQuery({ ...serversListOptions(), enabled: forClients && mayListServers, retry: false });
   const [picked, setPicked] = useState<string | null>(null);
   const secretId = useId();
-  const serverSelectId = useId();
   const list = servers.data ?? [];
   // A key bound to one server can only reach that one, so there is no
   // choice to offer; otherwise the first, until another is picked.
@@ -339,23 +332,13 @@ function SecretBody({ issued }: { issued: Issued }) {
             </Text>
           )}
           {!bound && list.length > 0 && (
-            <div className="flex flex-wrap items-center gap-2">
-              <label htmlFor={serverSelectId}>
-                <Text as="span">Server</Text>
-              </label>
-              <select
-                id={serverSelectId}
-                className={selectClass}
-                value={serverId}
-                onChange={(e) => setPicked(e.currentTarget.value)}
-              >
-                {list.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <LabelledSelect
+              label="Server"
+              className="flex flex-wrap items-center gap-2"
+              value={serverId ?? ""}
+              onChange={setPicked}
+              options={list.map((s) => ({ value: s.id, label: s.name }))}
+            />
           )}
           {server && <ConnectClient key={server.id} server={server} secret={secret} showEndpoint />}
         </div>
@@ -380,7 +363,6 @@ function ConfirmRotate({
 }) {
   const qc = useQueryClient();
   const [grace, setGrace] = useState<number>(defaultGraceSeconds);
-  const graceId = useId();
   const [error, setError] = useState<string | null>(null);
   const rotate = useMutation({
     ...keysRotateMutation(),
@@ -406,23 +388,13 @@ function ConfirmRotate({
         A new key with the same name and access replaces this one; give clients the new secret before the old one stops
         working.
       </Text>
-      <div className="grid gap-1.5">
-        <label htmlFor={graceId}>
-          <Text as="span">Old key keeps working for</Text>
-        </label>
-        <select
-          id={graceId}
-          className={selectClass}
-          value={grace}
-          onChange={(e) => setGrace(Number(e.currentTarget.value))}
-        >
-          {graceChoices.map((c) => (
-            <option key={c.seconds} value={c.seconds}>
-              {c.label}
-            </option>
-          ))}
-        </select>
-      </div>
+      <LabelledSelect
+        label="Old key keeps working for"
+        className="grid gap-1.5 justify-items-start"
+        value={String(grace)}
+        onChange={(v) => setGrace(Number(v))}
+        options={graceChoices.map((c) => ({ value: String(c.seconds), label: c.label }))}
+      />
       <div className="flex gap-2">
         <Button type="submit" variant="primary" disabled={rotate.isPending}>
           Rotate {apiKey.name}

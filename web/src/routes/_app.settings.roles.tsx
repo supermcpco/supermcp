@@ -28,12 +28,11 @@ import { HeaderWithAction } from "../components/form-dialog";
 import { ConfirmDialog } from "../components/confirm-dialog";
 import { Help, HeadingWithHelp } from "../components/help";
 import { LabelledInput } from "../components/labelled-input";
+import { LabelledSelect } from "../components/select";
 
 export const Route = createFileRoute("/_app/settings/roles")({
   component: Roles,
 });
-
-const selectClass = "rounded-md border border-kumo-line bg-kumo-base px-3 py-2";
 
 const columns = ["Role", "Kind", "Holders", "Permissions", "Actions"] as const;
 
@@ -382,36 +381,30 @@ function Roles() {
                                     });
                                   }}
                                 >
-                                  <label className="grid gap-1.5">
-                                    <Text as="span">Give it to</Text>
-                                    <select
-                                      className={selectClass}
-                                      value={kind}
-                                      onChange={(e) => {
-                                        setKind(e.target.value === "service_account" ? "service_account" : "user");
-                                        setPrincipal("");
-                                      }}
-                                    >
-                                      <option value="user">A person</option>
-                                      <option value="service_account">A service account</option>
-                                    </select>
-                                  </label>
+                                  <LabelledSelect
+                                    label="Give it to"
+                                    value={kind}
+                                    onChange={(v) => {
+                                      setKind(v === "service_account" ? "service_account" : "user");
+                                      setPrincipal("");
+                                    }}
+                                    options={[
+                                      { value: "user", label: "A person" },
+                                      { value: "service_account", label: "A service account" },
+                                    ]}
+                                  />
                                   {kind === "service_account" ? (
-                                    <label className="grid flex-1 gap-1.5">
-                                      <Text as="span">Service account</Text>
-                                      <select
-                                        className={selectClass}
-                                        value={principal}
-                                        onChange={(e) => setPrincipal(e.target.value)}
-                                      >
-                                        <option value="">Choose one</option>
-                                        {accounts.data?.accounts?.map((a) => (
-                                          <option key={a.id} value={a.id}>
-                                            {a.name}
-                                          </option>
-                                        ))}
-                                      </select>
-                                    </label>
+                                    <LabelledSelect
+                                      label="Service account"
+                                      className="grid flex-1 gap-1.5"
+                                      triggerClassName="w-full"
+                                      value={principal}
+                                      onChange={setPrincipal}
+                                      options={[
+                                        { value: "", label: "Choose one" },
+                                        ...(accounts.data?.accounts ?? []).map((a) => ({ value: a.id, label: a.name })),
+                                      ]}
+                                    />
                                   ) : (
                                     <LabelledInput
                                       labelClassName="grid flex-1 gap-1.5"

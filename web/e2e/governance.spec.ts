@@ -1,4 +1,4 @@
-import { test, expect, expectAccessible, createServer, createKey } from "./fixtures";
+import { test, expect, expectAccessible, createServer, createKey, pickOption } from "./fixtures";
 
 // What a workspace does about the calls it does not trust: inspect what
 // they carry, and hold the ones that need a person. Both gates sit on the
@@ -31,7 +31,7 @@ test("a rule inspects what a tool call carries, and an approval holds one until 
   await page.getByRole("button", { name: "New rule" }).click();
   const addRule = page.getByRole("dialog", { name: "Add a rule" });
   await addRule.getByLabel("What it is for").fill("Mask identifiers in results");
-  await addRule.getByLabel("What it does").selectOption("mask");
+  await pickOption(page, addRule.getByLabel("What it does"), "Mask what it finds");
   await addRule.getByRole("button", { name: "Add the rule" }).click();
   await expect(addRule).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Rule Mask identifiers in results added", exact: true })).toBeVisible();

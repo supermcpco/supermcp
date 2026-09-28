@@ -63,7 +63,7 @@ test("empty connectors, servers and keys screens are one small card, and their h
     const dialog = page.getByRole("dialog", { name: "New API key" });
     await expect(dialog).toBeVisible();
     // Its "For" choice is named by its label alone, not by every option in it.
-    await expect(dialog.getByRole("combobox", { name: "For", exact: true })).toHaveValue("client");
+    await expect(dialog.getByRole("combobox", { name: "For", exact: true })).toHaveText("An AI client");
     await dialog.getByRole("button", { name: "Cancel" }).click();
     await expect(dialog).toHaveCount(0);
     await expect(empty).toBeVisible();

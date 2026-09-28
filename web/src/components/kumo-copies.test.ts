@@ -21,6 +21,7 @@ const copies = [
   "shell/rail-button.tsx",
   "tooltip.tsx",
   "labelled-input.tsx",
+  "select.tsx",
   "../app.css",
 ];
 
