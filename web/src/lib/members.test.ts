@@ -11,6 +11,7 @@ import {
   passwordHint,
   passwordMinLength,
   relativeTime,
+  nextDestination,
   safeNext,
   sameEmail,
   sourceLabel,
@@ -161,6 +162,27 @@ describe("safeNext", () => {
     ["invite/abc", "/"],
   ])("%s -> %s", (next, want) => {
     expect(safeNext(next)).toBe(want);
+  });
+});
+
+describe("nextDestination", () => {
+  // The interface routes /, /connectors/… and /invite/…; the server the rest.
+  const routed = (p: string) => p === "/" || p.startsWith("/connectors") || p.startsWith("/invite/");
+  it.each([
+    [undefined, { href: "/", load: false }],
+    ["/connectors/abc?oauth=ok", { href: "/connectors/abc?oauth=ok", load: false }],
+    ["/invite/abc#top", { href: "/invite/abc#top", load: false }],
+    ["/oauth/authorize?client_id=x&next=/connectors", { href: "/oauth/authorize?client_id=x&next=/connectors", load: true }],
+    ["https://evil.example/oauth/authorize", { href: "/", load: false }],
+    ["//evil.example/", { href: "/", load: false }],
+  ])("%s", (next, want) => {
+    expect(nextDestination(next, routed)).toEqual(want);
+  });
+
+  it("asks about the path alone, not its query", () => {
+    const asked: string[] = [];
+    nextDestination("/oauth/authorize?redirect=/connectors", (p) => (asked.push(p), false));
+    expect(asked).toEqual(["/oauth/authorize"]);
   });
 });
 
