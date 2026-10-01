@@ -67,7 +67,11 @@ const adapterDocument = adapterCredentials.extend({
         name: z.string(),
         description: z.string().default(""),
         annotations: z
-          .object({ readOnlyHint: z.boolean().optional(), destructiveHint: z.boolean().optional() })
+          .object({
+            readOnlyHint: z.boolean().optional(),
+            destructiveHint: z.boolean().optional(),
+            idempotentHint: z.boolean().optional(),
+          })
           .optional(),
         // The input schema is read loosely: one odd property must not make
         // the whole page unreadable, so each is checked on its own later.
@@ -147,51 +151,76 @@ export function toolParameters(t: Pick<AdapterTool, "input">): ToolParameter[] {
 /** What calling a tool does, as the badges say it. */
 export type ToolEffect = "reads only" | "destructive" | "writes";
 
-const additiveVerbs = ["create", "add", "insert", "post", "send", "register", "submit", "upload", "start", "new"];
+/** The verbs that make a tool read-shaped when its name starts with one. */
+const readVerbs = ["get", "list", "search", "find", "read", "fetch", "describe"];
 
 /**
- * Whether a catalog tool reads or writes, worked out the way the server
- * works it out when the tool is served (internal/tool/annotations.go):
- * from the operation, then the adapter's own hints over the top. The
- * connector's tools screen shows the server's answer; this page shows the
- * same answer before there is a connector to ask about.
+ * Whether a tool's name says it reads: `bexio_search_contacts`, after the
+ * adapter's prefix, or `get_rates` with none. The prefix is the slug when
+ * the name carries it, otherwise the name's first word.
  */
-export function toolEffect(t: Pick<AdapterTool, "name" | "annotations" | "operation">, transport: string): ToolEffect {
+function readShaped(name: string, slug: string): boolean {
+  const n = name.toLowerCase();
+  const prefix = `${slug.toLowerCase().replace(/-/g, "_")}_`;
+  const rests = [n, n.startsWith(prefix) ? n.slice(prefix.length) : n.slice(n.indexOf("_") + 1)];
+  return rests.some((r) => readVerbs.some((v) => r === v || r.startsWith(`${v}_`)));
+}
+
+/**
+ * What a catalog tool does when called, for its badge, or null when
+ * nothing can be said. The adapter's own hints decide when it declares
+ * them. Otherwise GET and HEAD read; a POST, PUT or PATCH reads when its
+ * name says so (many APIs search over POST) and writes when not; only a
+ * DELETE is destructive. A POST is never called destructive on its own.
+ *
+ * This is deliberately kinder than the server's derivation for MCP
+ * clients (internal/tool/annotations.go), which treats a POST without an
+ * additive verb as destructive; a connector's tools screen shows that.
+ */
+export function toolEffect(
+  t: Pick<AdapterTool, "name" | "annotations" | "operation">,
+  transport: string,
+  slug = "",
+): ToolEffect | null {
+  const hints = t.annotations;
+  if (hints?.readOnlyHint === true) return "reads only";
+  if (hints?.destructiveHint === true) return "destructive";
+  if (hints?.readOnlyHint === false) return "writes";
+
   const op = t.operation ?? {};
-  let readOnly = false;
-  let destructive = false;
-  const additive = t.name.split("_").some((part) => additiveVerbs.includes(part));
-  if (op.kind === "static") {
-    readOnly = true;
-  } else if (transport === "graphql") {
-    if (op.kind === "mutation") destructive = !additive;
-    else readOnly = true;
-  } else if (transport === "database") {
-    const s = (op.statement ?? "").trim().toUpperCase();
-    if (op.kind === "schema" || ["SELECT", "WITH", "{"].some((w) => s.startsWith(w))) readOnly = true;
-    else destructive = true;
+  const reads = readShaped(t.name, slug);
+  let inferred: ToolEffect | null;
+  if (op.kind === "static" || op.kind === "schema" || op.kind === "query") {
+    inferred = "reads only";
+  } else if (op.kind === "mutation") {
+    inferred = reads ? "reads only" : "writes";
+  } else if (transport === "database" && op.statement) {
+    const s = op.statement.trim().toUpperCase();
+    if (["SELECT", "WITH", "{"].some((w) => s.startsWith(w))) inferred = "reads only";
+    else if (["DELETE", "DROP", "TRUNCATE"].some((w) => s.startsWith(w))) inferred = "destructive";
+    else inferred = "writes";
   } else {
     switch ((op.method ?? "").toUpperCase()) {
       case "GET":
       case "HEAD":
-      case "OPTIONS":
-      case "":
-        readOnly = true;
-        break;
-      case "PUT":
-      case "DELETE":
-      case "PATCH":
-        destructive = true;
+        inferred = "reads only";
         break;
       case "POST":
-        destructive = !additive;
+      case "PUT":
+      case "PATCH":
+        inferred = reads ? "reads only" : "writes";
         break;
+      case "DELETE":
+        inferred = "destructive";
+        break;
+      default:
+        inferred = reads ? "reads only" : null;
     }
   }
-  if (t.annotations?.readOnlyHint !== undefined) readOnly = t.annotations.readOnlyHint;
-  if (t.annotations?.destructiveHint !== undefined) destructive = t.annotations.destructiveHint;
-  if (readOnly) return "reads only";
-  return destructive ? "destructive" : "writes";
+  // An adapter that says a DELETE is not destructive is taken at its word;
+  // idempotentHint alone says nothing about reading or writing.
+  if (inferred === "destructive" && hints?.destructiveHint === false) return "writes";
+  return inferred;
 }
 
 /**

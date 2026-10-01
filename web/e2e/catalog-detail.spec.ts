@@ -97,6 +97,11 @@ test("an adapter page lays out for phone and desktop", async ({ page, workspace 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/catalog/teamleader");
   await expect(page.getByRole("heading", { name: "Teamleader Focus", level: 1 })).toBeVisible();
+  // Every Teamleader call is a POST, but each of its tools is named for a
+  // read (get_, list_), so none is called a write, let alone destructive.
+  await expect(tools.getByText("reads only", { exact: true })).toHaveCount(10);
+  await expect(tools.getByText("writes", { exact: true })).toHaveCount(0);
+  await expect(tools.getByText("destructive", { exact: true })).toHaveCount(0);
   // Nothing is wider than the phone: the page scrolls one way only.
   await expect
     .poll(() => page.locator("main").evaluate((m) => m.scrollWidth - m.clientWidth))

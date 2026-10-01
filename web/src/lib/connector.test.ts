@@ -175,20 +175,48 @@ describe("toolParameters", () => {
 });
 
 describe("toolEffect", () => {
-  it("reads the operation the way the server does", () => {
+  it("reads GET and HEAD, and a POST whose name says it reads", () => {
     expect(toolEffect({ name: "get_rates", operation: { method: "GET" } }, "http")).toBe("reads only");
-    expect(toolEffect({ name: "search_contacts", operation: { method: "POST" } }, "http")).toBe("destructive");
-    expect(toolEffect({ name: "create_contact", operation: { method: "POST" } }, "http")).toBe("writes");
-    expect(toolEffect({ name: "drop", operation: { method: "DELETE" } }, "http")).toBe("destructive");
-    expect(toolEffect({ name: "q", operation: { kind: "query" } }, "graphql")).toBe("reads only");
-    expect(toolEffect({ name: "add_item", operation: { kind: "mutation" } }, "graphql")).toBe("writes");
-    expect(toolEffect({ name: "rows", operation: { kind: "sql", statement: " select 1" } }, "database")).toBe("reads only");
+    expect(toolEffect({ name: "ping", operation: { method: "HEAD" } }, "http")).toBe("reads only");
+    expect(toolEffect({ name: "bexio_search_contacts", operation: { method: "POST" } }, "http", "bexio")).toBe("reads only");
+    expect(toolEffect({ name: "teamleader_list_companies", operation: { method: "POST" } }, "http", "teamleader")).toBe("reads only");
+    expect(toolEffect({ name: "deutsche_bahn_find_station", operation: { method: "POST" } }, "http", "deutsche-bahn")).toBe("reads only");
+    expect(toolEffect({ name: "describe_table", operation: { method: "POST" } }, "http")).toBe("reads only");
+  });
+
+  it("calls a POST, PUT or PATCH that is not read-shaped a write, never destructive", () => {
+    expect(toolEffect({ name: "bexio_create_contact", operation: { method: "POST" } }, "http", "bexio")).toBe("writes");
+    expect(toolEffect({ name: "acme_archive_deal", operation: { method: "POST" } }, "http", "acme")).toBe("writes");
+    expect(toolEffect({ name: "acme_update_deal", operation: { method: "PUT" } }, "http", "acme")).toBe("writes");
+    expect(toolEffect({ name: "acme_rename", operation: { method: "PATCH" } }, "http", "acme")).toBe("writes");
+    // The verb has to start the name after the prefix, not appear anywhere in it.
+    expect(toolEffect({ name: "acme_reset_list", operation: { method: "POST" } }, "http", "acme")).toBe("writes");
+  });
+
+  it("is destructive only for a DELETE", () => {
+    expect(toolEffect({ name: "acme_drop", operation: { method: "DELETE" } }, "http", "acme")).toBe("destructive");
     expect(toolEffect({ name: "purge", operation: { kind: "sql", statement: "DELETE FROM t" } }, "database")).toBe("destructive");
   });
 
+  it("reads other transports by their kind", () => {
+    expect(toolEffect({ name: "q", operation: { kind: "query" } }, "graphql")).toBe("reads only");
+    expect(toolEffect({ name: "add_item", operation: { kind: "mutation" } }, "graphql")).toBe("writes");
+    expect(toolEffect({ name: "rows", operation: { kind: "sql", statement: " select 1" } }, "database")).toBe("reads only");
+    expect(toolEffect({ name: "touch", operation: { kind: "sql", statement: "UPDATE t SET a = 1" } }, "database")).toBe("writes");
+  });
+
   it("lets the adapter's own hints decide", () => {
-    expect(toolEffect({ name: "list", operation: { method: "POST" }, annotations: { readOnlyHint: true } }, "http")).toBe("reads only");
-    expect(toolEffect({ name: "get", operation: { method: "GET" }, annotations: { readOnlyHint: false } }, "http")).toBe("writes");
+    expect(toolEffect({ name: "x_sync", operation: { method: "POST" }, annotations: { readOnlyHint: true } }, "http")).toBe("reads only");
+    expect(toolEffect({ name: "x_get", operation: { method: "GET" }, annotations: { readOnlyHint: false } }, "http")).toBe("writes");
+    expect(toolEffect({ name: "x_get", operation: { method: "POST" }, annotations: { destructiveHint: true } }, "http")).toBe("destructive");
+    expect(toolEffect({ name: "x_drop", operation: { method: "DELETE" }, annotations: { destructiveHint: false } }, "http")).toBe("writes");
+  });
+
+  it("gives no badge when nothing can be inferred", () => {
+    expect(toolEffect({ name: "acme_call", operation: {} }, "soap", "acme")).toBeNull();
+    expect(toolEffect({ name: "acme_call" }, "mcp", "acme")).toBeNull();
+    expect(toolEffect({ name: "acme_call", operation: { method: "OPTIONS" } }, "http", "acme")).toBeNull();
+    expect(toolEffect({ name: "acme_call", annotations: { idempotentHint: true } }, "mcp", "acme")).toBeNull();
   });
 });
 
