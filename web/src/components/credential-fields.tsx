@@ -16,18 +16,21 @@ export function CredentialFields({
   values,
   onChange,
   disabled,
+  bare,
 }: {
   fields: readonly CredentialField[];
   values: Record<string, string>;
   onChange: (values: Record<string, string>) => void;
   disabled?: boolean;
+  /** Drawn without a card of its own, for a form that already sits in one. */
+  bare?: boolean;
 }) {
   const missing = stillNeeded(fields, values);
   // Each input is named by its credential's name and described by its
   // description, through ids Kumo can see.
   const ids = useId();
   return (
-    <div className="grid gap-3 rounded-lg px-5 py-4 ring ring-kumo-line">
+    <div className={bare ? "grid gap-3" : "grid gap-3 rounded-lg px-5 py-4 ring ring-kumo-line"}>
       {fields.map((c, i) => (
         <label key={c.name} className="grid gap-1.5">
           <span className="font-mono text-[0.9em]" id={`${ids}-${i}-name`}>

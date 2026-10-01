@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  authBadge,
   authorizationLabel,
   authorizesInBrowser,
   consentResult,
@@ -9,6 +10,9 @@ import {
   parseAdapter,
   stillNeeded,
   targetHost,
+  toolEffect,
+  toolMatches,
+  toolParameters,
 } from "./connector";
 
 describe("stillNeeded", () => {
@@ -137,5 +141,73 @@ describe("parseAdapter", () => {
     expect(parseAdapter(undefined)).toBeNull();
     expect(parseAdapter({ metadata: { name: "n" } })).toBeNull();
     expect(parseAdapter({ ...doc, tools: "none" })).toBeNull();
+  });
+});
+
+describe("toolParameters", () => {
+  it("lists required parameters first, with their type, choices and default", () => {
+    const params = toolParameters({
+      input: {
+        properties: {
+          startPeriod: { type: "string", description: "First period" },
+          maturityYears: { type: "string", enum: ["01", "10"], default: "10" },
+          ids: { type: "array", items: { type: "integer" } },
+        },
+        required: ["maturityYears"],
+      },
+    });
+    expect(params.map((p) => p.name)).toEqual(["maturityYears", "startPeriod", "ids"]);
+    expect(params[0]).toEqual({
+      name: "maturityYears",
+      type: "string",
+      required: true,
+      description: undefined,
+      choices: ["01", "10"],
+      fallback: "10",
+    });
+    expect(params[2].type).toBe("array of integer");
+  });
+
+  it("keeps a parameter it cannot read, by name, rather than failing the tool", () => {
+    expect(toolParameters({ input: { properties: { odd: true } } })).toEqual([{ name: "odd", type: "", required: false }]);
+    expect(toolParameters({})).toEqual([]);
+  });
+});
+
+describe("toolEffect", () => {
+  it("reads the operation the way the server does", () => {
+    expect(toolEffect({ name: "get_rates", operation: { method: "GET" } }, "http")).toBe("reads only");
+    expect(toolEffect({ name: "search_contacts", operation: { method: "POST" } }, "http")).toBe("destructive");
+    expect(toolEffect({ name: "create_contact", operation: { method: "POST" } }, "http")).toBe("writes");
+    expect(toolEffect({ name: "drop", operation: { method: "DELETE" } }, "http")).toBe("destructive");
+    expect(toolEffect({ name: "q", operation: { kind: "query" } }, "graphql")).toBe("reads only");
+    expect(toolEffect({ name: "add_item", operation: { kind: "mutation" } }, "graphql")).toBe("writes");
+    expect(toolEffect({ name: "rows", operation: { kind: "sql", statement: " select 1" } }, "database")).toBe("reads only");
+    expect(toolEffect({ name: "purge", operation: { kind: "sql", statement: "DELETE FROM t" } }, "database")).toBe("destructive");
+  });
+
+  it("lets the adapter's own hints decide", () => {
+    expect(toolEffect({ name: "list", operation: { method: "POST" }, annotations: { readOnlyHint: true } }, "http")).toBe("reads only");
+    expect(toolEffect({ name: "get", operation: { method: "GET" }, annotations: { readOnlyHint: false } }, "http")).toBe("writes");
+  });
+});
+
+describe("authBadge", () => {
+  it("says no credentials are needed exactly when none is required", () => {
+    expect(authBadge({ type: "none" }, 0)).toBe("No credentials needed");
+    expect(authBadge({ type: "apiKey", optional: true }, 0)).toBe("No credentials needed");
+    expect(authBadge({ type: "apiKey" }, 2)).toBe("API key");
+    expect(authBadge({ type: "oauth2" }, 3)).toBe("OAuth 2.0");
+    expect(authBadge({ type: "bearer", optional: true }, 1)).toBe("Bearer (optional)");
+  });
+});
+
+describe("toolMatches", () => {
+  const t = { name: "bexio_list_contacts", description: "List contacts", input: { properties: { order_by: {} } } };
+  it("matches the name, the description or a parameter, whatever the case", () => {
+    expect(toolMatches(t, "")).toBe(true);
+    expect(toolMatches(t, "LIST_CON")).toBe(true);
+    expect(toolMatches(t, "order_by")).toBe(true);
+    expect(toolMatches(t, "invoice")).toBe(false);
   });
 });
