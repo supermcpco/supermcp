@@ -126,7 +126,7 @@ function AdapterPage() {
   // anyone who arrives ready to act. The server is the authority here, so
   // the request is allowed to be made and refused.
   const allowed = loading || can("connectors:create");
-  const effects = a.tools.map((t) => toolEffect(t, a.transport.type));
+  const effects = a.tools.map((t) => toolEffect(t, a.transport.type, a.metadata.slug));
   const readOnly = effects.length > 0 && effects.every((e) => e === "reads only");
 
   return (
@@ -387,7 +387,7 @@ function Tools({ adapter: a }: { adapter: AdapterDocument }) {
       ) : (
         <ul className="grid gap-2">
           {shown.map((t) => (
-            <ToolRow key={t.name} tool={t} transport={a.transport.type} />
+            <ToolRow key={t.name} tool={t} transport={a.transport.type} slug={a.metadata.slug} />
           ))}
         </ul>
       )}
@@ -396,15 +396,16 @@ function Tools({ adapter: a }: { adapter: AdapterDocument }) {
 }
 
 /** One tool: its name, what calling it does, and the parameters it takes behind a disclosure. */
-function ToolRow({ tool: t, transport }: { tool: AdapterTool; transport: string }) {
+function ToolRow({ tool: t, transport, slug }: { tool: AdapterTool; transport: string; slug: string }) {
   const [open, setOpen] = useState(false);
   const panel = useId();
   const params = toolParameters(t);
+  const effect = toolEffect(t, transport, slug);
   return (
     <li className="grid min-w-0 gap-2 rounded-lg px-5 py-4 [overflow-wrap:anywhere] ring ring-kumo-line">
       <div className="flex flex-wrap items-center gap-2">
         <span className="font-mono text-[0.9em] break-all">{t.name}</span>
-        <Badge>{toolEffect(t, transport)}</Badge>
+        {effect && <Badge>{effect}</Badge>}
       </div>
       {t.description && (
         <Text as="span" variant="secondary">
