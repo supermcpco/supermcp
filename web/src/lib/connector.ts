@@ -55,8 +55,10 @@ const adapterDocument = adapterCredentials.extend({
     name: z.string(),
     description: z.string().default(""),
     docsUrl: z.string().optional(),
+    region: z.string().optional(),
+    category: z.string().optional(),
   }),
-  transport: z.object({ type: z.string() }),
+  transport: z.object({ type: z.string(), baseUrl: z.string().optional(), dsn: z.string().optional() }),
   auth: z.object({ type: z.string(), optional: z.boolean().optional() }),
   instructions: z.string().optional(),
   tools: z
@@ -64,18 +66,199 @@ const adapterDocument = adapterCredentials.extend({
       z.object({
         name: z.string(),
         description: z.string().default(""),
-        annotations: z.object({ readOnlyHint: z.boolean().optional() }).optional(),
+        annotations: z
+          .object({ readOnlyHint: z.boolean().optional(), destructiveHint: z.boolean().optional() })
+          .optional(),
+        // The input schema is read loosely: one odd property must not make
+        // the whole page unreadable, so each is checked on its own later.
+        input: z
+          .object({
+            properties: z.record(z.string(), z.unknown()).optional(),
+            required: z.array(z.string()).optional(),
+          })
+          .optional(),
+        operation: z
+          .object({ method: z.string().optional(), kind: z.string().optional(), statement: z.string().optional() })
+          .optional(),
       }),
     )
     .default([]),
 });
 
 export type AdapterDocument = z.infer<typeof adapterDocument>;
+export type AdapterTool = AdapterDocument["tools"][number];
 
 /** An adapter document as its catalog page reads it, or null when it is not one. */
 export function parseAdapter(doc: unknown): AdapterDocument | null {
   const parsed = adapterDocument.safeParse(doc);
   return parsed.success ? parsed.data : null;
+}
+
+/** One parameter a tool takes, as its catalog page lists it. */
+export interface ToolParameter {
+  name: string;
+  /** "string", "integer or null", "array of string"; empty when the schema names none. */
+  type: string;
+  required: boolean;
+  description?: string;
+  /** The values it is limited to, in the schema's words. */
+  choices?: string[];
+  /** The value used when it is left out, as text. */
+  fallback?: string;
+}
+
+const parameterSchema = z.object({
+  type: z.union([z.string(), z.array(z.string())]).optional(),
+  description: z.string().optional(),
+  enum: z.array(z.unknown()).optional(),
+  default: z.unknown().optional(),
+  items: z.object({ type: z.union([z.string(), z.array(z.string())]).optional() }).optional(),
+});
+
+function typeWords(t: string | string[] | undefined): string {
+  if (t === undefined) return "";
+  return Array.isArray(t) ? t.join(" or ") : t;
+}
+
+function asText(v: unknown): string {
+  return typeof v === "string" ? v : JSON.stringify(v);
+}
+
+/** The parameters a tool's input schema declares, required ones first, each in declared order. */
+export function toolParameters(t: Pick<AdapterTool, "input">): ToolParameter[] {
+  const required = new Set(t.input?.required ?? []);
+  const params = Object.entries(t.input?.properties ?? {}).map(([name, raw]): ToolParameter => {
+    const p = parameterSchema.safeParse(raw);
+    if (!p.success) return { name, type: "", required: required.has(name) };
+    const base = typeWords(p.data.type);
+    const item = typeWords(p.data.items?.type);
+    return {
+      name,
+      type: base === "array" && item ? `array of ${item}` : base,
+      required: required.has(name),
+      description: p.data.description,
+      choices: p.data.enum?.map(asText),
+      fallback: p.data.default === undefined ? undefined : asText(p.data.default),
+    };
+  });
+  return [...params.filter((p) => p.required), ...params.filter((p) => !p.required)];
+}
+
+/** What calling a tool does, as the badges say it. */
+export type ToolEffect = "reads only" | "destructive" | "writes";
+
+const additiveVerbs = ["create", "add", "insert", "post", "send", "register", "submit", "upload", "start", "new"];
+
+/**
+ * Whether a catalog tool reads or writes, worked out the way the server
+ * works it out when the tool is served (internal/tool/annotations.go):
+ * from the operation, then the adapter's own hints over the top. The
+ * connector's tools screen shows the server's answer; this page shows the
+ * same answer before there is a connector to ask about.
+ */
+export function toolEffect(t: Pick<AdapterTool, "name" | "annotations" | "operation">, transport: string): ToolEffect {
+  const op = t.operation ?? {};
+  let readOnly = false;
+  let destructive = false;
+  const additive = t.name.split("_").some((part) => additiveVerbs.includes(part));
+  if (op.kind === "static") {
+    readOnly = true;
+  } else if (transport === "graphql") {
+    if (op.kind === "mutation") destructive = !additive;
+    else readOnly = true;
+  } else if (transport === "database") {
+    const s = (op.statement ?? "").trim().toUpperCase();
+    if (op.kind === "schema" || ["SELECT", "WITH", "{"].some((w) => s.startsWith(w))) readOnly = true;
+    else destructive = true;
+  } else {
+    switch ((op.method ?? "").toUpperCase()) {
+      case "GET":
+      case "HEAD":
+      case "OPTIONS":
+      case "":
+        readOnly = true;
+        break;
+      case "PUT":
+      case "DELETE":
+      case "PATCH":
+        destructive = true;
+        break;
+      case "POST":
+        destructive = !additive;
+        break;
+    }
+  }
+  if (t.annotations?.readOnlyHint !== undefined) readOnly = t.annotations.readOnlyHint;
+  if (t.annotations?.destructiveHint !== undefined) destructive = t.annotations.destructiveHint;
+  if (readOnly) return "reads only";
+  return destructive ? "destructive" : "writes";
+}
+
+/**
+ * How an adapter signs in, in a word or two for a badge. "No credentials
+ * needed" exactly when the catalog's filter of that name lists it: no
+ * credential is required, whatever the auth type says.
+ */
+export function authBadge(auth: { type: string; optional?: boolean }, requiredCredentials: number): string {
+  if (requiredCredentials === 0) return "No credentials needed";
+  const optional = auth.optional ? " (optional)" : "";
+  switch (auth.type) {
+    case "none":
+      return "Credentials needed";
+    case "apiKey":
+      return `API key${optional}`;
+    case "oauth2":
+      return `OAuth 2.0${optional}`;
+    case "oauth1":
+      return `OAuth 1.0${optional}`;
+    case "basic":
+      return `Basic${optional}`;
+    case "bearer":
+      return `Bearer${optional}`;
+    case "query":
+      return `Query string${optional}`;
+    case "login":
+      return `Login${optional}`;
+    case "hmac":
+      return `Signed requests${optional}`;
+    case "database":
+      return `Database user${optional}`;
+    case "wsSecurity":
+      return `WS-Security${optional}`;
+    case "mtls":
+      return `Client certificate${optional}`;
+    default:
+      return `${auth.type}${optional}`;
+  }
+}
+
+/** A transport's name as it is written. */
+export function transportLabel(type: string): string {
+  const names: Record<string, string> = {
+    http: "HTTP",
+    graphql: "GraphQL",
+    database: "Database",
+    soap: "SOAP",
+    mcp: "MCP",
+  };
+  return names[type] ?? type;
+}
+
+/** An adapter's region code as a place: "de" is Germany, "intl" is international. */
+export function regionLabel(code: string): string {
+  if (code === "intl") return "International";
+  try {
+    return new Intl.DisplayNames(["en"], { type: "region" }).of(code.toUpperCase()) ?? code;
+  } catch {
+    return code;
+  }
+}
+
+/** Whether a tool matches what was typed into the filter: its name, its words or a parameter's name. */
+export function toolMatches(t: Pick<AdapterTool, "name" | "description" | "input">, filter: string): boolean {
+  const q = filter.trim().toLowerCase();
+  if (!q) return true;
+  return [t.name, t.description, ...Object.keys(t.input?.properties ?? {})].some((s) => s.toLowerCase().includes(q));
 }
 
 /** The adapter's description of each credential, by name. */

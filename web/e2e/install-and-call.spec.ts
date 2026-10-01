@@ -13,7 +13,7 @@ test("a workspace installs an adapter, exposes it and calls a tool", async ({ pa
   // A keyless adapter, so the install needs no credentials from us.
   await page.getByRole("link", { name: /Deutsche Bundesbank Statistics/ }).click();
   await expect(page.getByRole("heading", { name: "Deutsche Bundesbank Statistics" })).toBeVisible();
-  await expect(page.getByText("bundesbank_get_exchange_rates")).toBeVisible();
+  await expect(page.getByText("bundesbank_get_exchange_rates", { exact: true })).toBeVisible();
   await expectAccessible(page);
 
   await page.getByRole("button", { name: "Install" }).click();
