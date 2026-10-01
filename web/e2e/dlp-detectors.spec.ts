@@ -112,6 +112,9 @@ test("a custom detector is tried, saved, added to a rule, and refuses a call tha
     addRule.getByRole("button", { name: "Add the rule" }).click(),
   ]);
   await expect(addRule).toHaveCount(0);
+  // The toast is waited for, like the two above: a toast not yet drawn
+  // has no animation to wait out, and axe would measure it mid-fade.
+  await expect(page.getByRole("heading", { name: "Rule Contract ids stay inside added", exact: true })).toBeVisible();
   const rule = page.getByRole("listitem").filter({ hasText: "Contract ids stay inside" }).first();
   await expect(rule.getByText(/custom:contract_id/)).toBeVisible();
   await expectAccessible(page);
