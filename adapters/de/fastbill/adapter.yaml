@@ -41,6 +41,8 @@ tools:
         TERM:
           type: string
           description: Search term to filter customers
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /api.php
@@ -71,6 +73,8 @@ tools:
         YEAR:
           type: number
           description: Filter by year
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /api.php
@@ -100,6 +104,8 @@ tools:
         YEAR:
           type: number
           description: Filter by year
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /api.php
@@ -122,6 +128,8 @@ tools:
         OFFSET:
           type: number
           description: Offset for pagination
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /api.php
@@ -140,6 +148,8 @@ tools:
           description: The FastBill invoice ID
       required:
         - INVOICE_ID
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /api.php

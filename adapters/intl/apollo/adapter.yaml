@@ -83,6 +83,8 @@ tools:
         per_page:
           type: integer
           description: Per page (default 25, max 100).
+    annotations:
+      readOnlyHint: false
     operation:
       method: POST
       path: /mixed_people/search
@@ -168,6 +170,8 @@ tools:
         per_page:
           type: integer
           description: Per page.
+    annotations:
+      readOnlyHint: false
     operation:
       method: POST
       path: /mixed_companies/search
@@ -219,6 +223,8 @@ tools:
         per_page:
           type: integer
           description: Per page.
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /contacts/search

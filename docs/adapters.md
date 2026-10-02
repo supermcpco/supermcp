@@ -207,7 +207,7 @@ tools:
 | `description` | What the model reads to decide whether to call it. Fewer than 60 characters is a warning. |
 | `input` | A JSON Schema object. Required. |
 | `output` | A JSON Schema object. When present, the result is also returned as MCP structured content. |
-| `annotations` | `title`, `readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`. Unset hints are derived at runtime from the transport and whether the connector is read-only. |
+| `annotations` | `title`, `readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`. Unset hints are derived at runtime from the transport, the method and whether the connector is read-only: a POST is announced as destructive unless its name carries an additive verb, whatever else the name says, so a read sent over POST needs `readOnlyHint: true`. |
 | `timeout` | Caps this tool. It is used only when it is shorter than the connector's timeout. |
 | `rateLimit`, `proxy` | Per-tool overrides. |
 | `operation` | A union keyed by `transport.type`. See below. |
@@ -449,6 +449,7 @@ fail. Warnings fail only under `--strict`, which is what CI runs.
 | `operation-body-get` | warning | Allowed, because some upstreams require it. |
 | `jmespath-parses` | error | A transform that does not compile turns every successful call into a failure. |
 | `sql-readonly` | warning | A statement that is not a read, on a tool the model has been told is safe, is the one mistake in this format with a blast radius. |
+| `read-name-unhinted` | warning | An HTTP tool named like a read (`get_`, `list_`, `search_`, `find_`, `read_`, `fetch_`, `describe_`) but sent as POST, PUT or PATCH, with neither `readOnlyHint` nor `destructiveHint` set. A name is not taken as proof that a tool only reads, so without a hint clients are told it is destructive. Set `readOnlyHint: true` if it only reads, `false` if it does not. |
 | `icon-https` | warning | |
 
 The output is `file: severity: [rule] message`. `--format json` gives

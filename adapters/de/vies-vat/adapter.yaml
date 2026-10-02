@@ -47,6 +47,8 @@ tools:
       required:
         - countryCode
         - vatNumber
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /check-vat-number

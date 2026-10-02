@@ -38,6 +38,25 @@ func TestDeriveOperationIgnoresHints(t *testing.T) {
 	}
 }
 
+// A name is not proof: a POST named like a search is served as destructive
+// until its definition says it only reads, which is how the catalog's
+// adapters say it.
+func TestPostNamedLikeAReadNeedsAHint(t *testing.T) {
+	t.Parallel()
+	bare := Derive(httpTool("crm_search_contacts", "POST", nil), adapter.TransportHTTP, false)
+	if bare.ReadOnlyHint || !bare.DestructiveHint {
+		t.Errorf("without a hint: readOnly=%v destructive=%v, want false and true", bare.ReadOnlyHint, bare.DestructiveHint)
+	}
+	hinted := Derive(httpTool("crm_search_contacts", "POST", &adapter.Annotations{ReadOnlyHint: ptr(true)}), adapter.TransportHTTP, false)
+	if !hinted.ReadOnlyHint || hinted.DestructiveHint || !hinted.IdempotentHint {
+		t.Errorf("with readOnlyHint: readOnly=%v destructive=%v idempotent=%v, want true, false, true", hinted.ReadOnlyHint, hinted.DestructiveHint, hinted.IdempotentHint)
+	}
+	refused := Derive(httpTool("bot_get_updates", "POST", &adapter.Annotations{ReadOnlyHint: ptr(false)}), adapter.TransportHTTP, false)
+	if refused.ReadOnlyHint || !refused.DestructiveHint {
+		t.Errorf("with readOnlyHint false: readOnly=%v destructive=%v, want false and true", refused.ReadOnlyHint, refused.DestructiveHint)
+	}
+}
+
 func TestDeclassifies(t *testing.T) {
 	t.Parallel()
 	notDestructive := &adapter.Annotations{DestructiveHint: ptr(false)}

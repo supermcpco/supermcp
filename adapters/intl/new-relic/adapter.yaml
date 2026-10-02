@@ -59,6 +59,8 @@ tools:
       required:
         - account_id
         - nrql
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /graphql
@@ -98,6 +100,8 @@ tools:
           description: Entity search query, e.g. "name LIKE 'api%' AND domain = 'APM'".
       required:
         - query_string
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /graphql
@@ -116,6 +120,8 @@ tools:
           description: Entity GUID from entitySearch.
       required:
         - guid
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /graphql
@@ -180,6 +186,8 @@ tools:
           description: Account ID.
       required:
         - account_id
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /graphql

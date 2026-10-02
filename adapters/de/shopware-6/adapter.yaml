@@ -64,6 +64,8 @@ tools:
         associations:
           type: object
           description: Associations to load (e.g. {"manufacturer":{},"cover":{}}).
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /product
@@ -88,6 +90,8 @@ tools:
           description: Associations to load (e.g. {"media":{},"properties":{},"crossSellings":{}}).
       required:
         - productId
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /product/{{params.productId}}
@@ -105,6 +109,8 @@ tools:
         filter:
           type: array
           description: Shopware filter array.
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /category
@@ -125,6 +131,8 @@ tools:
           description: Associations to load.
       required:
         - categoryId
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /category/{{params.categoryId}}
@@ -144,6 +152,8 @@ tools:
           description: 'Max suggestions (default: 10).'
       required:
         - search
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /search-suggest
@@ -161,6 +171,8 @@ tools:
           description: The product UUID.
       required:
         - productId
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /product/{{params.productId}}/cross-selling

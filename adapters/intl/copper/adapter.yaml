@@ -87,6 +87,8 @@ tools:
         tags:
           type: array
           description: Filter by tag names.
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /people/search
@@ -228,6 +230,8 @@ tools:
         assignee_ids:
           type: array
           description: Owner filter.
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /companies/search
@@ -309,6 +313,8 @@ tools:
         assignee_ids:
           type: array
           description: Owner filter.
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /opportunities/search

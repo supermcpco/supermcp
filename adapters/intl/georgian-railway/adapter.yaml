@@ -124,6 +124,8 @@ tools:
         - startStationCode
         - endStationCode
         - departureDateFrom
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /api/ticket-search

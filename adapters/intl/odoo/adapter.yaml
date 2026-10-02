@@ -79,6 +79,8 @@ tools:
           description: Sort expression, e.g. `date_order desc`.
       required:
         - model
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /{{params.model}}/search_read
@@ -110,6 +112,8 @@ tools:
       required:
         - model
         - ids
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /{{params.model}}/read
@@ -132,6 +136,8 @@ tools:
             type: array
       required:
         - model
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /{{params.model}}/search_count
@@ -153,6 +159,8 @@ tools:
             type: string
       required:
         - model
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /{{params.model}}/fields_get
@@ -175,6 +183,8 @@ tools:
           description: Extra Odoo domain, e.g. [["customer_rank",">",0]] for customers only.
           items:
             type: array
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /res.partner/search_read
@@ -210,6 +220,8 @@ tools:
           description: Extra Odoo domain, e.g. [["state","=","sale"]].
           items:
             type: array
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /sale.order/search_read
@@ -244,6 +256,8 @@ tools:
           description: Extra Odoo domain, e.g. [["move_type","=","out_invoice"],["payment_state","!=","paid"]].
           items:
             type: array
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /account.move/search_read
@@ -281,6 +295,8 @@ tools:
           description: Extra Odoo domain, e.g. [["sale_ok","=",true]].
           items:
             type: array
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /product.product/search_read

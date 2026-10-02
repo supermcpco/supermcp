@@ -64,6 +64,8 @@ tools:
           description: BCP 47 language code (e.g. 'EN', 'DE') to filter result language.
       required:
         - query
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /v1/search
@@ -90,6 +92,8 @@ tools:
           description: Max results to return. Default varies; max 100.
       required:
         - query
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /v1/search

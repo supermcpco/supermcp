@@ -74,6 +74,8 @@ tools:
         - from_name
         - to_name
         - departure_date
+    annotations:
+      readOnlyHint: true
     proxy: true
     operation:
       method: POST

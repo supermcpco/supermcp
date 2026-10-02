@@ -439,6 +439,8 @@ tools:
           description: Chat ID.
       required:
         - chat_id
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /getChat
@@ -462,6 +464,8 @@ tools:
         allowed_updates:
           type: array
           description: Update types to receive, e.g. ['message','callback_query']. Omit for all except chat_member.
+    annotations:
+      readOnlyHint: false
     operation:
       method: POST
       path: /getUpdates

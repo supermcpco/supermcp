@@ -78,6 +78,8 @@ tools:
     input:
       type: object
       properties: {}
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /ix/getUserData
@@ -100,6 +102,8 @@ tools:
         max:
           type: number
           description: Hits per page (default 50).
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /ix/findFirstSords
@@ -128,6 +132,8 @@ tools:
           description: Hits per page.
       required:
         - searchId
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /ix/findNextSords
@@ -146,6 +152,8 @@ tools:
           description: Numeric objId or GUID of the Sord.
       required:
         - objId
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /ix/checkoutSord
@@ -169,6 +177,8 @@ tools:
           description: Maximum children to return.
       required:
         - parentId
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /ix/getChildren
@@ -186,6 +196,8 @@ tools:
           description: objId or GUID of the document.
       required:
         - objId
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /ix/getDocumentVersions
@@ -197,6 +209,8 @@ tools:
     input:
       type: object
       properties: {}
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /ix/getMaskNames

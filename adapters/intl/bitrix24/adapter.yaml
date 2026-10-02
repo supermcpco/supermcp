@@ -81,6 +81,8 @@ tools:
         start:
           type: integer
           description: 0-based pagination offset (step 50).
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /crm.deal.list
@@ -101,6 +103,8 @@ tools:
           description: Deal ID.
       required:
         - id
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /crm.deal.get
@@ -168,6 +172,8 @@ tools:
         start:
           type: integer
           description: Offset (step 50).
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /crm.contact.list
@@ -209,6 +215,8 @@ tools:
         start:
           type: integer
           description: Offset.
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /crm.company.list
@@ -249,6 +257,8 @@ tools:
         ORDER:
           type: string
           description: ASC or DESC.
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /user.get

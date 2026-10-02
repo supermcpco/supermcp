@@ -53,6 +53,8 @@ tools:
     input:
       type: object
       properties: {}
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /api_jsonrpc.php
@@ -78,6 +80,8 @@ tools:
         search_name:
           type: string
           description: Name fragment to search for (wildcard match).
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /api_jsonrpc.php
@@ -115,6 +119,8 @@ tools:
         limit:
           type: number
           description: Maximum groups to return.
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /api_jsonrpc.php
@@ -155,6 +161,8 @@ tools:
         recent:
           type: boolean
           description: When true, also include recently resolved problems.
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /api_jsonrpc.php
@@ -199,6 +207,8 @@ tools:
           description: Restrict to these host ids.
           items:
             type: string
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /api_jsonrpc.php
@@ -235,6 +245,8 @@ tools:
         only_true:
           type: boolean
           description: When true, only triggers currently in a problem state.
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /api_jsonrpc.php
@@ -275,6 +287,8 @@ tools:
         search_key:
           type: string
           description: Item key fragment to search for, e.g. vfs.fs.size.
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /api_jsonrpc.php
@@ -317,6 +331,8 @@ tools:
         limit:
           type: number
           description: Maximum items to return.
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /api_jsonrpc.php
@@ -365,6 +381,8 @@ tools:
       required:
         - itemids
         - history
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /api_jsonrpc.php
@@ -390,6 +408,8 @@ tools:
         limit:
           type: number
           description: Maximum maintenance windows to return.
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /api_jsonrpc.php

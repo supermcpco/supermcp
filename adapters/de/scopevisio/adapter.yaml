@@ -39,6 +39,8 @@ tools:
         search:
           type: string
           description: Full-text search across contact fields
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /contacts/list
@@ -71,6 +73,8 @@ tools:
         page:
           type: number
           description: 'Page number (default: 0)'
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /outgoinginvoice/list
@@ -89,6 +93,8 @@ tools:
         page:
           type: number
           description: 'Page number (default: 0)'
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /incominginvoice/list
@@ -107,6 +113,8 @@ tools:
         page:
           type: number
           description: 'Page number (default: 0)'
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /project/list
@@ -125,6 +133,8 @@ tools:
         page:
           type: number
           description: 'Page number (default: 0)'
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /task/list

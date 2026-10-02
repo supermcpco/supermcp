@@ -71,6 +71,8 @@ tools:
         pageNumber:
           type: integer
           description: 1-based page.
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /customers/search
@@ -159,6 +161,8 @@ tools:
         pageNumber:
           type: integer
           description: Page.
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /conversations/search
