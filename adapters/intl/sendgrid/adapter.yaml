@@ -367,6 +367,8 @@ tools:
           description: SGQL query string. See https://docs.sendgrid.com/api-reference/contacts/search-contacts for grammar.
       required:
         - query
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /v3/marketing/contacts/search

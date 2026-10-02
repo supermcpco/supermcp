@@ -1,5 +1,5 @@
 {
-  "catalogHash": "28098a298040fc6e",
+  "catalogHash": "80897a643be27313",
   "count": 255,
   "adapters": [
     {
@@ -14,7 +14,10 @@
       "auth": "oauth2",
       "keyless": false,
       "toolCount": 10,
-      "contentHash": "a32f42844bba",
+      "contentHash": "083146d42a09",
+      "previousHashes": [
+        "a32f42844bba"
+      ],
       "dir": "be/teamleader"
     },
     {
@@ -44,7 +47,10 @@
       "auth": "bearer",
       "keyless": false,
       "toolCount": 12,
-      "contentHash": "ec2daf0e28d1",
+      "contentHash": "def2a065b15e",
+      "previousHashes": [
+        "ec2daf0e28d1"
+      ],
       "dir": "ch/bexio"
     },
     {
@@ -89,7 +95,10 @@
       "auth": "basic",
       "keyless": false,
       "toolCount": 6,
-      "contentHash": "8df6bf3bfef2",
+      "contentHash": "d61b1121d376",
+      "previousHashes": [
+        "8df6bf3bfef2"
+      ],
       "dir": "de/buchhaltungsbutler"
     },
     {
@@ -209,7 +218,10 @@
       "auth": "apiKey",
       "keyless": false,
       "toolCount": 5,
-      "contentHash": "e79d2083f87d",
+      "contentHash": "0d85ec6beae3",
+      "previousHashes": [
+        "e79d2083f87d"
+      ],
       "dir": "de/destatis-genesis"
     },
     {
@@ -330,7 +342,10 @@
       "auth": "login",
       "keyless": false,
       "toolCount": 7,
-      "contentHash": "a35d3068fb9c",
+      "contentHash": "6fcfa04f9323",
+      "previousHashes": [
+        "a35d3068fb9c"
+      ],
       "dir": "de/elo"
     },
     {
@@ -345,7 +360,10 @@
       "auth": "basic",
       "keyless": false,
       "toolCount": 5,
-      "contentHash": "8e8b8f3b7f18",
+      "contentHash": "7114c9b106c2",
+      "previousHashes": [
+        "8e8b8f3b7f18"
+      ],
       "dir": "de/fastbill"
     },
     {
@@ -630,7 +648,10 @@
       "auth": "query",
       "keyless": false,
       "toolCount": 10,
-      "contentHash": "8321741bb5dc",
+      "contentHash": "346e0c8edad1",
+      "previousHashes": [
+        "8321741bb5dc"
+      ],
       "dir": "de/oxomi"
     },
     {
@@ -765,7 +786,10 @@
       "auth": "bearer",
       "keyless": false,
       "toolCount": 6,
-      "contentHash": "d7d4d847686c",
+      "contentHash": "b416c23cfdef",
+      "previousHashes": [
+        "d7d4d847686c"
+      ],
       "dir": "de/scopevisio"
     },
     {
@@ -825,7 +849,10 @@
       "auth": "apiKey",
       "keyless": false,
       "toolCount": 6,
-      "contentHash": "e03c4ca610b6",
+      "contentHash": "760667adae34",
+      "previousHashes": [
+        "e03c4ca610b6"
+      ],
       "dir": "de/shopware-6"
     },
     {
@@ -870,7 +897,10 @@
       "auth": "none",
       "keyless": true,
       "toolCount": 1,
-      "contentHash": "94b556227df8",
+      "contentHash": "23dfc9229efa",
+      "previousHashes": [
+        "94b556227df8"
+      ],
       "dir": "de/vies-vat"
     },
     {
@@ -1050,7 +1080,10 @@
       "auth": "oauth2",
       "keyless": false,
       "toolCount": 10,
-      "contentHash": "b2a3d349838c",
+      "contentHash": "09e81cd93437",
+      "previousHashes": [
+        "b2a3d349838c"
+      ],
       "dir": "fr/sellsy"
     },
     {
@@ -1140,7 +1173,10 @@
       "auth": "apiKey",
       "keyless": false,
       "toolCount": 10,
-      "contentHash": "5a898a425e0e",
+      "contentHash": "badcfe843a7f",
+      "previousHashes": [
+        "5a898a425e0e"
+      ],
       "dir": "intl/adyen"
     },
     {
@@ -1185,7 +1221,10 @@
       "auth": "bearer",
       "keyless": false,
       "toolCount": 8,
-      "contentHash": "9a17fd6da7f6",
+      "contentHash": "cb887a1946a9",
+      "previousHashes": [
+        "9a17fd6da7f6"
+      ],
       "dir": "intl/amadeus"
     },
     {
@@ -1200,7 +1239,10 @@
       "auth": "oauth2",
       "keyless": false,
       "toolCount": 15,
-      "contentHash": "2dd4e36b4ca7",
+      "contentHash": "c3a31476cb1b",
+      "previousHashes": [
+        "2dd4e36b4ca7"
+      ],
       "dir": "intl/amazon-seller"
     },
     {
@@ -1230,7 +1272,11 @@
       "auth": "apiKey",
       "keyless": false,
       "toolCount": 11,
-      "contentHash": "82e6a220408f",
+      "contentHash": "30c65a2caa11",
+      "previousHashes": [
+        "82e6a220408f",
+        "fb9561190329"
+      ],
       "dir": "intl/apollo"
     },
     {
@@ -1320,7 +1366,10 @@
       "auth": "none",
       "keyless": false,
       "toolCount": 10,
-      "contentHash": "656176856580",
+      "contentHash": "bd1ce98f46a1",
+      "previousHashes": [
+        "656176856580"
+      ],
       "dir": "intl/bitrix24"
     },
     {
@@ -1470,7 +1519,10 @@
       "auth": "apiKey",
       "keyless": false,
       "toolCount": 18,
-      "contentHash": "8bf683eb9a00",
+      "contentHash": "2e0085c43eac",
+      "previousHashes": [
+        "8bf683eb9a00"
+      ],
       "dir": "intl/clockify"
     },
     {
@@ -1545,7 +1597,10 @@
       "auth": "apiKey",
       "keyless": false,
       "toolCount": 12,
-      "contentHash": "e2be53018aa7",
+      "contentHash": "8a6072ea8dcf",
+      "previousHashes": [
+        "e2be53018aa7"
+      ],
       "dir": "intl/copper"
     },
     {
@@ -1575,7 +1630,10 @@
       "auth": "apiKey",
       "keyless": false,
       "toolCount": 8,
-      "contentHash": "f83780e85946",
+      "contentHash": "6977466498a2",
+      "previousHashes": [
+        "f83780e85946"
+      ],
       "dir": "intl/datadog"
     },
     {
@@ -1590,7 +1648,10 @@
       "auth": "apiKey",
       "keyless": true,
       "toolCount": 16,
-      "contentHash": "fe9d31877982",
+      "contentHash": "aab49e49e49a",
+      "previousHashes": [
+        "fe9d31877982"
+      ],
       "dir": "intl/dchub"
     },
     {
@@ -1650,7 +1711,10 @@
       "auth": "oauth2",
       "keyless": false,
       "toolCount": 10,
-      "contentHash": "7ba9af69ef8a",
+      "contentHash": "0868044b282d",
+      "previousHashes": [
+        "7ba9af69ef8a"
+      ],
       "dir": "intl/dropbox"
     },
     {
@@ -1905,7 +1969,10 @@
       "auth": "none",
       "keyless": true,
       "toolCount": 3,
-      "contentHash": "3e5bf99981ed",
+      "contentHash": "0635ff7dac1d",
+      "previousHashes": [
+        "3e5bf99981ed"
+      ],
       "dir": "intl/georgian-railway"
     },
     {
@@ -1983,7 +2050,10 @@
       "auth": "oauth2",
       "keyless": false,
       "toolCount": 8,
-      "contentHash": "ae6cd4fff8a5",
+      "contentHash": "80047f33ca74",
+      "previousHashes": [
+        "ae6cd4fff8a5"
+      ],
       "dir": "intl/google-analytics-4"
     },
     {
@@ -2133,7 +2203,10 @@
       "auth": "none",
       "keyless": true,
       "toolCount": 4,
-      "contentHash": "ad0adf5dea87",
+      "contentHash": "9bea914ce3ea",
+      "previousHashes": [
+        "ad0adf5dea87"
+      ],
       "priority": 75,
       "selfHostOnly": true,
       "dir": "intl/idealista"
@@ -2240,7 +2313,10 @@
       "auth": "bearer",
       "keyless": false,
       "toolCount": 10,
-      "contentHash": "194532b212c5",
+      "contentHash": "6c873080e4e5",
+      "previousHashes": [
+        "194532b212c5"
+      ],
       "dir": "intl/kustomer"
     },
     {
@@ -2285,7 +2361,10 @@
       "auth": "none",
       "keyless": false,
       "toolCount": 8,
-      "contentHash": "958347af47de",
+      "contentHash": "cc15f5da2440",
+      "previousHashes": [
+        "958347af47de"
+      ],
       "dir": "intl/less-annoying-crm"
     },
     {
@@ -2390,7 +2469,10 @@
       "auth": "basic",
       "keyless": false,
       "toolCount": 8,
-      "contentHash": "17c406780ccb",
+      "contentHash": "252afa9ebb30",
+      "previousHashes": [
+        "17c406780ccb"
+      ],
       "dir": "intl/mailshake"
     },
     {
@@ -2615,7 +2697,10 @@
       "auth": "apiKey",
       "keyless": false,
       "toolCount": 7,
-      "contentHash": "1a56236b4963",
+      "contentHash": "f2c688175dfb",
+      "previousHashes": [
+        "1a56236b4963"
+      ],
       "dir": "intl/new-relic"
     },
     {
@@ -2720,7 +2805,10 @@
       "auth": "bearer",
       "keyless": false,
       "toolCount": 11,
-      "contentHash": "090fa80df1dc",
+      "contentHash": "0490e396f146",
+      "previousHashes": [
+        "090fa80df1dc"
+      ],
       "dir": "intl/odoo"
     },
     {
@@ -2750,7 +2838,10 @@
       "auth": "none",
       "keyless": true,
       "toolCount": 4,
-      "contentHash": "32f37d9d7d46",
+      "contentHash": "208feb82747d",
+      "previousHashes": [
+        "32f37d9d7d46"
+      ],
       "priority": 85,
       "featured": true,
       "selfHostOnly": true,
@@ -2858,7 +2949,11 @@
       "auth": "none",
       "keyless": false,
       "toolCount": 10,
-      "contentHash": "f8af232895b4",
+      "contentHash": "c65f6b97a88d",
+      "previousHashes": [
+        "f8af232895b4",
+        "b093bbdd9f42"
+      ],
       "dir": "intl/plaid"
     },
     {
@@ -2998,7 +3093,10 @@
       "auth": "none",
       "keyless": true,
       "toolCount": 6,
-      "contentHash": "40e55c9952e8",
+      "contentHash": "8c3e4a17e416",
+      "previousHashes": [
+        "40e55c9952e8"
+      ],
       "priority": 84,
       "featured": true,
       "dir": "intl/resy"
@@ -3105,7 +3203,10 @@
       "auth": "bearer",
       "keyless": false,
       "toolCount": 14,
-      "contentHash": "2c664155d27b",
+      "contentHash": "c1911e7dee03",
+      "previousHashes": [
+        "2c664155d27b"
+      ],
       "dir": "intl/sendgrid"
     },
     {
@@ -3165,7 +3266,10 @@
       "auth": "bearer",
       "keyless": false,
       "toolCount": 9,
-      "contentHash": "d03443c372ca",
+      "contentHash": "83e01dcf0602",
+      "previousHashes": [
+        "d03443c372ca"
+      ],
       "dir": "intl/snov"
     },
     {
@@ -3180,7 +3284,10 @@
       "auth": "apiKey",
       "keyless": false,
       "toolCount": 10,
-      "contentHash": "fd73021d4133",
+      "contentHash": "4e677bdc551d",
+      "previousHashes": [
+        "fd73021d4133"
+      ],
       "dir": "intl/statsig"
     },
     {
@@ -3285,7 +3392,10 @@
       "auth": "none",
       "keyless": false,
       "toolCount": 13,
-      "contentHash": "e89935dce644",
+      "contentHash": "2e2c35c6adc9",
+      "previousHashes": [
+        "e89935dce644"
+      ],
       "dir": "intl/telegram-bot"
     },
     {
@@ -3390,7 +3500,10 @@
       "auth": "none",
       "keyless": true,
       "toolCount": 3,
-      "contentHash": "09e07e11a559",
+      "contentHash": "4af9ae352e87",
+      "previousHashes": [
+        "09e07e11a559"
+      ],
       "priority": 78,
       "featured": true,
       "selfHostOnly": true,
@@ -3439,7 +3552,10 @@
       "auth": "query",
       "keyless": false,
       "toolCount": 8,
-      "contentHash": "59757cdd9023",
+      "contentHash": "ff5456777370",
+      "previousHashes": [
+        "59757cdd9023"
+      ],
       "dir": "intl/uptime-robot"
     },
     {
@@ -3594,7 +3710,10 @@
       "auth": "apiKey",
       "keyless": false,
       "toolCount": 2,
-      "contentHash": "8fbbe68d9897",
+      "contentHash": "d793aed92347",
+      "previousHashes": [
+        "8fbbe68d9897"
+      ],
       "dir": "intl/youcom"
     },
     {
@@ -3639,7 +3758,10 @@
       "auth": "bearer",
       "keyless": false,
       "toolCount": 10,
-      "contentHash": "6ce1c43d224b",
+      "contentHash": "c2b29747310d",
+      "previousHashes": [
+        "6ce1c43d224b"
+      ],
       "dir": "intl/zabbix"
     },
     {

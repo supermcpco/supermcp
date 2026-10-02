@@ -58,6 +58,8 @@ tools:
     input:
       type: object
       properties: {}
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /users/get_current_account
@@ -82,6 +84,8 @@ tools:
           description: Include deleted entries.
       required:
         - path
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /files/list_folder
@@ -101,6 +105,8 @@ tools:
           description: Cursor from previous response.
       required:
         - cursor
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /files/list_folder/continue
@@ -120,6 +126,8 @@ tools:
           description: Include if deleted.
       required:
         - path
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /files/get_metadata
@@ -149,6 +157,8 @@ tools:
           description: 'Array: image, document, pdf, spreadsheet, presentation, audio, video, folder, ...'
       required:
         - query
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /files/search_v2

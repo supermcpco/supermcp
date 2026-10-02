@@ -88,6 +88,8 @@ tools:
       required:
         - field
         - value
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /2.0/contact/search

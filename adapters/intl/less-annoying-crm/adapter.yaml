@@ -58,6 +58,8 @@ tools:
           description: 1-based page.
       required:
         - search_term
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /
@@ -80,6 +82,8 @@ tools:
           description: Contact ID.
       required:
         - contact_id
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /
@@ -250,6 +254,8 @@ tools:
         num_rows:
           type: integer
           description: Max rows (default 25).
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /
@@ -268,6 +274,8 @@ tools:
     input:
       type: object
       properties: {}
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /

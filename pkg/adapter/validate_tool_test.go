@@ -40,6 +40,33 @@ func TestValidateTool(t *testing.T) {
 			},
 		},
 		{
+			name:      "a search over POST with no hint",
+			transport: adapter.TransportHTTP,
+			tool: func(t *testing.T) *adapter.Tool {
+				return &adapter.Tool{Name: "search_invoices", Description: longDescription, Input: mustNode(t, obj),
+					Operation: adapter.Operation{Method: "POST", Path: "/invoices/search"}}
+			},
+			want: []want{{"read-name-unhinted", "annotations"}},
+		},
+		{
+			name:      "a search over POST that says it only reads",
+			transport: adapter.TransportHTTP,
+			tool: func(t *testing.T) *adapter.Tool {
+				yes := true
+				return &adapter.Tool{Name: "search_invoices", Description: longDescription, Input: mustNode(t, obj),
+					Annotations: &adapter.Annotations{ReadOnlyHint: &yes},
+					Operation:   adapter.Operation{Method: "POST", Path: "/invoices/search"}}
+			},
+		},
+		{
+			name:      "a POST that is not named like a read",
+			transport: adapter.TransportHTTP,
+			tool: func(t *testing.T) *adapter.Tool {
+				return &adapter.Tool{Name: "create_invoice", Description: longDescription, Input: mustNode(t, obj),
+					Operation: adapter.Operation{Method: "POST", Path: "/invoices"}}
+			},
+		},
+		{
 			name:      "bad name, short description, no input",
 			transport: adapter.TransportHTTP,
 			tool: func(t *testing.T) *adapter.Tool {

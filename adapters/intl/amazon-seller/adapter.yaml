@@ -297,6 +297,8 @@ tools:
         - asin
         - price
         - currencyCode
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /products/fees/v0/items/{{params.asin}}/feesEstimate

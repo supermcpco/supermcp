@@ -61,6 +61,8 @@ tools:
         language:
           type: string
           description: 'Language for status messages: ''de'' for German or ''en'' for English. Default: ''de'''
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /helloworld/logincheck
@@ -86,6 +88,8 @@ tools:
           description: 'Language: ''de'' for German or ''en'' for English. Default: ''de'''
       required:
         - searchterm
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /find/find
@@ -116,6 +120,8 @@ tools:
           description: 'Language: ''de'' or ''en''. Default: ''de'''
       required:
         - name
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /data/table
@@ -141,6 +147,8 @@ tools:
           description: 'Language: ''de'' or ''en''. Default: ''de'''
       required:
         - name
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /metadata/table
@@ -162,6 +170,8 @@ tools:
         language:
           type: string
           description: 'Language: ''de'' or ''en''. Default: ''de'''
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /catalogue/statistics

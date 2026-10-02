@@ -809,7 +809,7 @@ stop a save; warnings come back with the saved tool.
 | `operation-host` | error | On an HTTP or SOAP connector, an `operation.path` that is an absolute URL, or that starts with a placeholder filtered `raw`, points at a host that is neither the base URL's host, a host the connector's other tools already use, nor the host this tool had before. It would send the connector's credential somewhere new. |
 | `jmespath-parses` | error | The response transform does not compile. |
 | `transform-length` | error | The response transform is longer than 4000 characters. |
-| `description-min-60`, `operation-body-get`, `sql-readonly` | warning | As in an adapter. |
+| `description-min-60`, `operation-body-get`, `sql-readonly`, `read-name-unhinted` | warning | As in an adapter. |
 | `env-unknown` | warning | An `{{env.X}}` that is not a credential of this connector. It renders empty until one is set. |
 | `tool-name-shared-server` | warning | Another connector on the same MCP server has a tool of this name. A server serves the first and drops the rest. |
 | `preview-unsupported` | warning | The connector is SOAP or an MCP bridge, which have no preview. |

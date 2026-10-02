@@ -60,6 +60,8 @@ tools:
       required:
         - latitude
         - longitude
+    annotations:
+      readOnlyHint: true
     proxy: true
     operation:
       method: POST

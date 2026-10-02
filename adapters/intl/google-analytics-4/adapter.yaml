@@ -216,6 +216,8 @@ tools:
         - dimensions
         - metrics
         - dateRanges
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: https://analyticsdata.googleapis.com/v1beta/properties/{{params.property_id}}:runReport
@@ -264,6 +266,8 @@ tools:
       required:
         - property_id
         - metrics
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: https://analyticsdata.googleapis.com/v1beta/properties/{{params.property_id}}:runRealtimeReport
@@ -315,6 +319,8 @@ tools:
         - property_id
         - dateRanges
         - funnel
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: https://analyticsdata.googleapis.com/v1alpha/properties/{{params.property_id}}:runFunnelReport

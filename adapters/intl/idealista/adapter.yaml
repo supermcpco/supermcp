@@ -77,6 +77,8 @@ tools:
           default: 1
       required:
         - locale
+    annotations:
+      readOnlyHint: true
     proxy: true
     operation:
       method: POST
@@ -174,6 +176,8 @@ tools:
         - south
         - east
         - west
+    annotations:
+      readOnlyHint: true
     proxy: true
     operation:
       method: POST

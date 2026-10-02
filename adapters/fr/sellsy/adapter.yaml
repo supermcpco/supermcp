@@ -92,6 +92,8 @@ tools:
           description: Offset token from the previous page.
       required:
         - filters
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /companies/search
@@ -185,6 +187,8 @@ tools:
           description: Offset token from the previous page.
       required:
         - filters
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /invoices/search

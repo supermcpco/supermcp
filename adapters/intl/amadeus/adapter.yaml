@@ -131,6 +131,8 @@ tools:
           description: '{type:''flight-offers-pricing'', flightOffers:[...]} — wrap the flight offer(s) from search.'
       required:
         - data
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /v1/shopping/flight-offers/pricing

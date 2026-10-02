@@ -63,6 +63,8 @@ tools:
         search:
           type: string
           description: Name substring filter.
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /campaigns/list
@@ -81,6 +83,8 @@ tools:
           description: Campaign ID.
       required:
         - id
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /campaigns/get
@@ -164,6 +168,8 @@ tools:
         search:
           type: string
           description: Substring filter.
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /recipients/list

@@ -98,6 +98,8 @@ tools:
           description: '''timestamp'' (asc) or ''-timestamp'' (desc).'
       required:
         - query
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /api/v2/logs/events/search

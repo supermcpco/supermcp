@@ -86,6 +86,8 @@ tools:
           description: Shopper unique ID — required for showing stored payment methods.
       required:
         - merchantAccount
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /paymentMethods

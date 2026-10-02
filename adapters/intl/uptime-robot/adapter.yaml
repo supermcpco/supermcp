@@ -61,6 +61,8 @@ tools:
     input:
       type: object
       properties: {}
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /getAccountDetails
@@ -93,6 +95,8 @@ tools:
         limit:
           type: integer
           description: Page size (max 50).
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /getMonitors
@@ -222,6 +226,8 @@ tools:
         limit:
           type: integer
           description: Page size.
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /getAlertContacts
@@ -239,6 +245,8 @@ tools:
         mwindows:
           type: string
           description: 'Comma-separated maintenance window IDs (default: all).'
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /getMWindows
@@ -254,6 +262,8 @@ tools:
         psps:
           type: string
           description: 'Comma-separated PSP IDs (default: all).'
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /getPSPs

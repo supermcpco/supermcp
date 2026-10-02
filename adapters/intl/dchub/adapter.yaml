@@ -315,6 +315,8 @@ tools:
           description: Optional target load in MW, carried into the handoff object.
       required:
         - geometry
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /api/v1/analyze-parcel
@@ -350,6 +352,8 @@ tools:
       required:
         - candidates
         - objectives
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /api/v1/rank-sites

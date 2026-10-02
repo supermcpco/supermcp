@@ -50,6 +50,8 @@ tools:
     input:
       type: object
       properties: {}
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /get-balance

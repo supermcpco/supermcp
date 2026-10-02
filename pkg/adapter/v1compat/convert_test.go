@@ -90,3 +90,82 @@ func generalise(msg string) string {
 	}
 	return msg
 }
+
+// TestReadHints checks what the converter says about tools sent with a
+// writing method: a read gets readOnlyHint true, a tool named like a read
+// that is known to write gets false, and everything else is left to the
+// server's derivation.
+func TestReadHints(t *testing.T) {
+	results, err := ConvertAll(loadCorpus(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tools := map[string]*adapter.Tool{}
+	for _, r := range results {
+		for i := range r.Adapter.Tools {
+			tools[r.Adapter.Tools[i].Name] = &r.Adapter.Tools[i]
+		}
+	}
+	hint := func(name string) string {
+		tl, ok := tools[name]
+		switch {
+		case !ok:
+			t.Fatalf("no tool %s in the corpus", name)
+		case tl.Annotations == nil || tl.Annotations.ReadOnlyHint == nil:
+			return "none"
+		case *tl.Annotations.ReadOnlyHint:
+			return "true"
+		}
+		return "false"
+	}
+	for name, want := range map[string]string{
+		"teamleader_list_companies":  "true",  // POST that reads
+		"plaid_item_get":             "true",  // POST that reads, not named like one
+		"opentable_autocomplete":     "true",  // PUT that reads
+		"telegram_bot_get_updates":   "false", // named like a read, drops what it read
+		"apollo_search_people":       "false", // named like a read, costs credits
+		"paystack_create_refund":     "none",  // POST that writes
+		"freshdesk_delete_ticket":    "none",  // DELETE
+		"hackernews_get_item":        "none",  // GET needs no hint
+		"slab_search_posts":          "none",  // GraphQL query
+		"freshservice_update_ticket": "none",  // PUT that writes
+	} {
+		if got := hint(name); got != want {
+			t.Errorf("%s: readOnlyHint %s, want %s", name, got, want)
+		}
+	}
+	// Every hint comes from the table, none from a name alone.
+	for name, tl := range tools {
+		if _, listed := readOnlyTools[name]; !listed && tl.Annotations != nil {
+			t.Errorf("%s has annotations but is not in readOnlyTools", name)
+		}
+	}
+	// A listed tool that is gone, or no longer sent with a writing method,
+	// is a stale entry.
+	for name := range readOnlyTools {
+		tl, ok := tools[name]
+		if !ok {
+			t.Errorf("readOnlyTools lists %s, which is not in the corpus", name)
+			continue
+		}
+		switch tl.Operation.Method {
+		case "POST", "PUT", "PATCH":
+		default:
+			t.Errorf("readOnlyTools lists %s, which is sent as %q", name, tl.Operation.Method)
+		}
+	}
+}
+
+// TestReadNamedToolMustBeListed checks that a tool named like a read and
+// sent as POST stops the conversion rather than being published as a read
+// on the strength of its name.
+func TestReadNamedToolMustBeListed(t *testing.T) {
+	c := &converter{slug: "acme"}
+	tl := adapter.Tool{Name: "acme_get_or_create_contact", Operation: adapter.Operation{Method: "POST"}}
+	if got := c.readHint(&tl); got != nil {
+		t.Errorf("unlisted tool got a hint: %+v", got)
+	}
+	if len(c.findings) != 1 || c.findings[0].Level != Blocker {
+		t.Errorf("findings = %+v, want one blocker", c.findings)
+	}
+}

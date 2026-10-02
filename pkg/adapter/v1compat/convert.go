@@ -728,7 +728,182 @@ func (c *converter) convertTool(t v1.Tool, tn *yaml.Node, transport adapter.Tran
 	if resp.Transform != nil || resp.Cache != 0 || len(resp.ExposeHeaders) > 0 {
 		out.Response = &resp
 	}
+	out.Annotations = c.readHint(&out)
 	return out
+}
+
+// readOnlyTools decides, tool by tool, whether a tool sent with a writing
+// method only reads: true for a read, as many APIs search over POST, false
+// for a tool named like a read that changes something upstream, spends
+// money or uses up something. Each entry was decided from the tool's
+// description, its operation and the vendor's reference. A name proposes
+// an entry and never stands in for one: a new tool named like a read stops
+// the conversion until it is listed here.
+var readOnlyTools = map[string]bool{
+	"adyen_payment_methods":                true,
+	"amadeus_flight_offer_price":           true,
+	"amazon_get_fees_estimate":             true,
+	"apollo_search_contacts":               true,
+	"bexio_search_contacts":                true,
+	"bitrix24_get_deal":                    true,
+	"bitrix24_list_companies":              true,
+	"bitrix24_list_contacts":               true,
+	"bitrix24_list_deals":                  true,
+	"bitrix24_list_users":                  true,
+	"buchhaltungsbutler_list_accounts":     true,
+	"buchhaltungsbutler_list_customers":    true,
+	"buchhaltungsbutler_list_postings":     true,
+	"buchhaltungsbutler_list_receipts":     true,
+	"buchhaltungsbutler_list_suppliers":    true,
+	"buchhaltungsbutler_list_transactions": true,
+	"clockify_detailed_report":             true,
+	"clockify_summary_report":              true,
+	"copper_search_companies":              true,
+	"copper_search_opportunities":          true,
+	"copper_search_people":                 true,
+	"datadog_search_logs":                  true,
+	"dchub_analyze_parcel":                 true,
+	"dchub_rank_sites":                     true,
+	"destatis_get_table":                   true,
+	"destatis_get_table_metadata":          true,
+	"destatis_list_statistics":             true,
+	"destatis_login_check":                 true,
+	"destatis_search_tables":               true,
+	"dropbox_get_current_account":          true,
+	"dropbox_get_metadata":                 true,
+	"dropbox_list_folder":                  true,
+	"dropbox_list_folder_continue":         true,
+	"dropbox_search":                       true,
+	"elo_find_first":                       true,
+	"elo_find_next":                        true,
+	"elo_get_document_versions":            true,
+	"elo_get_session_info":                 true,
+	"elo_get_sord":                         true,
+	"elo_list_children":                    true,
+	"elo_list_keywording_forms":            true,
+	"fastbill_get_invoice":                 true,
+	"fastbill_list_customers":              true,
+	"fastbill_list_expenses":               true,
+	"fastbill_list_invoices":               true,
+	"fastbill_list_revenues":               true,
+	"ga4_run_funnel_report":                true,
+	"ga4_run_realtime_report":              true,
+	"ga4_run_report":                       true,
+	"gr_search_trains":                     true,
+	"idealista_map_search":                 true,
+	"idealista_search":                     true,
+	"kustomer_search_conversations":        true,
+	"kustomer_search_customers":            true,
+	"lacrm_get_contact":                    true,
+	"lacrm_get_custom_fields":              true,
+	"lacrm_get_pipeline_report":            true,
+	"lacrm_search_contacts":                true,
+	"mailshake_get_campaign":               true,
+	"mailshake_list_campaigns":             true,
+	"mailshake_list_recipients":            true,
+	"new_relic_get_entity":                 true,
+	"new_relic_recent_incidents":           true,
+	"new_relic_run_nrql":                   true,
+	"new_relic_search_entities":            true,
+	"odoo_fields_get":                      true,
+	"odoo_list_invoices":                   true,
+	"odoo_list_partners":                   true,
+	"odoo_list_products":                   true,
+	"odoo_list_sale_orders":                true,
+	"odoo_read":                            true,
+	"odoo_search_count":                    true,
+	"odoo_search_read":                     true,
+	"opentable_autocomplete":               true,
+	"opentable_check_availability":         true,
+	"opentable_search_restaurants":         true,
+	"oxomi_get_product_data":               true,
+	"oxomi_product_availability":           true,
+	"oxomi_render_datasheet":               true,
+	"oxomi_search_products":                true,
+	"plaid_accounts_get":                   true,
+	"plaid_institutions_search":            true,
+	"plaid_item_get":                       true,
+	"resy_search_venues":                   true,
+	"scopevisio_list_contacts":             true,
+	"scopevisio_list_incoming_invoices":    true,
+	"scopevisio_list_outgoing_invoices":    true,
+	"scopevisio_list_projects":             true,
+	"scopevisio_list_tasks":                true,
+	"sellsy_search_companies":              true,
+	"sellsy_search_invoices":               true,
+	"sendgrid_search_marketing_contacts":   true,
+	"shopware_get_category":                true,
+	"shopware_get_cross_sells":             true,
+	"shopware_get_product":                 true,
+	"shopware_search_categories":           true,
+	"shopware_search_products":             true,
+	"shopware_search_suggest":              true,
+	"snov_balance":                         true,
+	"teamleader_get_company":               true,
+	"teamleader_get_deal":                  true,
+	"teamleader_get_me":                    true,
+	"teamleader_list_companies":            true,
+	"teamleader_list_contacts":             true,
+	"teamleader_list_deals":                true,
+	"teamleader_list_invoices":             true,
+	"teamleader_list_projects":             true,
+	"teamleader_list_quotations":           true,
+	"teamleader_list_time_tracking":        true,
+	"telegram_bot_get_chat":                true,
+	"trenitalia_search_trips":              true,
+	"uptimerobot_get_account_details":      true,
+	"uptimerobot_get_alert_contacts":       true,
+	"uptimerobot_get_monitors":             true,
+	"uptimerobot_get_mwindows":             true,
+	"uptimerobot_get_psps":                 true,
+	"vies_check_vat":                       true,
+	"youcom_news":                          true,
+	"youcom_search":                        true,
+	"zabbix_get_api_version":               true,
+	"zabbix_get_history":                   true,
+	"zabbix_get_latest_values":             true,
+	"zabbix_list_events":                   true,
+	"zabbix_list_host_groups":              true,
+	"zabbix_list_hosts":                    true,
+	"zabbix_list_items":                    true,
+	"zabbix_list_maintenance_windows":      true,
+	"zabbix_list_problems":                 true,
+	"zabbix_list_triggers":                 true,
+
+	// A search result costs API credits.
+	"apollo_search_organizations": false,
+	"apollo_search_people":        false,
+	// Calling a product an Item was not set up with adds it to the Item,
+	// and its billing with it.
+	"plaid_auth_get":          false,
+	"plaid_identity_get":      false,
+	"plaid_transactions_get":  false,
+	"plaid_transactions_sync": false,
+	// Evaluating a config or an experiment records an exposure.
+	"statsig_get_config":     false,
+	"statsig_get_experiment": false,
+	// Reading updates with an offset confirms and drops the earlier ones.
+	"telegram_bot_get_updates": false,
+}
+
+// readHint writes the hint for an HTTP tool sent with a writing method.
+// The server never takes a name as proof that a tool reads (internal/tool),
+// so the catalog has to say it, and it says it from readOnlyTools alone. A
+// tool listed as false is left served as its method implies.
+func (c *converter) readHint(t *adapter.Tool) *adapter.Annotations {
+	switch t.Operation.Method {
+	case "POST", "PUT", "PATCH":
+	default:
+		return nil
+	}
+	reads, listed := readOnlyTools[t.Name]
+	if !listed {
+		if adapter.ReadShapedName(t.Name, c.slug) {
+			c.add(Blocker, "tools."+t.Name+".annotations", "named like a read but sent as %s; say in readOnlyTools whether it only reads", t.Operation.Method)
+		}
+		return nil
+	}
+	return &adapter.Annotations{ReadOnlyHint: &reads}
 }
 
 // mergeVars builds GraphQL variables from queryParams and bodyMapping.

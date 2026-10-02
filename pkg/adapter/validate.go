@@ -402,6 +402,29 @@ func (v *validator) validateToolName(loc string, t *Tool) {
 	}
 }
 
+// validateReadHint asks for a hint on an HTTP tool that is named like a
+// read but sent with a writing method. Without one it is announced to MCP
+// clients as destructive, which is wrong for the many APIs that search
+// over POST, and the name alone is not taken as proof that it only reads.
+func (v *validator) validateReadHint(loc string, t *Tool) {
+	switch v.a.Transport.Type {
+	case TransportGraphQL, TransportDatabase, TransportMCP:
+		return
+	}
+	switch strings.ToUpper(t.Operation.Method) {
+	case "POST", "PUT", "PATCH":
+	default:
+		return
+	}
+	if t.Operation.Kind == "static" || !ReadShapedName(t.Name, v.a.Metadata.Slug) {
+		return
+	}
+	if t.Annotations != nil && (t.Annotations.ReadOnlyHint != nil || t.Annotations.DestructiveHint != nil) {
+		return
+	}
+	v.warnAt("annotations", "read-name-unhinted", "%s: named like a read but sent as %s, so clients are told it is destructive; set annotations.readOnlyHint to say whether it only reads", loc, strings.ToUpper(t.Operation.Method))
+}
+
 // ReservedToolPrefix begins the names of the tools supermcp adds to every
 // server. No adapter tool may use it.
 const ReservedToolPrefix = "supermcp_"
@@ -412,6 +435,7 @@ func (v *validator) validateToolBody(loc string, t *Tool, envUsed map[string]boo
 	}
 	params := v.validateInputSchema(loc, t.Input)
 	v.validateOperation(loc, t, params, envUsed)
+	v.validateReadHint(loc, t)
 	if t.Response != nil && t.Response.Transform != nil {
 		if _, err := jmespath.Compile(t.Response.Transform.JMESPath); err != nil {
 			v.errorAt("response.transform.jmespath", "jmespath-parses", "%s: response.transform.jmespath: %v", loc, err)

@@ -60,6 +60,8 @@ tools:
         offset:
           type: number
           description: Rows to skip, for paging.
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /postings/get
@@ -87,6 +89,8 @@ tools:
         offset:
           type: number
           description: Rows to skip, for paging.
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /receipts/get
@@ -114,6 +118,8 @@ tools:
         offset:
           type: number
           description: Rows to skip, for paging.
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /transactions/get
@@ -135,6 +141,8 @@ tools:
         offset:
           type: number
           description: Rows to skip, for paging.
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /customers/get
@@ -154,6 +162,8 @@ tools:
         offset:
           type: number
           description: Rows to skip, for paging.
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /suppliers/get
@@ -173,6 +183,8 @@ tools:
         offset:
           type: number
           description: Rows to skip, for paging.
+    annotations:
+      readOnlyHint: true
     operation:
       method: POST
       path: /accounts/get
